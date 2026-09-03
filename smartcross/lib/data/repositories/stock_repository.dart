@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
-import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../../core/api_client.dart';
@@ -81,7 +80,7 @@ class StockRepository {
           pw.Header(level: 0, text: 'Smartphone.Mg — Liste de réapprovisionnement'),
           pw.Text('Généré le ${DateTime.now().toString().split('.').first}'),
           pw.SizedBox(height: 12),
-          pw.Table.fromTextArray(
+          pw.TableHelper.fromTextArray(
             headers: ['Statut', 'Marque', 'Référence', 'Couleur', 'Sous-type', 'Stock', 'Seuil', 'À commander'],
             data: [
               for (final it in items)
