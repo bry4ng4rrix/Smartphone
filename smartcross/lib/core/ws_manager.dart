@@ -71,6 +71,11 @@ abstract class WsManager {
     _reconnectTimer = Timer(const Duration(seconds: 3), _doConnect);
   }
 
+  /// Envoie une trame texte brute sur la connexion active (no-op si fermée).
+  void send(String data) {
+    _channel?.sink.add(data);
+  }
+
   void disconnect() {
     _closedByUser = true;
     _buildUri = null;

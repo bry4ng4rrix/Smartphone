@@ -48,3 +48,28 @@ class AppUser {
     );
   }
 }
+
+/// Compte auto-inscrit en attente d'approbation par le gérant
+/// (`GET /api/users/pending/`) — flux distinct de la création directe par
+/// le gérant (§4 Smartreadme.md), pour un employé qui s'inscrit lui-même.
+class PendingUser {
+  PendingUser({required this.id, required this.fullName, required this.email, required this.role, this.position, this.createdAt});
+
+  final int id;
+  final String fullName;
+  final String email;
+  final String role;
+  final String? position;
+  final DateTime? createdAt;
+
+  factory PendingUser.fromJson(Map<String, dynamic> json) {
+    return PendingUser(
+      id: asInt(json['id']),
+      fullName: asString(json['full_name']),
+      email: asString(json['email']),
+      role: asString(json['role']),
+      position: asStringOrNull(json['position']),
+      createdAt: asDateOrNull(json['created_at']),
+    );
+  }
+}

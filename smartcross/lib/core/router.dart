@@ -7,9 +7,12 @@ import '../features/auth/server_setup_screen.dart';
 import '../features/auth/splash_screen.dart';
 import '../features/caisse/caisse_screen.dart';
 import '../features/catalog/catalog_screen.dart';
+import '../features/chats/chat_conversation_screen.dart';
+import '../features/chats/chat_list_screen.dart';
 import '../features/dashboard/dashboard_screen.dart';
 import '../features/depot/depot_screen.dart';
 import '../features/notifications/notifications_screen.dart';
+import '../features/settings/settings_screen.dart';
 import '../features/orders/order_create_screen.dart';
 import '../features/orders/order_detail_screen.dart';
 import '../features/orders/orders_list_screen.dart';
@@ -104,7 +107,22 @@ final routerProvider = Provider<GoRouter>((ref) {
             ],
           ),
           GoRoute(path: '/users', builder: (context, state) => const UsersScreen()),
+          GoRoute(
+            path: '/chats',
+            builder: (context, state) => const ChatListScreen(),
+            routes: [
+              GoRoute(path: 'room/:room', builder: (context, state) => const ChatConversationScreen()),
+              GoRoute(
+                path: 'dm/:id',
+                builder: (context, state) => ChatConversationScreen(
+                  recipientId: int.parse(state.pathParameters['id']!),
+                  title: state.extra as String? ?? 'Discussion',
+                ),
+              ),
+            ],
+          ),
           GoRoute(path: '/notifications', builder: (context, state) => const NotificationsScreen()),
+          GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
         ],
       ),
     ],

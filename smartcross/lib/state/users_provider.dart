@@ -50,3 +50,27 @@ class AccountsNotifier extends AsyncNotifier<List<AppUser>> {
 }
 
 final accountsProvider = AsyncNotifierProvider<AccountsNotifier, List<AppUser>>(AccountsNotifier.new);
+
+class PendingUsersNotifier extends AsyncNotifier<List<PendingUser>> {
+  late final _repo = ref.read(usersRepositoryProvider);
+
+  @override
+  Future<List<PendingUser>> build() => _repo.pending();
+
+  Future<void> refresh() async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(_repo.pending);
+  }
+
+  Future<void> approve(int userId) async {
+    await _repo.approve(userId);
+    await refresh();
+  }
+
+  Future<void> reject(int userId) async {
+    await _repo.reject(userId);
+    await refresh();
+  }
+}
+
+final pendingUsersProvider = AsyncNotifierProvider<PendingUsersNotifier, List<PendingUser>>(PendingUsersNotifier.new);

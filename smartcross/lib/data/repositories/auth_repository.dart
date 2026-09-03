@@ -36,4 +36,16 @@ class AuthRepository {
     final response = await _dio.get('users/me/');
     return AppUser.fromJson(response.data as Map<String, dynamic>);
   }
+
+  Future<AppUser> updateProfile({String? fullName, String? phone}) async {
+    final response = await _dio.patch('users/me/', data: {
+      if (fullName != null) 'full_name': fullName,
+      if (phone != null) 'phone': phone,
+    });
+    return AppUser.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<void> changePassword({required String oldPassword, required String newPassword}) async {
+    await _dio.post('users/change-password/', data: {'old_password': oldPassword, 'new_password': newPassword});
+  }
 }

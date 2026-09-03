@@ -7,38 +7,111 @@ import '../../models/user.dart';
 import '../../state/users_provider.dart';
 import '../../widgets/async_state_widgets.dart';
 
-/// Gestion des comptes préparateur/livreur (§4 Smartreadme.md, réservée au gérant).
+/// Gestion des comptes préparateur/livreur (§4 Smartreadme.md, réservée au
+/// gérant) + approbation des comptes auto-inscrits en attente.
 class UsersScreen extends ConsumerWidget {
   const UsersScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final pendingCount = ref.watch(pendingUsersProvider).value?.length ?? 0;
+
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Utilisateurs'),
+          bottom: TabBar(tabs: [
+            const Tab(text: 'Équipe'),
+            Tab(text: pendingCount > 0 ? 'En attente ($pendingCount)' : 'En attente'),
+          ]),
+        ),
+        body: const TabBarView(children: [_TeamTab(), _PendingTab()]),
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: () => showDialog<void>(context: context, builder: (_) => const _CreateUserDialog()),
+          icon: const Icon(Icons.person_add_outlined),
+          label: const Text('Ajouter'),
+        ),
+      ),
+    );
+  }
+}
+
+class _TeamTab extends ConsumerWidget {
+  const _TeamTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(accountsProvider);
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Utilisateurs')),
-      body: RefreshIndicator(
-        onRefresh: () => ref.read(accountsProvider.notifier).refresh(),
-        child: switch (async) {
-          AsyncData(:final value) => value.isEmpty
-              ? const EmptyState(message: 'Aucun compte préparateur/livreur.', icon: Icons.people_outline)
-              : ListView.builder(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: value.length,
-                  itemBuilder: (context, i) => _UserTile(user: value[i]),
-                ),
-          AsyncError(:final error) => ErrorState(
-              message: ApiClient.messageFromError(error),
-              onRetry: () => ref.read(accountsProvider.notifier).refresh(),
-            ),
-          _ => const LoadingState(),
-        },
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => showDialog<void>(context: context, builder: (_) => const _CreateUserDialog()),
-        icon: const Icon(Icons.person_add_outlined),
-        label: const Text('Ajouter'),
-      ),
+    return RefreshIndicator(
+      onRefresh: () => ref.read(accountsProvider.notifier).refresh(),
+      child: switch (async) {
+        AsyncData(:final value) => value.isEmpty
+            ? const EmptyState(message: 'Aucun compte préparateur/livreur.', icon: Icons.people_outline)
+            : ListView.builder(
+                padding: const EdgeInsets.all(12),
+                itemCount: value.length,
+                itemBuilder: (context, i) => _UserTile(user: value[i]),
+              ),
+        AsyncError(:final error) => ErrorState(
+            message: ApiClient.messageFromError(error),
+            onRetry: () => ref.read(accountsProvider.notifier).refresh(),
+          ),
+        _ => const LoadingState(),
+      },
+    );
+  }
+}
+
+class _PendingTab extends ConsumerWidget {
+  const _PendingTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(pendingUsersProvider);
+
+    return RefreshIndicator(
+      onRefresh: () => ref.read(pendingUsersProvider.notifier).refresh(),
+      child: switch (async) {
+        AsyncData(:final value) => value.isEmpty
+            ? const EmptyState(message: 'Aucune demande en attente.', icon: Icons.hourglass_empty)
+            : ListView.builder(
+                padding: const EdgeInsets.all(12),
+                itemCount: value.length,
+                itemBuilder: (context, i) {
+                  final u = value[i];
+                  return Card(
+                    margin: const EdgeInsets.symmetric(vertical: 4),
+                    child: ListTile(
+                      leading: const CircleAvatar(child: Icon(Icons.person_outline)),
+                      title: Text(u.fullName),
+                      subtitle: Text('${u.email}${u.position != null ? ' · ${u.position}' : ''}'),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.check_circle_outline, color: Colors.green),
+                            tooltip: 'Approuver',
+                            onPressed: () => ref.read(pendingUsersProvider.notifier).approve(u.id),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.cancel_outlined, color: Colors.red),
+                            tooltip: 'Rejeter',
+                            onPressed: () => ref.read(pendingUsersProvider.notifier).reject(u.id),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+        AsyncError(:final error) => ErrorState(
+            message: ApiClient.messageFromError(error),
+            onRetry: () => ref.read(pendingUsersProvider.notifier).refresh(),
+          ),
+        _ => const LoadingState(),
+      },
     );
   }
 }

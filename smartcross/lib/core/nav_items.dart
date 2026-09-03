@@ -29,5 +29,7 @@ const List<NavItem> kPrimaryNavItems = [
   NavItem(path: '/stock', label: 'Stock', icon: Icons.inventory_2_outlined, roles: {UserRole.gerant}),
   NavItem(path: '/suppliers', label: 'Fournisseurs', icon: Icons.local_shipping_outlined, roles: {UserRole.gerant}),
   NavItem(path: '/users', label: 'Utilisateurs', icon: Icons.people_outline, roles: {UserRole.gerant}),
+  NavItem(path: '/chats', label: 'Discussions', icon: Icons.chat_bubble_outline),
   NavItem(path: '/notifications', label: 'Notifications', icon: Icons.notifications_outlined),
+  NavItem(path: '/settings', label: 'Paramètres', icon: Icons.settings_outlined),
 ];

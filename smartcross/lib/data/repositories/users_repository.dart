@@ -53,4 +53,19 @@ class UsersRepository {
   Future<void> delete(int userId, String password) async {
     await _dio.delete('users/delete/$userId/', data: {'password': password});
   }
+
+  /// Comptes auto-inscrits en attente d'approbation (employé qui s'inscrit
+  /// lui-même avec l'email du gérant — distinct de [create] ci-dessus).
+  Future<List<PendingUser>> pending() async {
+    final response = await _dio.get('users/pending/');
+    return (response.data as List).map((e) => PendingUser.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<void> approve(int userId) async {
+    await _dio.put('users/approve/$userId/');
+  }
+
+  Future<void> reject(int userId) async {
+    await _dio.post('users/reject/$userId/');
+  }
 }
