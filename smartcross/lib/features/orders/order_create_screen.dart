@@ -42,6 +42,7 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
   final _adresseController = TextEditingController();
   final _noteController = TextEditingController();
   DeliveryZone _zone = DeliveryZone.zone1;
+  DateTime _dateCommande = DateTime.now();
   final List<_CartLine> _lines = [];
   bool _submitting = false;
   String? _error;
@@ -70,6 +71,19 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
 
   double get _totalEstime => _lines.fold<double>(0, (sum, l) => sum + l.sousTotal) + _frais;
 
+  Future<void> _pickDateCommande() async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: _dateCommande,
+      firstDate: DateTime.now().subtract(const Duration(days: 365)),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (date == null || !mounted) return;
+    final time = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(_dateCommande));
+    if (time == null) return;
+    setState(() => _dateCommande = DateTime(date.year, date.month, date.day, time.hour, time.minute));
+  }
+
   Future<void> _addLine() async {
     final result = await showDialog<_CartLine>(context: context, builder: (_) => const _AddLineDialog());
     if (result != null) setState(() => _lines.add(result));
@@ -93,6 +107,7 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
             items: [for (final l in _lines) OrderItemDraft(productVariant: l.variantId, quantite: l.quantite)],
             note: _noteController.text.trim(),
             adresseLivraison: _adresseController.text.trim(),
+            dateCommande: _dateCommande,
           );
       if (mounted) context.go('/orders/${order.id}');
     } catch (e) {
@@ -133,6 +148,14 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
               decoration: const InputDecoration(labelText: 'Téléphone', hintText: '+261XXXXXXXXX', prefixIcon: Icon(Icons.phone_outlined)),
               keyboardType: TextInputType.phone,
               validator: (v) => (v == null || !RegExp(r'^\+261\d{9}$').hasMatch(v.trim())) ? 'Format : +261XXXXXXXXX' : null,
+            ),
+            const SizedBox(height: 14),
+            InkWell(
+              onTap: _pickDateCommande,
+              child: InputDecorator(
+                decoration: const InputDecoration(labelText: 'Date et heure de la commande', prefixIcon: Icon(Icons.event_outlined)),
+                child: Text(DateFormat('dd/MM/yyyy HH:mm').format(_dateCommande)),
+              ),
             ),
             const SizedBox(height: 14),
             DropdownButtonFormField<DeliveryZone>(

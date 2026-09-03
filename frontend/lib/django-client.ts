@@ -499,6 +499,12 @@ class DjangoAPIClient {
       create: async (data: { nom: string; ordre?: number; magasin_id?: number }) => {
         return this.post<any>('/catalog/categories/', data)
       },
+      update: async (id: number, data: { nom?: string; ordre?: number }) => {
+        return this.patch<any>(`/catalog/categories/${id}/`, data)
+      },
+      delete: async (id: number) => {
+        return this.delete(`/catalog/categories/${id}/`)
+      },
     },
     types: {
       list: async (categoryId?: number) => {
@@ -507,6 +513,12 @@ class DjangoAPIClient {
       },
       create: async (data: { category: number; nom: string }) => {
         return this.post<any>('/catalog/types/', data)
+      },
+      update: async (id: number, data: { nom?: string; category?: number }) => {
+        return this.patch<any>(`/catalog/types/${id}/`, data)
+      },
+      delete: async (id: number) => {
+        return this.delete(`/catalog/types/${id}/`)
       },
     },
     brands: {

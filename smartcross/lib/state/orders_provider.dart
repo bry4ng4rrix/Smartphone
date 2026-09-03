@@ -58,6 +58,7 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
     required List<OrderItemDraft> items,
     String note = '',
     String adresseLivraison = '',
+    DateTime? dateCommande,
   }) async {
     final order = await _repo.create(
       clientNom: clientNom,
@@ -66,6 +67,7 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
       items: items,
       note: note,
       adresseLivraison: adresseLivraison,
+      dateCommande: dateCommande,
     );
     await refresh();
     return order;

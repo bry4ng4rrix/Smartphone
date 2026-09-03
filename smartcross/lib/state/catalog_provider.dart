@@ -21,6 +21,11 @@ class CategoriesNotifier extends AsyncNotifier<List<ProductCategory>> {
     await refresh();
   }
 
+  Future<void> rename(int id, String nom) async {
+    await _repo.updateCategory(id, nom);
+    await refresh();
+  }
+
   Future<void> delete(int id) async {
     await _repo.deleteCategory(id);
     await refresh();
@@ -45,6 +50,11 @@ class TypesNotifier extends AsyncNotifier<List<ProductType>> {
     await refresh();
   }
 
+  Future<void> rename(int id, String nom) async {
+    await _repo.updateType(id, nom);
+    await refresh();
+  }
+
   Future<void> delete(int id) async {
     await _repo.deleteType(id);
     await refresh();
@@ -66,6 +76,11 @@ class BrandsNotifier extends AsyncNotifier<List<Brand>> {
 
   Future<void> create(String nom) async {
     await _repo.createBrand(nom);
+    await refresh();
+  }
+
+  Future<void> rename(int id, String nom) async {
+    await _repo.updateBrand(id, nom);
     await refresh();
   }
 

@@ -28,6 +28,8 @@ const List<NavItem> kPrimaryNavItems = [
   NavItem(path: '/catalog', label: 'Catalogue', icon: Icons.style_outlined, roles: {UserRole.gerant}),
   NavItem(path: '/stock', label: 'Stock', icon: Icons.inventory_2_outlined, roles: {UserRole.gerant}),
   NavItem(path: '/suppliers', label: 'Fournisseurs', icon: Icons.local_shipping_outlined, roles: {UserRole.gerant}),
+  NavItem(path: '/stores', label: 'Magasins', icon: Icons.storefront_outlined, roles: {UserRole.gerant}),
+  NavItem(path: '/transfers', label: 'Transferts', icon: Icons.compare_arrows_outlined, roles: {UserRole.gerant}),
   NavItem(path: '/users', label: 'Utilisateurs', icon: Icons.people_outline, roles: {UserRole.gerant}),
   NavItem(path: '/chats', label: 'Discussions', icon: Icons.chat_bubble_outline),
   NavItem(path: '/notifications', label: 'Notifications', icon: Icons.notifications_outlined),

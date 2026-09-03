@@ -18,6 +18,11 @@ class CatalogRepository {
     return ProductCategory.fromJson(response.data as Map<String, dynamic>);
   }
 
+  Future<ProductCategory> updateCategory(int id, String nom) async {
+    final response = await _dio.patch('catalog/categories/$id/', data: {'nom': nom});
+    return ProductCategory.fromJson(response.data as Map<String, dynamic>);
+  }
+
   Future<void> deleteCategory(int id) async {
     await _dio.delete('catalog/categories/$id/');
   }
@@ -31,6 +36,11 @@ class CatalogRepository {
 
   Future<ProductType> createType(int categoryId, String nom) async {
     final response = await _dio.post('catalog/types/', data: {'category': categoryId, 'nom': nom});
+    return ProductType.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<ProductType> updateType(int id, String nom) async {
+    final response = await _dio.patch('catalog/types/$id/', data: {'nom': nom});
     return ProductType.fromJson(response.data as Map<String, dynamic>);
   }
 
@@ -48,14 +58,20 @@ class CatalogRepository {
     return Brand.fromJson(response.data as Map<String, dynamic>);
   }
 
+  Future<Brand> updateBrand(int id, String nom) async {
+    final response = await _dio.patch('catalog/brands/$id/', data: {'nom': nom});
+    return Brand.fromJson(response.data as Map<String, dynamic>);
+  }
+
   Future<void> deleteBrand(int id) async {
     await _dio.delete('catalog/brands/$id/');
   }
 
-  Future<List<ProductReference>> references({int? typeId, int? brandId}) async {
+  Future<List<ProductReference>> references({int? typeId, int? brandId, int? categoryId}) async {
     final response = await _dio.get('catalog/references/', queryParameters: {
       if (typeId != null) 'type': typeId,
       if (brandId != null) 'brand': brandId,
+      if (categoryId != null) 'category': categoryId,
     });
     return (response.data as List).map((e) => ProductReference.fromJson(e as Map<String, dynamic>)).toList();
   }
@@ -90,10 +106,12 @@ class CatalogRepository {
   }
 
   /// Recherche autocomplete pour le formulaire Nouvelle commande (§6 README).
-  Future<List<ReferenceOption>> autocomplete(String query, {int? typeId}) async {
+  Future<List<ReferenceOption>> autocomplete(String query, {int? typeId, int? brandId, int? categoryId}) async {
     final response = await _dio.get('catalog/references/autocomplete/', queryParameters: {
       if (query.isNotEmpty) 'q': query,
       if (typeId != null) 'type': typeId,
+      if (brandId != null) 'brand': brandId,
+      if (categoryId != null) 'category': categoryId,
     });
     return (response.data as List).map((e) => ReferenceOption.fromJson(e as Map<String, dynamic>)).toList();
   }

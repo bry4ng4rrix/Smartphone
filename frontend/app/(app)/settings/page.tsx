@@ -18,7 +18,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { User, Lock, Building2, Loader2, Tag, Plus, Check } from 'lucide-react';
+import { User, Lock, Building2, Loader2, Tag, Plus, Check, Pencil, Trash2, FolderPlus } from 'lucide-react';
 
 const roleLabel: Record<string, string> = {
   admin: 'Administrateur',
@@ -37,11 +37,17 @@ export default function SettingsPage() {
   const { user, isGerant, loading: userLoading } = useCurrentUser();
   const [brands, setBrands] = useState<any[]>([]);
   const [addingBrand, setAddingBrand] = useState<string | null>(null);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [types, setTypes] = useState<any[]>([]);
 
-  useEffect(() => {
+  const loadCatalogue = () => {
     if (!isGerant) return;
     djangoClient.catalog.brands.list().then(setBrands).catch(() => {});
-  }, [isGerant]);
+    djangoClient.catalog.categories.list().then(setCategories).catch(() => {});
+    djangoClient.catalog.types.list().then(setTypes).catch(() => {});
+  };
+
+  useEffect(loadCatalogue, [isGerant]);
 
   const addSuggestedBrand = async (nom: string) => {
     setAddingBrand(nom);
@@ -313,17 +319,16 @@ export default function SettingsPage() {
 
         {/* Catalogue tab — gérant uniquement (§8.1 du cahier des charges) */}
         {isGerant && (
-          <TabsContent value="catalogue">
+          <TabsContent value="catalogue" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Marques suggérées</CardTitle>
+                <CardTitle>Marques</CardTitle>
                 <CardDescription>
-                  Marques de téléphones courantes — ajoutez-les en un clic pour les retrouver
-                  facilement lors de la création d'une référence produit.
+                  Ajoutez une marque courante en un clic, ou gérez la liste complète (renommer, supprimer).
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 mb-4">
                   {SUGGESTED_BRANDS.map((nom) => {
                     const already = brands.some((b) => b.nom.toLowerCase() === nom.toLowerCase());
                     return (
@@ -341,9 +346,21 @@ export default function SettingsPage() {
                     );
                   })}
                 </div>
-                <p className="text-xs text-muted-foreground mt-4">
-                  Gestion complète des marques (renommer, supprimer) : page Produits → bouton « Marques ».
-                </p>
+                <BrandsCrudList brands={brands} onChanged={loadCatalogue} />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Sous-types (catégories produit)</CardTitle>
+                <CardDescription>
+                  Le niveau entre la catégorie (ex. Housse, Cache écran) et la marque — ex. Flip cover,
+                  Privacy, Chargeur, Écouteur. Analysé depuis le catalogue actuel : renommez, supprimez
+                  ou ajoutez-en de nouveaux.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <CategoriesTypesCrud categories={categories} types={types} onChanged={loadCatalogue} />
               </CardContent>
             </Card>
           </TabsContent>
@@ -409,6 +426,219 @@ export default function SettingsPage() {
           </form>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function BrandsCrudList({ brands, onChanged }: { brands: any[]; onChanged: () => void }) {
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingName, setEditingName] = useState('');
+  const [newName, setNewName] = useState('');
+
+  const startEdit = (b: any) => { setEditingId(b.id); setEditingName(b.nom); };
+
+  const saveEdit = async () => {
+    if (!editingId || !editingName.trim()) return;
+    try {
+      await djangoClient.catalog.brands.update(editingId, { nom: editingName.trim() });
+      toast.success('Marque renommée');
+      setEditingId(null);
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur');
+    }
+  };
+
+  const removeBrand = async (b: any) => {
+    try {
+      await djangoClient.catalog.brands.delete(b.id);
+      toast.success('Marque supprimée');
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Suppression impossible (marque utilisée par des références)');
+    }
+  };
+
+  const addBrand = async () => {
+    if (!newName.trim()) return;
+    try {
+      await djangoClient.catalog.brands.create({ nom: newName.trim() });
+      toast.success('Marque ajoutée');
+      setNewName('');
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur');
+    }
+  };
+
+  return (
+    <div className="border-t pt-4">
+      <p className="text-sm font-medium mb-2">Toutes les marques ({brands.length})</p>
+      <div className="space-y-2 max-h-72 overflow-y-auto">
+        {brands.map((b) => (
+          <div key={b.id} className="flex items-center gap-2 border rounded-md px-3 py-2">
+            {editingId === b.id ? (
+              <>
+                <Input value={editingName} onChange={(e) => setEditingName(e.target.value)} className="h-8 flex-1" autoFocus />
+                <Button size="sm" onClick={saveEdit}>OK</Button>
+                <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Annuler</Button>
+              </>
+            ) : (
+              <>
+                <span className="flex-1 text-sm">{b.nom}</span>
+                <Button size="icon" variant="ghost" onClick={() => startEdit(b)}><Pencil className="h-4 w-4" /></Button>
+                <Button size="icon" variant="ghost" onClick={() => removeBrand(b)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+              </>
+            )}
+          </div>
+        ))}
+        {brands.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Aucune marque.</p>}
+      </div>
+      <div className="flex gap-2 mt-3">
+        <Input placeholder="Nouvelle marque" value={newName} onChange={(e) => setNewName(e.target.value)} />
+        <Button onClick={addBrand}><Plus className="h-4 w-4 mr-2" /> Ajouter</Button>
+      </div>
+    </div>
+  );
+}
+
+function CategoriesTypesCrud({
+  categories, types, onChanged,
+}: { categories: any[]; types: any[]; onChanged: () => void }) {
+  const [editingCatId, setEditingCatId] = useState<number | null>(null);
+  const [editingCatName, setEditingCatName] = useState('');
+  const [newCatName, setNewCatName] = useState('');
+
+  const [editingTypeId, setEditingTypeId] = useState<number | null>(null);
+  const [editingTypeName, setEditingTypeName] = useState('');
+  const [newTypeNameByCategory, setNewTypeNameByCategory] = useState<Record<number, string>>({});
+
+  const startEditCat = (c: any) => { setEditingCatId(c.id); setEditingCatName(c.nom); };
+  const saveEditCat = async () => {
+    if (!editingCatId || !editingCatName.trim()) return;
+    try {
+      await djangoClient.catalog.categories.update(editingCatId, { nom: editingCatName.trim() });
+      toast.success('Catégorie renommée');
+      setEditingCatId(null);
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur');
+    }
+  };
+  const removeCategory = async (c: any) => {
+    try {
+      await djangoClient.catalog.categories.delete(c.id);
+      toast.success('Catégorie supprimée');
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Suppression impossible (des sous-types en dépendent encore)');
+    }
+  };
+  const addCategory = async () => {
+    if (!newCatName.trim()) return;
+    try {
+      await djangoClient.catalog.categories.create({ nom: newCatName.trim(), ordre: categories.length });
+      toast.success('Catégorie ajoutée');
+      setNewCatName('');
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur');
+    }
+  };
+
+  const startEditType = (t: any) => { setEditingTypeId(t.id); setEditingTypeName(t.nom); };
+  const saveEditType = async () => {
+    if (!editingTypeId || !editingTypeName.trim()) return;
+    try {
+      await djangoClient.catalog.types.update(editingTypeId, { nom: editingTypeName.trim() });
+      toast.success('Sous-type renommé');
+      setEditingTypeId(null);
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur');
+    }
+  };
+  const removeType = async (t: any) => {
+    try {
+      await djangoClient.catalog.types.delete(t.id);
+      toast.success('Sous-type supprimé');
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Suppression impossible (des références en dépendent encore)');
+    }
+  };
+  const addType = async (categoryId: number) => {
+    const nom = (newTypeNameByCategory[categoryId] || '').trim();
+    if (!nom) return;
+    try {
+      await djangoClient.catalog.types.create({ category: categoryId, nom });
+      toast.success('Sous-type ajouté');
+      setNewTypeNameByCategory((prev) => ({ ...prev, [categoryId]: '' }));
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur');
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {categories.map((c) => {
+        const typesForCat = types.filter((t) => t.category === c.id);
+        return (
+          <div key={c.id} className="border rounded-md p-3">
+            <div className="flex items-center gap-2 mb-2">
+              {editingCatId === c.id ? (
+                <>
+                  <Input value={editingCatName} onChange={(e) => setEditingCatName(e.target.value)} className="h-8 flex-1 font-medium" autoFocus />
+                  <Button size="sm" onClick={saveEditCat}>OK</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setEditingCatId(null)}>Annuler</Button>
+                </>
+              ) : (
+                <>
+                  <Tag className="h-4 w-4 text-muted-foreground" />
+                  <span className="flex-1 text-sm font-semibold">{c.nom}</span>
+                  <Button size="icon" variant="ghost" onClick={() => startEditCat(c)}><Pencil className="h-4 w-4" /></Button>
+                  <Button size="icon" variant="ghost" onClick={() => removeCategory(c)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+                </>
+              )}
+            </div>
+            <div className="space-y-1.5 pl-6">
+              {typesForCat.map((t) => (
+                <div key={t.id} className="flex items-center gap-2">
+                  {editingTypeId === t.id ? (
+                    <>
+                      <Input value={editingTypeName} onChange={(e) => setEditingTypeName(e.target.value)} className="h-8 flex-1" autoFocus />
+                      <Button size="sm" onClick={saveEditType}>OK</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setEditingTypeId(null)}>Annuler</Button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="flex-1 text-sm text-muted-foreground">{t.nom}</span>
+                      <Button size="icon" variant="ghost" onClick={() => startEditType(t)}><Pencil className="h-3.5 w-3.5" /></Button>
+                      <Button size="icon" variant="ghost" onClick={() => removeType(t)}><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>
+                    </>
+                  )}
+                </div>
+              ))}
+              {typesForCat.length === 0 && <p className="text-xs text-muted-foreground">Aucun sous-type.</p>}
+              <div className="flex gap-2 pt-1">
+                <Input
+                  placeholder="Nouveau sous-type (ex. Chargeur, Écouteur)"
+                  value={newTypeNameByCategory[c.id] || ''}
+                  onChange={(e) => setNewTypeNameByCategory((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                  className="h-8"
+                />
+                <Button size="sm" onClick={() => addType(c.id)}><Plus className="h-3.5 w-3.5 mr-1" /> Ajouter</Button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      {categories.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Aucune catégorie.</p>}
+      <div className="flex gap-2 border-t pt-4">
+        <Input placeholder="Nouvelle catégorie (ex. Accessoires)" value={newCatName} onChange={(e) => setNewCatName(e.target.value)} />
+        <Button onClick={addCategory}><FolderPlus className="h-4 w-4 mr-2" /> Ajouter</Button>
+      </div>
     </div>
   );
 }
