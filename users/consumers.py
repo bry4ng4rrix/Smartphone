@@ -115,13 +115,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
             )
             return
 
-        # Default action: send a new message, optionally attaching a product.
+        # Default action: send a new message.
         content = data.get("content") or ""
-        product_id = data.get("product_id")
-        if not content and not product_id:
+        if not content:
             return
 
-        saved_msg = await self.save_message(self.user, self.recipient, self.room_name, content, product_id)
+        saved_msg = await self.save_message(self.user, self.recipient, self.room_name, content)
 
         await self.channel_layer.group_send(
             self.room_group_name,
@@ -166,33 +165,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
         from users.views import get_company_id
         return get_company_id(user)
 
-    @staticmethod
-    def _product_snapshot(product):
-        if not product:
-            return None
-        return {
-            "id": product.id,
-            "name": product.name,
-            "reference": product.reference,
-            "category": product.category,
-            "unit_price": str(product.unit_price),
-        }
-
     @database_sync_to_async
-    def save_message(self, sender, recipient, room_name, content, product_id=None):
-        from users.models import ChatMessage, Product
-        product = None
-        if product_id:
-            product = Product.objects.filter(id=product_id, magasin_id__in=self.my_magasin_ids).first()
-        if not content:
-            content = f"Produit : {product.name}" if product else ""
-
+    def save_message(self, sender, recipient, room_name, content):
+        from users.models import ChatMessage
         msg = ChatMessage.objects.create(
             sender=sender,
             recipient=recipient,
             room_name=room_name,
             content=content,
-            product=product,
         )
         return {
             "id": msg.id,
@@ -207,7 +187,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
             "content": content,
             "is_edited": False,
             "is_deleted": False,
-            "product": self._product_snapshot(product),
             "timestamp": msg.timestamp.isoformat()
         }
 

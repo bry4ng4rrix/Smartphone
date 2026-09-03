@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../features/auth/login_screen.dart';
 import '../features/auth/server_setup_screen.dart';
 import '../features/auth/splash_screen.dart';
+import '../features/caisse/caisse_screen.dart';
 import '../features/catalog/catalog_screen.dart';
 import '../features/dashboard/dashboard_screen.dart';
 import '../features/depot/depot_screen.dart';
@@ -75,6 +76,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state, child) => NavigationShell(currentPath: state.matchedLocation, child: child),
         routes: [
           GoRoute(path: '/dashboard', builder: (context, state) => const DashboardScreen()),
+          GoRoute(path: '/caisse', builder: (context, state) => const CaisseScreen()),
           GoRoute(
             path: '/orders',
             builder: (context, state) => const OrdersListScreen(),

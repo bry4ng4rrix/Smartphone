@@ -11,6 +11,8 @@ class AppUser {
     required this.isActive,
     this.phone,
     this.createdAt,
+    this.magasinId,
+    this.shopName,
   });
 
   final int id;
@@ -20,6 +22,11 @@ class AppUser {
   final bool isActive;
   final String? phone;
   final DateTime? createdAt;
+  /// Magasin de l'utilisateur — présent pour magasin/employer, et pour un
+  /// admin qui ne possède qu'un seul magasin (cas Smartphone.Mg, §11
+  /// Smartreadme.md — commodité ajoutée côté serveur pour les clients mobiles).
+  final int? magasinId;
+  final String? shopName;
 
   factory AppUser.fromJson(Map<String, dynamic> json) {
     return AppUser(
@@ -36,6 +43,8 @@ class AppUser {
       isActive: asBool(json['is_confirmed'], true),
       phone: asStringOrNull(json['phone']),
       createdAt: asDateOrNull(json['created_at']),
+      magasinId: asIntOrNull(json['magasin_id']),
+      shopName: asStringOrNull(json['shop_name']),
     );
   }
 }

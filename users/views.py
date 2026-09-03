@@ -1173,6 +1173,15 @@ class Myprofile(APIView):
                 if owner_profile:
                     data["company_name"] = owner_profile.company_name
                     data["logo"] = request.build_absolute_uri(owner_profile.logo.url) if owner_profile.logo else None
+            # Commodité pour les clients mobiles (une seule société = un seul
+            # magasin la plupart du temps, comme Smartphone.Mg) : évite
+            # d'imposer un choix de magasin pour les actions qui en ont besoin
+            # (caisse...) quand il n'y en a qu'un seul de toute façon.
+            own_magasins = MagasinProfile.objects.filter(Q(admin=user) | Q(admins=user)).distinct()
+            if own_magasins.count() == 1:
+                only = own_magasins.first()
+                data["magasin_id"] = only.id
+                data["shop_name"] = only.shop_name
         elif user.role == "magasin":
             try:
                 p = user.magasin_profile
