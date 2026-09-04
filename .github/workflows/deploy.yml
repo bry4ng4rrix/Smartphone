@@ -30,10 +30,12 @@ jobs:
           node-version: "20"
 
       - name: Build frontend
-        # Mirrors exactly what docker-compose.yml runs in the frontend
-        # container (`npm install && npm run build`) so a failure here means
-        # the actual deploy would also fail — catch it before touching the
-        # server instead of finding out from a crash-looping container.
+        # Mirrors what frontend/Dockerfile runs (`npm install && npm run
+        # build`) so a failure here means the actual deploy would also fail —
+        # catch it before touching the server instead of finding out from a
+        # crash-looping container. NEXT_PUBLIC_DJANGO_API_URL isn't set here
+        # (no secrets in this advisory build), so it only validates the build
+        # itself, not the real production API URL.
         working-directory: frontend
         run: |
           npm install
@@ -68,27 +70,37 @@ jobs:
             set -e
             cd /home/smart/Smartphone
 
-
-
             echo "Updating repository (code only, from origin/main)..."
             git fetch origin main
             git reset --hard origin/main
 
+            # .env n'est jamais commité (secrets) — doit déjà exister sur le
+            # serveur, copié à la main une fois (voir roadmap.md § Sécurité).
+            if [ ! -f .env ]; then
+              echo "ERREUR : .env introuvable dans /home/smart/Smartphone — copiez-le manuellement avant de redéployer (voir roadmap.md)." >&2
+              exit 1
+            fi
+
+            # Ce projet cohabite avec d'autres sur ce Docker (ports non-standards
+            # 8010/3010, Postgres/Redis jamais exposés à l'hôte — voir
+            # docker-compose.prod.yml) : toujours cibler ce fichier explicitement,
+            # jamais le docker-compose.yml par défaut (SQLite, ports 8000/3000).
+            COMPOSE="docker compose -f docker-compose.prod.yml"
 
             echo "Building images..."
-            docker compose build
+            $COMPOSE build
 
             echo "Stopping old containers..."
-            docker compose down
+            $COMPOSE down
 
             echo "Starting containers..."
-            docker compose up -d
+            $COMPOSE up -d
 
             echo "Running migrations..."
-            docker compose exec -T backend python manage.py migrate
+            $COMPOSE exec -T backend python manage.py migrate
 
             echo "Collecting static files..."
-            docker compose exec -T backend python manage.py collectstatic --noinput || true
+            $COMPOSE exec -T backend python manage.py collectstatic --noinput || true
 
             echo "Deployment completed."
           EOF

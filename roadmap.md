@@ -33,7 +33,9 @@ seed ci-dessous.
 - Docker Engine + Docker Compose plugin (`docker compose version` doit
   répondre).
 - Un nom de domaine (ou l'IP du VPS) pointant vers le serveur, avec les
-  ports 80/443 (ou au minimum 3000/8000 si pas de reverse proxy) ouverts.
+  ports 80/443 (ou au minimum 3010/8010 si pas de reverse proxy) ouverts —
+  volontairement non-standards pour cohabiter avec d'autres projets sur le
+  même Docker (§6, `BACKEND_PORT`/`FRONTEND_PORT`).
 - Accès SSH avec droits pour lancer Docker.
 - (Recommandé) un reverse proxy TLS devant les conteneurs (Caddy, Nginx +
   certbot, ou Traefik) — non fourni ici, ce roadmap documente les conteneurs
@@ -139,7 +141,7 @@ publiquement.
 ```bash
 docker compose -f docker-compose.prod.yml ps
 docker compose -f docker-compose.prod.yml logs -f backend
-curl -I http://localhost:8000/api/users/login/    # doit répondre (405 sur GET est normal)
+curl -I http://localhost:8010/api/users/login/    # doit répondre (405 sur GET est normal)
 ```
 
 ## 7. Sécurité — à faire avant d'ouvrir l'accès au public
@@ -168,7 +170,7 @@ identifiants actifs sur une instance publique.** Deux options :
 Autres points de sécurité déjà couverts par le compose/`.env.example` mais à
 ne pas oublier : `DJANGO_SECRET_KEY` unique et aléatoire, `DEBUG=False`,
 `ALLOWED_HOSTS`/`CORS_ALLOWED_ORIGINS`/`CSRF_TRUSTED_ORIGINS` limités au(x)
-vrai(s) domaine(s), TLS via un reverse proxy devant les ports 3000/8000.
+vrai(s) domaine(s), TLS via un reverse proxy devant les ports 3010/8010.
 
 ## 8. Mises à jour (déploiement continu)
 
@@ -208,7 +210,8 @@ utilisé par le bouton correspondant du frontend web).
 | Symptôme | Piste |
 |---|---|
 | `psycopg2.OperationalError: could not connect to server` | Le service `db` n'a pas fini de démarrer — `backend` réessaiera au prochain restart ; vérifier `DB_HOST=db` (nom du service, pas `localhost`) |
-| Frontend appelle `127.0.0.1:8000` en prod | `NEXT_PUBLIC_DJANGO_API_URL` doit être fourni **avant** le build (c'est un `build.args`, pas juste une variable runtime — voir `frontend/Dockerfile`) ; rebuild avec `--build` après correction du `.env` |
+| Frontend appelle `127.0.0.1:8010` en prod | `NEXT_PUBLIC_DJANGO_API_URL` doit être fourni **avant** le build (c'est un `build.args`, pas juste une variable runtime — voir `frontend/Dockerfile`) ; rebuild avec `--build` après correction du `.env` |
+| Frontend inaccessible (rien ne répond sur `FRONTEND_PORT`) | Le conteneur `next start` doit recevoir `PORT=3010` (déjà réglé dans les deux compose) — sans ça il écoute sur 3000 alors que le mapping hôte cible 3010 |
 | 401 CORS/CSRF en prod | Vérifier que le domaine exact (avec `https://`) est bien dans `CORS_ALLOWED_ORIGINS`/`CSRF_TRUSTED_ORIGINS` |
 | `Limite d'appareils atteinte` en boucle pendant les tests | Purger les `Device` de test : `manage.py shell -c "from users.models import Device; Device.objects.filter(user__email='...').delete()"` |
 | Catalogue vide après un déploiement propre | `seed_smartphone` n'a pas été lancée (§6.3) — les migrations seules ne créent pas de données |

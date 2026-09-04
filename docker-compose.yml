@@ -25,6 +25,9 @@ services:
     environment:
       NEXT_PUBLIC_API_URL: "http://157.173.103.147:8010/api"
       NEXT_PUBLIC_DJANGO_API_URL: "http://157.173.103.147:8010/api"
+      # `next start` écoute sur 3000 par défaut — sans ce PORT, rien
+      # n'écouterait sur 3010 malgré le mapping ci-dessous.
+      PORT: "3010"
     command: sh -c "npm install && npm run build && npm start"
     volumes:
       - .:/app

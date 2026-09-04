@@ -1,7 +1,7 @@
 // Django Backend API Client with JWT Authentication
 // Handles all API calls to Django backend with automatic token management
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_DJANGO_API_URL ?? 'http://127.0.0.1:8000/api'
+const API_BASE_URL = process.env.NEXT_PUBLIC_DJANGO_API_URL ?? 'http://127.0.0.1:8010/api'
 
 interface AuthTokens {
   access: string

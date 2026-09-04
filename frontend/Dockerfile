@@ -2,9 +2,6 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Next.js inline les variables NEXT_PUBLIC_* dans le bundle au moment du
-# build, pas au runtime — doit donc être fourni en ARG ici (via `build.args`
-# dans docker-compose.prod.yml), pas seulement en `environment:` du service.
 ARG NEXT_PUBLIC_DJANGO_API_URL
 ENV NEXT_PUBLIC_DJANGO_API_URL=$NEXT_PUBLIC_DJANGO_API_URL
 

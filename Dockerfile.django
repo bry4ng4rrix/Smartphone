@@ -30,7 +30,7 @@ RUN chmod +x /app/docker-entrypoint.sh
 RUN python manage.py collectstatic --noinput || true
 
 # Expose port
-EXPOSE 8000
+EXPOSE 8010
 
 # Entry point and default command
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
