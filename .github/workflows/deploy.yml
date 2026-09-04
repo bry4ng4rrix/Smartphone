@@ -10,97 +10,250 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ========================================
+      # CHECKOUT
+      # ========================================
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ========================================
+      # PYTHON / DJANGO
+      # ========================================
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: "pip"
 
       - name: Install backend dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
 
       - name: Django check
-        run: python manage.py check
+        run: |
+          python manage.py check
 
+      # ========================================
+      # NODE / NEXT.JS
+      # ========================================
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: Build frontend
-        # Mirrors what frontend/Dockerfile runs (`npm install && npm run
-        # build`) so a failure here means the actual deploy would also fail —
-        # catch it before touching the server instead of finding out from a
-        # crash-looping container. NEXT_PUBLIC_DJANGO_API_URL isn't set here
-        # (no secrets in this advisory build), so it only validates the build
-        # itself, not the real production API URL.
+      - name: Check Node version
+        run: |
+          node --version
+          npm --version
+
+      - name: Install frontend dependencies
         working-directory: frontend
         run: |
-          npm install
+          npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
           npm run build
 
+      # ========================================
+      # TYPESCRIPT
+      # ========================================
       - name: Type-check frontend (advisory)
-        # Next.js is configured with ignoreBuildErrors: true, so `next build`
-        # above doesn't catch type errors — this makes them visible in the
-        # log without blocking on the pre-existing type debt.
         working-directory: frontend
         continue-on-error: true
-        run: npx tsc --noEmit
+        run: |
+          npx tsc --noEmit
 
+  # ============================================
+  # DEPLOY
+  # ============================================
   deploy:
     needs: verify
     runs-on: ubuntu-latest
 
     steps:
+      # ========================================
+      # SSH
+      # ========================================
       - name: Setup SSH
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
+      # ========================================
+      # ADD SERVER TO KNOWN HOSTS
+      # ========================================
       - name: Add host
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+          chmod 700 ~/.ssh
 
+          ssh-keyscan -H "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
+
+          chmod 600 ~/.ssh/known_hosts
+
+      # ========================================
+      # TEST SSH CONNECTION
+      # ========================================
+      - name: Test SSH connection
+        run: |
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=10 \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+            "echo 'SSH connection successful'; whoami; hostname"
+
+      # ========================================
+      # DEPLOY ON SERVER
+      # ========================================
       - name: Deploy on server
         run: |
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=10 \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+            'bash -s' << 'EOF'
+
+            # ====================================
+            # STOP ON ERROR
+            # ====================================
             set -e
+
+            # ====================================
+            # PROJECT DIRECTORY
+            # ====================================
             cd /home/smart/Smartphone
 
-            echo "Updating repository (code only, from origin/main)..."
+            echo "======================================"
+            echo "Starting deployment"
+            echo "======================================"
+
+            echo "Current directory:"
+            pwd
+
+            echo "Current user:"
+            whoami
+
+            # ====================================
+            # UPDATE SOURCE CODE
+            # ====================================
+            echo ""
+            echo "======================================"
+            echo "Updating repository"
+            echo "======================================"
+
             git fetch origin main
             git reset --hard origin/main
 
-            # .env n'est jamais commité (secrets) — doit déjà exister sur le
-            # serveur, copié à la main une fois (voir roadmap.md § Sécurité).
-            if [ ! -f .env ]; then
-              echo "ERREUR : .env introuvable dans /home/smart/Smartphone — copiez-le manuellement avant de redéployer (voir roadmap.md)." >&2
+            # ====================================
+            # CHECK ENVIRONMENT
+            # ====================================
+            echo ""
+            echo "======================================"
+            echo "Checking environment"
+            echo "======================================"
+
+            if [ ! -f ".env" ]; then
+              echo "ERROR: .env file not found!"
+              echo "Expected location: /home/smart/Smartphone/.env"
               exit 1
             fi
 
-            # Ce projet cohabite avec d'autres sur ce Docker (ports non-standards
-            # 8010/3010, Postgres/Redis jamais exposés à l'hôte — voir
-            # docker-compose.prod.yml) : toujours cibler ce fichier explicitement,
-            # jamais le docker-compose.yml par défaut (SQLite, ports 8000/3000).
+            echo ".env found."
+
+            # ====================================
+            # CHECK DOCKER
+            # ====================================
+            echo ""
+            echo "======================================"
+            echo "Checking Docker"
+            echo "======================================"
+
+            docker --version
+            docker compose version
+
+            # ====================================
+            # DOCKER COMPOSE COMMAND
+            # ====================================
             COMPOSE="docker compose -f docker-compose.prod.yml"
 
-            echo "Building images..."
+            # ====================================
+            # BUILD IMAGES
+            # ====================================
+            echo ""
+            echo "======================================"
+            echo "Building Docker images"
+            echo "======================================"
+
             $COMPOSE build
 
-            echo "Stopping old containers..."
+            # ====================================
+            # STOP OLD CONTAINERS
+            # ====================================
+            echo ""
+            echo "======================================"
+            echo "Stopping old containers"
+            echo "======================================"
+
             $COMPOSE down
 
-            echo "Starting containers..."
+            # ====================================
+            # START NEW CONTAINERS
+            # ====================================
+            echo ""
+            echo "======================================"
+            echo "Starting containers"
+            echo "======================================"
+
             $COMPOSE up -d
 
-            echo "Running migrations..."
+            # ====================================
+            # SHOW CONTAINER STATUS
+            # ====================================
+            echo ""
+            echo "======================================"
+            echo "Container status"
+            echo "======================================"
+
+            $COMPOSE ps
+
+            # ====================================
+            # DATABASE MIGRATIONS
+            # ====================================
+            echo ""
+            echo "======================================"
+            echo "Running Django migrations"
+            echo "======================================"
+
             $COMPOSE exec -T backend python manage.py migrate
 
-            echo "Collecting static files..."
-            $COMPOSE exec -T backend python manage.py collectstatic --noinput || true
+            # ====================================
+            # COLLECT STATIC FILES
+            # ====================================
+            echo ""
+            echo "======================================"
+            echo "Collecting static files"
+            echo "======================================"
 
-            echo "Deployment completed."
+            $COMPOSE exec -T backend \
+              python manage.py collectstatic --noinput || true
+
+            # ====================================
+            # FINAL STATUS
+            # ====================================
+            echo ""
+            echo "======================================"
+            echo "Final container status"
+            echo "======================================"
+
+            $COMPOSE ps
+
+            echo ""
+            echo "======================================"
+            echo "Deployment completed successfully!"
+            echo "======================================"
+
           EOF
