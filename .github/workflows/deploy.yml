@@ -1,0 +1,94 @@
+name: Deploy smart
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install backend dependencies
+        run: pip install -r requirements.txt
+
+      - name: Django check
+        run: python manage.py check
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build frontend
+        # Mirrors exactly what docker-compose.yml runs in the frontend
+        # container (`npm install && npm run build`) so a failure here means
+        # the actual deploy would also fail — catch it before touching the
+        # server instead of finding out from a crash-looping container.
+        working-directory: frontend
+        run: |
+          npm install
+          npm run build
+
+      - name: Type-check frontend (advisory)
+        # Next.js is configured with ignoreBuildErrors: true, so `next build`
+        # above doesn't catch type errors — this makes them visible in the
+        # log without blocking on the pre-existing type debt.
+        working-directory: frontend
+        continue-on-error: true
+        run: npx tsc --noEmit
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add host
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy on server
+        run: |
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+            set -e
+            cd /home/smart/Smartphone
+
+
+
+            echo "Updating repository (code only, from origin/main)..."
+            git fetch origin main
+            git reset --hard origin/main
+
+
+            echo "Building images..."
+            docker compose build
+
+            echo "Stopping old containers..."
+            docker compose down
+
+            echo "Starting containers..."
+            docker compose up -d
+
+            echo "Running migrations..."
+            docker compose exec -T backend python manage.py migrate
+
+            echo "Collecting static files..."
+            docker compose exec -T backend python manage.py collectstatic --noinput || true
+
+            echo "Deployment completed."
+          EOF
