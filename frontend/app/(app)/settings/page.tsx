@@ -65,6 +65,9 @@ export default function SettingsPage() {
   };
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
+  const [adresse, setAdresse] = useState('');
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const [oldPassword, setOldPassword] = useState('');
@@ -83,10 +86,20 @@ export default function SettingsPage() {
     if (user) {
       setFullName(user.full_name || '');
       setPhone(user.phone || '');
+      setAdresse(user.adresse || '');
+      setAvatarPreview(user.photo || null);
       setCompanyName(user.company_name || '');
       setShopName(user.shop_name || '');
     }
   }, [user]);
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setAvatarFile(file);
+      setAvatarPreview(URL.createObjectURL(file));
+    }
+  };
 
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -128,7 +141,13 @@ export default function SettingsPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      await djangoClient.users.updateProfile({ full_name: fullName, phone });
+      await djangoClient.users.updateProfile({ full_name: fullName, phone, adresse });
+      if (avatarFile) {
+        const fd = new FormData();
+        fd.append('photo', avatarFile);
+        await djangoClient.patchFormData('/users/me/', fd);
+        setAvatarFile(null);
+      }
       toast.success('Profil mis à jour');
     } catch (err: any) {
       toast.error(err.message || 'Erreur lors de la mise à jour');
@@ -204,6 +223,23 @@ export default function SettingsPage() {
             <CardContent>
               <form onSubmit={handleUpdateProfile} className="space-y-4 max-w-md">
                 <div className="space-y-2">
+                  <Label>Photo de profil</Label>
+                  <div className="flex items-center gap-4">
+                    {avatarPreview ? (
+                      <img
+                        src={avatarPreview}
+                        alt="Photo de profil"
+                        className="h-16 w-16 rounded-full object-cover border"
+                      />
+                    ) : (
+                      <div className="h-16 w-16 rounded-full border bg-muted flex items-center justify-center">
+                        <User className="h-6 w-6 text-muted-foreground" />
+                      </div>
+                    )}
+                    <Input type="file" accept="image/*" onChange={handleAvatarChange} className="max-w-xs" />
+                  </div>
+                </div>
+                <div className="space-y-2">
                   <Label>Email</Label>
                   <Input value={user?.email || ''} disabled className="bg-muted" />
                   <p className="text-xs text-muted-foreground">L'email ne peut pas être modifié</p>
@@ -230,6 +266,15 @@ export default function SettingsPage() {
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     placeholder="+261 XX XXX XX XX"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="adresse">Adresse</Label>
+                  <Input
+                    id="adresse"
+                    value={adresse}
+                    onChange={(e) => setAdresse(e.target.value)}
+                    placeholder="Ex: Lot II A 45, Antanimena, Antananarivo"
                   />
                 </div>
                 {user?.role === 'magasin' && user.shop_name && (

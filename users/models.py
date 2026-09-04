@@ -58,6 +58,8 @@ class CustomUser(AbstractUser):
     full_name = models.CharField(max_length=255)
     email = models.EmailField(unique=True)
     phone = models.CharField(max_length=20,blank=True,null=True)
+    adresse = models.CharField(max_length=255, blank=True, null=True)
+    photo = models.ImageField(upload_to="user_photos/", blank=True, null=True)
     role = models.CharField(max_length=20,choices=ROLE_CHOICES,default="employer")
     is_confirmed = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)

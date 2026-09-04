@@ -1150,6 +1150,8 @@ class Myprofile(APIView):
             "email": user.email,
             "full_name": user.full_name,
             "phone": user.phone,
+            "adresse": user.adresse,
+            "photo": request.build_absolute_uri(user.photo.url) if user.photo else None,
             "role": user.role,
             # Rôle au sens du module Commande (§4 Smartreadme.md) : "GERANT"
             # (admin/magasin), "PREPARATEUR"/"LIVREUR" (employer avec ce
@@ -1207,10 +1209,16 @@ class Myprofile(APIView):
         user = request.user
         full_name = request.data.get("full_name")
         phone = request.data.get("phone")
+        adresse = request.data.get("adresse")
+        photo = request.data.get("photo")
         if full_name:
             user.full_name = full_name
         if phone is not None:
             user.phone = phone
+        if adresse is not None:
+            user.adresse = adresse
+        if photo is not None and not isinstance(photo, str):
+            user.photo = photo
         user.save()
 
         if user.role == "admin":
@@ -1680,6 +1688,9 @@ class UsersByMagasinView(APIView):
                 "longitude": device.longitude,
             }
 
+        def build_photo_url(user_obj):
+            return request.build_absolute_uri(user_obj.photo.url) if user_obj.photo else None
+
         def add_company_user(user_obj, shop_name=None, magasin_id=None, position=None, device=None):
             if not user_obj or user_obj.id in seen_user_ids:
                 return
@@ -1688,6 +1699,9 @@ class UsersByMagasinView(APIView):
                 "id": user_obj.id,
                 "full_name": user_obj.full_name,
                 "email": user_obj.email,
+                "phone": user_obj.phone,
+                "adresse": user_obj.adresse,
+                "photo": build_photo_url(user_obj),
                 "is_confirmed": user_obj.is_confirmed,
                 "role": user_obj.role,
                 "shop_name": shop_name,
@@ -1724,6 +1738,9 @@ class UsersByMagasinView(APIView):
                 "id": mag.admin.id,
                 "full_name": mag.admin.full_name,
                 "email": mag.admin.email,
+                "phone": mag.admin.phone,
+                "adresse": mag.admin.adresse,
+                "photo": build_photo_url(mag.admin),
                 "is_confirmed": mag.admin.is_confirmed,
                 "role": mag.admin.role,
                 "device": build_device_info(devices_by_user.get(mag.admin.id)),
@@ -1747,6 +1764,9 @@ class UsersByMagasinView(APIView):
                     "id": emp.user.id,
                     "full_name": emp.user.full_name,
                     "email": emp.user.email,
+                    "phone": emp.user.phone,
+                    "adresse": emp.user.adresse,
+                    "photo": build_photo_url(emp.user),
                     "is_confirmed": emp.user.is_confirmed,
                     "position": emp.position,
                     "role": emp.user.role,

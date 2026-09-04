@@ -10,6 +10,8 @@ export interface CurrentUser {
   full_name: string;
   is_confirmed: boolean;
   phone?: string;
+  adresse?: string;
+  photo?: string | null;
   company_name?: string;
   logo?: string | null;
   shop_name?: string;
@@ -44,6 +46,8 @@ export function useCurrentUser() {
           full_name: data.full_name || data.username || '',
           is_confirmed: data.is_confirmed,
           phone: data.phone || undefined,
+          adresse: data.adresse || undefined,
+          photo: data.photo ?? null,
           company_name: data.company_name || undefined,
           logo: data.logo ?? null,
           shop_name: data.shop_name || undefined,
