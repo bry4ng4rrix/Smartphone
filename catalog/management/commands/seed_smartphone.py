@@ -1,9 +1,11 @@
 """Charge le vrai catalogue Smartphone.Mg (housses/cache-écran, ~300
 références et ~530 variantes couleur, avec stock et SKU Loyverse réels)
-depuis le fichier `seed catalogue.sql` fourni à la racine du projet, et crée
-le tenant (magasin) + comptes de test des 3 rôles du cahier des charges.
+depuis le fichier `data/seed_catalogue.sql` livré avec cette commande, et
+crée le tenant (magasin) + comptes de test des 3 rôles du cahier des charges.
 
 Idempotent (get_or_create) : peut être relancée sans dupliquer les données.
+Fonctionne aussi bien en local (SQLite) qu'en production (Postgres, VPS) —
+voir roadmap.md à la racine du projet pour le déploiement complet.
 
 Usage : python manage.py seed_smartphone
 """
@@ -11,14 +13,13 @@ Usage : python manage.py seed_smartphone
 import re
 from pathlib import Path
 
-from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from catalog.models import Brand, ProductCategory, ProductReference, ProductType, ProductVariant
 from users.models import AdminProfile, CustomUser, EmployerProfile, MagasinProfile, Subscription
 
-SEED_FILE = Path(settings.BASE_DIR) / "seed catalogue.sql"
+SEED_FILE = Path(__file__).resolve().parent / "data" / "seed_catalogue.sql"
 
 # Comptes de test des 3 rôles du module Commande (§4 Smartreadme.md) — mêmes
 # identifiants que l'implémentation de référence (old/Smartphone_mg/catalog/
@@ -128,7 +129,7 @@ def parse_seed_sql(path):
 
 
 class Command(BaseCommand):
-    help = "Charge le catalogue Smartphone.Mg réel (seed catalogue.sql) + les comptes de test des 3 rôles."
+    help = "Charge le catalogue Smartphone.Mg réel (data/seed_catalogue.sql) + les comptes de test des 3 rôles."
 
     def handle(self, *args, **options):
         if not SEED_FILE.exists():
@@ -147,6 +148,12 @@ class Command(BaseCommand):
             f"Catalogue Smartphone.Mg chargé : "
             f"{ProductReference.objects.filter(type__category__magasin=magasin).count()} références, "
             f"{ProductVariant.objects.filter(product_reference__type__category__magasin=magasin).count()} variantes."
+        ))
+        self.stdout.write(self.style.WARNING(
+            "⚠ Comptes de démo (re)créés avec le mot de passe par défaut "
+            f"'{DEFAULT_PASSWORD}' : {GERANT_EMAIL}, {PREPARATEUR_EMAIL}, {LIVREUR_EMAIL}. "
+            "En production, changez ces mots de passe avant d'ouvrir l'accès au public "
+            "(voir roadmap.md § Sécurité)."
         ))
 
     def _ensure_tenant(self):
