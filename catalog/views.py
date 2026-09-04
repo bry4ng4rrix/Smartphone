@@ -7,9 +7,10 @@ from rest_framework.response import Response
 from users.permissions import IsGerantOrReadOnly, get_accessible_magasins, resolve_magasin_for_request
 
 from . import services
-from .models import Brand, ProductCategory, ProductReference, ProductType, ProductVariant, StockMovement
+from .models import Brand, Color, ProductCategory, ProductReference, ProductType, ProductVariant, StockMovement
 from .serializers import (
     BrandSerializer,
+    ColorSerializer,
     ProductCategorySerializer,
     ProductReferenceAutocompleteSerializer,
     ProductReferenceSerializer,
@@ -89,6 +90,21 @@ class BrandViewSet(viewsets.ModelViewSet):
                 "supprimez ou déplacez d'abord ses références."
             )
         return super().destroy(request, *args, **kwargs)
+
+
+class ColorViewSet(viewsets.ModelViewSet):
+    serializer_class = ColorSerializer
+    permission_classes = [IsGerantOrReadOnly]
+
+    def get_queryset(self):
+        qs = Color.objects.filter(magasin__in=get_accessible_magasins(self.request.user))
+        magasin_id = self.request.query_params.get("magasin_id")
+        if magasin_id:
+            qs = qs.filter(magasin_id=magasin_id)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(magasin=resolve_magasin_for_request(self.request))
 
 
 class ProductReferenceViewSet(viewsets.ModelViewSet):

@@ -39,12 +39,14 @@ export default function SettingsPage() {
   const [addingBrand, setAddingBrand] = useState<string | null>(null);
   const [categories, setCategories] = useState<any[]>([]);
   const [types, setTypes] = useState<any[]>([]);
+  const [colors, setColors] = useState<any[]>([]);
 
   const loadCatalogue = () => {
     if (!isGerant) return;
     djangoClient.catalog.brands.list().then(setBrands).catch(() => {});
     djangoClient.catalog.categories.list().then(setCategories).catch(() => {});
     djangoClient.catalog.types.list().then(setTypes).catch(() => {});
+    djangoClient.catalog.colors.list().then(setColors).catch(() => {});
   };
 
   useEffect(loadCatalogue, [isGerant]);
@@ -361,6 +363,19 @@ export default function SettingsPage() {
               </CardHeader>
               <CardContent>
                 <CategoriesTypesCrud categories={categories} types={types} onChanged={loadCatalogue} />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Couleurs</CardTitle>
+                <CardDescription>
+                  Liste des couleurs proposées dans le sélecteur de variante (module Produits). Analysée
+                  depuis les couleurs déjà utilisées dans le catalogue actuel.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ColorsCrudList colors={colors} onChanged={loadCatalogue} />
               </CardContent>
             </Card>
           </TabsContent>

@@ -536,6 +536,21 @@ class DjangoAPIClient {
         return this.delete(`/catalog/brands/${id}/`)
       },
     },
+    colors: {
+      list: async (magasinId?: number) => {
+        const q = magasinId ? `?magasin_id=${magasinId}` : ''
+        return this.get<any[]>(`/catalog/colors/${q}`)
+      },
+      create: async (data: { nom: string; magasin_id?: number }) => {
+        return this.post<any>('/catalog/colors/', data)
+      },
+      update: async (id: number, data: { nom: string }) => {
+        return this.patch<any>(`/catalog/colors/${id}/`, data)
+      },
+      delete: async (id: number) => {
+        return this.delete(`/catalog/colors/${id}/`)
+      },
+    },
     references: {
       list: async (filters?: { type?: number; brand?: number }) => {
         const params = new URLSearchParams()
@@ -552,7 +567,7 @@ class DjangoAPIClient {
         return this.get<any[]>(`/catalog/references/autocomplete/?${params.toString()}`)
       },
       getById: async (id: number) => this.get<any>(`/catalog/references/${id}/`),
-      create: async (data: { type: number; brand: number; reference_name: string; prix_vente: number | string; actif?: boolean }) => {
+      create: async (data: { type: number; brand: number; reference_name: string; prix_achat?: number | string; prix_vente: number | string; actif?: boolean }) => {
         return this.post<any>('/catalog/references/', data)
       },
       update: async (id: number, data: any) => {

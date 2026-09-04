@@ -177,18 +177,13 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> {
 
   Future<void> _showAddReferenceDialog(BuildContext context, WidgetRef ref) async {
     final categories = ref.read(categoriesProvider).value ?? [];
-    final types = ref.read(typesProvider).value ?? [];
-    final brands = ref.read(brandsProvider).value ?? [];
     if (categories.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Créez d\'abord une catégorie (Paramètres → Catalogue, ou onglet Configuration).')),
       );
       return;
     }
-    await showDialog<void>(
-      context: context,
-      builder: (_) => _AddReferenceDialog(categories: categories, types: types, brands: brands),
-    );
+    await showDialog<void>(context: context, builder: (_) => const _AddReferenceDialog());
   }
 }
 
@@ -622,10 +617,7 @@ Future<bool> _confirm(BuildContext context, String message) async {
 /// Sous-type → Marque en cascade, création inline de sous-type/marque
 /// manquants, et une première couleur optionnelle en une seule étape.
 class _AddReferenceDialog extends ConsumerStatefulWidget {
-  const _AddReferenceDialog({required this.categories, required this.types, required this.brands});
-  final List<ProductCategory> categories;
-  final List<ProductType> types;
-  final List<Brand> brands;
+  const _AddReferenceDialog();
 
   @override
   ConsumerState<_AddReferenceDialog> createState() => _AddReferenceDialogState();
@@ -640,9 +632,9 @@ class _AddReferenceDialogState extends ConsumerState<_AddReferenceDialog> {
   final _newTypeController = TextEditingController();
   final _newBrandController = TextEditingController();
 
-  ProductCategory? _category;
-  ProductType? _type;
-  Brand? _brand;
+  int? _categoryId;
+  int? _typeId;
+  int? _brandId;
   bool _saving = false;
   bool _creatingType = false;
   bool _creatingBrand = false;
@@ -660,16 +652,15 @@ class _AddReferenceDialogState extends ConsumerState<_AddReferenceDialog> {
   }
 
   List<ProductType> get _typesForCategory =>
-      _category == null ? const [] : ref.watch(typesProvider).value?.where((t) => t.categoryId == _category!.id).toList() ?? [];
+      _categoryId == null ? const [] : ref.watch(typesProvider).value?.where((t) => t.categoryId == _categoryId).toList() ?? [];
 
   Future<void> _createType() async {
-    if (_category == null || _newTypeController.text.trim().isEmpty) return;
+    if (_categoryId == null || _newTypeController.text.trim().isEmpty) return;
     setState(() => _creatingType = true);
     try {
-      await ref.read(typesProvider.notifier).create(_category!.id, _newTypeController.text.trim());
-      final created = ref.read(typesProvider).value?.lastWhere((t) => t.nom == _newTypeController.text.trim());
+      final created = await ref.read(typesProvider.notifier).create(_categoryId!, _newTypeController.text.trim());
       _newTypeController.clear();
-      if (mounted) setState(() => _type = created);
+      if (mounted) setState(() => _typeId = created.id);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
     } finally {
@@ -681,10 +672,9 @@ class _AddReferenceDialogState extends ConsumerState<_AddReferenceDialog> {
     if (_newBrandController.text.trim().isEmpty) return;
     setState(() => _creatingBrand = true);
     try {
-      await ref.read(brandsProvider.notifier).create(_newBrandController.text.trim());
-      final created = ref.read(brandsProvider).value?.lastWhere((b) => b.nom == _newBrandController.text.trim());
+      final created = await ref.read(brandsProvider.notifier).create(_newBrandController.text.trim());
       _newBrandController.clear();
-      if (mounted) setState(() => _brand = created);
+      if (mounted) setState(() => _brandId = created.id);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
     } finally {
@@ -693,7 +683,7 @@ class _AddReferenceDialogState extends ConsumerState<_AddReferenceDialog> {
   }
 
   Future<void> _save() async {
-    if (_type == null || _brand == null || _nameController.text.trim().isEmpty || _priceController.text.trim().isEmpty) {
+    if (_typeId == null || _brandId == null || _nameController.text.trim().isEmpty || _priceController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tous les champs sont requis')));
       return;
     }
@@ -702,8 +692,8 @@ class _AddReferenceDialogState extends ConsumerState<_AddReferenceDialog> {
     setState(() => _saving = true);
     try {
       final created = await ref.read(referencesProvider.notifier).createReference(
-            typeId: _type!.id,
-            brandId: _brand!.id,
+            typeId: _typeId!,
+            brandId: _brandId!,
             referenceName: _nameController.text.trim(),
             prixVente: price,
           );
@@ -740,24 +730,24 @@ class _AddReferenceDialogState extends ConsumerState<_AddReferenceDialog> {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 12),
-              DropdownButtonFormField<ProductCategory>(
-                initialValue: _category,
+              DropdownButtonFormField<int>(
+                initialValue: _categoryId,
                 isExpanded: true,
                 decoration: const InputDecoration(labelText: 'Catégorie'),
-                items: [for (final c in widget.categories) DropdownMenuItem(value: c, child: Text(c.nom))],
+                items: [for (final c in ref.watch(categoriesProvider).value ?? const <ProductCategory>[]) DropdownMenuItem(value: c.id, child: Text(c.nom))],
                 onChanged: (v) => setState(() {
-                  _category = v;
-                  _type = null;
+                  _categoryId = v;
+                  _typeId = null;
                 }),
               ),
-              if (_category != null) ...[
+              if (_categoryId != null) ...[
                 const SizedBox(height: 10),
-                DropdownButtonFormField<ProductType>(
-                  initialValue: _type,
+                DropdownButtonFormField<int>(
+                  initialValue: _typeId,
                   isExpanded: true,
                   decoration: const InputDecoration(labelText: 'Sous-type'),
-                  items: [for (final t in _typesForCategory) DropdownMenuItem(value: t, child: Text(t.nom))],
-                  onChanged: (v) => setState(() => _type = v),
+                  items: [for (final t in _typesForCategory) DropdownMenuItem(value: t.id, child: Text(t.nom))],
+                  onChanged: (v) => setState(() => _typeId = v),
                 ),
                 const SizedBox(height: 6),
                 Row(
@@ -774,12 +764,12 @@ class _AddReferenceDialogState extends ConsumerState<_AddReferenceDialog> {
                 ),
               ],
               const SizedBox(height: 14),
-              DropdownButtonFormField<Brand>(
-                initialValue: _brand,
+              DropdownButtonFormField<int>(
+                initialValue: _brandId,
                 isExpanded: true,
                 decoration: const InputDecoration(labelText: 'Marque'),
-                items: [for (final b in widget.brands) DropdownMenuItem(value: b, child: Text(b.nom))],
-                onChanged: (v) => setState(() => _brand = v),
+                items: [for (final b in ref.watch(brandsProvider).value ?? const <Brand>[]) DropdownMenuItem(value: b.id, child: Text(b.nom))],
+                onChanged: (v) => setState(() => _brandId = v),
               ),
               const SizedBox(height: 6),
               Row(

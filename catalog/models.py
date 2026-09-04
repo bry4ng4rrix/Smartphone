@@ -54,6 +54,27 @@ class Brand(models.Model):
         return self.nom
 
 
+class Color(models.Model):
+    """Couleur suggérée dans le sélecteur de variante — liste gérée par
+    magasin (menu Paramètres). Ne contraint pas `ProductVariant.couleur`,
+    qui reste un simple texte : cette table alimente juste le Select pour
+    éviter de retaper/typo une couleur déjà utilisée."""
+
+    magasin = models.ForeignKey(
+        "users.MagasinProfile", on_delete=models.CASCADE, related_name="colors"
+    )
+    nom = models.CharField(max_length=100)
+
+    class Meta:
+        verbose_name = "Couleur"
+        verbose_name_plural = "Couleurs"
+        unique_together = ("magasin", "nom")
+        ordering = ["nom"]
+
+    def __str__(self):
+        return self.nom
+
+
 class ProductReference(models.Model):
     """Une référence de téléphone pour une marque donnée (ex: Samsung A15,
     S25 Ultra…). La structure permet d'ajouter librement de nouvelles
@@ -62,6 +83,10 @@ class ProductReference(models.Model):
     type = models.ForeignKey(ProductType, on_delete=models.CASCADE, related_name="references")
     brand = models.ForeignKey(Brand, on_delete=models.CASCADE, related_name="references")
     reference_name = models.CharField(max_length=150)
+    # Coût d'achat unitaire, saisi librement par le gérant pour visualiser la
+    # marge (prix_vente - prix_achat) — distinct du coût calculé par le
+    # module Fournisseurs (frais/fret/douane répartis sur une commande).
+    prix_achat = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     prix_vente = models.DecimalField(max_digits=12, decimal_places=2)
     actif = models.BooleanField(default=True)
 

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Brand, ProductCategory, ProductReference, ProductType, ProductVariant, StockMovement
+from .models import Brand, Color, ProductCategory, ProductReference, ProductType, ProductVariant, StockMovement
 
 
 @admin.register(ProductCategory)
@@ -21,9 +21,15 @@ class BrandAdmin(admin.ModelAdmin):
     list_filter = ("magasin",)
 
 
+@admin.register(Color)
+class ColorAdmin(admin.ModelAdmin):
+    list_display = ("nom", "magasin")
+    list_filter = ("magasin",)
+
+
 @admin.register(ProductReference)
 class ProductReferenceAdmin(admin.ModelAdmin):
-    list_display = ("reference_name", "brand", "type", "prix_vente", "actif")
+    list_display = ("reference_name", "brand", "type", "prix_achat", "prix_vente", "actif")
     list_filter = ("type__category__magasin", "brand", "type")
     search_fields = ("reference_name",)
 

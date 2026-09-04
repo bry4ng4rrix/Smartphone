@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Brand, ProductCategory, ProductReference, ProductType, ProductVariant, StockMovement
+from .models import Brand, Color, ProductCategory, ProductReference, ProductType, ProductVariant, StockMovement
 
 
 class ProductCategorySerializer(serializers.ModelSerializer):
@@ -19,6 +19,13 @@ class ProductTypeSerializer(serializers.ModelSerializer):
 class BrandSerializer(serializers.ModelSerializer):
     class Meta:
         model = Brand
+        fields = ["id", "magasin", "nom"]
+        read_only_fields = ["magasin"]
+
+
+class ColorSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Color
         fields = ["id", "magasin", "nom"]
         read_only_fields = ["magasin"]
 
@@ -55,7 +62,7 @@ class ProductReferenceSerializer(serializers.ModelSerializer):
         model = ProductReference
         fields = [
             "id", "type", "type_name", "category_name", "brand", "brand_name",
-            "reference_name", "prix_vente", "actif", "variants", "magasin",
+            "reference_name", "prix_achat", "prix_vente", "actif", "variants", "magasin",
         ]
 
 
