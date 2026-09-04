@@ -880,12 +880,22 @@ function AdjustStockDialog({
     <Dialog open={!!variant} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Ajuster le stock — {variant.couleur}</DialogTitle>
+          <DialogTitle>
+            Ajuster le stock — {variant.brand_name} {variant.reference_name}
+          </DialogTitle>
           <DialogDescription>
             Entrée/sortie manuelle réservée au gérant (§7.4 du cahier des
             charges).
           </DialogDescription>
         </DialogHeader>
+        <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+          <span className="text-muted-foreground">Couleur :</span>
+          <Badge variant="secondary">{variant.couleur}</Badge>
+          <span className="text-muted-foreground ml-auto">
+            Stock actuel : <span className="font-medium text-foreground">{variant.stock_actuel}</span>
+            {" · "}Seuil d&apos;alerte : {variant.seuil_alerte}
+          </span>
+        </div>
         <div className="space-y-3">
           <div className="flex gap-2">
             <Button
