@@ -1,7 +1,7 @@
 services:
   db:
     image: postgres:15-alpine
-    container_name: stock_postgres
+    container_name: smartphonemg_postgres
     environment:
       POSTGRES_DB: ${DB_NAME:-stock_db}
       POSTGRES_USER: ${DB_USER:-stock}
@@ -9,12 +9,23 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
+    # Pas de `ports:` ici volontairement : Postgres n'a besoin d'être joint
+    # que par `backend` sur le réseau interne du projet (hôte `db`) — ne pas
+    # publier sur l'hôte évite toute collision avec un Postgres d'un autre
+    # projet sur le même VPS (§2 roadmap.md).
+
+  redis:
+    image: redis:7-alpine
+    container_name: smartphonemg_redis
+    restart: unless-stopped
+    # Même principe que `db` ci-dessus : uniquement joint par `backend` via
+    # `redis://redis:6379/0` sur le réseau interne, jamais publié sur l'hôte.
 
   backend:
     build:
       context: .
       dockerfile: Dockerfile.django
-    container_name: stock_backend
+    container_name: smartphonemg_backend
     environment:
       DJANGO_SETTINGS_MODULE: Stock.settings
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
@@ -26,12 +37,17 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-stock_password}
       DB_HOST: ${DB_HOST:-db}
       DB_PORT: ${DB_PORT:-5432}
+      REDIS_URL: redis://redis:6379/0
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
       CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://localhost}
     ports:
-      - "8000:8000"
+      # Port hôte configurable — défaut volontairement non-standard (pas
+      # 8000) pour ne pas entrer en collision avec un autre projet déjà sur
+      # ce port sur le VPS partagé. Changer BACKEND_PORT dans .env au besoin.
+      - "${BACKEND_PORT:-8010}:8000"
     depends_on:
       - db
+      - redis
     restart: unless-stopped
     entrypoint: ["/app/docker-entrypoint.sh"]
     command: ["daphne", "-b", "0.0.0.0", "-p", "8000", "Stock.asgi:application"]
@@ -45,9 +61,10 @@ services:
       dockerfile: frontend/Dockerfile
       args:
         NEXT_PUBLIC_DJANGO_API_URL: ${NEXT_PUBLIC_DJANGO_API_URL}
-    container_name: stock_frontend
+    container_name: smartphonemg_frontend
     ports:
-      - "3000:3000"
+      # Même logique que BACKEND_PORT ci-dessus.
+      - "${FRONTEND_PORT:-3010}:3000"
     restart: unless-stopped
     depends_on:
       - backend

@@ -76,11 +76,24 @@ TEMPLATES = [
 WSGI_APPLICATION = 'Stock.wsgi.application'
 ASGI_APPLICATION = 'Stock.asgi.application'
 
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer",
-    },
-}
+# Redis en prod (REDIS_URL fourni, voir docker-compose.prod.yml) pour que le
+# broadcast WebSocket (notifications/chat/data sync) fonctionne même si le
+# process backend redémarre ; InMemoryChannelLayer en local (aucun Redis
+# requis pour développer) — même comportement, juste moins durable.
+_redis_url = os.environ.get("REDIS_URL")
+if _redis_url:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {"hosts": [_redis_url]},
+        },
+    }
+else:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer",
+        },
+    }
 
 
 # Database

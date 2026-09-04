@@ -1,0 +1,38 @@
+# --- Python / Django ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.Python
+.venv/
+venv/
+env/
+
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Django runtime ---
+staticfiles/
+media/
+*.log
+
+# --- Node / Next.js (frontend/) ---
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/*.tsbuildinfo
+frontend/.env*
+!frontend/.env.example
+
+# --- Flutter (smartcross/) ---
+smartcross/.dart_tool/
+smartcross/.flutter-plugins
+smartcross/.flutter-plugins-dependencies
+smartcross/build/
+smartcross/**/ephemeral/
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+.DS_Store
