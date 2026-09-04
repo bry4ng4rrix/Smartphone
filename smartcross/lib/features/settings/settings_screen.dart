@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/api_client.dart';
 import '../../core/constants.dart';
@@ -28,6 +31,8 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
+  final _adresseController = TextEditingController();
+  XFile? _photoFile;
   bool _savingProfile = false;
   String? _profileError;
 
@@ -44,16 +49,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final user = ref.read(authProvider).user;
     _nameController.text = user?.fullName ?? '';
     _phoneController.text = user?.phone ?? '';
+    _adresseController.text = user?.adresse ?? '';
   }
 
   @override
   void dispose() {
     _nameController.dispose();
     _phoneController.dispose();
+    _adresseController.dispose();
     _oldPwController.dispose();
     _newPwController.dispose();
     _confirmPwController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickPhoto() async {
+    final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85);
+    if (file != null) setState(() => _photoFile = file);
   }
 
   Future<void> _saveProfile() async {
@@ -62,7 +74,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _profileError = null;
     });
     try {
-      await AuthRepository().updateProfile(fullName: _nameController.text.trim(), phone: _phoneController.text.trim());
+      await AuthRepository().updateProfile(
+        fullName: _nameController.text.trim(),
+        phone: _phoneController.text.trim(),
+        adresse: _adresseController.text.trim(),
+      );
+      if (_photoFile != null) {
+        await AuthRepository().uploadProfilePhoto(_photoFile!.path);
+        _photoFile = null;
+      }
       await ref.read(authProvider.notifier).refreshUser();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profil mis à jour')));
     } catch (e) {
@@ -116,6 +136,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 children: [
                   Text('Mon profil', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 32,
+                        backgroundImage: _photoFile != null
+                            ? FileImage(File(_photoFile!.path))
+                            : (user?.photo != null ? NetworkImage(user!.photo!) : null) as ImageProvider?,
+                        child: (_photoFile == null && user?.photo == null)
+                            ? Text(user?.fullName.isNotEmpty == true ? user!.fullName[0].toUpperCase() : '?')
+                            : null,
+                      ),
+                      const SizedBox(width: 16),
+                      OutlinedButton.icon(
+                        onPressed: _pickPhoto,
+                        icon: const Icon(Icons.photo_outlined, size: 18),
+                        label: const Text('Changer la photo'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
                   TextField(controller: TextEditingController(text: user?.email), decoration: const InputDecoration(labelText: 'Email'), enabled: false),
                   const SizedBox(height: 10),
                   TextField(
@@ -127,6 +167,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   TextField(controller: _nameController, decoration: const InputDecoration(labelText: 'Nom complet')),
                   const SizedBox(height: 10),
                   TextField(controller: _phoneController, decoration: const InputDecoration(labelText: 'Téléphone')),
+                  const SizedBox(height: 10),
+                  TextField(controller: _adresseController, decoration: const InputDecoration(labelText: 'Adresse')),
                   if (_profileError != null) ...[
                     const SizedBox(height: 8),
                     Text(_profileError!, style: TextStyle(color: Theme.of(context).colorScheme.error)),

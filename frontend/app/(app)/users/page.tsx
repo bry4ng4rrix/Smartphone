@@ -547,8 +547,24 @@ export default function UsersPage() {
                       ) : filteredAll.map(u => (
                         <TableRow key={u.id}>
                           <TableCell>
-                            <div className="font-medium">{u.full_name || 'Sans nom'}</div>
-                            <div className="text-xs text-muted-foreground">{u.email}</div>
+                            <div className="flex items-center gap-3">
+                              {u.photo ? (
+                                <img src={u.photo} alt={u.full_name} className="h-8 w-8 rounded-full object-cover border shrink-0" />
+                              ) : (
+                                <div className="h-8 w-8 rounded-full border bg-muted flex items-center justify-center text-xs font-medium shrink-0">
+                                  {(u.full_name || u.email || '?')[0]?.toUpperCase()}
+                                </div>
+                              )}
+                              <div>
+                                <div className="font-medium">{u.full_name || 'Sans nom'}</div>
+                                <div className="text-xs text-muted-foreground">{u.email}</div>
+                                {(u.phone || u.adresse) && (
+                                  <div className="text-xs text-muted-foreground">
+                                    {[u.phone, u.adresse].filter(Boolean).join(' · ')}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
@@ -679,8 +695,24 @@ export default function UsersPage() {
                       {filteredPending.map(u => (
                         <TableRow key={u.id}>
                           <TableCell>
-                            <div className="font-medium">{u.full_name || 'Sans nom'}</div>
-                            <div className="text-xs text-muted-foreground">{u.email}</div>
+                            <div className="flex items-center gap-3">
+                              {u.photo ? (
+                                <img src={u.photo} alt={u.full_name} className="h-8 w-8 rounded-full object-cover border shrink-0" />
+                              ) : (
+                                <div className="h-8 w-8 rounded-full border bg-muted flex items-center justify-center text-xs font-medium shrink-0">
+                                  {(u.full_name || u.email || '?')[0]?.toUpperCase()}
+                                </div>
+                              )}
+                              <div>
+                                <div className="font-medium">{u.full_name || 'Sans nom'}</div>
+                                <div className="text-xs text-muted-foreground">{u.email}</div>
+                                {(u.phone || u.adresse) && (
+                                  <div className="text-xs text-muted-foreground">
+                                    {[u.phone, u.adresse].filter(Boolean).join(' · ')}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">

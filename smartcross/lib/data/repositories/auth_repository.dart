@@ -37,11 +37,18 @@ class AuthRepository {
     return AppUser.fromJson(response.data as Map<String, dynamic>);
   }
 
-  Future<AppUser> updateProfile({String? fullName, String? phone}) async {
+  Future<AppUser> updateProfile({String? fullName, String? phone, String? adresse}) async {
     final response = await _dio.patch('users/me/', data: {
       if (fullName != null) 'full_name': fullName,
       if (phone != null) 'phone': phone,
+      if (adresse != null) 'adresse': adresse,
     });
+    return AppUser.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<AppUser> uploadProfilePhoto(String filePath) async {
+    final formData = FormData.fromMap({'photo': await MultipartFile.fromFile(filePath)});
+    final response = await _dio.patch('users/me/', data: formData);
     return AppUser.fromJson(response.data as Map<String, dynamic>);
   }
 

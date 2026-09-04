@@ -181,7 +181,11 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
         ],
         if (order.statusHistory.isNotEmpty) ...[
           const SizedBox(height: 24),
-          Text('Historique', style: Theme.of(context).textTheme.titleMedium),
+          Text('Chronologie', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          _OrderTimelineCard(order: order),
+          const SizedBox(height: 20),
+          Text('Historique détaillé', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           for (final h in order.statusHistory)
             ListTile(
@@ -196,6 +200,89 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
             ),
         ],
       ],
+    );
+  }
+}
+
+/// Résumé "Prête le / En livraison depuis le / Livrée le" — une ligne par
+/// statut effectivement atteint, dérivée de l'historique complet, pour une
+/// lecture immédiate sans avoir à parcourir la liste détaillée en dessous.
+class _OrderTimelineCard extends StatelessWidget {
+  const _OrderTimelineCard({required this.order});
+  final Order order;
+
+  static const _milestones = [
+    (OrderStatus.enPreparation, Icons.build_outlined, 'Préparation commencée le'),
+    (OrderStatus.prete, Icons.inventory_2_outlined, 'Prête le'),
+    (OrderStatus.enLivraison, Icons.local_shipping_outlined, 'En livraison depuis le'),
+    (OrderStatus.livre, Icons.check_circle_outline, 'Livrée le'),
+    (OrderStatus.retour, Icons.undo, 'Retour le'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final timestamps = <OrderStatus, DateTime>{};
+    for (final h in order.statusHistory) {
+      timestamps.putIfAbsent(h.nouveauStatut, () => h.timestamp ?? DateTime.now());
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _TimelineRow(
+              icon: Icons.add_shopping_cart_outlined,
+              label: 'Commande créée le',
+              date: order.dateCommande ?? order.createdAt,
+              reached: true,
+            ),
+            for (final (status, icon, label) in _milestones)
+              _TimelineRow(
+                icon: icon,
+                label: label,
+                date: timestamps[status],
+                reached: timestamps.containsKey(status),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TimelineRow extends StatelessWidget {
+  const _TimelineRow({required this.icon, required this.label, required this.date, required this.reached});
+  final IconData icon;
+  final String label;
+  final DateTime? date;
+  final bool reached;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!reached) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(text: '$label ', style: Theme.of(context).textTheme.bodyMedium),
+                  TextSpan(
+                    text: date != null ? _dateFmt.format(date!.toLocal()) : '—',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -20,7 +20,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, Truck, Package, RefreshCw, Phone } from 'lucide-react';
+import { Plus, Trash2, Truck, Package, RefreshCw, Phone, ShoppingCart, Wrench, Boxes, CheckCircle2, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const fmt = (n: number | string | null | undefined) =>
@@ -279,17 +279,23 @@ export default function OrdersPage() {
                   </ul>
                 </div>
                 {detail.status_history && (
-                  <div>
-                    <p className="text-muted-foreground mb-1">Historique</p>
-                    <ul className="space-y-1">
-                      {detail.status_history.map((h: any) => (
-                        <li key={h.id} className="text-xs text-muted-foreground">
-                          {statutInfo(h.nouveau_statut).label} — {h.changed_by_name || 'Système'} — {new Date(h.timestamp).toLocaleString('fr-FR')}
-                          {h.note && ` (${h.note})`}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                  <>
+                    <div className="border-t pt-3">
+                      <p className="text-muted-foreground mb-2">Chronologie</p>
+                      <OrderTimeline order={detail} />
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground mb-1">Historique détaillé</p>
+                      <ul className="space-y-1">
+                        {detail.status_history.map((h: any) => (
+                          <li key={h.id} className="text-xs text-muted-foreground">
+                            {statutInfo(h.nouveau_statut).label} — {h.changed_by_name || 'Système'} — {new Date(h.timestamp).toLocaleString('fr-FR')}
+                            {h.note && ` (${h.note})`}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </>
                 )}
               </div>
             </>
@@ -316,6 +322,46 @@ export default function OrdersPage() {
         />
       )}
     </div>
+  );
+}
+
+// Résumé "Prête le / En livraison depuis le / Livrée le" — une ligne par
+// statut effectivement atteint, dérivée de l'historique complet, pour une
+// lecture immédiate sans avoir à parcourir la liste détaillée en dessous.
+const TIMELINE_MILESTONES: { status: string; icon: any; label: string }[] = [
+  { status: 'EN_PREPARATION', icon: Wrench, label: 'Préparation commencée le' },
+  { status: 'PRETE', icon: Boxes, label: 'Prête le' },
+  { status: 'EN_LIVRAISON', icon: Truck, label: 'En livraison depuis le' },
+  { status: 'LIVRE', icon: CheckCircle2, label: 'Livrée le' },
+  { status: 'RETOUR', icon: Undo2, label: 'Retour le' },
+];
+
+function OrderTimeline({ order }: { order: any }) {
+  const timestamps = new Map<string, string>();
+  for (const h of order.status_history || []) {
+    if (!timestamps.has(h.nouveau_statut)) timestamps.set(h.nouveau_statut, h.timestamp);
+  }
+
+  const rows = [
+    { icon: ShoppingCart, label: 'Commande créée le', date: order.date_commande, reached: true },
+    ...TIMELINE_MILESTONES.map((m) => ({
+      icon: m.icon,
+      label: m.label,
+      date: timestamps.get(m.status),
+      reached: timestamps.has(m.status),
+    })),
+  ].filter((r) => r.reached);
+
+  return (
+    <ul className="space-y-2">
+      {rows.map((r) => (
+        <li key={r.label} className="flex items-center gap-2 text-sm">
+          <r.icon className="h-4 w-4 text-primary shrink-0" />
+          <span className="text-muted-foreground">{r.label}</span>
+          <span className="font-semibold">{r.date ? new Date(r.date).toLocaleString('fr-FR') : '—'}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

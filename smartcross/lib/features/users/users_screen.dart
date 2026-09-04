@@ -1,32 +1,55 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 
 import '../../core/api_client.dart';
 import '../../core/constants.dart';
+import '../../models/company.dart';
 import '../../models/user.dart';
+import '../../state/auth_provider.dart';
+import '../../state/company_provider.dart';
 import '../../state/users_provider.dart';
 import '../../widgets/async_state_widgets.dart';
 
+final _dateTimeFmt = DateFormat('dd/MM/yyyy HH:mm');
+
 /// Gestion des comptes préparateur/livreur (§4 Smartreadme.md, réservée au
-/// gérant) + approbation des comptes auto-inscrits en attente.
+/// gérant) + approbation des comptes auto-inscrits en attente + fonctions
+/// "Super Admin" (mots de passe/abonnement/appareils, §11 README —
+/// infrastructure SaaS conservée), affichées selon le rôle du compte connecté.
 class UsersScreen extends ConsumerWidget {
   const UsersScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final pendingCount = ref.watch(pendingUsersProvider).value?.length ?? 0;
+    final currentUser = ref.watch(authProvider).user;
+    final isAdmin = currentUser?.rawRole == 'admin';
+    final isCompanyOwner = currentUser?.isCompanyOwner ?? false;
+
+    final tabs = <Tab>[
+      const Tab(text: 'Équipe'),
+      Tab(text: pendingCount > 0 ? 'En attente ($pendingCount)' : 'En attente'),
+      if (isAdmin) const Tab(text: 'Mots de passe'),
+      if (isCompanyOwner) const Tab(text: 'Abonnement'),
+      if (isCompanyOwner) const Tab(text: 'Appareils'),
+    ];
+    final views = <Widget>[
+      const _TeamTab(),
+      const _PendingTab(),
+      if (isAdmin) const _PasswordResetsTab(),
+      if (isCompanyOwner) const _SubscriptionTab(),
+      if (isCompanyOwner) const _DevicesTab(),
+    ];
 
     return DefaultTabController(
-      length: 2,
+      length: tabs.length,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Utilisateurs'),
-          bottom: TabBar(tabs: [
-            const Tab(text: 'Équipe'),
-            Tab(text: pendingCount > 0 ? 'En attente ($pendingCount)' : 'En attente'),
-          ]),
+          bottom: TabBar(isScrollable: true, tabAlignment: TabAlignment.start, tabs: tabs),
         ),
-        body: const TabBarView(children: [_TeamTab(), _PendingTab()]),
+        body: TabBarView(children: views),
         floatingActionButton: FloatingActionButton.extended(
           onPressed: () => showDialog<void>(context: context, builder: (_) => const _CreateUserDialog()),
           icon: const Icon(Icons.person_add_outlined),
@@ -146,9 +169,16 @@ class _UserTile extends ConsumerWidget {
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: ListTile(
-        leading: CircleAvatar(child: Text(user.fullName.isNotEmpty ? user.fullName[0].toUpperCase() : '?')),
+        leading: CircleAvatar(
+          backgroundImage: user.photo != null ? NetworkImage(user.photo!) : null,
+          child: user.photo == null ? Text(user.fullName.isNotEmpty ? user.fullName[0].toUpperCase() : '?') : null,
+        ),
         title: Text(user.fullName),
-        subtitle: Text(user.email + (user.phone != null && user.phone!.isNotEmpty ? ' · ${user.phone}' : '')),
+        subtitle: Text([
+          user.email,
+          if (user.phone != null && user.phone!.isNotEmpty) user.phone!,
+          if (user.adresse != null && user.adresse!.isNotEmpty) user.adresse!,
+        ].join(' · ')),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -323,6 +353,374 @@ class _CreateUserDialogState extends ConsumerState<_CreateUserDialog> {
         TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
         FilledButton(onPressed: _saving ? null : _save, child: const Text('Créer')),
       ],
+    );
+  }
+}
+
+const _prStatusLabel = {'pending': 'En attente', 'approved': 'Approuvée', 'rejected': 'Rejetée'};
+const _subStatusLabel = {'active': 'Actif', 'disabled': 'Désactivé', 'pending': 'En attente', 'trial': 'Essai', 'demo': 'Démo'};
+const _requestTypeLabel = {
+  'activation': "Activation d'abonnement",
+  'device_deletion': "Suppression d'appareil",
+  'payment': 'Paiement direct',
+  'password_reset': 'Réinitialisation de mot de passe',
+};
+
+Color _statusColor(BuildContext context, String status) {
+  switch (status) {
+    case 'approved':
+    case 'active':
+      return Colors.green;
+    case 'rejected':
+    case 'disabled':
+      return Colors.red;
+    case 'trial':
+      return Colors.blue;
+    case 'demo':
+      return Colors.purple;
+    default:
+      return Colors.orange;
+  }
+}
+
+/// Onglet "Mots de passe" (admin uniquement) : demandes de réinitialisation
+/// envoyées par les gérants/employés de la société ayant oublié leur mot de
+/// passe (§11 README — infrastructure SaaS conservée).
+class _PasswordResetsTab extends ConsumerWidget {
+  const _PasswordResetsTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(passwordResetRequestsProvider);
+    final currentFilter = ref.watch(passwordResetRequestsProvider.notifier);
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Expanded(
+                child: SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(value: 'pending', label: Text('En attente')),
+                    ButtonSegment(value: 'approved', label: Text('Approuvées')),
+                    ButtonSegment(value: 'rejected', label: Text('Rejetées')),
+                    ButtonSegment(value: 'all', label: Text('Toutes')),
+                  ],
+                  selected: const {'pending'},
+                  showSelectedIcon: false,
+                  onSelectionChanged: (s) => currentFilter.setStatus(s.first),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: switch (async) {
+            AsyncData(:final value) => value.isEmpty
+                ? const EmptyState(message: 'Aucune demande.', icon: Icons.key_outlined)
+                : RefreshIndicator(
+                    onRefresh: () => ref.read(passwordResetRequestsProvider.notifier).refresh(),
+                    child: ListView.builder(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: value.length,
+                      itemBuilder: (context, i) => _PasswordResetTile(request: value[i]),
+                    ),
+                  ),
+            AsyncError(:final error) => ErrorState(
+                message: ApiClient.messageFromError(error),
+                onRetry: () => ref.read(passwordResetRequestsProvider.notifier).refresh(),
+              ),
+            _ => const LoadingState(),
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _PasswordResetTile extends ConsumerWidget {
+  const _PasswordResetTile({required this.request});
+  final PasswordResetRequest request;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(request.userName, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      Text(request.userEmail, style: Theme.of(context).textTheme.bodySmall),
+                    ],
+                  ),
+                ),
+                Chip(
+                  label: Text(_prStatusLabel[request.status] ?? request.status),
+                  backgroundColor: _statusColor(context, request.status).withValues(alpha: 0.12),
+                  labelStyle: TextStyle(color: _statusColor(context, request.status)),
+                  side: BorderSide.none,
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              [request.userRole, if (request.magasinName != null) 'Magasin : ${request.magasinName}'].join(' · '),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            if (request.createdAt != null)
+              Text(_dateTimeFmt.format(request.createdAt!.toLocal()), style: Theme.of(context).textTheme.bodySmall),
+            if (request.status == 'pending') ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () => ref.read(passwordResetRequestsProvider.notifier).resolve(request.id, 'approve'),
+                    icon: const Icon(Icons.check, size: 16, color: Colors.green),
+                    label: const Text('Approuver'),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => ref.read(passwordResetRequestsProvider.notifier).resolve(request.id, 'reject'),
+                    icon: const Icon(Icons.close, size: 16, color: Colors.red),
+                    label: const Text('Rejeter'),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Onglet "Abonnement" (propriétaire de la société uniquement) : statut,
+/// essai restant, demande d'activation, historique des demandes.
+class _SubscriptionTab extends ConsumerWidget {
+  const _SubscriptionTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final subAsync = ref.watch(companySubscriptionProvider);
+    final requestsAsync = ref.watch(companyRequestsProvider);
+
+    return RefreshIndicator(
+      onRefresh: () async {
+        ref.invalidate(companySubscriptionProvider);
+        await ref.read(companyRequestsProvider.notifier).refresh();
+      },
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          switch (subAsync) {
+            AsyncData(:final value) => Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Chip(
+                            label: Text(_subStatusLabel[value.status] ?? value.status),
+                            backgroundColor: _statusColor(context, value.status).withValues(alpha: 0.12),
+                            labelStyle: TextStyle(color: _statusColor(context, value.status)),
+                            side: BorderSide.none,
+                          ),
+                          if (value.status == 'trial' && value.daysLeftInTrial != null) ...[
+                            const SizedBox(width: 8),
+                            Text('${value.daysLeftInTrial} jour(s) restant(s) à l\'essai', style: Theme.of(context).textTheme.bodySmall),
+                          ],
+                        ],
+                      ),
+                      if (value.offerName != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          'Offre : ${value.offerName}${value.offerDurationMonths != null ? ' · Durée : ${value.offerDurationMonths} mois' : ''}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                      if (value.status != 'active' && value.status != 'demo') ...[
+                        const SizedBox(height: 12),
+                        _RequestActivationButton(requestsAsync: requestsAsync),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            AsyncError(:final error) => ErrorState(message: ApiClient.messageFromError(error), onRetry: () => ref.invalidate(companySubscriptionProvider)),
+            _ => const LoadingState(),
+          },
+          const SizedBox(height: 16),
+          switch (requestsAsync) {
+            AsyncData(:final value) when value.isNotEmpty => Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Historique des demandes', style: Theme.of(context).textTheme.titleSmall),
+                      const SizedBox(height: 8),
+                      for (final r in value)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            children: [
+                              Expanded(child: Text(_requestTypeLabel[r.requestType] ?? r.requestType)),
+                              Chip(
+                                label: Text(_prStatusLabel[r.status] ?? r.status),
+                                backgroundColor: _statusColor(context, r.status).withValues(alpha: 0.12),
+                                labelStyle: TextStyle(color: _statusColor(context, r.status), fontSize: 12),
+                                side: BorderSide.none,
+                                visualDensity: VisualDensity.compact,
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            _ => const SizedBox.shrink(),
+          },
+        ],
+      ),
+    );
+  }
+}
+
+class _RequestActivationButton extends ConsumerStatefulWidget {
+  const _RequestActivationButton({required this.requestsAsync});
+  final AsyncValue<List<CompanyRequest>> requestsAsync;
+
+  @override
+  ConsumerState<_RequestActivationButton> createState() => _RequestActivationButtonState();
+}
+
+class _RequestActivationButtonState extends ConsumerState<_RequestActivationButton> {
+  bool _sending = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasPending = widget.requestsAsync.value?.any((r) => r.requestType == 'activation' && r.status == 'pending') ?? false;
+    return FilledButton(
+      onPressed: (_sending || hasPending)
+          ? null
+          : () async {
+              setState(() => _sending = true);
+              try {
+                await ref.read(companyRequestsProvider.notifier).requestActivation();
+              } catch (e) {
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+              } finally {
+                if (mounted) setState(() => _sending = false);
+              }
+            },
+      child: Text(hasPending ? 'Demande déjà envoyée' : (_sending ? 'Envoi…' : "Demander l'activation")),
+    );
+  }
+}
+
+/// Onglet "Appareils" (propriétaire de la société uniquement) : appareils
+/// connectés aux comptes de la société, avec demande de suppression.
+class _DevicesTab extends ConsumerWidget {
+  const _DevicesTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(companyDevicesProvider);
+    final requestsAsync = ref.watch(companyRequestsProvider);
+
+    return switch (async) {
+      AsyncData(:final value) => RefreshIndicator(
+          onRefresh: () => ref.read(companyDevicesProvider.notifier).refresh(),
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Align(
+                alignment: Alignment.centerRight,
+                child: Chip(
+                  label: Text('${value.count} / ${value.limit} appareils'),
+                  backgroundColor: (value.count >= value.limit ? Colors.red : Colors.blue).withValues(alpha: 0.12),
+                  labelStyle: TextStyle(color: value.count >= value.limit ? Colors.red : Colors.blue),
+                  side: BorderSide.none,
+                ),
+              ),
+              if (value.count >= value.limit)
+                Container(
+                  margin: const EdgeInsets.symmetric(vertical: 8),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(8)),
+                  child: const Text(
+                    "Limite d'appareils atteinte. Supprimez un appareil ci-dessous ou contactez Label Technology pour augmenter votre offre.",
+                    style: TextStyle(fontSize: 12, color: Colors.red),
+                  ),
+                ),
+              const SizedBox(height: 8),
+              if (value.devices.isEmpty) const EmptyState(message: 'Aucun appareil enregistré.', icon: Icons.devices_outlined),
+              for (final d in value.devices) _DeviceTile(device: d, requestsAsync: requestsAsync),
+            ],
+          ),
+        ),
+      AsyncError(:final error) => ErrorState(message: ApiClient.messageFromError(error), onRetry: () => ref.read(companyDevicesProvider.notifier).refresh()),
+      _ => const LoadingState(),
+    };
+  }
+}
+
+class _DeviceTile extends ConsumerStatefulWidget {
+  const _DeviceTile({required this.device, required this.requestsAsync});
+  final CompanyDevice device;
+  final AsyncValue<List<CompanyRequest>> requestsAsync;
+
+  @override
+  ConsumerState<_DeviceTile> createState() => _DeviceTileState();
+}
+
+class _DeviceTileState extends ConsumerState<_DeviceTile> {
+  bool _sending = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasPending = widget.requestsAsync.value?.any((r) => r.requestType == 'device_deletion' && r.status == 'pending') ?? false;
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: ListTile(
+        title: Text('${widget.device.userName} (${widget.device.userRole})'),
+        subtitle: Text(
+          [
+            widget.device.label ?? widget.device.userAgent ?? '',
+            if (widget.device.ipAddress != null) widget.device.ipAddress!,
+          ].where((s) => s.isNotEmpty).join(' · '),
+        ),
+        trailing: OutlinedButton(
+          onPressed: (_sending || hasPending)
+              ? null
+              : () async {
+                  setState(() => _sending = true);
+                  try {
+                    await ref.read(companyDevicesProvider.notifier).requestDeletion(widget.device.id);
+                    await ref.read(companyRequestsProvider.notifier).refresh();
+                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Demande envoyée')));
+                  } catch (e) {
+                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+                  } finally {
+                    if (mounted) setState(() => _sending = false);
+                  }
+                },
+          child: Text(hasPending ? 'Demande envoyée' : (_sending ? 'Envoi…' : 'Demander la suppression')),
+        ),
+      ),
     );
   }
 }
