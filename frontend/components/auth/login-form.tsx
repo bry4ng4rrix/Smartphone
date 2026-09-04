@@ -61,7 +61,12 @@ export function LoginForm() {
       }
 
       toast.success('Connexion réussie !');
-      const destination = (response.user as any).raw_role === 'platform_admin' ? '/label' : '/dashboard';
+      const rawRole = (response.user as any).raw_role;
+      // Le tableau de bord est réservé au gérant (admin/magasin) — les
+      // autres rôles (préparateur/livreur) démarrent sur Commandes, la page
+      // qui s'adapte déjà à leur rôle (Dépôt / Ma tournée).
+      const isGerant = rawRole === 'admin' || rawRole === 'magasin';
+      const destination = rawRole === 'platform_admin' ? '/label' : isGerant ? '/dashboard' : '/orders';
 
       // L'appareil est enregistré automatiquement côté backend (nouveau ou
       // déjà connu) — seule une limite d'appareils dépassée bloque la

@@ -517,6 +517,78 @@ function BrandsCrudList({ brands, onChanged }: { brands: any[]; onChanged: () =>
   );
 }
 
+function ColorsCrudList({ colors, onChanged }: { colors: any[]; onChanged: () => void }) {
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingName, setEditingName] = useState('');
+  const [newName, setNewName] = useState('');
+
+  const startEdit = (c: any) => { setEditingId(c.id); setEditingName(c.nom); };
+
+  const saveEdit = async () => {
+    if (!editingId || !editingName.trim()) return;
+    try {
+      await djangoClient.catalog.colors.update(editingId, { nom: editingName.trim() });
+      toast.success('Couleur renommée');
+      setEditingId(null);
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur');
+    }
+  };
+
+  const removeColor = async (c: any) => {
+    try {
+      await djangoClient.catalog.colors.delete(c.id);
+      toast.success('Couleur supprimée');
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur lors de la suppression');
+    }
+  };
+
+  const addColor = async () => {
+    if (!newName.trim()) return;
+    try {
+      await djangoClient.catalog.colors.create({ nom: newName.trim() });
+      toast.success('Couleur ajoutée');
+      setNewName('');
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur');
+    }
+  };
+
+  return (
+    <div>
+      <p className="text-sm font-medium mb-2">Toutes les couleurs ({colors.length})</p>
+      <div className="space-y-2 max-h-72 overflow-y-auto">
+        {colors.map((c) => (
+          <div key={c.id} className="flex items-center gap-2 border rounded-md px-3 py-2">
+            {editingId === c.id ? (
+              <>
+                <Input value={editingName} onChange={(e) => setEditingName(e.target.value)} className="h-8 flex-1" autoFocus />
+                <Button size="sm" onClick={saveEdit}>OK</Button>
+                <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Annuler</Button>
+              </>
+            ) : (
+              <>
+                <span className="flex-1 text-sm">{c.nom}</span>
+                <Button size="icon" variant="ghost" onClick={() => startEdit(c)}><Pencil className="h-4 w-4" /></Button>
+                <Button size="icon" variant="ghost" onClick={() => removeColor(c)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+              </>
+            )}
+          </div>
+        ))}
+        {colors.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Aucune couleur.</p>}
+      </div>
+      <div className="flex gap-2 mt-3">
+        <Input placeholder="Nouvelle couleur (ex: Bleu)" value={newName} onChange={(e) => setNewName(e.target.value)} />
+        <Button onClick={addColor}><Plus className="h-4 w-4 mr-2" /> Ajouter</Button>
+      </div>
+    </div>
+  );
+}
+
 function CategoriesTypesCrud({
   categories, types, onChanged,
 }: { categories: any[]; types: any[]; onChanged: () => void }) {

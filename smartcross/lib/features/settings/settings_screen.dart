@@ -176,6 +176,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             const _CatalogueBrandsCard(),
             const SizedBox(height: 16),
             const _CatalogueTypesCard(),
+            const SizedBox(height: 16),
+            const _CatalogueColorsCard(),
           ],
           const SizedBox(height: 16),
           Card(
@@ -562,4 +564,120 @@ Future<bool> _confirmDialog(BuildContext context, String message) async {
     ),
   );
   return result ?? false;
+}
+
+/// CRUD des couleurs (§8 README) — alimente le Select du module Produits
+/// (création de référence/variante), analysé depuis les couleurs déjà
+/// utilisées dans le catalogue actuel.
+class _CatalogueColorsCard extends ConsumerStatefulWidget {
+  const _CatalogueColorsCard();
+
+  @override
+  ConsumerState<_CatalogueColorsCard> createState() => _CatalogueColorsCardState();
+}
+
+class _CatalogueColorsCardState extends ConsumerState<_CatalogueColorsCard> {
+  final _newColorController = TextEditingController();
+  bool _adding = false;
+
+  @override
+  void dispose() {
+    _newColorController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _addColor() async {
+    if (_newColorController.text.trim().isEmpty) return;
+    setState(() => _adding = true);
+    try {
+      await ref.read(colorsProvider.notifier).create(_newColorController.text.trim());
+      _newColorController.clear();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+    } finally {
+      if (mounted) setState(() => _adding = false);
+    }
+  }
+
+  Future<void> _rename(ProductColor c) async {
+    final controller = TextEditingController(text: c.nom);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Renommer la couleur'),
+        content: TextField(controller: controller, autofocus: true),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
+          FilledButton(onPressed: () => Navigator.of(context).pop(controller.text.trim()), child: const Text('Enregistrer')),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty || name == c.nom) return;
+    try {
+      await ref.read(colorsProvider.notifier).rename(c.id, name);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+    }
+  }
+
+  Future<void> _delete(ProductColor c) async {
+    final confirmed = await _confirmDialog(context, 'Supprimer la couleur "${c.nom}" ?');
+    if (!confirmed) return;
+    try {
+      await ref.read(colorsProvider.notifier).delete(c.id);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = ref.watch(colorsProvider).value ?? [];
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Couleurs', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(
+              'Liste des couleurs proposées dans le sélecteur de variante (module Produits).',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            for (final c in colors)
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text(c.nom),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(icon: const Icon(Icons.edit_outlined, size: 18), onPressed: () => _rename(c)),
+                    IconButton(icon: const Icon(Icons.delete_outline, size: 18), onPressed: () => _delete(c)),
+                  ],
+                ),
+              ),
+            if (colors.isEmpty) Text('Aucune couleur.', style: Theme.of(context).textTheme.bodySmall),
+            const Divider(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _newColorController,
+                    decoration: const InputDecoration(isDense: true, labelText: 'Nouvelle couleur (ex: Bleu)'),
+                    onSubmitted: (_) => _addColor(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(onPressed: _adding ? null : _addColor, child: const Text('Ajouter')),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

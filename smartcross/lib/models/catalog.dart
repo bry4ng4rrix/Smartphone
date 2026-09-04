@@ -41,6 +41,20 @@ class Brand {
   Map<String, dynamic> toJson() => {'nom': nom};
 }
 
+/// Couleur suggérée dans le sélecteur de variante (§8 README, menu
+/// Paramètres) — nommé `ProductColor` pour éviter la collision avec
+/// `dart:ui Color`.
+class ProductColor {
+  ProductColor({required this.id, required this.nom});
+
+  final int id;
+  final String nom;
+
+  factory ProductColor.fromJson(Map<String, dynamic> json) => ProductColor(id: asInt(json['id']), nom: asString(json['nom']));
+
+  Map<String, dynamic> toJson() => {'nom': nom};
+}
+
 /// Une déclinaison couleur d'une référence — niveau où le stock est
 /// réellement suivi (§8.1 README).
 class ProductVariant {
@@ -96,7 +110,9 @@ class ProductReference {
     required this.brandId,
     required this.brandName,
     required this.referenceName,
+    required this.prixAchat,
     required this.prixVente,
+    this.photo,
     required this.actif,
     required this.variants,
   });
@@ -108,9 +124,15 @@ class ProductReference {
   final int brandId;
   final String brandName;
   final String referenceName;
+  /// Coût d'achat unitaire, saisi librement pour visualiser la marge
+  /// (distinct du coût calculé par le module Fournisseurs).
+  final double prixAchat;
   final double prixVente;
+  final String? photo;
   final bool actif;
   final List<ProductVariant> variants;
+
+  double get margeUnitaire => prixVente - prixAchat;
 
   factory ProductReference.fromJson(Map<String, dynamic> json) {
     return ProductReference(
@@ -121,7 +143,9 @@ class ProductReference {
       brandId: asInt(json['brand']),
       brandName: asString(json['brand_name']),
       referenceName: asString(json['reference_name']),
+      prixAchat: asDouble(json['prix_achat']),
       prixVente: asDouble(json['prix_vente']),
+      photo: asStringOrNull(json['photo']),
       actif: asBool(json['actif'], true),
       variants: (json['variants'] as List? ?? []).map((e) => ProductVariant.fromJson(e as Map<String, dynamic>)).toList(),
     );
@@ -131,6 +155,7 @@ class ProductReference {
         'type': typeId,
         'brand': brandId,
         'reference_name': referenceName,
+        'prix_achat': prixAchat,
         'prix_vente': prixVente,
         'actif': actif,
       };

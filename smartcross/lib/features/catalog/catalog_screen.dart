@@ -1,5 +1,9 @@
+import 'dart:io';
+
+import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -196,8 +200,23 @@ class _ReferenceTile extends ConsumerWidget {
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: ExpansionTile(
+        leading: ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: reference.photo != null
+              ? Image.network(reference.photo!, width: 40, height: 40, fit: BoxFit.cover)
+              : Container(
+                  width: 40,
+                  height: 40,
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  child: const Icon(Icons.image_outlined, size: 18),
+                ),
+        ),
         title: Text('${reference.brandName} ${reference.referenceName}'),
-        subtitle: Text('${reference.categoryName} / ${reference.typeName} — ${_ar(reference.prixVente)}${reference.actif ? '' : ' · inactive'}'),
+        subtitle: Text(
+          '${reference.categoryName} / ${reference.typeName} — ${_ar(reference.prixVente)}'
+          ' · marge ${_ar(reference.margeUnitaire)}'
+          '${reference.actif ? '' : ' · inactive'}',
+        ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -539,28 +558,48 @@ class _EditReferenceDialog extends ConsumerStatefulWidget {
 
 class _EditReferenceDialogState extends ConsumerState<_EditReferenceDialog> {
   late final _nameController = TextEditingController(text: widget.reference.referenceName);
+  late final _purchasePriceController = TextEditingController(text: widget.reference.prixAchat.toStringAsFixed(0));
   late final _priceController = TextEditingController(text: widget.reference.prixVente.toStringAsFixed(0));
   late bool _actif = widget.reference.actif;
+  XFile? _photoFile;
   bool _saving = false;
 
   @override
   void dispose() {
     _nameController.dispose();
+    _purchasePriceController.dispose();
     _priceController.dispose();
     super.dispose();
   }
 
+  double? get _margin {
+    final achat = double.tryParse(_purchasePriceController.text.replaceAll(',', '.'));
+    final vente = double.tryParse(_priceController.text.replaceAll(',', '.'));
+    if (achat == null || vente == null) return null;
+    return vente - achat;
+  }
+
+  Future<void> _pickPhoto() async {
+    final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85);
+    if (file != null) setState(() => _photoFile = file);
+  }
+
   Future<void> _save() async {
     final price = double.tryParse(_priceController.text.replaceAll(',', '.'));
+    final purchasePrice = double.tryParse(_purchasePriceController.text.replaceAll(',', '.')) ?? 0;
     if (price == null || _nameController.text.trim().isEmpty) return;
     setState(() => _saving = true);
     try {
       await ref.read(referencesProvider.notifier).updateReference(
             widget.reference.id,
             referenceName: _nameController.text.trim(),
+            prixAchat: purchasePrice,
             prixVente: price,
             actif: _actif,
           );
+      if (_photoFile != null) {
+        await ref.read(referencesProvider.notifier).uploadPhoto(widget.reference.id, _photoFile!.path);
+      }
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
@@ -578,7 +617,61 @@ class _EditReferenceDialogState extends ConsumerState<_EditReferenceDialog> {
         children: [
           TextField(controller: _nameController, decoration: const InputDecoration(labelText: 'Référence')),
           const SizedBox(height: 10),
-          TextField(controller: _priceController, decoration: const InputDecoration(labelText: 'Prix de vente (Ar)'), keyboardType: TextInputType.number),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _purchasePriceController,
+                  decoration: const InputDecoration(labelText: "Prix d'achat (Ar)"),
+                  keyboardType: TextInputType.number,
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _priceController,
+                  decoration: const InputDecoration(labelText: 'Prix de vente (Ar)'),
+                  keyboardType: TextInputType.number,
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+            ],
+          ),
+          if (_margin != null) ...[
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Marge estimée : ${_ar(_margin!)} / unité',
+                style: TextStyle(fontSize: 12, color: _margin! >= 0 ? Colors.green : Colors.red),
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: _photoFile != null
+                    ? Image.file(File(_photoFile!.path), width: 56, height: 56, fit: BoxFit.cover)
+                    : (widget.reference.photo != null
+                        ? Image.network(widget.reference.photo!, width: 56, height: 56, fit: BoxFit.cover)
+                        : Container(
+                            width: 56,
+                            height: 56,
+                            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                            child: const Icon(Icons.image_outlined, size: 24),
+                          )),
+              ),
+              const SizedBox(width: 10),
+              OutlinedButton.icon(
+                onPressed: _pickPhoto,
+                icon: const Icon(Icons.photo_outlined, size: 18),
+                label: const Text('Changer la photo'),
+              ),
+            ],
+          ),
           const SizedBox(height: 10),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
@@ -623,32 +716,57 @@ class _AddReferenceDialog extends ConsumerStatefulWidget {
   ConsumerState<_AddReferenceDialog> createState() => _AddReferenceDialogState();
 }
 
+class _VariantDraft {
+  _VariantDraft({required this.couleur, required this.stock, required this.seuil});
+  final String couleur;
+  final int stock;
+  final int seuil;
+}
+
 class _AddReferenceDialogState extends ConsumerState<_AddReferenceDialog> {
   final _nameController = TextEditingController();
+  final _purchasePriceController = TextEditingController();
   final _priceController = TextEditingController();
-  final _couleurController = TextEditingController(text: 'Standard');
   final _stockController = TextEditingController(text: '0');
   final _seuilController = TextEditingController(text: '1');
   final _newTypeController = TextEditingController();
   final _newBrandController = TextEditingController();
+  final _newColorController = TextEditingController();
 
   int? _categoryId;
   int? _typeId;
   int? _brandId;
+  int? _variantColorId;
+  final List<_VariantDraft> _variants = [];
+  XFile? _photoFile;
   bool _saving = false;
   bool _creatingType = false;
   bool _creatingBrand = false;
+  bool _creatingColor = false;
 
   @override
   void dispose() {
     _nameController.dispose();
+    _purchasePriceController.dispose();
     _priceController.dispose();
-    _couleurController.dispose();
     _stockController.dispose();
     _seuilController.dispose();
     _newTypeController.dispose();
     _newBrandController.dispose();
+    _newColorController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickPhoto() async {
+    final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85);
+    if (file != null) setState(() => _photoFile = file);
+  }
+
+  double? get _margin {
+    final achat = double.tryParse(_purchasePriceController.text.replaceAll(',', '.'));
+    final vente = double.tryParse(_priceController.text.replaceAll(',', '.'));
+    if (achat == null || vente == null) return null;
+    return vente - achat;
   }
 
   List<ProductType> get _typesForCategory =>
@@ -682,12 +800,51 @@ class _AddReferenceDialogState extends ConsumerState<_AddReferenceDialog> {
     }
   }
 
+  Future<void> _createColor() async {
+    if (_newColorController.text.trim().isEmpty) return;
+    setState(() => _creatingColor = true);
+    try {
+      final created = await ref.read(colorsProvider.notifier).create(_newColorController.text.trim());
+      _newColorController.clear();
+      if (mounted) setState(() => _variantColorId = created.id);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+    } finally {
+      if (mounted) setState(() => _creatingColor = false);
+    }
+  }
+
+  void _addVariant() {
+    final colors = ref.read(colorsProvider).value ?? const <ProductColor>[];
+    final color = colors.where((c) => c.id == _variantColorId).firstOrNull;
+    if (color == null) return;
+    if (_variants.any((v) => v.couleur == color.nom)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cette couleur est déjà dans la liste')));
+      return;
+    }
+    setState(() {
+      _variants.add(_VariantDraft(
+        couleur: color.nom,
+        stock: int.tryParse(_stockController.text) ?? 0,
+        seuil: int.tryParse(_seuilController.text) ?? 1,
+      ));
+      _variantColorId = null;
+      _stockController.text = '0';
+      _seuilController.text = '1';
+    });
+  }
+
+  void _removeVariant(String couleur) {
+    setState(() => _variants.removeWhere((v) => v.couleur == couleur));
+  }
+
   Future<void> _save() async {
     if (_typeId == null || _brandId == null || _nameController.text.trim().isEmpty || _priceController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tous les champs sont requis')));
       return;
     }
     final price = double.tryParse(_priceController.text.replaceAll(',', '.'));
+    final purchasePrice = double.tryParse(_purchasePriceController.text.replaceAll(',', '.')) ?? 0;
     if (price == null) return;
     setState(() => _saving = true);
     try {
@@ -695,16 +852,19 @@ class _AddReferenceDialogState extends ConsumerState<_AddReferenceDialog> {
             typeId: _typeId!,
             brandId: _brandId!,
             referenceName: _nameController.text.trim(),
+            prixAchat: purchasePrice,
             prixVente: price,
           );
-      final couleur = _couleurController.text.trim();
-      if (couleur.isNotEmpty) {
+      for (final v in _variants) {
         await ref.read(referencesProvider.notifier).createVariant(
               productReferenceId: created.id,
-              couleur: couleur,
-              seuilAlerte: int.tryParse(_seuilController.text) ?? 1,
-              stockActuel: int.tryParse(_stockController.text) ?? 0,
+              couleur: v.couleur,
+              seuilAlerte: v.seuil,
+              stockActuel: v.stock,
             );
+      }
+      if (_photoFile != null) {
+        await ref.read(referencesProvider.notifier).uploadPhoto(created.id, _photoFile!.path);
       }
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
@@ -785,12 +945,19 @@ class _AddReferenceDialogState extends ConsumerState<_AddReferenceDialog> {
                 ],
               ),
               const SizedBox(height: 14),
+              TextField(
+                controller: _nameController,
+                decoration: const InputDecoration(labelText: 'Référence (modèle)', hintText: 'Ex: A16, S25 Ultra'),
+              ),
+              const SizedBox(height: 10),
               Row(
                 children: [
                   Expanded(
                     child: TextField(
-                      controller: _nameController,
-                      decoration: const InputDecoration(labelText: 'Référence (modèle)', hintText: 'Ex: A16, S25 Ultra'),
+                      controller: _purchasePriceController,
+                      decoration: const InputDecoration(labelText: "Prix d'achat (Ar)", hintText: '0'),
+                      keyboardType: TextInputType.number,
+                      onChanged: (_) => setState(() {}),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -799,24 +966,71 @@ class _AddReferenceDialogState extends ConsumerState<_AddReferenceDialog> {
                       controller: _priceController,
                       decoration: const InputDecoration(labelText: 'Prix vente (Ar)'),
                       keyboardType: TextInputType.number,
+                      onChanged: (_) => setState(() {}),
                     ),
                   ),
                 ],
               ),
-              const Divider(height: 24),
-              Text('Première couleur (optionnel)', style: Theme.of(context).textTheme.labelLarge),
+              if (_margin != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Marge estimée : ${_ar(_margin!)} / unité',
+                  style: TextStyle(fontSize: 12, color: _margin! >= 0 ? Colors.green : Colors.red),
+                ),
+              ],
+              const SizedBox(height: 14),
+              Text('Photo (optionnel)', style: Theme.of(context).textTheme.labelLarge),
               const SizedBox(height: 8),
               Row(
                 children: [
+                  if (_photoFile != null) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.file(File(_photoFile!.path), width: 64, height: 64, fit: BoxFit.cover),
+                    ),
+                    const SizedBox(width: 10),
+                  ],
+                  OutlinedButton.icon(
+                    onPressed: _pickPhoto,
+                    icon: const Icon(Icons.photo_outlined, size: 18),
+                    label: Text(_photoFile == null ? 'Choisir une photo' : 'Changer'),
+                  ),
+                ],
+              ),
+              const Divider(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Variantes (couleurs)', style: Theme.of(context).textTheme.labelLarge),
+                  if (_variants.isNotEmpty)
+                    Text(
+                      '${_variants.length} couleur(s) · ${_variants.fold<int>(0, (s, v) => s + v.stock)} unité(s)',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
                   Expanded(
                     flex: 2,
-                    child: TextField(controller: _couleurController, decoration: const InputDecoration(isDense: true, labelText: 'Couleur')),
+                    child: DropdownButtonFormField<int>(
+                      initialValue: _variantColorId,
+                      isExpanded: true,
+                      decoration: const InputDecoration(isDense: true, labelText: 'Couleur'),
+                      items: [
+                        for (final c in ref.watch(colorsProvider).value ?? const <ProductColor>[])
+                          DropdownMenuItem(value: c.id, child: Text(c.nom, overflow: TextOverflow.ellipsis)),
+                      ],
+                      onChanged: (v) => setState(() => _variantColorId = v),
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
                       controller: _stockController,
-                      decoration: const InputDecoration(isDense: true, labelText: 'Stock'),
+                      decoration: const InputDecoration(isDense: true, labelText: 'Nombre'),
                       keyboardType: TextInputType.number,
                     ),
                   ),
@@ -824,12 +1038,48 @@ class _AddReferenceDialogState extends ConsumerState<_AddReferenceDialog> {
                   Expanded(
                     child: TextField(
                       controller: _seuilController,
-                      decoration: const InputDecoration(isDense: true, labelText: 'Seuil'),
+                      decoration: const InputDecoration(isDense: true, labelText: "Seuil d'alerte"),
                       keyboardType: TextInputType.number,
                     ),
                   ),
                 ],
               ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: OutlinedButton.icon(
+                  onPressed: _variantColorId == null ? null : _addVariant,
+                  icon: const Icon(Icons.add, size: 16),
+                  label: const Text('Ajouter'),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _newColorController,
+                      decoration: const InputDecoration(isDense: true, hintText: 'Nouvelle couleur (ex: Bleu)'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton(onPressed: _creatingColor ? null : _createColor, child: const Text('Créer')),
+                ],
+              ),
+              if (_variants.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final v in _variants)
+                      Chip(
+                        label: Text('${v.couleur} · ${v.stock} (seuil ${v.seuil})'),
+                        onDeleted: () => _removeVariant(v.couleur),
+                      ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
@@ -851,25 +1101,46 @@ class _AddVariantDialog extends ConsumerStatefulWidget {
 }
 
 class _AddVariantDialogState extends ConsumerState<_AddVariantDialog> {
-  final _colorController = TextEditingController();
+  final _stockController = TextEditingController(text: '0');
   final _thresholdController = TextEditingController(text: '5');
+  final _newColorController = TextEditingController();
+  int? _colorId;
   bool _saving = false;
+  bool _creatingColor = false;
 
   @override
   void dispose() {
-    _colorController.dispose();
+    _stockController.dispose();
     _thresholdController.dispose();
+    _newColorController.dispose();
     super.dispose();
   }
 
+  Future<void> _createColor() async {
+    if (_newColorController.text.trim().isEmpty) return;
+    setState(() => _creatingColor = true);
+    try {
+      final created = await ref.read(colorsProvider.notifier).create(_newColorController.text.trim());
+      _newColorController.clear();
+      if (mounted) setState(() => _colorId = created.id);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+    } finally {
+      if (mounted) setState(() => _creatingColor = false);
+    }
+  }
+
   Future<void> _save() async {
-    if (_colorController.text.trim().isEmpty) return;
+    final colors = ref.read(colorsProvider).value ?? [];
+    final color = colors.where((c) => c.id == _colorId).firstOrNull;
+    if (color == null) return;
     setState(() => _saving = true);
     try {
       await ref.read(referencesProvider.notifier).createVariant(
             productReferenceId: widget.referenceId,
-            couleur: _colorController.text.trim(),
+            couleur: color.nom,
             seuilAlerte: int.tryParse(_thresholdController.text) ?? 0,
+            stockActuel: int.tryParse(_stockController.text) ?? 0,
           );
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
@@ -881,19 +1152,41 @@ class _AddVariantDialogState extends ConsumerState<_AddVariantDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = ref.watch(colorsProvider).value ?? const <ProductColor>[];
     return AlertDialog(
       title: const Text('Nouvelle couleur'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          TextField(controller: _colorController, decoration: const InputDecoration(labelText: 'Couleur')),
+          DropdownButtonFormField<int>(
+            initialValue: _colorId,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Couleur'),
+            items: [for (final c in colors) DropdownMenuItem(value: c.id, child: Text(c.nom))],
+            onChanged: (v) => setState(() => _colorId = v),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _newColorController,
+                  decoration: const InputDecoration(isDense: true, hintText: 'Nouvelle couleur'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton(onPressed: _creatingColor ? null : _createColor, child: const Text('Créer')),
+            ],
+          ),
+          const SizedBox(height: 10),
+          TextField(controller: _stockController, decoration: const InputDecoration(labelText: 'Nombre'), keyboardType: TextInputType.number),
           const SizedBox(height: 10),
           TextField(controller: _thresholdController, decoration: const InputDecoration(labelText: 'Seuil d\'alerte'), keyboardType: TextInputType.number),
         ],
       ),
       actions: [
         TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
-        FilledButton(onPressed: _saving ? null : _save, child: const Text('Ajouter')),
+        FilledButton(onPressed: (_saving || _colorId == null) ? null : _save, child: const Text('Ajouter')),
       ],
     );
   }

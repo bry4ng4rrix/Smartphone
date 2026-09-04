@@ -12,7 +12,7 @@ import {
 } from 'recharts';
 import {
   Package, AlertTriangle, TrendingUp, DollarSign, Users,
-  ArrowUp, ArrowDown, CheckCircle2,
+  ArrowUp, ArrowDown, CheckCircle2, ShieldAlert,
 } from 'lucide-react';
 import { AIAnalysis } from '@/components/ai-analysis';
 import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh';
@@ -23,7 +23,7 @@ const fmt = (n: number) =>
   new Intl.NumberFormat('fr-MG', { minimumFractionDigits: 0 }).format(Math.round(n));
 
 export default function DashboardPage() {
-  const { user } = useCurrentUser();
+  const { user, isGerant, loading: userLoading } = useCurrentUser();
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<string>('employee');
 
@@ -211,6 +211,32 @@ export default function DashboardPage() {
       </CardContent>
     </Card>
   );
+
+  if (userLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-16 w-full" />
+        ))}
+      </div>
+    );
+  }
+
+  if (!isGerant) {
+    return (
+      <div className="p-6">
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-20 text-center">
+            <ShieldAlert className="h-12 w-12 text-red-500 mb-4" />
+            <h2 className="text-xl font-bold">Accès refusé</h2>
+            <p className="text-muted-foreground mt-2">
+              Le tableau de bord est réservé au gérant.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-8">

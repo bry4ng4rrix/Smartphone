@@ -94,6 +94,36 @@ class BrandsNotifier extends AsyncNotifier<List<Brand>> {
 
 final brandsProvider = AsyncNotifierProvider<BrandsNotifier, List<Brand>>(BrandsNotifier.new);
 
+class ColorsNotifier extends AsyncNotifier<List<ProductColor>> {
+  late final _repo = ref.read(catalogRepositoryProvider);
+
+  @override
+  Future<List<ProductColor>> build() => _repo.colors();
+
+  Future<void> refresh() async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(() => _repo.colors());
+  }
+
+  Future<ProductColor> create(String nom) async {
+    final created = await _repo.createColor(nom);
+    await refresh();
+    return created;
+  }
+
+  Future<void> rename(int id, String nom) async {
+    await _repo.updateColor(id, nom);
+    await refresh();
+  }
+
+  Future<void> delete(int id) async {
+    await _repo.deleteColor(id);
+    await refresh();
+  }
+}
+
+final colorsProvider = AsyncNotifierProvider<ColorsNotifier, List<ProductColor>>(ColorsNotifier.new);
+
 /// Toutes les références (avec leurs variantes imbriquées) — volume attendu
 /// ~360 produits (§8.1 README), chargé en une fois pour le module Catalogue
 /// du gérant et filtré côté client.
@@ -112,20 +142,32 @@ class ReferencesNotifier extends AsyncNotifier<List<ProductReference>> {
     required int typeId,
     required int brandId,
     required String referenceName,
+    double prixAchat = 0,
     required double prixVente,
   }) async {
-    final created = await _repo.createReference(typeId: typeId, brandId: brandId, referenceName: referenceName, prixVente: prixVente);
+    final created = await _repo.createReference(
+      typeId: typeId,
+      brandId: brandId,
+      referenceName: referenceName,
+      prixAchat: prixAchat,
+      prixVente: prixVente,
+    );
     await refresh();
     return created;
   }
 
-  Future<void> updateReference(int id, {String? referenceName, double? prixVente, bool? actif}) async {
-    await _repo.updateReference(id, referenceName: referenceName, prixVente: prixVente, actif: actif);
+  Future<void> updateReference(int id, {String? referenceName, double? prixAchat, double? prixVente, bool? actif}) async {
+    await _repo.updateReference(id, referenceName: referenceName, prixAchat: prixAchat, prixVente: prixVente, actif: actif);
     await refresh();
   }
 
   Future<void> deleteReference(int id) async {
     await _repo.deleteReference(id);
+    await refresh();
+  }
+
+  Future<void> uploadPhoto(int id, String filePath) async {
+    await _repo.uploadReferencePhoto(id, filePath);
     await refresh();
   }
 

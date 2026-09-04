@@ -64,7 +64,6 @@ export default function ProductsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [manageBrandsOpen, setManageBrandsOpen] = useState(false);
   const [variantsOf, setVariantsOf] = useState<any | null>(null);
-  const [editTarget, setEditTarget] = useState<any | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
 
   const fetchAll = useCallback(async (silent = false) => {
@@ -264,10 +263,12 @@ export default function ProductsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12"></TableHead>
                     <TableHead>Sous-type</TableHead>
                     <TableHead>Marque</TableHead>
                     <TableHead>Référence</TableHead>
                     <TableHead>Prix vente</TableHead>
+                    {isGerant && <TableHead>Marge</TableHead>}
                     <TableHead>Variantes</TableHead>
                     <TableHead>Stock total</TableHead>
                     <TableHead>Statut</TableHead>
@@ -287,12 +288,36 @@ export default function ProductsPage() {
                         className="cursor-pointer"
                         onClick={() => setVariantsOf(ref)}
                       >
+                        <TableCell>
+                          {ref.photo ? (
+                            <img
+                              src={ref.photo}
+                              alt={ref.reference_name}
+                              className="h-8 w-8 rounded object-cover border"
+                            />
+                          ) : (
+                            <div className="h-8 w-8 rounded border bg-muted flex items-center justify-center">
+                              <Package className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                          )}
+                        </TableCell>
                         <TableCell>{ref.type_name}</TableCell>
                         <TableCell className="font-medium">
                           {ref.brand_name}
                         </TableCell>
                         <TableCell>{ref.reference_name}</TableCell>
                         <TableCell>{fmt(ref.prix_vente)}</TableCell>
+                        {isGerant && (
+                          <TableCell
+                            className={
+                              Number(ref.prix_vente) - Number(ref.prix_achat || 0) >= 0
+                                ? "text-green-600"
+                                : "text-red-600"
+                            }
+                          >
+                            {fmt(Number(ref.prix_vente) - Number(ref.prix_achat || 0))}
+                          </TableCell>
+                        )}
                         <TableCell>{(ref.variants || []).length}</TableCell>
                         <TableCell>{total}</TableCell>
                         <TableCell>
@@ -306,7 +331,7 @@ export default function ProductsPage() {
                                 variant="ghost"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setEditTarget(ref);
+                                  setVariantsOf(ref);
                                 }}
                               >
                                 <Pencil className="h-4 w-4" />
@@ -334,10 +359,15 @@ export default function ProductsPage() {
         </CardContent>
       </Card>
 
-      <VariantsDialog
+      <ProductDetailDialog
         reference={variantsOf}
+        categories={categories}
+        types={types}
+        brands={brands}
+        colors={colors}
         onOpenChange={(o) => !o && setVariantsOf(null)}
         onChanged={() => fetchAll(true)}
+        onCatalogChanged={() => fetchAll(true)}
         canEdit={isGerant}
       />
 
@@ -356,17 +386,6 @@ export default function ProductsPage() {
           onCatalogChanged={() => fetchAll(true)}
         />
       )}
-
-      <EditReferenceDialog
-        reference={editTarget}
-        types={types}
-        brands={brands}
-        onOpenChange={(o) => !o && setEditTarget(null)}
-        onSaved={() => {
-          setEditTarget(null);
-          fetchAll();
-        }}
-      />
 
       <ManageBrandsDialog
         open={manageBrandsOpen}
@@ -404,129 +423,389 @@ export default function ProductsPage() {
   );
 }
 
-function VariantsDialog({
+/// Détail produit complet (§8 du cahier des charges) : identité (catégorie →
+/// sous-type → marque → référence), prix/marge, photo, statut, ET gestion
+/// des variantes (couleurs) — tout en un seul endroit plutôt que dispersé
+/// entre un dialog "Modifier" et un dialog "Variantes" séparés.
+function ProductDetailDialog({
   reference,
+  categories,
+  types,
+  brands,
+  colors,
   onOpenChange,
   onChanged,
+  onCatalogChanged,
   canEdit,
 }: {
   reference: any | null;
+  categories: any[];
+  types: any[];
+  brands: any[];
+  colors: any[];
   onOpenChange: (o: boolean) => void;
   onChanged: () => void;
+  onCatalogChanged: () => void;
   canEdit: boolean;
 }) {
+  const [categoryId, setCategoryId] = useState("");
+  const [typeId, setTypeId] = useState("");
+  const [brandId, setBrandId] = useState("");
+  const [referenceName, setReferenceName] = useState("");
+  const [prixAchat, setPrixAchat] = useState("");
+  const [prixVente, setPrixVente] = useState("");
+  const [actif, setActif] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+
   const [adjusting, setAdjusting] = useState<any | null>(null);
-  const [newColor, setNewColor] = useState("");
+  const [deletingVariant, setDeletingVariant] = useState<any | null>(null);
+  const [variantColorId, setVariantColorId] = useState("");
   const [newStock, setNewStock] = useState(0);
   const [newSeuil, setNewSeuil] = useState(1);
-  const [adding, setAdding] = useState(false);
+  const [newColorName, setNewColorName] = useState("");
 
   useEffect(() => {
-    setNewColor("");
+    if (!reference) return;
+    setTypeId(String(reference.type));
+    setBrandId(String(reference.brand));
+    setReferenceName(reference.reference_name);
+    setPrixAchat(String(reference.prix_achat ?? "0"));
+    setPrixVente(String(reference.prix_vente));
+    setActif(reference.actif !== false);
+    setPhotoFile(null);
+    setPhotoPreview(reference.photo || null);
+    const currentType = types.find((t) => t.id === reference.type);
+    setCategoryId(currentType ? String(currentType.category) : "");
+    setVariantColorId("");
     setNewStock(0);
     setNewSeuil(1);
-    setAdding(false);
-  }, [reference]);
+    setNewColorName("");
+  }, [reference, types]);
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setPhotoFile(file);
+      setPhotoPreview(URL.createObjectURL(file));
+    }
+  };
 
   if (!reference) return null;
 
+  const typesForCategory = types.filter((t) => String(t.category) === categoryId);
+  const usedColors = new Set((reference.variants || []).map((v: any) => v.couleur));
+  const availableColors = colors.filter((c: any) => !usedColors.has(c.nom));
+  const margin =
+    prixAchat && prixVente ? Number(prixVente) - Number(prixAchat) : null;
+
+  const submit = async () => {
+    if (!referenceName.trim() || !prixVente) {
+      toast.error("Champs requis manquants");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await djangoClient.catalog.references.update(reference.id, {
+        type: Number(typeId),
+        brand: Number(brandId),
+        reference_name: referenceName.trim(),
+        prix_achat: prixAchat || 0,
+        prix_vente: prixVente,
+        actif,
+      });
+      if (photoFile) {
+        const fd = new FormData();
+        fd.append("photo", photoFile);
+        await djangoClient.patchFormData(`/catalog/references/${reference.id}/`, fd);
+      }
+      toast.success("Référence mise à jour");
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || "Erreur lors de la mise à jour");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const createColor = async () => {
+    if (!newColorName.trim()) return;
+    try {
+      const created = await djangoClient.catalog.colors.create({ nom: newColorName.trim() });
+      toast.success("Couleur créée");
+      setNewColorName("");
+      onCatalogChanged();
+      setVariantColorId(String(created.id));
+    } catch (err: any) {
+      toast.error(err.message || "Erreur");
+    }
+  };
+
   const addVariant = async () => {
-    if (!newColor.trim()) {
-      toast.error("Couleur requise");
+    const color = colors.find((c: any) => String(c.id) === variantColorId);
+    if (!color) {
+      toast.error("Choisissez une couleur");
       return;
     }
     try {
       await djangoClient.catalog.variants.create({
         product_reference: reference.id,
-        couleur: newColor.trim(),
+        couleur: color.nom,
         stock_actuel: newStock,
         seuil_alerte: newSeuil,
       });
       toast.success("Variante ajoutée");
-      setAdding(false);
+      setVariantColorId("");
+      setNewStock(0);
+      setNewSeuil(1);
       onChanged();
     } catch (err: any) {
       toast.error(err.message || "Erreur");
     }
   };
 
+  const removeVariant = async () => {
+    if (!deletingVariant) return;
+    try {
+      await djangoClient.catalog.variants.delete(deletingVariant.id);
+      toast.success("Variante supprimée");
+      setDeletingVariant(null);
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || "Suppression impossible");
+    }
+  };
+
   return (
     <Dialog open={!!reference} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {reference.brand_name} {reference.reference_name}
           </DialogTitle>
           <DialogDescription>
-            {reference.type_name} — {fmt(reference.prix_vente)}
+            Catégorie → Sous-type → Marque → Référence, prix, photo et variantes (§8 du cahier des charges).
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-2">
-          {(reference.variants || []).map((v: any) => (
-            <div
-              key={v.id}
-              className="flex items-center justify-between border rounded-md px-3 py-2"
-            >
-              <div>
-                <p className="font-medium text-sm">{v.couleur}</p>
-                <p className="text-xs text-muted-foreground">
-                  Stock: {v.stock_actuel} · Seuil: {v.seuil_alerte}
-                </p>
+
+        <div className="grid md:grid-cols-2 gap-6">
+          {/* Colonne gauche : identité, prix, photo, statut */}
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>Catégorie</Label>
+              <Select
+                value={categoryId}
+                onValueChange={(v) => {
+                  setCategoryId(v);
+                  setTypeId("");
+                }}
+                disabled={!canEdit}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Choisir une catégorie" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)}>
+                      {c.nom}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Sous-type</Label>
+              <Select value={typeId} onValueChange={setTypeId} disabled={!canEdit}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Choisir un sous-type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(categoryId ? typesForCategory : types).map((t) => (
+                    <SelectItem key={t.id} value={String(t.id)}>
+                      {t.nom}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Marque</Label>
+              <Select value={brandId} onValueChange={setBrandId} disabled={!canEdit}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {brands.map((b) => (
+                    <SelectItem key={b.id} value={String(b.id)}>
+                      {b.nom}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Référence (modèle)</Label>
+              <Input
+                value={referenceName}
+                onChange={(e) => setReferenceName(e.target.value)}
+                disabled={!canEdit}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>Prix d&apos;achat (Ar)</Label>
+                <Input
+                  type="number"
+                  value={prixAchat}
+                  onChange={(e) => setPrixAchat(e.target.value)}
+                  disabled={!canEdit}
+                />
               </div>
-              {canEdit && (
+              <div className="space-y-1">
+                <Label>Prix de vente (Ar)</Label>
+                <Input
+                  type="number"
+                  value={prixVente}
+                  onChange={(e) => setPrixVente(e.target.value)}
+                  disabled={!canEdit}
+                />
+              </div>
+            </div>
+            {margin !== null && (
+              <p className={`text-xs -mt-2 ${margin >= 0 ? "text-green-600" : "text-red-600"}`}>
+                Marge estimée : {fmt(margin)} / unité
+              </p>
+            )}
+            <div className="space-y-1">
+              <Label>Photo</Label>
+              <div className="flex items-center gap-3">
+                {photoPreview ? (
+                  <img
+                    src={photoPreview}
+                    alt="Aperçu"
+                    className="h-16 w-16 object-cover rounded-md border shrink-0"
+                  />
+                ) : (
+                  <div className="h-16 w-16 rounded-md border bg-muted flex items-center justify-center shrink-0">
+                    <Package className="h-6 w-6 text-muted-foreground" />
+                  </div>
+                )}
+                {canEdit && (
+                  <Input type="file" accept="image/*" onChange={handlePhotoChange} />
+                )}
+              </div>
+            </div>
+            {canEdit && (
+              <div className="flex items-center gap-2">
                 <Button
+                  type="button"
                   size="sm"
-                  variant="outline"
-                  onClick={() => setAdjusting(v)}
+                  variant={actif ? "default" : "outline"}
+                  onClick={() => setActif(!actif)}
                 >
-                  Ajuster
+                  {actif ? "Active" : "Inactive"}
                 </Button>
+                <span className="text-xs text-muted-foreground">
+                  Inactive = invisible dans la recherche de commande.
+                </span>
+              </div>
+            )}
+            {canEdit && (
+              <Button onClick={submit} disabled={submitting} className="w-full">
+                {submitting ? "Enregistrement…" : "Enregistrer les informations"}
+              </Button>
+            )}
+          </div>
+
+          {/* Colonne droite : variantes (couleurs) */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-semibold">
+                Variantes ({(reference.variants || []).length})
+              </Label>
+              <span className="text-xs text-muted-foreground">
+                Stock total : {(reference.variants || []).reduce((s: number, v: any) => s + v.stock_actuel, 0)}
+              </span>
+            </div>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {(reference.variants || []).map((v: any) => (
+                <div
+                  key={v.id}
+                  className="flex items-center justify-between border rounded-md px-3 py-2"
+                >
+                  <div>
+                    <p className="font-medium text-sm">{v.couleur}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Stock: {v.stock_actuel} · Seuil: {v.seuil_alerte}
+                    </p>
+                  </div>
+                  {canEdit && (
+                    <div className="flex items-center gap-1">
+                      <Button size="sm" variant="outline" onClick={() => setAdjusting(v)}>
+                        Ajuster
+                      </Button>
+                      <Button size="icon" variant="ghost" onClick={() => setDeletingVariant(v)}>
+                        <Trash2 className="h-4 w-4 text-red-500" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {(reference.variants || []).length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  Aucune couleur pour cette référence.
+                </p>
               )}
             </div>
-          ))}
-        </div>
 
-        {canEdit &&
-          (adding ? (
-            <div className="border rounded-md p-3 space-y-2">
-              <div className="grid grid-cols-3 gap-2">
-                <Input
-                  placeholder="Couleur"
-                  value={newColor}
-                  onChange={(e) => setNewColor(e.target.value)}
-                  className="col-span-3"
-                />
-                <Input
-                  type="number"
-                  placeholder="Stock"
-                  value={newStock}
-                  onChange={(e) => setNewStock(Number(e.target.value))}
-                />
-                <Input
-                  type="number"
-                  placeholder="Seuil alerte"
-                  value={newSeuil}
-                  onChange={(e) => setNewSeuil(Number(e.target.value))}
-                />
+            {canEdit && (
+              <div className="border rounded-md p-3 space-y-2">
+                <p className="text-sm font-medium">Ajouter une couleur</p>
+                <div className="grid grid-cols-3 gap-2">
+                  <Select value={variantColorId} onValueChange={setVariantColorId}>
+                    <SelectTrigger className="col-span-3">
+                      <SelectValue placeholder="Couleur" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableColors.map((c: any) => (
+                        <SelectItem key={c.id} value={String(c.id)}>
+                          {c.nom}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    type="number"
+                    placeholder="Nombre"
+                    value={newStock}
+                    onChange={(e) => setNewStock(Number(e.target.value))}
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Seuil d'alerte"
+                    value={newSeuil}
+                    onChange={(e) => setNewSeuil(Number(e.target.value))}
+                  />
+                  <Button size="sm" onClick={addVariant} disabled={!variantColorId} className="col-span-1">
+                    <Plus className="h-4 w-4 mr-1" /> Ajouter
+                  </Button>
+                </div>
+                <div className="flex gap-2 pt-1 border-t">
+                  <Input
+                    placeholder="Nouvelle couleur (ex: Bleu)"
+                    value={newColorName}
+                    onChange={(e) => setNewColorName(e.target.value)}
+                    className="flex-1 h-8 text-xs"
+                  />
+                  <Button size="sm" variant="outline" className="h-8" onClick={createColor}>
+                    Créer
+                  </Button>
+                </div>
               </div>
-              <div className="flex gap-2">
-                <Button size="sm" onClick={addVariant}>
-                  Ajouter
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setAdding(false)}
-                >
-                  Annuler
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
-              <Plus className="h-4 w-4 mr-2" /> Ajouter une couleur
-            </Button>
-          ))}
+            )}
+          </div>
+        </div>
 
         <AdjustStockDialog
           variant={adjusting}
@@ -536,6 +815,23 @@ function VariantsDialog({
             onChanged();
           }}
         />
+
+        <Dialog open={!!deletingVariant} onOpenChange={(o) => !o && setDeletingVariant(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Supprimer la couleur {deletingVariant?.couleur} ?</DialogTitle>
+              <DialogDescription>Cette variante et son historique de stock seront supprimés.</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeletingVariant(null)}>
+                Annuler
+              </Button>
+              <Button variant="destructive" onClick={removeVariant}>
+                Supprimer
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </DialogContent>
     </Dialog>
   );
@@ -673,6 +969,8 @@ function CreateReferenceDialog({
   const [newTypeName, setNewTypeName] = useState("");
   const [newBrandName, setNewBrandName] = useState("");
   const [newColorName, setNewColorName] = useState("");
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -689,7 +987,17 @@ function CreateReferenceDialog({
     setNewTypeName("");
     setNewBrandName("");
     setNewColorName("");
+    setPhotoFile(null);
+    setPhotoPreview(null);
   }, [open]);
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setPhotoFile(file);
+      setPhotoPreview(URL.createObjectURL(file));
+    }
+  };
 
   const margin =
     prixAchat && prixVente ? Number(prixVente) - Number(prixAchat) : null;
@@ -778,6 +1086,11 @@ function CreateReferenceDialog({
         prix_achat: prixAchat || 0,
         prix_vente: prixVente,
       });
+      if (photoFile) {
+        const fd = new FormData();
+        fd.append("photo", photoFile);
+        await djangoClient.patchFormData(`/catalog/references/${ref.id}/`, fd);
+      }
       for (const v of variants) {
         await djangoClient.catalog.variants.create({
           product_reference: ref.id,
@@ -933,6 +1246,20 @@ function CreateReferenceDialog({
             </p>
           )}
 
+          <div className="space-y-1">
+            <Label>Photo (optionnel)</Label>
+            <Input type="file" accept="image/*" onChange={handlePhotoChange} />
+            {photoPreview && (
+              <div className="mt-2 flex justify-center">
+                <img
+                  src={photoPreview}
+                  alt="Aperçu"
+                  className="h-24 w-24 object-cover rounded-md border"
+                />
+              </div>
+            )}
+          </div>
+
           <div className="border-t pt-3 space-y-2">
             <div className="flex items-center justify-between">
               <p className="text-sm font-medium">Variantes (couleurs)</p>
@@ -1034,166 +1361,6 @@ function CreateReferenceDialog({
           </Button>
           <Button onClick={submit} disabled={submitting}>
             {submitting ? "Création…" : "Créer la référence"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function EditReferenceDialog({
-  reference,
-  types,
-  brands,
-  onOpenChange,
-  onSaved,
-}: {
-  reference: any | null;
-  types: any[];
-  brands: any[];
-  onOpenChange: (o: boolean) => void;
-  onSaved: () => void;
-}) {
-  const [typeId, setTypeId] = useState("");
-  const [brandId, setBrandId] = useState("");
-  const [referenceName, setReferenceName] = useState("");
-  const [prixAchat, setPrixAchat] = useState("");
-  const [prixVente, setPrixVente] = useState("");
-  const [actif, setActif] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (!reference) return;
-    setTypeId(String(reference.type));
-    setBrandId(String(reference.brand));
-    setReferenceName(reference.reference_name);
-    setPrixAchat(String(reference.prix_achat ?? "0"));
-    setPrixVente(String(reference.prix_vente));
-    setActif(reference.actif !== false);
-  }, [reference]);
-
-  if (!reference) return null;
-
-  const margin =
-    prixAchat && prixVente ? Number(prixVente) - Number(prixAchat) : null;
-
-  const submit = async () => {
-    if (!referenceName.trim() || !prixVente) {
-      toast.error("Champs requis manquants");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      await djangoClient.catalog.references.update(reference.id, {
-        type: Number(typeId),
-        brand: Number(brandId),
-        reference_name: referenceName.trim(),
-        prix_achat: prixAchat || 0,
-        prix_vente: prixVente,
-        actif,
-      });
-      toast.success("Référence mise à jour");
-      onSaved();
-    } catch (err: any) {
-      toast.error(err.message || "Erreur lors de la mise à jour");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog open={!!reference} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Modifier la référence</DialogTitle>
-          <DialogDescription>
-            {reference.category_name} → {reference.type_name}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="space-y-1">
-            <Label>Sous-type</Label>
-            <Select value={typeId} onValueChange={setTypeId}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {types.map((t) => (
-                  <SelectItem key={t.id} value={String(t.id)}>
-                    {t.nom}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label>Marque</Label>
-            <Select value={brandId} onValueChange={setBrandId}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {brands.map((b) => (
-                  <SelectItem key={b.id} value={String(b.id)}>
-                    {b.nom}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label>Référence (modèle)</Label>
-            <Input
-              value={referenceName}
-              onChange={(e) => setReferenceName(e.target.value)}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label>Prix d&apos;achat (Ar)</Label>
-              <Input
-                type="number"
-                value={prixAchat}
-                onChange={(e) => setPrixAchat(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Prix de vente (Ar)</Label>
-              <Input
-                type="number"
-                value={prixVente}
-                onChange={(e) => setPrixVente(e.target.value)}
-              />
-            </div>
-          </div>
-          {margin !== null && (
-            <p
-              className={`text-xs -mt-2 ${margin >= 0 ? "text-green-600" : "text-red-600"}`}
-            >
-              Marge estimée : {fmt(margin)} / unité
-            </p>
-          )}
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant={actif ? "default" : "outline"}
-              onClick={() => setActif(!actif)}
-            >
-              {actif ? "Active" : "Inactive"}
-            </Button>
-            <span className="text-xs text-muted-foreground">
-              Une référence inactive n'apparaît plus dans la recherche de
-              commande.
-            </span>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Annuler
-          </Button>
-          <Button onClick={submit} disabled={submitting}>
-            {submitting ? "Enregistrement…" : "Enregistrer"}
           </Button>
         </DialogFooter>
       </DialogContent>

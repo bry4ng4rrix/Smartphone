@@ -62,7 +62,7 @@ class ProductReferenceSerializer(serializers.ModelSerializer):
         model = ProductReference
         fields = [
             "id", "type", "type_name", "category_name", "brand", "brand_name",
-            "reference_name", "prix_achat", "prix_vente", "actif", "variants", "magasin",
+            "reference_name", "prix_achat", "prix_vente", "photo", "actif", "variants", "magasin",
         ]
 
 
@@ -76,7 +76,7 @@ class ProductReferenceAutocompleteSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ProductReference
-        fields = ["id", "type", "type_name", "brand", "brand_name", "reference_name", "prix_vente", "couleurs"]
+        fields = ["id", "type", "type_name", "brand", "brand_name", "reference_name", "prix_vente", "photo", "couleurs"]
 
     def get_couleurs(self, obj):
         return [

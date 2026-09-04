@@ -34,6 +34,7 @@ const navigationItems = [
     label: "Tableau de bord",
     href: "/dashboard",
     icon: BarChart3,
+    adminOnly: true,
   },
   {
     label: "Produits",
