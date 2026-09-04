@@ -33,6 +33,7 @@ export default function ProductsPage() {
   const [brands, setBrands] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [brandFilter, setBrandFilter] = useState<string>('ALL');
   const [createOpen, setCreateOpen] = useState(false);
@@ -64,9 +65,24 @@ export default function ProductsPage() {
   useRealtimeRefresh(['product_variant', 'stock_movement'], () => fetchAll(true));
   useEffect(() => { if (!userLoading) fetchAll(); }, [userLoading, fetchAll]);
 
+  // Types du catalogue exposent leur `category` (id) — pas de champ `category`
+  // direct sur la référence (seulement `category_name` en lecture), donc on
+  // reconstruit le lien type -> catégorie côté client pour filtrer.
+  const typeToCategory = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const t of types) map[String(t.id)] = String(t.category);
+    return map;
+  }, [types]);
+
+  const typesForCategoryFilter = useMemo(
+    () => (categoryFilter === 'ALL' ? types : types.filter((t) => String(t.category) === categoryFilter)),
+    [types, categoryFilter],
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return references.filter((r) => {
+      if (categoryFilter !== 'ALL' && typeToCategory[String(r.type)] !== categoryFilter) return false;
       if (typeFilter !== 'ALL' && String(r.type) !== typeFilter) return false;
       if (brandFilter !== 'ALL' && String(r.brand) !== brandFilter) return false;
       if (!q) return true;
@@ -76,7 +92,7 @@ export default function ProductsPage() {
         (r.category_name || '').toLowerCase().includes(q)
       );
     });
-  }, [references, search, typeFilter, brandFilter]);
+  }, [references, search, categoryFilter, typeFilter, brandFilter, typeToCategory]);
 
   const stockInfo = (ref: any) => {
     const variants = ref.variants || [];
@@ -129,11 +145,21 @@ export default function ProductsPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input placeholder="Marque, référence..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
         </div>
+        <Select
+          value={categoryFilter}
+          onValueChange={(v) => { setCategoryFilter(v); setTypeFilter('ALL'); }}
+        >
+          <SelectTrigger className="w-full sm:w-56"><SelectValue placeholder="Toutes les catégories" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">Toutes les catégories</SelectItem>
+            {categories.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.nom}</SelectItem>)}
+          </SelectContent>
+        </Select>
         <Select value={typeFilter} onValueChange={setTypeFilter}>
           <SelectTrigger className="w-full sm:w-56"><SelectValue placeholder="Tous les sous-types" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="ALL">Tous les sous-types</SelectItem>
-            {types.map((t) => <SelectItem key={t.id} value={String(t.id)}>{t.nom}</SelectItem>)}
+            {typesForCategoryFilter.map((t) => <SelectItem key={t.id} value={String(t.id)}>{t.nom}</SelectItem>)}
           </SelectContent>
         </Select>
         <Select value={brandFilter} onValueChange={setBrandFilter}>

@@ -123,11 +123,20 @@ class CatalogRepository {
     return (response.data as List).map((e) => ProductVariant.fromJson(e as Map<String, dynamic>)).toList();
   }
 
-  Future<ProductVariant> createVariant({required int productReferenceId, required String couleur, int seuilAlerte = 0}) async {
+  /// [stockActuel] est envoyé pour parité avec le formulaire web, mais le
+  /// backend l'ignore (`stock_actuel` est en lecture seule sur le
+  /// serializer — le stock ne bouge que via un mouvement tracé, §10 README).
+  Future<ProductVariant> createVariant({
+    required int productReferenceId,
+    required String couleur,
+    int seuilAlerte = 0,
+    int? stockActuel,
+  }) async {
     final response = await _dio.post('catalog/variants/', data: {
       'product_reference': productReferenceId,
       'couleur': couleur,
       'seuil_alerte': seuilAlerte,
+      if (stockActuel != null) 'stock_actuel': stockActuel,
     });
     return ProductVariant.fromJson(response.data as Map<String, dynamic>);
   }

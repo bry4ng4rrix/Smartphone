@@ -1,33 +1,43 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../core/api_client.dart';
+import '../../core/constants.dart';
 import '../../data/repositories/stock_repository.dart';
 import '../../models/catalog.dart';
+import '../../models/stock.dart';
 import '../../state/catalog_provider.dart';
+import '../../state/stock_provider.dart';
 import '../../widgets/async_state_widgets.dart';
 import '../../widgets/status_badge.dart';
 
 final _moneyFmt = NumberFormat.decimalPattern('fr_FR');
 String _ar(num v) => '${_moneyFmt.format(v.round())} Ar';
+final _dateFmt = DateFormat('dd/MM/yyyy HH:mm');
 
-/// Module Catalogue (§8 README) : catégories/sous-types/marques/références
-/// et leurs variantes couleur — le stock lui-même reste modifiable
-/// uniquement via le module Stock (mouvements/ajustements).
+/// Module Produits (§7.4/7.5/§8 README) : catalogue (catégories/sous-types/
+/// marques/références/variantes) ET suivi de stock (ruptures, historique
+/// des mouvements) réunis dans une seule page — comme la page Produits de
+/// Next.js, qui est le hub unique pour tout ce qui touche au produit et à
+/// son stock (pas de page "Stock" séparée côté web).
 class CatalogScreen extends StatelessWidget {
   const CatalogScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 2,
+      length: 4,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Catalogue'),
-          bottom: const TabBar(tabs: [Tab(text: 'Produits'), Tab(text: 'Configuration')]),
+          title: const Text('Produits'),
+          bottom: const TabBar(
+            isScrollable: true,
+            tabs: [Tab(text: 'Références'), Tab(text: 'Ruptures'), Tab(text: 'Mouvements'), Tab(text: 'Configuration')],
+          ),
         ),
-        body: const TabBarView(children: [_ReferencesTab(), _ConfigTab()]),
+        body: const TabBarView(children: [_ReferencesTab(), _RupturesTab(), _MovementsTab(), _ConfigTab()]),
       ),
     );
   }
@@ -43,6 +53,7 @@ class _ReferencesTab extends ConsumerStatefulWidget {
 class _ReferencesTabState extends ConsumerState<_ReferencesTab> {
   final _searchController = TextEditingController();
   String _search = '';
+  int? _categoryFilter;
   int? _typeFilter;
   int? _brandFilter;
 
@@ -55,8 +66,10 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> {
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(referencesProvider);
+    final categories = ref.watch(categoriesProvider).value ?? [];
     final types = ref.watch(typesProvider).value ?? [];
     final brands = ref.watch(brandsProvider).value ?? [];
+    final typesForCategory = _categoryFilter == null ? types : types.where((t) => t.categoryId == _categoryFilter).toList();
 
     return Scaffold(
       body: Column(
@@ -69,32 +82,59 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> {
               onChanged: (v) => setState(() => _search = v.trim().toLowerCase()),
             ),
           ),
-          SizedBox(
-            height: 44,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
               children: [
-                _FilterChip(label: 'Tous sous-types', selected: _typeFilter == null, onTap: () => setState(() => _typeFilter = null)),
-                for (final t in types)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 6),
-                    child: _FilterChip(label: t.nom, selected: _typeFilter == t.id, onTap: () => setState(() => _typeFilter = t.id)),
+                Expanded(
+                  child: DropdownButtonFormField<int?>(
+                    initialValue: _categoryFilter,
+                    isExpanded: true,
+                    decoration: const InputDecoration(isDense: true, labelText: 'Catégorie', border: OutlineInputBorder()),
+                    items: [
+                      const DropdownMenuItem(value: null, child: Text('Toutes les catégories')),
+                      for (final c in categories) DropdownMenuItem(value: c.id, child: Text(c.nom, overflow: TextOverflow.ellipsis)),
+                    ],
+                    onChanged: (v) => setState(() {
+                      _categoryFilter = v;
+                      _typeFilter = null;
+                    }),
                   ),
-                const SizedBox(width: 12),
-                _FilterChip(label: 'Toutes marques', selected: _brandFilter == null, onTap: () => setState(() => _brandFilter = null)),
-                for (final b in brands)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 6),
-                    child: _FilterChip(label: b.nom, selected: _brandFilter == b.id, onTap: () => setState(() => _brandFilter = b.id)),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: DropdownButtonFormField<int?>(
+                    initialValue: _typeFilter,
+                    isExpanded: true,
+                    decoration: const InputDecoration(isDense: true, labelText: 'Sous-type', border: OutlineInputBorder()),
+                    items: [
+                      const DropdownMenuItem(value: null, child: Text('Tous les sous-types')),
+                      for (final t in typesForCategory) DropdownMenuItem(value: t.id, child: Text(t.nom, overflow: TextOverflow.ellipsis)),
+                    ],
+                    onChanged: (v) => setState(() => _typeFilter = v),
                   ),
+                ),
               ],
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+            child: DropdownButtonFormField<int?>(
+              initialValue: _brandFilter,
+              isExpanded: true,
+              decoration: const InputDecoration(isDense: true, labelText: 'Marque', border: OutlineInputBorder()),
+              items: [
+                const DropdownMenuItem(value: null, child: Text('Toutes les marques')),
+                for (final b in brands) DropdownMenuItem(value: b.id, child: Text(b.nom, overflow: TextOverflow.ellipsis)),
+              ],
+              onChanged: (v) => setState(() => _brandFilter = v),
+            ),
+          ),
+          const SizedBox(height: 8),
           const Divider(height: 1),
           Expanded(
             child: switch (async) {
-              AsyncData(:final value) => _buildList(value),
+              AsyncData(:final value) => _buildList(value, types),
               AsyncError(:final error) => ErrorState(
                   message: ApiClient.messageFromError(error),
                   onRetry: () => ref.read(referencesProvider.notifier).refresh(),
@@ -112,8 +152,10 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> {
     );
   }
 
-  Widget _buildList(List<ProductReference> all) {
+  Widget _buildList(List<ProductReference> all, List<ProductType> types) {
+    final typeToCategory = {for (final t in types) t.id: t.categoryId};
     final filtered = all.where((r) {
+      if (_categoryFilter != null && typeToCategory[r.typeId] != _categoryFilter) return false;
       if (_typeFilter != null && r.typeId != _typeFilter) return false;
       if (_brandFilter != null && r.brandId != _brandFilter) return false;
       if (_search.isEmpty) return true;
@@ -134,27 +176,19 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> {
   }
 
   Future<void> _showAddReferenceDialog(BuildContext context, WidgetRef ref) async {
+    final categories = ref.read(categoriesProvider).value ?? [];
     final types = ref.read(typesProvider).value ?? [];
     final brands = ref.read(brandsProvider).value ?? [];
-    if (types.isEmpty || brands.isEmpty) {
+    if (categories.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Créez d\'abord une catégorie/sous-type et une marque (onglet Configuration).')),
+        const SnackBar(content: Text('Créez d\'abord une catégorie (Paramètres → Catalogue, ou onglet Configuration).')),
       );
       return;
     }
-    await showDialog<void>(context: context, builder: (_) => _AddReferenceDialog(types: types, brands: brands));
-  }
-}
-
-class _FilterChip extends StatelessWidget {
-  const _FilterChip({required this.label, required this.selected, required this.onTap});
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return ChoiceChip(label: Text(label), selected: selected, onSelected: (_) => onTap());
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _AddReferenceDialog(categories: categories, types: types, brands: brands),
+    );
   }
 }
 
@@ -261,6 +295,8 @@ class _QuickAdjustDialogState extends ConsumerState<_QuickAdjustDialog> {
     try {
       await StockRepository().adjust(productVariantId: widget.variantId, type: _type, quantite: qty, note: _noteController.text.trim());
       ref.invalidate(referencesProvider);
+      ref.invalidate(rupturesProvider);
+      ref.invalidate(movementsProvider(null));
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
@@ -292,6 +328,209 @@ class _QuickAdjustDialogState extends ConsumerState<_QuickAdjustDialog> {
         FilledButton(onPressed: _saving ? null : _save, child: const Text('Enregistrer')),
       ],
     );
+  }
+}
+
+/// Onglet "Ruptures" (§7.5 README) — produits en rupture ou sous le seuil
+/// d'alerte, avec export PDF de réapprovisionnement et ajustement rapide.
+class _RupturesTab extends ConsumerWidget {
+  const _RupturesTab();
+
+  Future<void> _exportPdf(BuildContext context, WidgetRef ref) async {
+    try {
+      final bytes = await ref.read(stockRepositoryProvider).ruptureExportPdfBytes();
+      final file = XFile.fromData(bytes, name: 'reapprovisionnement.pdf', mimeType: 'application/pdf');
+      await SharePlus.instance.share(ShareParams(files: [file], text: 'Liste de réapprovisionnement'));
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(rupturesProvider);
+
+    return Scaffold(
+      body: switch (async) {
+        AsyncData(:final value) => value.isEmpty
+            ? const EmptyState(message: 'Aucune rupture ni stock bas.', icon: Icons.check_circle_outline)
+            : RefreshIndicator(
+                onRefresh: () => ref.read(rupturesProvider.notifier).refresh(),
+                child: ListView.builder(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: value.length,
+                  itemBuilder: (context, i) => _RuptureTile(item: value[i]),
+                ),
+              ),
+        AsyncError(:final error) => ErrorState(
+            message: ApiClient.messageFromError(error),
+            onRetry: () => ref.read(rupturesProvider.notifier).refresh(),
+          ),
+        _ => const LoadingState(),
+      },
+      floatingActionButton: (async.value?.isNotEmpty ?? false)
+          ? FloatingActionButton.extended(
+              onPressed: () => _exportPdf(context, ref),
+              icon: const Icon(Icons.picture_as_pdf_outlined),
+              label: const Text('Exporter PDF'),
+            )
+          : null,
+    );
+  }
+}
+
+class _RuptureTile extends ConsumerWidget {
+  const _RuptureTile({required this.item});
+  final RuptureItem item;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: ListTile(
+        title: Text('${item.brandName} ${item.referenceName} — ${item.couleur}'),
+        subtitle: Text('${item.categoryName} / ${item.typeName} · Stock : ${item.stockActuel} · Seuil : ${item.seuilAlerte}'),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            StockLevelBadge(isRupture: item.isRupture, isStockBas: !item.isRupture),
+            IconButton(
+              tooltip: 'Ajuster le stock',
+              icon: const Icon(Icons.add_box_outlined),
+              onPressed: () => showDialog<void>(
+                context: context,
+                builder: (_) => _QuickAdjustDialog(variantId: item.id, label: '${item.brandName} ${item.referenceName} — ${item.couleur}'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Onglet "Mouvements" (§7.4 README) — historique des entrées/sorties de
+/// stock, avec ajustement manuel libre (choix du produit dans un sélecteur).
+class _MovementsTab extends ConsumerWidget {
+  const _MovementsTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(movementsProvider(null));
+
+    return Scaffold(
+      body: switch (async) {
+        AsyncData(:final value) => value.isEmpty
+            ? const EmptyState(message: 'Aucun mouvement de stock.', icon: Icons.sync_alt)
+            : RefreshIndicator(
+                onRefresh: () => ref.read(movementsProvider(null).notifier).refresh(),
+                child: ListView.builder(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: value.length,
+                  itemBuilder: (context, i) => _MovementTile(movement: value[i]),
+                ),
+              ),
+        AsyncError(:final error) => ErrorState(
+            message: ApiClient.messageFromError(error),
+            onRetry: () => ref.read(movementsProvider(null).notifier).refresh(),
+          ),
+        _ => const LoadingState(),
+      },
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => showDialog<void>(context: context, builder: (_) => const _AdjustDialogWithPicker()),
+        icon: const Icon(Icons.add),
+        label: const Text('Ajustement'),
+      ),
+    );
+  }
+}
+
+class _MovementTile extends StatelessWidget {
+  const _MovementTile({required this.movement});
+  final StockMovement movement;
+
+  @override
+  Widget build(BuildContext context) {
+    final isEntree = movement.type == StockMovementType.entree;
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: (isEntree ? Colors.green : Colors.red).withValues(alpha: 0.15),
+          child: Icon(isEntree ? Icons.arrow_downward : Icons.arrow_upward, color: isEntree ? Colors.green : Colors.red, size: 18),
+        ),
+        title: Text(movement.variantLabel),
+        subtitle: Text(
+          '${movement.type.label} de ${movement.quantite} · ${movement.origine}'
+          '${movement.note != null && movement.note!.isNotEmpty ? ' · ${movement.note}' : ''}'
+          '${movement.timestamp != null ? '\n${_dateFmt.format(movement.timestamp!)}' : ''}'
+          '${movement.userName != null ? ' · ${movement.userName}' : ''}',
+        ),
+        isThreeLine: true,
+      ),
+    );
+  }
+}
+
+/// Même dialog que dans l'onglet Références, mais avec un sélecteur de
+/// variante (accès depuis l'onglet Mouvements, sans variante pré-sélectionnée).
+class _AdjustDialogWithPicker extends ConsumerStatefulWidget {
+  const _AdjustDialogWithPicker();
+
+  @override
+  ConsumerState<_AdjustDialogWithPicker> createState() => _AdjustDialogWithPickerState();
+}
+
+class _AdjustDialogWithPickerState extends ConsumerState<_AdjustDialogWithPicker> {
+  ProductVariant? _variant;
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final references = ref.watch(referencesProvider).value ?? [];
+    final variants = <MapEntry<ProductVariant, String>>[
+      for (final r in references)
+        for (final v in r.variants) MapEntry(v, '${r.brandName} ${r.referenceName} — ${v.couleur}'),
+    ].where((e) => _query.isEmpty || e.value.toLowerCase().contains(_query.toLowerCase())).toList();
+
+    if (_variant == null) {
+      return AlertDialog(
+        title: const Text('Choisir un produit'),
+        content: SizedBox(
+          width: 380,
+          height: 440,
+          child: Column(
+            children: [
+              TextField(
+                decoration: const InputDecoration(hintText: 'Rechercher…', prefixIcon: Icon(Icons.search), isDense: true),
+                onChanged: (v) => setState(() => _query = v),
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: variants.isEmpty
+                    ? const Center(child: Text('Aucune variante disponible.'))
+                    : ListView.builder(
+                        itemCount: variants.length,
+                        itemBuilder: (context, i) {
+                          final entry = variants[i];
+                          return ListTile(
+                            title: Text(entry.value),
+                            subtitle: Text('Stock actuel : ${entry.key.stockActuel}'),
+                            onTap: () => setState(() => _variant = entry.key),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler'))],
+      );
+    }
+
+    return _QuickAdjustDialog(variantId: _variant!.id, label: variants.firstWhere((e) => e.key.id == _variant!.id, orElse: () => MapEntry(_variant!, _variant!.label)).value);
   }
 }
 
@@ -378,8 +617,13 @@ Future<bool> _confirm(BuildContext context, String message) async {
   return result ?? false;
 }
 
+/// Réplique du dialog "Nouvelle référence produit" de Next.js
+/// (`app/(app)/products/page.tsx` → `CreateReferenceDialog`) : Catégorie →
+/// Sous-type → Marque en cascade, création inline de sous-type/marque
+/// manquants, et une première couleur optionnelle en une seule étape.
 class _AddReferenceDialog extends ConsumerStatefulWidget {
-  const _AddReferenceDialog({required this.types, required this.brands});
+  const _AddReferenceDialog({required this.categories, required this.types, required this.brands});
+  final List<ProductCategory> categories;
   final List<ProductType> types;
   final List<Brand> brands;
 
@@ -390,29 +634,88 @@ class _AddReferenceDialog extends ConsumerStatefulWidget {
 class _AddReferenceDialogState extends ConsumerState<_AddReferenceDialog> {
   final _nameController = TextEditingController();
   final _priceController = TextEditingController();
+  final _couleurController = TextEditingController(text: 'Standard');
+  final _stockController = TextEditingController(text: '0');
+  final _seuilController = TextEditingController(text: '1');
+  final _newTypeController = TextEditingController();
+  final _newBrandController = TextEditingController();
+
+  ProductCategory? _category;
   ProductType? _type;
   Brand? _brand;
   bool _saving = false;
+  bool _creatingType = false;
+  bool _creatingBrand = false;
 
   @override
   void dispose() {
     _nameController.dispose();
     _priceController.dispose();
+    _couleurController.dispose();
+    _stockController.dispose();
+    _seuilController.dispose();
+    _newTypeController.dispose();
+    _newBrandController.dispose();
     super.dispose();
   }
 
+  List<ProductType> get _typesForCategory =>
+      _category == null ? const [] : ref.watch(typesProvider).value?.where((t) => t.categoryId == _category!.id).toList() ?? [];
+
+  Future<void> _createType() async {
+    if (_category == null || _newTypeController.text.trim().isEmpty) return;
+    setState(() => _creatingType = true);
+    try {
+      await ref.read(typesProvider.notifier).create(_category!.id, _newTypeController.text.trim());
+      final created = ref.read(typesProvider).value?.lastWhere((t) => t.nom == _newTypeController.text.trim());
+      _newTypeController.clear();
+      if (mounted) setState(() => _type = created);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+    } finally {
+      if (mounted) setState(() => _creatingType = false);
+    }
+  }
+
+  Future<void> _createBrand() async {
+    if (_newBrandController.text.trim().isEmpty) return;
+    setState(() => _creatingBrand = true);
+    try {
+      await ref.read(brandsProvider.notifier).create(_newBrandController.text.trim());
+      final created = ref.read(brandsProvider).value?.lastWhere((b) => b.nom == _newBrandController.text.trim());
+      _newBrandController.clear();
+      if (mounted) setState(() => _brand = created);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+    } finally {
+      if (mounted) setState(() => _creatingBrand = false);
+    }
+  }
+
   Future<void> _save() async {
-    if (_type == null || _brand == null || _nameController.text.trim().isEmpty) return;
+    if (_type == null || _brand == null || _nameController.text.trim().isEmpty || _priceController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tous les champs sont requis')));
+      return;
+    }
     final price = double.tryParse(_priceController.text.replaceAll(',', '.'));
     if (price == null) return;
     setState(() => _saving = true);
     try {
-      await ref.read(referencesProvider.notifier).createReference(
+      final created = await ref.read(referencesProvider.notifier).createReference(
             typeId: _type!.id,
             brandId: _brand!.id,
             referenceName: _nameController.text.trim(),
             prixVente: price,
           );
+      final couleur = _couleurController.text.trim();
+      if (couleur.isNotEmpty) {
+        await ref.read(referencesProvider.notifier).createVariant(
+              productReferenceId: created.id,
+              couleur: couleur,
+              seuilAlerte: int.tryParse(_seuilController.text) ?? 1,
+              stockActuel: int.tryParse(_stockController.text) ?? 0,
+            );
+      }
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
@@ -424,36 +727,126 @@ class _AddReferenceDialogState extends ConsumerState<_AddReferenceDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Nouvelle référence'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          DropdownButtonFormField<ProductType>(
-            initialValue: _type,
-            decoration: const InputDecoration(labelText: 'Sous-type'),
-            items: [for (final t in widget.types) DropdownMenuItem(value: t, child: Text(t.nom))],
-            onChanged: (v) => setState(() => _type = v),
+      title: const Text('Nouvelle référence produit'),
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Catégorie → Sous-type → Marque → Référence (§8 du cahier des charges).',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<ProductCategory>(
+                initialValue: _category,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Catégorie'),
+                items: [for (final c in widget.categories) DropdownMenuItem(value: c, child: Text(c.nom))],
+                onChanged: (v) => setState(() {
+                  _category = v;
+                  _type = null;
+                }),
+              ),
+              if (_category != null) ...[
+                const SizedBox(height: 10),
+                DropdownButtonFormField<ProductType>(
+                  initialValue: _type,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Sous-type'),
+                  items: [for (final t in _typesForCategory) DropdownMenuItem(value: t, child: Text(t.nom))],
+                  onChanged: (v) => setState(() => _type = v),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _newTypeController,
+                        decoration: const InputDecoration(isDense: true, hintText: 'Nouveau sous-type (ex: MAGSAFE)'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton(onPressed: _creatingType ? null : _createType, child: const Text('Créer')),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 14),
+              DropdownButtonFormField<Brand>(
+                initialValue: _brand,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Marque'),
+                items: [for (final b in widget.brands) DropdownMenuItem(value: b, child: Text(b.nom))],
+                onChanged: (v) => setState(() => _brand = v),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _newBrandController,
+                      decoration: const InputDecoration(isDense: true, hintText: 'Nouvelle marque'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton(onPressed: _creatingBrand ? null : _createBrand, child: const Text('Créer')),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _nameController,
+                      decoration: const InputDecoration(labelText: 'Référence (modèle)', hintText: 'Ex: A16, S25 Ultra'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: _priceController,
+                      decoration: const InputDecoration(labelText: 'Prix vente (Ar)'),
+                      keyboardType: TextInputType.number,
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 24),
+              Text('Première couleur (optionnel)', style: Theme.of(context).textTheme.labelLarge),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: TextField(controller: _couleurController, decoration: const InputDecoration(isDense: true, labelText: 'Couleur')),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _stockController,
+                      decoration: const InputDecoration(isDense: true, labelText: 'Stock'),
+                      keyboardType: TextInputType.number,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _seuilController,
+                      decoration: const InputDecoration(isDense: true, labelText: 'Seuil'),
+                      keyboardType: TextInputType.number,
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-          const SizedBox(height: 10),
-          DropdownButtonFormField<Brand>(
-            initialValue: _brand,
-            decoration: const InputDecoration(labelText: 'Marque'),
-            items: [for (final b in widget.brands) DropdownMenuItem(value: b, child: Text(b.nom))],
-            onChanged: (v) => setState(() => _brand = v),
-          ),
-          const SizedBox(height: 10),
-          TextField(controller: _nameController, decoration: const InputDecoration(labelText: 'Référence (ex: A15, S25 Ultra)')),
-          const SizedBox(height: 10),
-          TextField(
-            controller: _priceController,
-            decoration: const InputDecoration(labelText: 'Prix de vente (Ar)'),
-            keyboardType: TextInputType.number,
-          ),
-        ],
+        ),
       ),
       actions: [
         TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
-        FilledButton(onPressed: _saving ? null : _save, child: const Text('Créer')),
+        FilledButton(onPressed: _saving ? null : _save, child: Text(_saving ? 'Création…' : 'Créer la référence')),
       ],
     );
   }

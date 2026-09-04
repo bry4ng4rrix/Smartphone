@@ -45,9 +45,10 @@ class TypesNotifier extends AsyncNotifier<List<ProductType>> {
     state = await AsyncValue.guard(() => _repo.types());
   }
 
-  Future<void> create(int categoryId, String nom) async {
-    await _repo.createType(categoryId, nom);
+  Future<ProductType> create(int categoryId, String nom) async {
+    final created = await _repo.createType(categoryId, nom);
     await refresh();
+    return created;
   }
 
   Future<void> rename(int id, String nom) async {
@@ -74,9 +75,10 @@ class BrandsNotifier extends AsyncNotifier<List<Brand>> {
     state = await AsyncValue.guard(() => _repo.brands());
   }
 
-  Future<void> create(String nom) async {
-    await _repo.createBrand(nom);
+  Future<Brand> create(String nom) async {
+    final created = await _repo.createBrand(nom);
     await refresh();
+    return created;
   }
 
   Future<void> rename(int id, String nom) async {
@@ -106,14 +108,15 @@ class ReferencesNotifier extends AsyncNotifier<List<ProductReference>> {
     state = await AsyncValue.guard(() => _repo.references());
   }
 
-  Future<void> createReference({
+  Future<ProductReference> createReference({
     required int typeId,
     required int brandId,
     required String referenceName,
     required double prixVente,
   }) async {
-    await _repo.createReference(typeId: typeId, brandId: brandId, referenceName: referenceName, prixVente: prixVente);
+    final created = await _repo.createReference(typeId: typeId, brandId: brandId, referenceName: referenceName, prixVente: prixVente);
     await refresh();
+    return created;
   }
 
   Future<void> updateReference(int id, {String? referenceName, double? prixVente, bool? actif}) async {
@@ -126,8 +129,8 @@ class ReferencesNotifier extends AsyncNotifier<List<ProductReference>> {
     await refresh();
   }
 
-  Future<void> createVariant({required int productReferenceId, required String couleur, int seuilAlerte = 0}) async {
-    await _repo.createVariant(productReferenceId: productReferenceId, couleur: couleur, seuilAlerte: seuilAlerte);
+  Future<void> createVariant({required int productReferenceId, required String couleur, int seuilAlerte = 0, int? stockActuel}) async {
+    await _repo.createVariant(productReferenceId: productReferenceId, couleur: couleur, seuilAlerte: seuilAlerte, stockActuel: stockActuel);
     await refresh();
   }
 
