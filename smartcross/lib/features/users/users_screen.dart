@@ -273,45 +273,49 @@ class _CreateUserDialogState extends ConsumerState<_CreateUserDialog> {
       title: const Text('Nouveau compte'),
       content: Form(
         key: _formKey,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (_error != null) ...[
-                Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-                const SizedBox(height: 8),
-              ],
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(labelText: 'Nom complet'),
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Requis' : null,
-              ),
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: _emailController,
-                decoration: const InputDecoration(labelText: 'Email'),
-                keyboardType: TextInputType.emailAddress,
-                validator: (v) => (v == null || !v.contains('@')) ? 'Email invalide' : null,
-              ),
-              const SizedBox(height: 10),
-              TextFormField(controller: _phoneController, decoration: const InputDecoration(labelText: 'Téléphone (optionnel)')),
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: _passwordController,
-                decoration: const InputDecoration(labelText: 'Mot de passe'),
-                obscureText: true,
-                validator: (v) => (v == null || v.length < 6) ? '6 caractères minimum' : null,
-              ),
-              const SizedBox(height: 10),
-              DropdownButtonFormField<UserRole>(
-                initialValue: _role,
-                decoration: const InputDecoration(labelText: 'Rôle module Commande'),
-                items: [
-                  for (final r in [UserRole.preparateur, UserRole.livreur]) DropdownMenuItem(value: r, child: Text(r.label)),
+        child: SizedBox(
+          width: 420,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (_error != null) ...[
+                  Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                  const SizedBox(height: 8),
                 ],
-                onChanged: (v) => setState(() => _role = v ?? _role),
-              ),
-            ],
+                TextFormField(
+                  controller: _nameController,
+                  decoration: const InputDecoration(labelText: 'Nom complet'),
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Requis' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _emailController,
+                  decoration: const InputDecoration(labelText: 'Email'),
+                  keyboardType: TextInputType.emailAddress,
+                  validator: (v) => (v == null || !v.contains('@')) ? 'Email invalide' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(controller: _phoneController, decoration: const InputDecoration(labelText: 'Téléphone (optionnel)')),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _passwordController,
+                  decoration: const InputDecoration(labelText: 'Mot de passe'),
+                  obscureText: true,
+                  validator: (v) => (v == null || v.length < 6) ? '6 caractères minimum' : null,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<UserRole>(
+                  initialValue: _role,
+                  decoration: const InputDecoration(labelText: 'Rôle module Commande'),
+                  items: [
+                    for (final r in [UserRole.preparateur, UserRole.livreur]) DropdownMenuItem(value: r, child: Text(r.label)),
+                  ],
+                  onChanged: (v) => setState(() => _role = v ?? _role),
+                ),
+              ],
+            ),
           ),
         ),
       ),

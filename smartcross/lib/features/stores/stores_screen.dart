@@ -260,40 +260,44 @@ class _CreateStoreDialogState extends ConsumerState<_CreateStoreDialog> {
       title: const Text('Créer un magasin'),
       content: Form(
         key: _formKey,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (_error != null) ...[
-                Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-                const SizedBox(height: 8),
+        child: SizedBox(
+          width: 420,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (_error != null) ...[
+                  Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                  const SizedBox(height: 8),
+                ],
+                TextFormField(
+                  controller: _shopNameController,
+                  decoration: const InputDecoration(labelText: 'Nom du magasin'),
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Requis' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _managerNameController,
+                  decoration: const InputDecoration(labelText: 'Nom du gérant'),
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Requis' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _managerEmailController,
+                  decoration: const InputDecoration(labelText: 'Email du gérant'),
+                  keyboardType: TextInputType.emailAddress,
+                  validator: (v) => (v == null || !v.contains('@')) ? 'Email invalide' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _managerPasswordController,
+                  decoration: const InputDecoration(labelText: 'Mot de passe du gérant'),
+                  obscureText: true,
+                  validator: (v) => (v == null || v.length < 6) ? '6 caractères minimum' : null,
+                ),
               ],
-              TextFormField(
-                controller: _shopNameController,
-                decoration: const InputDecoration(labelText: 'Nom du magasin'),
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Requis' : null,
-              ),
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: _managerNameController,
-                decoration: const InputDecoration(labelText: 'Nom du gérant'),
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Requis' : null,
-              ),
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: _managerEmailController,
-                decoration: const InputDecoration(labelText: 'Email du gérant'),
-                keyboardType: TextInputType.emailAddress,
-                validator: (v) => (v == null || !v.contains('@')) ? 'Email invalide' : null,
-              ),
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: _managerPasswordController,
-                decoration: const InputDecoration(labelText: 'Mot de passe du gérant'),
-                obscureText: true,
-                validator: (v) => (v == null || v.length < 6) ? '6 caractères minimum' : null,
-              ),
-            ],
+            ),
           ),
         ),
       ),

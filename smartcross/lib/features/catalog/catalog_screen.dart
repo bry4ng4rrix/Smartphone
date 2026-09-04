@@ -245,7 +245,13 @@ class _ReferenceTile extends ConsumerWidget {
                     tooltip: 'Ajuster le stock',
                     onPressed: () => showDialog<void>(
                       context: context,
-                      builder: (_) => _QuickAdjustDialog(variantId: v.id, label: '${reference.referenceName} — ${v.couleur}'),
+                      builder: (_) => _QuickAdjustDialog(
+                        variantId: v.id,
+                        productLabel: '${reference.brandName} ${reference.referenceName}',
+                        couleur: v.couleur,
+                        stockActuel: v.stockActuel,
+                        seuilAlerte: v.seuilAlerte,
+                      ),
                     ),
                   ),
                   IconButton(
@@ -281,9 +287,18 @@ class _ReferenceTile extends ConsumerWidget {
 }
 
 class _QuickAdjustDialog extends ConsumerStatefulWidget {
-  const _QuickAdjustDialog({required this.variantId, required this.label});
+  const _QuickAdjustDialog({
+    required this.variantId,
+    required this.productLabel,
+    required this.couleur,
+    required this.stockActuel,
+    required this.seuilAlerte,
+  });
   final int variantId;
-  final String label;
+  final String productLabel;
+  final String couleur;
+  final int stockActuel;
+  final int seuilAlerte;
 
   @override
   ConsumerState<_QuickAdjustDialog> createState() => _QuickAdjustDialogState();
@@ -322,10 +337,27 @@ class _QuickAdjustDialogState extends ConsumerState<_QuickAdjustDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text('Ajuster : ${widget.label}'),
+      title: Text('Ajuster le stock — ${widget.productLabel}'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          Container(
+            width: double.maxFinite,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                const Text('Couleur : ', style: TextStyle(color: Colors.grey)),
+                Chip(label: Text(widget.couleur), visualDensity: VisualDensity.compact, materialTapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                const Spacer(),
+                Text('Stock : ${widget.stockActuel} · Seuil : ${widget.seuilAlerte}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
           SegmentedButton<String>(
             segments: const [ButtonSegment(value: 'ENTREE', label: Text('Entrée')), ButtonSegment(value: 'SORTIE', label: Text('Sortie'))],
             selected: {_type},
@@ -415,7 +447,13 @@ class _RuptureTile extends ConsumerWidget {
               icon: const Icon(Icons.add_box_outlined),
               onPressed: () => showDialog<void>(
                 context: context,
-                builder: (_) => _QuickAdjustDialog(variantId: item.id, label: '${item.brandName} ${item.referenceName} — ${item.couleur}'),
+                builder: (_) => _QuickAdjustDialog(
+                  variantId: item.id,
+                  productLabel: '${item.brandName} ${item.referenceName}',
+                  couleur: item.couleur,
+                  stockActuel: item.stockActuel,
+                  seuilAlerte: item.seuilAlerte,
+                ),
               ),
             ),
           ],
@@ -544,7 +582,13 @@ class _AdjustDialogWithPickerState extends ConsumerState<_AdjustDialogWithPicker
       );
     }
 
-    return _QuickAdjustDialog(variantId: _variant!.id, label: variants.firstWhere((e) => e.key.id == _variant!.id, orElse: () => MapEntry(_variant!, _variant!.label)).value);
+    return _QuickAdjustDialog(
+      variantId: _variant!.id,
+      productLabel: '${_variant!.brandName} ${_variant!.referenceName}',
+      couleur: _variant!.couleur,
+      stockActuel: _variant!.stockActuel,
+      seuilAlerte: _variant!.seuilAlerte,
+    );
   }
 }
 
