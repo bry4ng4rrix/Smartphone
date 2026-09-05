@@ -16,6 +16,8 @@ env/
 staticfiles/
 media/
 *.log
+db.sqlite3
+* .sqlite3
 
 # --- Node / Next.js (frontend/) ---
 frontend/node_modules/
