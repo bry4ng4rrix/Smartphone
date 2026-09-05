@@ -47,16 +47,6 @@ class IsEmployer(BasePermission):
         )
 
 
-class IsPlatformOwner(BasePermission):
-
-    def has_permission(self, request, view):
-
-        return (
-            request.user.is_authenticated
-            and request.user.role == "platform_admin"
-        )
-
-
 # =====================================================
 # MODULE COMMANDE (Smartreadme.md) — Gérant/Préparateur/Livreur
 #

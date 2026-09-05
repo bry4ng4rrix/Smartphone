@@ -17,7 +17,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from catalog.models import Brand, ProductCategory, ProductReference, ProductType, ProductVariant
-from users.models import AdminProfile, CustomUser, EmployerProfile, MagasinProfile, Subscription
+from users.models import AdminProfile, CustomUser, EmployerProfile, MagasinProfile
 
 SEED_FILE = Path(__file__).resolve().parent / "data" / "seed_catalogue.sql"
 
@@ -175,12 +175,6 @@ class Command(BaseCommand):
 
         admin_profile, _ = AdminProfile.objects.get_or_create(
             user=gerant_user, defaults={"company_name": "Smartphone.Mg"}
-        )
-        # Sans abonnement actif, la connexion est refusée (CustomTokenObtainPairSerializer)
-        # — RegisterSerializer en crée un automatiquement pour un vrai signup,
-        # mais ce tenant de seed contourne ce serializer.
-        Subscription.objects.get_or_create(
-            admin_profile=admin_profile, defaults={"status": "active"}
         )
 
         magasin, _ = MagasinProfile.objects.get_or_create(

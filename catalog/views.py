@@ -10,6 +10,7 @@ from . import services
 from .models import Brand, Color, ProductCategory, ProductReference, ProductType, ProductVariant, StockMovement
 from .serializers import (
     BrandSerializer,
+    BulkPriceUpdateSerializer,
     ColorSerializer,
     ProductCategorySerializer,
     ProductReferenceAutocompleteSerializer,
@@ -139,6 +140,30 @@ class ProductReferenceViewSet(viewsets.ModelViewSet):
             qs = qs.filter(reference_name__icontains=q)
         qs = qs[:20]
         return Response(ProductReferenceAutocompleteSerializer(qs, many=True).data)
+
+    @action(detail=False, methods=["post"], url_path="bulk-update-price")
+    def bulk_update_price(self, request):
+        """POST /api/catalog/references/bulk-update-price/
+        {type_id, prix_achat?, prix_vente?} — modifie prix_achat/prix_vente
+        pour TOUTES les références d'un sous-type donné (ex: toutes les
+        "Flip cover", quelle que soit la marque), en une seule action."""
+        serializer = BulkPriceUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        qs = self.get_queryset().filter(type_id=data["type_id"])
+        count = qs.count()
+        if count == 0:
+            return Response({"error": "Aucune référence pour ce sous-type."}, status=404)
+
+        update_fields = {}
+        if "prix_achat" in data:
+            update_fields["prix_achat"] = data["prix_achat"]
+        if "prix_vente" in data:
+            update_fields["prix_vente"] = data["prix_vente"]
+        qs.update(**update_fields)
+
+        return Response({"updated": count})
 
 
 class ProductVariantViewSet(viewsets.ModelViewSet):

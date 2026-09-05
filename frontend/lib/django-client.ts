@@ -11,13 +11,12 @@ interface AuthTokens {
 interface AuthResponse {
   access: string
   refresh: string
-  device_status?: 'new' | 'known' | null
   user: {
     id: number
     email: string
     username: string
     full_name: string
-    role: 'admin' | 'magasin' | 'employer' | 'platform_admin'
+    role: 'admin' | 'magasin' | 'employer'
     is_confirmed: boolean
     store_id?: number
     magasin_id?: number
@@ -353,13 +352,9 @@ class DjangoAPIClient {
     },
 
     login: async (email: string, password: string) => {
-      const { getOrCreateDeviceId, getBrowserLocation } = await import('./device')
-      const location = await getBrowserLocation()
-      const response = await this.post<{ access: string; refresh: string; device_status?: 'new' | 'known' | null }>('/users/login/', {
+      const response = await this.post<{ access: string; refresh: string }>('/users/login/', {
         email: email,
         password,
-        device_id: getOrCreateDeviceId(),
-        ...(location ? { latitude: location.latitude, longitude: location.longitude } : {}),
       })
       this.saveTokensToStorage({ access: response.access, refresh: response.refresh })
       const user = await this.auth.getCurrentUser()
@@ -368,7 +363,6 @@ class DjangoAPIClient {
         access: response.access,
         refresh: response.refresh,
         user,
-        device_status: response.device_status,
       } as unknown as AuthResponse
     },
 
@@ -402,12 +396,7 @@ class DjangoAPIClient {
       }
 
       if (typeof window !== 'undefined') {
-        // Preserve the device_id across logout: it must stay stable for this
-        // browser so the next login is recognized as the same registered
-        // device instead of being counted as a brand new one.
-        const deviceId = localStorage.getItem('device_id')
         localStorage.clear()
-        if (deviceId) localStorage.setItem('device_id', deviceId)
       }
 
       this.tokens = null
@@ -415,11 +404,10 @@ class DjangoAPIClient {
 
     getCurrentUser: async () => {
       const response = await this.get<any>('/users/me/')
-      let mappedRole: 'admin' | 'store_manager' | 'employee' | 'platform_admin' = 'employee'
+      let mappedRole: 'admin' | 'store_manager' | 'employee' = 'employee'
       if (response.role === 'admin') mappedRole = 'admin'
       else if (response.role === 'magasin') mappedRole = 'store_manager'
       else if (response.role === 'employer') mappedRole = 'employee'
-      else if (response.role === 'platform_admin') mappedRole = 'platform_admin'
 
       return {
         id: response.id,
@@ -452,10 +440,11 @@ class DjangoAPIClient {
       return this.get<any[]>('/users/pending/')
     },
 
-    // Forgot password (no auth): admin accounts are routed to Label
-    // Technology for approval, magasin/employer accounts to their admin.
+    // Forgot password (no auth): magasin/employer accounts are routed to
+    // their admin for approval — not available for admin accounts (no
+    // approver above them), see the backend error message.
     forgotPasswordRequest: async (email: string) => {
-      return this.post<{ queue: 'label' | 'admin'; message: string }>('/users/public/forgot-password/', { email })
+      return this.post<{ message: string }>('/users/public/forgot-password/', { email })
     },
 
     forgotPasswordStatus: async (email: string) => {
@@ -570,6 +559,9 @@ class DjangoAPIClient {
       },
       delete: async (id: number) => {
         return this.delete(`/catalog/references/${id}/`)
+      },
+      bulkUpdatePrice: async (data: { type_id: number; prix_achat?: number | string; prix_vente?: number | string }) => {
+        return this.post<{ updated: number }>('/catalog/references/bulk-update-price/', data)
       },
     },
     variants: {
@@ -904,115 +896,6 @@ class DjangoAPIClient {
       const query = urlParams.toString() ? `?${urlParams.toString()}` : ''
       return this.get<any[]>(`/users/chat/history/${query}`)
     }
-  }
-
-  // ==================== Platform Admin Service (Label Technology) ====================
-  platformAdmin = {
-    listCompanies: async () => {
-      return this.get<any[]>('/users/platform-admin/companies/')
-    },
-    createCompany: async (data: {
-      company_name: string
-      full_name: string
-      email: string
-      password: string
-      phone?: string
-      status?: string
-    }) => {
-      return this.post<any>('/users/platform-admin/companies/', data)
-    },
-    updateCompany: async (adminProfileId: number, data: { company_name?: string; admin_full_name?: string; admin_phone?: string }) => {
-      return this.patch<any>(`/users/platform-admin/companies/${adminProfileId}/`, data)
-    },
-    deleteCompany: async (adminProfileId: number) => {
-      return this.requestBlob(`/users/platform-admin/companies/${adminProfileId}/`, 'DELETE')
-    },
-    updateStatus: async (adminProfileId: number, status: string) => {
-      return this.patch<any>(`/users/platform-admin/companies/${adminProfileId}/status/`, { status })
-    },
-    activateAll: async () => {
-      return this.post<{ activated: number }>('/users/platform-admin/companies/activate-all/')
-    },
-    backupCompany: async (adminProfileId: number) => {
-      return this.requestBlob(`/users/platform-admin/companies/${adminProfileId}/backup/`)
-    },
-    getDevices: async (adminProfileId: number) => {
-      return this.get<{ devices: any[]; count: number; limit: number }>(`/users/platform-admin/companies/${adminProfileId}/devices/`)
-    },
-    deleteDevice: async (adminProfileId: number, deviceId: number) => {
-      return this.delete<void>(`/users/platform-admin/companies/${adminProfileId}/devices/?device_id=${deviceId}`)
-    },
-    assignOffer: async (adminProfileId: number, offerId: number | null) => {
-      return this.patch<any>(`/users/platform-admin/companies/${adminProfileId}/offer/`, { offer_id: offerId })
-    },
-    getMonitoring: async () => {
-      return this.get<any>('/users/platform-admin/monitoring/')
-    },
-    listRequests: async (statusFilter?: string) => {
-      const query = statusFilter ? `?status=${statusFilter}` : ''
-      return this.get<any[]>(`/users/platform-admin/requests/${query}`)
-    },
-    resolveRequest: async (requestId: number, action: 'approve' | 'reject') => {
-      return this.patch<any>(`/users/platform-admin/requests/${requestId}/`, { action })
-    },
-    getExpiringSoon: async () => {
-      return this.get<any[]>('/users/platform-admin/expiring-soon/')
-    },
-    // Subscription offers catalog
-    listOffers: async () => {
-      return this.get<any[]>('/users/platform-admin/offers/')
-    },
-    createOffer: async (data: { name: string; price: number; max_devices: number; duration_months: number; is_active?: boolean }) => {
-      return this.post<any>('/users/platform-admin/offers/', data)
-    },
-    updateOffer: async (offerId: number, data: Partial<{ name: string; price: number; max_devices: number; duration_months: number; is_active: boolean }>) => {
-      return this.patch<any>(`/users/platform-admin/offers/${offerId}/`, data)
-    },
-    deleteOffer: async (offerId: number) => {
-      return this.delete<void>(`/users/platform-admin/offers/${offerId}/`)
-    },
-  }
-
-  // ==================== My Company Service (tenant side) ====================
-  myCompany = {
-    getDevices: async () => {
-      return this.get<{ devices: any[]; count: number; limit: number }>('/users/my-company/devices/')
-    },
-    getSubscription: async () => {
-      return this.get<any>('/users/my-company/subscription/')
-    },
-    listRequests: async () => {
-      return this.get<any[]>('/users/my-company/requests/')
-    },
-    createRequest: async (data: { request_type: 'device_deletion' | 'activation'; device_id?: number; login_event_id?: number; note?: string }) => {
-      return this.post<any>('/users/my-company/requests/', data)
-    },
-  }
-
-  // ==================== Public Service (no auth — subscription-expired page) ====================
-  public = {
-    listOffers: async () => {
-      return this.get<any[]>('/users/public/offers/')
-    },
-    verifyAccount: async (data: { email: string; password: string }) => {
-      return this.post<{
-        email: string
-        full_name: string
-        role: string
-        is_admin: boolean
-        company_name: string
-      }>('/users/public/verify-account/', data)
-    },
-    createPaymentRequest: async (data: {
-      email: string
-      password: string
-      offer_id: number
-      payment_method: 'mvola' | 'paypal' | 'visa' | 'mastercard'
-      payment_reference: string
-      note?: string
-    }) => {
-      return this.post<any>('/users/public/payment-request/', data)
-    },
   }
 
   // ==================== Token Status ====================

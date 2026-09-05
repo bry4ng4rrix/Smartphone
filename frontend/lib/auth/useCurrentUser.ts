@@ -6,7 +6,7 @@ import { djangoClient } from '@/lib/django-client';
 export interface CurrentUser {
   id: number;
   email: string;
-  role: 'admin' | 'magasin' | 'employer' | 'platform_admin';
+  role: 'admin' | 'magasin' | 'employer';
   full_name: string;
   is_confirmed: boolean;
   phone?: string;
@@ -82,7 +82,6 @@ export function useCurrentUser() {
     isSuperAdmin: role === 'admin',
     isAdminOrSuperAdmin: role === 'admin' || role === 'magasin',
     isManager: role === 'admin' || role === 'magasin',
-    isPlatformOwner: role === 'platform_admin',
     // Module Commande (§4 Smartreadme.md) : Gérant = admin/magasin,
     // Préparateur/Livreur = sous-rôle porté par l'employer.
     isGerant: role === 'admin' || role === 'magasin',
@@ -91,7 +90,7 @@ export function useCurrentUser() {
     // The admin who actually owns the company (has an AdminProfile) — as
     // opposed to a co-admin added via "Ajouter un administrateur", who
     // shares full data access but not company-ownership actions (managing
-    // other admins, subscription, devices). False for co-admins.
+    // other admins). False for co-admins.
     isCompanyOwner: role === 'admin' && !!user?.is_company_owner,
   };
 }

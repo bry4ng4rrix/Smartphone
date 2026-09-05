@@ -1,7 +1,7 @@
 from django.urls import path
 
 # Import view classes and viewsets
-from .views import (AddAdminView,RegisterView,ApproveUserView,Myprofile,RoleManagementView,EmployerCommandeRoleUpdateView,CaisseSessionViewSet,CaisseMovementViewSet,AdminMagasinOverviewView,UsersByMagasinView,LogoutEventView,MagasinStatsView,DashboardView,ApiEndpointsListView,PendingUsersView,DeleteUserView,RejectUserView,ChangePasswordView,NotificationViewSet,MagasinViewSet,ChatUsersListView,ChatMessageHistoryView,TransferProductsView,BackupExportView,BackupImportView,PlatformCompanyListView,PlatformCompanyStatusUpdateView,PlatformActivateAllView,PlatformCompanyDetailView,PlatformCompanyBackupView,PlatformCompanyDevicesView,PlatformCompanyOfferAssignView,PlatformOfferListView,PlatformOfferDetailView,PlatformMonitoringView,MyCompanyDevicesView,MyCompanySubscriptionView,MyCompanyRequestsView,PlatformRequestListView,PlatformRequestResolveView,PlatformExpiringSoonView,PublicOfferListView,PublicVerifyAccountView,PublicPaymentRequestView,PublicForgotPasswordRequestView,PublicForgotPasswordStatusView,PublicForgotPasswordConfirmView,EmployeePasswordResetListView,EmployeePasswordResetResolveView,
+from .views import (AddAdminView,RegisterView,ApproveUserView,Myprofile,RoleManagementView,EmployerCommandeRoleUpdateView,CaisseSessionViewSet,CaisseMovementViewSet,AdminMagasinOverviewView,UsersByMagasinView,LogoutEventView,MagasinStatsView,DashboardView,ApiEndpointsListView,PendingUsersView,DeleteUserView,RejectUserView,ChangePasswordView,NotificationViewSet,MagasinViewSet,ChatUsersListView,ChatMessageHistoryView,TransferProductsView,BackupExportView,BackupImportView,PublicForgotPasswordRequestView,PublicForgotPasswordStatusView,PublicForgotPasswordConfirmView,EmployeePasswordResetListView,EmployeePasswordResetResolveView,
 )
 
 from rest_framework_simplejwt.views import TokenViewBase
@@ -61,31 +61,10 @@ urlpatterns = [
     path("chat/users/", ChatUsersListView.as_view()),
     path("chat/history/", ChatMessageHistoryView.as_view()),
     path('add-admin/', AddAdminView.as_view(), name='add-admin'),
-    # Platform admin (Label Technology)
-    path("platform-admin/companies/", PlatformCompanyListView.as_view()),
-    path("platform-admin/companies/activate-all/", PlatformActivateAllView.as_view()),
-    path("platform-admin/companies/<int:admin_profile_id>/status/", PlatformCompanyStatusUpdateView.as_view()),
-    path("platform-admin/companies/<int:admin_profile_id>/backup/", PlatformCompanyBackupView.as_view()),
-    path("platform-admin/companies/<int:admin_profile_id>/devices/", PlatformCompanyDevicesView.as_view()),
-    path("platform-admin/companies/<int:admin_profile_id>/offer/", PlatformCompanyOfferAssignView.as_view()),
-    path("platform-admin/companies/<int:admin_profile_id>/", PlatformCompanyDetailView.as_view()),
-    path("platform-admin/offers/", PlatformOfferListView.as_view()),
-    path("platform-admin/offers/<int:offer_id>/", PlatformOfferDetailView.as_view()),
-    path("platform-admin/monitoring/", PlatformMonitoringView.as_view()),
-    path("platform-admin/requests/", PlatformRequestListView.as_view()),
-    path("platform-admin/requests/<int:request_id>/", PlatformRequestResolveView.as_view()),
-    path("platform-admin/expiring-soon/", PlatformExpiringSoonView.as_view()),
-    # My company (tenant side)
-    path("my-company/devices/", MyCompanyDevicesView.as_view()),
-    path("my-company/subscription/", MyCompanySubscriptionView.as_view()),
-    path("my-company/requests/", MyCompanyRequestsView.as_view()),
     # Employee (magasin/employer) password reset requests — resolved by their admin
     path("password-reset-requests/", EmployeePasswordResetListView.as_view()),
     path("password-reset-requests/<int:request_id>/", EmployeePasswordResetResolveView.as_view()),
-    # Public (unauthenticated — subscription-expired page, forgot password)
-    path("public/offers/", PublicOfferListView.as_view()),
-    path("public/verify-account/", PublicVerifyAccountView.as_view()),
-    path("public/payment-request/", PublicPaymentRequestView.as_view()),
+    # Public (unauthenticated — forgot password)
     path("public/forgot-password/", PublicForgotPasswordRequestView.as_view()),
     path("public/forgot-password/status/", PublicForgotPasswordStatusView.as_view()),
     path("public/forgot-password/confirm/", PublicForgotPasswordConfirmView.as_view()),

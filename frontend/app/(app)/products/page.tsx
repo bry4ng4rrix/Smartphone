@@ -43,6 +43,7 @@ import {
   ArrowUpCircle,
   ArrowDownCircle,
   Tag,
+  DollarSign,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -63,6 +64,7 @@ export default function ProductsPage() {
   const [brandFilter, setBrandFilter] = useState<string>("ALL");
   const [createOpen, setCreateOpen] = useState(false);
   const [manageBrandsOpen, setManageBrandsOpen] = useState(false);
+  const [bulkPriceOpen, setBulkPriceOpen] = useState(false);
   const [variantsOf, setVariantsOf] = useState<any | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
 
@@ -181,6 +183,11 @@ export default function ProductsPage() {
           {isGerant && (
             <Button variant="outline" onClick={() => setManageBrandsOpen(true)}>
               <Tag className="h-4 w-4 mr-2" /> Marques
+            </Button>
+          )}
+          {isGerant && (
+            <Button variant="outline" onClick={() => setBulkPriceOpen(true)}>
+              <DollarSign className="h-4 w-4 mr-2" /> Modifier prix par sous-type
             </Button>
           )}
           {isGerant && (
@@ -392,6 +399,18 @@ export default function ProductsPage() {
         onOpenChange={setManageBrandsOpen}
         brands={brands}
         onChanged={() => fetchAll(true)}
+      />
+
+      <BulkPriceDialog
+        open={bulkPriceOpen}
+        onOpenChange={setBulkPriceOpen}
+        types={types}
+        references={references}
+        defaultTypeId={typeFilter !== "ALL" ? typeFilter : ""}
+        onDone={() => {
+          setBulkPriceOpen(false);
+          fetchAll(true);
+        }}
       />
 
       <Dialog
@@ -1512,6 +1531,145 @@ function ManageBrandsDialog({
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Fermer
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/// Modification groupée du prix d'achat/vente pour toutes les références
+/// d'un même sous-type (ex: toutes les "Flip cover", quelle que soit la
+/// marque) — évite de rouvrir chaque référence une par une.
+function BulkPriceDialog({
+  open,
+  onOpenChange,
+  types,
+  references,
+  defaultTypeId,
+  onDone,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  types: any[];
+  references: any[];
+  defaultTypeId: string;
+  onDone: () => void;
+}) {
+  const [typeId, setTypeId] = useState("");
+  const [prixAchat, setPrixAchat] = useState("");
+  const [prixVente, setPrixVente] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setTypeId(defaultTypeId || "");
+      setPrixAchat("");
+      setPrixVente("");
+    }
+  }, [open, defaultTypeId]);
+
+  const matchCount = useMemo(
+    () => references.filter((r) => String(r.type) === typeId).length,
+    [references, typeId],
+  );
+
+  const submit = async () => {
+    if (!typeId) {
+      toast.error("Choisissez un sous-type");
+      return;
+    }
+    if (!prixAchat && !prixVente) {
+      toast.error("Indiquez au moins un prix à modifier");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await djangoClient.catalog.references.bulkUpdatePrice({
+        type_id: Number(typeId),
+        ...(prixAchat ? { prix_achat: prixAchat } : {}),
+        ...(prixVente ? { prix_vente: prixVente } : {}),
+      });
+      toast.success(`${res.updated} référence(s) mise(s) à jour`);
+      onDone();
+    } catch (err: any) {
+      toast.error(err.message || "Erreur lors de la mise à jour groupée");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Modifier le prix par sous-type</DialogTitle>
+          <DialogDescription>
+            Change le prix d'achat et/ou de vente de TOUTES les références
+            d'un sous-type en une seule fois (ex : toutes les "Flip cover",
+            quelle que soit la marque).
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Sous-type</Label>
+            <Select value={typeId} onValueChange={setTypeId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Choisir un sous-type" />
+              </SelectTrigger>
+              <SelectContent>
+                {types.map((t) => (
+                  <SelectItem key={t.id} value={String(t.id)}>
+                    {t.nom}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {typeId && (
+              <p className="text-xs text-muted-foreground">
+                {matchCount} référence{matchCount > 1 ? "s" : ""} concernée
+                {matchCount > 1 ? "s" : ""}.
+              </p>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Nouveau prix d'achat</Label>
+              <Input
+                type="number"
+                min={0}
+                placeholder="Laisser vide = inchangé"
+                value={prixAchat}
+                onChange={(e) => setPrixAchat(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Nouveau prix de vente</Label>
+              <Input
+                type="number"
+                min={0}
+                placeholder="Laisser vide = inchangé"
+                value={prixVente}
+                onChange={(e) => setPrixVente(e.target.value)}
+              />
+            </div>
+          </div>
+          {typeId && matchCount > 0 && (prixAchat || prixVente) && (
+            <p className="text-xs text-orange-600 bg-orange-50 border border-orange-200 rounded-md p-2">
+              Cette action est irréversible et modifiera directement{" "}
+              {matchCount} référence{matchCount > 1 ? "s" : ""}.
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Annuler
+          </Button>
+          <Button
+            onClick={submit}
+            disabled={submitting || !typeId || matchCount === 0}
+          >
+            {submitting ? "Mise à jour..." : "Appliquer"}
           </Button>
         </DialogFooter>
       </DialogContent>

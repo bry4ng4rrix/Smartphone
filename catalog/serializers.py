@@ -106,3 +106,18 @@ class StockAdjustmentSerializer(serializers.Serializer):
     type = serializers.ChoiceField(choices=StockMovement.TYPE_CHOICES)
     quantite = serializers.IntegerField(min_value=1)
     note = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class BulkPriceUpdateSerializer(serializers.Serializer):
+    """Modification groupée de prix_achat/prix_vente pour toutes les
+    références d'un même sous-type (ex: toutes les 'Flip cover'), plutôt que
+    de rouvrir chaque référence une par une."""
+
+    type_id = serializers.IntegerField()
+    prix_achat = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, min_value=0)
+    prix_vente = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, min_value=0)
+
+    def validate(self, attrs):
+        if "prix_achat" not in attrs and "prix_vente" not in attrs:
+            raise serializers.ValidationError("Indiquez au moins un prix à modifier.")
+        return attrs

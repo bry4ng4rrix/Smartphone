@@ -25,19 +25,16 @@ class UsersScreen extends ConsumerWidget {
     final pendingCount = ref.watch(pendingUsersProvider).value?.length ?? 0;
     final currentUser = ref.watch(authProvider).user;
     final isAdmin = currentUser?.rawRole == 'admin';
-    final isCompanyOwner = currentUser?.isCompanyOwner ?? false;
 
     final tabs = <Tab>[
       const Tab(text: 'Équipe'),
       Tab(text: pendingCount > 0 ? 'En attente ($pendingCount)' : 'En attente'),
       if (isAdmin) const Tab(text: 'Mots de passe'),
-      if (isCompanyOwner) const Tab(text: 'Appareils'),
     ];
     final views = <Widget>[
       const _TeamTab(),
       const _PendingTab(),
       if (isAdmin) const _PasswordResetsTab(),
-      if (isCompanyOwner) const _DevicesTab(),
     ];
 
     return DefaultTabController(
@@ -495,96 +492,3 @@ class _PasswordResetTile extends ConsumerWidget {
   }
 }
 
-/// Onglet "Appareils" (propriétaire de la société uniquement) : appareils
-/// connectés aux comptes de la société, avec demande de suppression.
-class _DevicesTab extends ConsumerWidget {
-  const _DevicesTab();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(companyDevicesProvider);
-    final requestsAsync = ref.watch(companyRequestsProvider);
-
-    return switch (async) {
-      AsyncData(:final value) => RefreshIndicator(
-          onRefresh: () => ref.read(companyDevicesProvider.notifier).refresh(),
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              Align(
-                alignment: Alignment.centerRight,
-                child: Chip(
-                  label: Text('${value.count} / ${value.limit} appareils'),
-                  backgroundColor: (value.count >= value.limit ? Colors.red : Colors.blue).withValues(alpha: 0.12),
-                  labelStyle: TextStyle(color: value.count >= value.limit ? Colors.red : Colors.blue),
-                  side: BorderSide.none,
-                ),
-              ),
-              if (value.count >= value.limit)
-                Container(
-                  margin: const EdgeInsets.symmetric(vertical: 8),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(8)),
-                  child: const Text(
-                    "Limite d'appareils atteinte. Supprimez un appareil ci-dessous ou contactez Label Technology pour augmenter votre offre.",
-                    style: TextStyle(fontSize: 12, color: Colors.red),
-                  ),
-                ),
-              const SizedBox(height: 8),
-              if (value.devices.isEmpty) const EmptyState(message: 'Aucun appareil enregistré.', icon: Icons.devices_outlined),
-              for (final d in value.devices) _DeviceTile(device: d, requestsAsync: requestsAsync),
-            ],
-          ),
-        ),
-      AsyncError(:final error) => ErrorState(message: ApiClient.messageFromError(error), onRetry: () => ref.read(companyDevicesProvider.notifier).refresh()),
-      _ => const LoadingState(),
-    };
-  }
-}
-
-class _DeviceTile extends ConsumerStatefulWidget {
-  const _DeviceTile({required this.device, required this.requestsAsync});
-  final CompanyDevice device;
-  final AsyncValue<List<CompanyRequest>> requestsAsync;
-
-  @override
-  ConsumerState<_DeviceTile> createState() => _DeviceTileState();
-}
-
-class _DeviceTileState extends ConsumerState<_DeviceTile> {
-  bool _sending = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final hasPending = widget.requestsAsync.value?.any((r) => r.requestType == 'device_deletion' && r.status == 'pending') ?? false;
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      child: ListTile(
-        title: Text('${widget.device.userName} (${widget.device.userRole})'),
-        subtitle: Text(
-          [
-            widget.device.label ?? widget.device.userAgent ?? '',
-            if (widget.device.ipAddress != null) widget.device.ipAddress!,
-          ].where((s) => s.isNotEmpty).join(' · '),
-        ),
-        trailing: OutlinedButton(
-          onPressed: (_sending || hasPending)
-              ? null
-              : () async {
-                  setState(() => _sending = true);
-                  try {
-                    await ref.read(companyDevicesProvider.notifier).requestDeletion(widget.device.id);
-                    await ref.read(companyRequestsProvider.notifier).refresh();
-                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Demande envoyée')));
-                  } catch (e) {
-                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
-                  } finally {
-                    if (mounted) setState(() => _sending = false);
-                  }
-                },
-          child: Text(hasPending ? 'Demande envoyée' : (_sending ? 'Envoi…' : 'Demander la suppression')),
-        ),
-      ),
-    );
-  }
-}

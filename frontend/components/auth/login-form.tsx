@@ -66,19 +66,11 @@ export function LoginForm() {
       // autres rôles (préparateur/livreur) démarrent sur Commandes, la page
       // qui s'adapte déjà à leur rôle (Dépôt / Ma tournée).
       const isGerant = rawRole === 'admin' || rawRole === 'magasin';
-      const destination = rawRole === 'platform_admin' ? '/label' : isGerant ? '/dashboard' : '/orders';
+      const destination = isGerant ? '/dashboard' : '/orders';
 
-      // L'appareil est enregistré automatiquement côté backend (nouveau ou
-      // déjà connu) — seule une limite d'appareils dépassée bloque la
-      // connexion (voir le catch ci-dessous), pas besoin de confirmation ici.
       goTo(destination);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Erreur de connexion';
-      if (errorMsg.includes('Limite d\'appareils atteinte')) {
-        toast.error(errorMsg, { duration: 8000 });
-        setLoading(false);
-        return;
-      }
       toast.error(friendlyError(errorMsg));
     } finally {
       setLoading(false);

@@ -18,7 +18,6 @@ export function ForgotPasswordForm() {
   const [step, setStep] = useState<'request' | 'check'>('request');
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
-  const [queue, setQueue] = useState<'label' | 'admin' | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
   const [newPassword, setNewPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -28,7 +27,6 @@ export function ForgotPasswordForm() {
     setLoading(true);
     try {
       const res = await djangoClient.auth.forgotPasswordRequest(email);
-      setQueue(res.queue);
       setStatus('pending');
       setStep('check');
       toast.success(res.message);
@@ -157,10 +155,7 @@ export function ForgotPasswordForm() {
                 )}
                 <span>
                   {status === 'approved' && 'Demande validée : vous pouvez définir votre nouveau mot de passe.'}
-                  {status === 'pending' &&
-                    (queue === 'label'
-                      ? 'En attente de validation par Label Technology.'
-                      : 'En attente de validation par votre administrateur.')}
+                  {status === 'pending' && 'En attente de validation par votre administrateur.'}
                   {status === 'rejected' && 'Votre demande a été rejetée. Contactez votre administrateur.'}
                 </span>
               </div>

@@ -19,7 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Check, X, ShieldAlert, Users as UsersIcon, Shield, Briefcase, Plus, Loader2, KeyRound, RefreshCw, Smartphone, MapPin } from 'lucide-react';
+import { Check, X, ShieldAlert, Users as UsersIcon, Shield, Briefcase, Plus, Loader2, KeyRound, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useCurrentUser } from '@/lib/auth/useCurrentUser';
@@ -38,13 +38,6 @@ export default function UsersPage() {
   const [passwordRequestsLoading, setPasswordRequestsLoading] = useState(true);
   const [passwordRequestsFilter, setPasswordRequestsFilter] = useState('pending');
   const [resolvingRequestId, setResolvingRequestId] = useState<number | null>(null);
-
-  // Devices (société)
-  const [myRequests, setMyRequests] = useState<any[]>([]);
-  const [devices, setDevices] = useState<any[]>([]);
-  const [deviceLimit, setDeviceLimit] = useState<{ count: number; limit: number } | null>(null);
-  const [subLoading, setSubLoading] = useState(false);
-  const [requestingDeviceId, setRequestingDeviceId] = useState<number | null>(null);
 
   // Add user dialog
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -155,45 +148,6 @@ export default function UsersPage() {
     }
   };
 
-  const fetchDevicesData = async () => {
-    setSubLoading(true);
-    try {
-      const [reqs, devs] = await Promise.all([
-        djangoClient.myCompany.listRequests(),
-        djangoClient.myCompany.getDevices(),
-      ]);
-      setMyRequests(reqs);
-      setDevices(devs.devices);
-      setDeviceLimit({ count: devs.count, limit: devs.limit });
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setSubLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (isCompanyOwner) fetchDevicesData();
-  }, [isCompanyOwner]);
-
-  const handleRequestDeviceDeletion = async (deviceId: number) => {
-    setRequestingDeviceId(deviceId);
-    try {
-      await djangoClient.myCompany.createRequest({ request_type: 'device_deletion', device_id: deviceId });
-      toast.success('Demande de suppression envoyée à Label Technology');
-      fetchDevicesData();
-    } catch (err: any) {
-      toast.error(err.message || 'Erreur lors de la demande');
-    } finally {
-      setRequestingDeviceId(null);
-    }
-  };
-
-  const pendingDeviceRequestIds = new Set(
-    myRequests
-      .filter((r) => r.request_type === 'device_deletion' && r.status === 'pending')
-      .map((r) => r.device_info?.device_id)
-  );
 
   const handleApprove = async (userId: number) => {
     try {
@@ -458,11 +412,6 @@ export default function UsersPage() {
               )}
             </TabsTrigger>
           )}
-          {isCompanyOwner && (
-            <TabsTrigger value="devices">
-              <Smartphone className="h-4 w-4 mr-2" />Appareils
-            </TabsTrigger>
-          )}
         </TabsList>
 
         {/* Active users */}
@@ -484,7 +433,6 @@ export default function UsersPage() {
                         <TableHead>Rôle</TableHead>
                         <TableHead>Magasin</TableHead>
                         <TableHead>Poste</TableHead>
-                        <TableHead>Appareil connecté</TableHead>
                         <TableHead>Connexion / Déconnexion</TableHead>
                         <TableHead>Actif</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
@@ -523,30 +471,6 @@ export default function UsersPage() {
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground">{u.shop_name || '-'}</TableCell>
                           <TableCell className="text-sm text-muted-foreground">{u.position || '-'}</TableCell>
-                          <TableCell className="text-sm">
-                            {u.device ? (
-                              <div className="space-y-0.5">
-                                <div className="flex items-center gap-1.5">
-                                  <Smartphone className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                                  <span className="font-medium">{u.device.device_name}</span>
-                                </div>
-                                <div className="text-xs text-muted-foreground font-mono">{u.device.ip_address || '-'}</div>
-                                {u.device.latitude != null && u.device.longitude != null && (
-                                  <a
-                                    href={`https://www.google.com/maps?q=${u.device.latitude},${u.device.longitude}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex items-center gap-1 text-xs text-blue-600 hover:underline"
-                                  >
-                                    <MapPin className="h-3 w-3" />
-                                    Voir la localisation
-                                  </a>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">Aucun appareil</span>
-                            )}
-                          </TableCell>
                           <TableCell className="text-xs text-muted-foreground">
                             {u.last_login_at ? (
                               <div className="space-y-0.5">
@@ -792,66 +716,6 @@ export default function UsersPage() {
           </TabsContent>
         )}
 
-        {/* Devices tab */}
-        {isCompanyOwner && (
-          <TabsContent value="devices">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div>
-                    <CardTitle>Appareils connectés</CardTitle>
-                    <CardDescription>Appareils enregistrés pour les comptes de votre société</CardDescription>
-                  </div>
-                  {deviceLimit && (
-                    <Badge
-                      variant="outline"
-                      className={deviceLimit.count >= deviceLimit.limit ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700'}
-                    >
-                      {deviceLimit.count} / {deviceLimit.limit} appareils
-                    </Badge>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent>
-                {deviceLimit && deviceLimit.count >= deviceLimit.limit && (
-                  <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md p-3 mb-4">
-                    Limite d'appareils atteinte. Supprimez un appareil ci-dessous ou contactez
-                    Label Technology pour augmenter votre offre.
-                  </p>
-                )}
-                {subLoading && devices.length === 0 ? (
-                  <Skeleton className="h-24 w-full" />
-                ) : devices.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Aucun appareil enregistré</p>
-                ) : (
-                  <div className="space-y-2">
-                    {devices.map((d) => (
-                      <div key={d.id} className="flex items-center justify-between border rounded-md p-3 text-sm">
-                        <div>
-                          <p className="font-medium">{d.user_name} <span className="text-xs text-muted-foreground">({d.user_role})</span></p>
-                          <p className="text-xs text-muted-foreground truncate max-w-xs">{d.label || d.user_agent}</p>
-                          <p className="text-xs text-muted-foreground font-mono">{d.ip_address}</p>
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={requestingDeviceId === d.id || pendingDeviceRequestIds.has(d.id)}
-                          onClick={() => handleRequestDeviceDeletion(d.id)}
-                        >
-                          {pendingDeviceRequestIds.has(d.id)
-                            ? 'Demande envoyée'
-                            : requestingDeviceId === d.id
-                              ? 'Envoi...'
-                              : 'Demander la suppression'}
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        )}
       </Tabs>
 
       {/* Edit Role Dialog */}
