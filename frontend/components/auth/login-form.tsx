@@ -74,11 +74,6 @@ export function LoginForm() {
       goTo(destination);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Erreur de connexion';
-      if (errorMsg.includes('Abonnement inactif')) {
-        router.push(`/abonnement-expire?email=${encodeURIComponent(email)}`);
-        setLoading(false);
-        return;
-      }
       if (errorMsg.includes('Limite d\'appareils atteinte')) {
         toast.error(errorMsg, { duration: 8000 });
         setLoading(false);

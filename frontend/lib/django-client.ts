@@ -116,13 +116,8 @@ class DjangoAPIClient {
       })
 
       if (!response.ok) {
-        let blocked = false
-        try {
-          const err = await response.json()
-          if (err.code === 'subscription_inactive') blocked = true
-        } catch {}
         this.clearTokensFromStorage()
-        window.location.href = blocked ? '/abonnement-expire' : '/login'
+        window.location.href = '/login'
         return null
       }
 

@@ -19,36 +19,11 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Check, X, ShieldAlert, Users as UsersIcon, Shield, Briefcase, Plus, Loader2, KeyRound, RefreshCw, CreditCard, Smartphone, MapPin } from 'lucide-react';
+import { Check, X, ShieldAlert, Users as UsersIcon, Shield, Briefcase, Plus, Loader2, KeyRound, RefreshCw, Smartphone, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useCurrentUser } from '@/lib/auth/useCurrentUser';
 import { ConfirmDeleteDialog } from '@/components/confirm-delete-dialog';
-
-const SUB_STATUS_LABEL: Record<string, string> = {
-  active: 'Actif',
-  disabled: 'Désactivé',
-  pending: 'En attente',
-  trial: 'Essai',
-  demo: 'Démo',
-};
-
-const getSubStatusBadgeClass = (status: string) => {
-  switch (status) {
-    case 'active': return 'bg-green-50 text-green-700';
-    case 'trial': return 'bg-blue-50 text-blue-700';
-    case 'demo': return 'bg-purple-50 text-purple-700';
-    case 'pending': return 'bg-orange-50 text-orange-700';
-    case 'disabled': return 'bg-red-50 text-red-700';
-    default: return 'bg-muted text-muted-foreground';
-  }
-};
-
-const REQ_STATUS_LABEL: Record<string, string> = {
-  pending: 'En attente',
-  approved: 'Approuvée',
-  rejected: 'Rejetée',
-};
 
 export default function UsersPage() {
   const { user: currentUser, loading: currentUserLoading, isAdmin, isManager, isCompanyOwner } = useCurrentUser();
@@ -64,13 +39,11 @@ export default function UsersPage() {
   const [passwordRequestsFilter, setPasswordRequestsFilter] = useState('pending');
   const [resolvingRequestId, setResolvingRequestId] = useState<number | null>(null);
 
-  // Subscription & devices (société)
-  const [subscription, setSubscription] = useState<any | null>(null);
+  // Devices (société)
   const [myRequests, setMyRequests] = useState<any[]>([]);
   const [devices, setDevices] = useState<any[]>([]);
   const [deviceLimit, setDeviceLimit] = useState<{ count: number; limit: number } | null>(null);
   const [subLoading, setSubLoading] = useState(false);
-  const [requestingActivation, setRequestingActivation] = useState(false);
   const [requestingDeviceId, setRequestingDeviceId] = useState<number | null>(null);
 
   // Add user dialog
@@ -182,15 +155,13 @@ export default function UsersPage() {
     }
   };
 
-  const fetchSubscriptionData = async () => {
+  const fetchDevicesData = async () => {
     setSubLoading(true);
     try {
-      const [sub, reqs, devs] = await Promise.all([
-        djangoClient.myCompany.getSubscription(),
+      const [reqs, devs] = await Promise.all([
         djangoClient.myCompany.listRequests(),
         djangoClient.myCompany.getDevices(),
       ]);
-      setSubscription(sub);
       setMyRequests(reqs);
       setDevices(devs.devices);
       setDeviceLimit({ count: devs.count, limit: devs.limit });
@@ -202,32 +173,15 @@ export default function UsersPage() {
   };
 
   useEffect(() => {
-    if (isCompanyOwner) fetchSubscriptionData();
+    if (isCompanyOwner) fetchDevicesData();
   }, [isCompanyOwner]);
-
-  const hasPendingActivationRequest = myRequests.some(
-    (r) => r.request_type === 'activation' && r.status === 'pending'
-  );
-
-  const handleRequestActivation = async () => {
-    setRequestingActivation(true);
-    try {
-      await djangoClient.myCompany.createRequest({ request_type: 'activation' });
-      toast.success('Demande d\'activation envoyée à Label Technology');
-      fetchSubscriptionData();
-    } catch (err: any) {
-      toast.error(err.message || 'Erreur lors de la demande');
-    } finally {
-      setRequestingActivation(false);
-    }
-  };
 
   const handleRequestDeviceDeletion = async (deviceId: number) => {
     setRequestingDeviceId(deviceId);
     try {
       await djangoClient.myCompany.createRequest({ request_type: 'device_deletion', device_id: deviceId });
       toast.success('Demande de suppression envoyée à Label Technology');
-      fetchSubscriptionData();
+      fetchDevicesData();
     } catch (err: any) {
       toast.error(err.message || 'Erreur lors de la demande');
     } finally {
@@ -502,11 +456,6 @@ export default function UsersPage() {
                   {passwordRequests.filter(r => r.status === 'pending').length}
                 </Badge>
               )}
-            </TabsTrigger>
-          )}
-          {isCompanyOwner && (
-            <TabsTrigger value="subscription">
-              <CreditCard className="h-4 w-4 mr-2" />Abonnement
             </TabsTrigger>
           )}
           {isCompanyOwner && (
@@ -837,69 +786,6 @@ export default function UsersPage() {
                       </div>
                     ))}
                   </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        )}
-
-        {/* Subscription tab */}
-        {isCompanyOwner && (
-          <TabsContent value="subscription">
-            <Card>
-              <CardHeader>
-                <CardTitle>Abonnement</CardTitle>
-                <CardDescription>Statut de l'abonnement de votre société</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {subLoading && !subscription ? (
-                  <Skeleton className="h-24 w-full" />
-                ) : (
-                  <>
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <Badge variant="outline" className={getSubStatusBadgeClass(subscription?.status)}>
-                        {SUB_STATUS_LABEL[subscription?.status] || subscription?.status}
-                      </Badge>
-                      {subscription?.status === 'trial' && subscription?.days_left_in_trial !== null && (
-                        <span className="text-sm text-muted-foreground">
-                          {subscription.days_left_in_trial} jour(s) restant(s) à l'essai
-                        </span>
-                      )}
-                    </div>
-
-                    {subscription?.offer && (
-                      <div className="text-sm text-muted-foreground">
-                        Offre : {subscription.offer.name} · Durée : {subscription.offer.duration_months} mois
-                      </div>
-                    )}
-
-                    {subscription?.status !== 'active' && subscription?.status !== 'demo' && (
-                      <Button onClick={handleRequestActivation} disabled={requestingActivation || hasPendingActivationRequest}>
-                        {hasPendingActivationRequest
-                          ? 'Demande déjà envoyée'
-                          : requestingActivation
-                            ? 'Envoi...'
-                            : "Demander l'activation"}
-                      </Button>
-                    )}
-
-                    {myRequests.length > 0 && (
-                      <div className="border-t pt-4 space-y-2">
-                        <Label>Historique des demandes</Label>
-                        {myRequests.map((r) => (
-                          <div key={r.id} className="flex items-center justify-between text-sm border rounded-md p-2">
-                            <span>{r.request_type === 'activation' ? "Activation d'abonnement" : "Suppression d'appareil"}</span>
-                            <Badge variant="outline" className={
-                              r.status === 'approved' ? 'bg-green-50 text-green-700' :
-                              r.status === 'rejected' ? 'bg-red-50 text-red-700' : 'bg-orange-50 text-orange-700'
-                            }>
-                              {REQ_STATUS_LABEL[r.status]}
-                            </Badge>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </>
                 )}
               </CardContent>
             </Card>

@@ -31,14 +31,12 @@ class UsersScreen extends ConsumerWidget {
       const Tab(text: 'Équipe'),
       Tab(text: pendingCount > 0 ? 'En attente ($pendingCount)' : 'En attente'),
       if (isAdmin) const Tab(text: 'Mots de passe'),
-      if (isCompanyOwner) const Tab(text: 'Abonnement'),
       if (isCompanyOwner) const Tab(text: 'Appareils'),
     ];
     final views = <Widget>[
       const _TeamTab(),
       const _PendingTab(),
       if (isAdmin) const _PasswordResetsTab(),
-      if (isCompanyOwner) const _SubscriptionTab(),
       if (isCompanyOwner) const _DevicesTab(),
     ];
 
@@ -358,13 +356,6 @@ class _CreateUserDialogState extends ConsumerState<_CreateUserDialog> {
 }
 
 const _prStatusLabel = {'pending': 'En attente', 'approved': 'Approuvée', 'rejected': 'Rejetée'};
-const _subStatusLabel = {'active': 'Actif', 'disabled': 'Désactivé', 'pending': 'En attente', 'trial': 'Essai', 'demo': 'Démo'};
-const _requestTypeLabel = {
-  'activation': "Activation d'abonnement",
-  'device_deletion': "Suppression d'appareil",
-  'payment': 'Paiement direct',
-  'password_reset': 'Réinitialisation de mot de passe',
-};
 
 Color _statusColor(BuildContext context, String status) {
   switch (status) {
@@ -500,133 +491,6 @@ class _PasswordResetTile extends ConsumerWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// Onglet "Abonnement" (propriétaire de la société uniquement) : statut,
-/// essai restant, demande d'activation, historique des demandes.
-class _SubscriptionTab extends ConsumerWidget {
-  const _SubscriptionTab();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final subAsync = ref.watch(companySubscriptionProvider);
-    final requestsAsync = ref.watch(companyRequestsProvider);
-
-    return RefreshIndicator(
-      onRefresh: () async {
-        ref.invalidate(companySubscriptionProvider);
-        await ref.read(companyRequestsProvider.notifier).refresh();
-      },
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          switch (subAsync) {
-            AsyncData(:final value) => Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Chip(
-                            label: Text(_subStatusLabel[value.status] ?? value.status),
-                            backgroundColor: _statusColor(context, value.status).withValues(alpha: 0.12),
-                            labelStyle: TextStyle(color: _statusColor(context, value.status)),
-                            side: BorderSide.none,
-                          ),
-                          if (value.status == 'trial' && value.daysLeftInTrial != null) ...[
-                            const SizedBox(width: 8),
-                            Text('${value.daysLeftInTrial} jour(s) restant(s) à l\'essai', style: Theme.of(context).textTheme.bodySmall),
-                          ],
-                        ],
-                      ),
-                      if (value.offerName != null) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          'Offre : ${value.offerName}${value.offerDurationMonths != null ? ' · Durée : ${value.offerDurationMonths} mois' : ''}',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
-                      if (value.status != 'active' && value.status != 'demo') ...[
-                        const SizedBox(height: 12),
-                        _RequestActivationButton(requestsAsync: requestsAsync),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            AsyncError(:final error) => ErrorState(message: ApiClient.messageFromError(error), onRetry: () => ref.invalidate(companySubscriptionProvider)),
-            _ => const LoadingState(),
-          },
-          const SizedBox(height: 16),
-          switch (requestsAsync) {
-            AsyncData(:final value) when value.isNotEmpty => Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Historique des demandes', style: Theme.of(context).textTheme.titleSmall),
-                      const SizedBox(height: 8),
-                      for (final r in value)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: Row(
-                            children: [
-                              Expanded(child: Text(_requestTypeLabel[r.requestType] ?? r.requestType)),
-                              Chip(
-                                label: Text(_prStatusLabel[r.status] ?? r.status),
-                                backgroundColor: _statusColor(context, r.status).withValues(alpha: 0.12),
-                                labelStyle: TextStyle(color: _statusColor(context, r.status), fontSize: 12),
-                                side: BorderSide.none,
-                                visualDensity: VisualDensity.compact,
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            _ => const SizedBox.shrink(),
-          },
-        ],
-      ),
-    );
-  }
-}
-
-class _RequestActivationButton extends ConsumerStatefulWidget {
-  const _RequestActivationButton({required this.requestsAsync});
-  final AsyncValue<List<CompanyRequest>> requestsAsync;
-
-  @override
-  ConsumerState<_RequestActivationButton> createState() => _RequestActivationButtonState();
-}
-
-class _RequestActivationButtonState extends ConsumerState<_RequestActivationButton> {
-  bool _sending = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final hasPending = widget.requestsAsync.value?.any((r) => r.requestType == 'activation' && r.status == 'pending') ?? false;
-    return FilledButton(
-      onPressed: (_sending || hasPending)
-          ? null
-          : () async {
-              setState(() => _sending = true);
-              try {
-                await ref.read(companyRequestsProvider.notifier).requestActivation();
-              } catch (e) {
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
-              } finally {
-                if (mounted) setState(() => _sending = false);
-              }
-            },
-      child: Text(hasPending ? 'Demande déjà envoyée' : (_sending ? 'Envoi…' : "Demander l'activation")),
     );
   }
 }
