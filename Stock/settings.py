@@ -177,6 +177,12 @@ ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "157.173.103.147 localhost 127.0
 
 CORS_ALLOW_ALL_ORIGINS = False
 
+# Sans ça, le navigateur bloque la lecture de Content-Disposition en
+# cross-origin (frontend :3010 / backend :8010) — le nom de fichier proposé
+# par fetch() pour un téléchargement (export Excel, backup...) retombe alors
+# silencieusement sur un nom générique côté client (voir lib/django-client.ts::requestBlob).
+CORS_EXPOSE_HEADERS = ["Content-Disposition"]
+
 _cors_env = os.environ.get("CORS_ALLOWED_ORIGINS", "")
 CORS_ALLOWED_ORIGINS = _cors_env.split() if _cors_env else [
     "http://localhost:3010",

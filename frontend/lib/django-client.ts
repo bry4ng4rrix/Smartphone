@@ -563,6 +563,20 @@ class DjangoAPIClient {
       bulkUpdatePrice: async (data: { type_id: number; prix_achat?: number | string; prix_vente?: number | string }) => {
         return this.post<{ updated: number }>('/catalog/references/bulk-update-price/', data)
       },
+      exportExcel: async () => {
+        return this.requestBlob('/catalog/references/export-excel/')
+      },
+      importExcel: async (file: File) => {
+        const fd = new FormData()
+        fd.append('file', file)
+        return this.postFormData<{
+          created_references: number
+          updated_references: number
+          created_variants: number
+          updated_variants: number
+          errors: string[]
+        }>('/catalog/references/import-excel/', fd)
+      },
     },
     variants: {
       list: async (referenceId?: number) => {

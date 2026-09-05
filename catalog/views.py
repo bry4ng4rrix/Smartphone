@@ -1,6 +1,13 @@
+import io
+
+import openpyxl
+from django.db import transaction
+from django.http import HttpResponse
+from openpyxl.utils import get_column_letter
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -165,6 +172,176 @@ class ProductReferenceViewSet(viewsets.ModelViewSet):
 
         return Response({"updated": count})
 
+    EXCEL_HEADERS = [
+        "Catégorie", "Sous-type", "Marque", "Référence",
+        "Couleur", "Prix achat", "Prix vente", "Stock actuel",
+        "Seuil alerte", "Actif",
+    ]
+
+    @action(detail=False, methods=["get"], url_path="export-excel")
+    def export_excel(self, request):
+        """GET /api/catalog/references/export-excel/ — une ligne par couleur
+        (variante), pour édition hors-ligne puis réimport via import-excel/."""
+        refs = self.get_queryset().order_by("type__category__nom", "type__nom", "brand__nom", "reference_name")
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Catalogue"
+        ws.append(self.EXCEL_HEADERS)
+
+        for ref in refs:
+            variants = list(ref.variants.all())
+            if not variants:
+                ws.append([
+                    ref.type.category.nom, ref.type.nom, ref.brand.nom, ref.reference_name,
+                    "", float(ref.prix_achat or 0), float(ref.prix_vente or 0), "", "",
+                    "Oui" if ref.actif else "Non",
+                ])
+            for v in variants:
+                ws.append([
+                    ref.type.category.nom, ref.type.nom, ref.brand.nom, ref.reference_name,
+                    v.couleur, float(ref.prix_achat or 0), float(ref.prix_vente or 0),
+                    v.stock_actuel, v.seuil_alerte, "Oui" if ref.actif else "Non",
+                ])
+
+        for i in range(1, len(self.EXCEL_HEADERS) + 1):
+            ws.column_dimensions[get_column_letter(i)].width = 18
+
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+
+        response = HttpResponse(
+            buffer.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = 'attachment; filename="catalogue.xlsx"'
+        return response
+
+    @action(detail=False, methods=["post"], url_path="import-excel", parser_classes=[MultiPartParser])
+    def import_excel(self, request):
+        """POST /api/catalog/references/import-excel/ (multipart, champ
+        "file") — crée/actualise Catégorie → Sous-type → Marque → Référence →
+        Couleur à partir d'un fichier au format export-excel/. Le stock ne
+        change jamais directement (§10 Smartreadme.md) : un écart avec le
+        stock actuel déclenche un mouvement ENTREE/SORTIE tracé."""
+        uploaded = request.FILES.get("file")
+        if not uploaded:
+            return Response({"error": "Fichier requis (champ 'file')."}, status=400)
+
+        try:
+            wb = openpyxl.load_workbook(uploaded, data_only=True)
+            ws = wb.active
+        except Exception:
+            return Response({"error": "Fichier Excel invalide."}, status=400)
+
+        magasin = resolve_magasin_for_request(request)
+        created_refs = 0
+        updated_refs = 0
+        created_variants = 0
+        updated_variants = 0
+        errors = []
+
+        category_cache = {}
+        type_cache = {}
+        brand_cache = {}
+
+        for row_index, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            if row is None or all(c in (None, "") for c in row):
+                continue
+            (categorie, sous_type, marque, reference_name, couleur,
+             prix_achat, prix_vente, stock_actuel, seuil_alerte, actif) = (list(row) + [None] * 10)[:10]
+
+            categorie = str(categorie or "").strip()
+            sous_type = str(sous_type or "").strip()
+            marque = str(marque or "").strip()
+            reference_name = str(reference_name or "").strip()
+            couleur = str(couleur or "").strip()
+
+            if not (categorie and sous_type and marque and reference_name):
+                errors.append(f"Ligne {row_index} : Catégorie/Sous-type/Marque/Référence manquant(e).")
+                continue
+
+            try:
+                with transaction.atomic():
+                    cat_key = (categorie,)
+                    category = category_cache.get(cat_key)
+                    if category is None:
+                        category, _ = ProductCategory.objects.get_or_create(magasin=magasin, nom=categorie)
+                        category_cache[cat_key] = category
+
+                    type_key = (categorie, sous_type)
+                    type_obj = type_cache.get(type_key)
+                    if type_obj is None:
+                        type_obj, _ = ProductType.objects.get_or_create(category=category, nom=sous_type)
+                        type_cache[type_key] = type_obj
+
+                    brand = brand_cache.get(marque)
+                    if brand is None:
+                        brand, _ = Brand.objects.get_or_create(magasin=magasin, nom=marque)
+                        brand_cache[marque] = brand
+
+                    prix_achat_val = prix_achat if prix_achat not in (None, "") else 0
+                    prix_vente_val = prix_vente if prix_vente not in (None, "") else 0
+                    actif_val = str(actif or "").strip().lower() not in ("non", "false", "0")
+
+                    ref, ref_created = ProductReference.objects.get_or_create(
+                        type=type_obj, brand=brand, reference_name=reference_name,
+                        defaults={"prix_achat": prix_achat_val, "prix_vente": prix_vente_val, "actif": actif_val},
+                    )
+                    if ref_created:
+                        created_refs += 1
+                    else:
+                        ref.prix_achat = prix_achat_val
+                        ref.prix_vente = prix_vente_val
+                        ref.actif = actif_val
+                        ref.save(update_fields=["prix_achat", "prix_vente", "actif"])
+                        updated_refs += 1
+
+                    if not couleur:
+                        continue
+
+                    seuil_val = int(seuil_alerte) if seuil_alerte not in (None, "") else 1
+                    stock_val = int(stock_actuel) if stock_actuel not in (None, "") else 0
+
+                    variant, variant_created = ProductVariant.objects.get_or_create(
+                        product_reference=ref, couleur=couleur,
+                        defaults={"seuil_alerte": seuil_val},
+                    )
+                    if variant_created:
+                        created_variants += 1
+                        if stock_val > 0:
+                            services.apply_stock_movement(
+                                product_variant=variant, movement_type="ENTREE", quantite=stock_val,
+                                origine="AJUSTEMENT", user=request.user, note="Import Excel",
+                            )
+                    else:
+                        if variant.seuil_alerte != seuil_val:
+                            variant.seuil_alerte = seuil_val
+                            variant.save(update_fields=["seuil_alerte"])
+                        diff = stock_val - variant.stock_actuel
+                        if diff > 0:
+                            services.apply_stock_movement(
+                                product_variant=variant, movement_type="ENTREE", quantite=diff,
+                                origine="AJUSTEMENT", user=request.user, note="Import Excel",
+                            )
+                        elif diff < 0:
+                            services.apply_stock_movement(
+                                product_variant=variant, movement_type="SORTIE", quantite=-diff,
+                                origine="AJUSTEMENT", user=request.user, note="Import Excel",
+                            )
+                        updated_variants += 1
+            except Exception as exc:
+                errors.append(f"Ligne {row_index} : {exc}")
+
+        return Response({
+            "created_references": created_refs,
+            "updated_references": updated_refs,
+            "created_variants": created_variants,
+            "updated_variants": updated_variants,
+            "errors": errors,
+        })
+
 
 class ProductVariantViewSet(viewsets.ModelViewSet):
     serializer_class = ProductVariantSerializer
@@ -179,6 +356,27 @@ class ProductVariantViewSet(viewsets.ModelViewSet):
         if reference_id:
             qs = qs.filter(product_reference_id=reference_id)
         return qs
+
+    def perform_create(self, serializer):
+        # `stock_actuel` est en lecture seule sur le serializer (le stock ne
+        # se modifie jamais hors mouvement tracé, §10 Smartreadme.md) — une
+        # nouvelle couleur est donc créée à 0, puis un mouvement d'entrée est
+        # appliqué si un stock initial a été demandé, pour garder la trace.
+        variant = serializer.save()
+        try:
+            initial_stock = int(self.request.data.get("stock_actuel") or 0)
+        except (TypeError, ValueError):
+            initial_stock = 0
+        if initial_stock > 0:
+            services.apply_stock_movement(
+                product_variant=variant,
+                movement_type="ENTREE",
+                quantite=initial_stock,
+                origine="AJUSTEMENT",
+                user=self.request.user,
+                note="Stock initial à la création de la couleur",
+            )
+            variant.refresh_from_db()
 
     @action(detail=True, methods=["post"])
     def adjust(self, request, pk=None):

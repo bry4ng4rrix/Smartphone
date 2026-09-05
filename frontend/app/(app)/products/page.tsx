@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { djangoClient } from "@/lib/django-client";
 import { useCurrentUser } from "@/lib/auth/useCurrentUser";
 import { useRealtimeRefresh } from "@/lib/hooks/useRealtimeRefresh";
@@ -44,6 +44,8 @@ import {
   ArrowDownCircle,
   Tag,
   DollarSign,
+  Download,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -67,6 +69,9 @@ export default function ProductsPage() {
   const [bulkPriceOpen, setBulkPriceOpen] = useState(false);
   const [variantsOf, setVariantsOf] = useState<any | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const fetchAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -164,6 +169,49 @@ export default function ProductsPage() {
     }
   };
 
+  const handleExportExcel = async () => {
+    setExporting(true);
+    try {
+      const { blob, filename } = await djangoClient.catalog.references.exportExcel();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename || "catalogue.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      toast.error(err.message || "Erreur lors de l'export");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setImporting(true);
+    try {
+      const res = await djangoClient.catalog.references.importExcel(file);
+      toast.success(
+        `${res.created_references} référence(s) créée(s), ${res.updated_references} mise(s) à jour, ` +
+          `${res.created_variants} couleur(s) créée(s), ${res.updated_variants} mise(s) à jour.`,
+      );
+      if (res.errors.length > 0) {
+        toast.error(`${res.errors.length} ligne(s) ignorée(s) : ${res.errors.slice(0, 3).join(" · ")}`, {
+          duration: 10000,
+        });
+      }
+      fetchAll();
+    } catch (err: any) {
+      toast.error(err.message || "Erreur lors de l'import");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div className="p-4 sm:p-6 space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -176,10 +224,33 @@ export default function ProductsPage() {
             des charges).
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="icon" onClick={() => fetchAll()}>
             <RefreshCw className="h-4 w-4" />
           </Button>
+          <Button variant="outline" onClick={handleExportExcel} disabled={exporting}>
+            <Download className="h-4 w-4 mr-2" />
+            {exporting ? "Export..." : "Exporter Excel"}
+          </Button>
+          {isGerant && (
+            <>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={handleImportExcel}
+              />
+              <Button
+                variant="outline"
+                onClick={() => importInputRef.current?.click()}
+                disabled={importing}
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                {importing ? "Import..." : "Importer Excel"}
+              </Button>
+            </>
+          )}
           {isGerant && (
             <Button variant="outline" onClick={() => setManageBrandsOpen(true)}>
               <Tag className="h-4 w-4 mr-2" /> Marques
@@ -187,7 +258,8 @@ export default function ProductsPage() {
           )}
           {isGerant && (
             <Button variant="outline" onClick={() => setBulkPriceOpen(true)}>
-              <DollarSign className="h-4 w-4 mr-2" /> Modifier prix par sous-type
+              <DollarSign className="h-4 w-4 mr-2" /> Modifier prix par
+              sous-type
             </Button>
           )}
           {isGerant && (
@@ -317,12 +389,17 @@ export default function ProductsPage() {
                         {isGerant && (
                           <TableCell
                             className={
-                              Number(ref.prix_vente) - Number(ref.prix_achat || 0) >= 0
+                              Number(ref.prix_vente) -
+                                Number(ref.prix_achat || 0) >=
+                              0
                                 ? "text-green-600"
                                 : "text-red-600"
                             }
                           >
-                            {fmt(Number(ref.prix_vente) - Number(ref.prix_achat || 0))}
+                            {fmt(
+                              Number(ref.prix_vente) -
+                                Number(ref.prix_achat || 0),
+                            )}
                           </TableCell>
                         )}
                         <TableCell>{(ref.variants || []).length}</TableCell>
@@ -481,8 +558,8 @@ function ProductDetailDialog({
   const [adjusting, setAdjusting] = useState<any | null>(null);
   const [deletingVariant, setDeletingVariant] = useState<any | null>(null);
   const [variantColorId, setVariantColorId] = useState("");
-  const [newStock, setNewStock] = useState(0);
-  const [newSeuil, setNewSeuil] = useState(1);
+  const [newStock, setNewStock] = useState("");
+  const [newSeuil, setNewSeuil] = useState("");
   const [newColorName, setNewColorName] = useState("");
 
   useEffect(() => {
@@ -498,8 +575,8 @@ function ProductDetailDialog({
     const currentType = types.find((t) => t.id === reference.type);
     setCategoryId(currentType ? String(currentType.category) : "");
     setVariantColorId("");
-    setNewStock(0);
-    setNewSeuil(1);
+    setNewStock("");
+    setNewSeuil("");
     setNewColorName("");
   }, [reference, types]);
 
@@ -513,8 +590,12 @@ function ProductDetailDialog({
 
   if (!reference) return null;
 
-  const typesForCategory = types.filter((t) => String(t.category) === categoryId);
-  const usedColors = new Set((reference.variants || []).map((v: any) => v.couleur));
+  const typesForCategory = types.filter(
+    (t) => String(t.category) === categoryId,
+  );
+  const usedColors = new Set(
+    (reference.variants || []).map((v: any) => v.couleur),
+  );
   const availableColors = colors.filter((c: any) => !usedColors.has(c.nom));
   const margin =
     prixAchat && prixVente ? Number(prixVente) - Number(prixAchat) : null;
@@ -537,10 +618,14 @@ function ProductDetailDialog({
       if (photoFile) {
         const fd = new FormData();
         fd.append("photo", photoFile);
-        await djangoClient.patchFormData(`/catalog/references/${reference.id}/`, fd);
+        await djangoClient.patchFormData(
+          `/catalog/references/${reference.id}/`,
+          fd,
+        );
       }
       toast.success("Référence mise à jour");
       onChanged();
+      onOpenChange(false);
     } catch (err: any) {
       toast.error(err.message || "Erreur lors de la mise à jour");
     } finally {
@@ -551,7 +636,9 @@ function ProductDetailDialog({
   const createColor = async () => {
     if (!newColorName.trim()) return;
     try {
-      const created = await djangoClient.catalog.colors.create({ nom: newColorName.trim() });
+      const created = await djangoClient.catalog.colors.create({
+        nom: newColorName.trim(),
+      });
       toast.success("Couleur créée");
       setNewColorName("");
       onCatalogChanged();
@@ -571,13 +658,13 @@ function ProductDetailDialog({
       await djangoClient.catalog.variants.create({
         product_reference: reference.id,
         couleur: color.nom,
-        stock_actuel: newStock,
-        seuil_alerte: newSeuil,
+        stock_actuel: newStock ? Number(newStock) : 0,
+        seuil_alerte: newSeuil ? Number(newSeuil) : 1,
       });
       toast.success("Variante ajoutée");
       setVariantColorId("");
-      setNewStock(0);
-      setNewSeuil(1);
+      setNewStock("");
+      setNewSeuil("");
       onChanged();
     } catch (err: any) {
       toast.error(err.message || "Erreur");
@@ -597,14 +684,17 @@ function ProductDetailDialog({
   };
 
   return (
+    // dialog de modification de la référence et gestion des variantes (couleurs)
+
     <Dialog open={!!reference} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {reference.brand_name} {reference.reference_name}
           </DialogTitle>
           <DialogDescription>
-            Catégorie → Sous-type → Marque → Référence, prix, photo et variantes (§8 du cahier des charges).
+            Catégorie → Sous-type → Marque → Référence, prix, photo et variantes
+            (§8 du cahier des charges).
           </DialogDescription>
         </DialogHeader>
 
@@ -635,7 +725,11 @@ function ProductDetailDialog({
             </div>
             <div className="space-y-1">
               <Label>Sous-type</Label>
-              <Select value={typeId} onValueChange={setTypeId} disabled={!canEdit}>
+              <Select
+                value={typeId}
+                onValueChange={setTypeId}
+                disabled={!canEdit}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Choisir un sous-type" />
                 </SelectTrigger>
@@ -650,7 +744,11 @@ function ProductDetailDialog({
             </div>
             <div className="space-y-1">
               <Label>Marque</Label>
-              <Select value={brandId} onValueChange={setBrandId} disabled={!canEdit}>
+              <Select
+                value={brandId}
+                onValueChange={setBrandId}
+                disabled={!canEdit}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -692,7 +790,9 @@ function ProductDetailDialog({
               </div>
             </div>
             {margin !== null && (
-              <p className={`text-xs -mt-2 ${margin >= 0 ? "text-green-600" : "text-red-600"}`}>
+              <p
+                className={`text-xs -mt-2 ${margin >= 0 ? "text-green-600" : "text-red-600"}`}
+              >
                 Marge estimée : {fmt(margin)} / unité
               </p>
             )}
@@ -711,7 +811,11 @@ function ProductDetailDialog({
                   </div>
                 )}
                 {canEdit && (
-                  <Input type="file" accept="image/*" onChange={handlePhotoChange} />
+                  <Input
+                    type="file"
+                    accept="image/*"
+                    onChange={handlePhotoChange}
+                  />
                 )}
               </div>
             </div>
@@ -732,7 +836,9 @@ function ProductDetailDialog({
             )}
             {canEdit && (
               <Button onClick={submit} disabled={submitting} className="w-full">
-                {submitting ? "Enregistrement…" : "Enregistrer les informations"}
+                {submitting
+                  ? "Enregistrement…"
+                  : "Enregistrer les informations"}
               </Button>
             )}
           </div>
@@ -744,7 +850,11 @@ function ProductDetailDialog({
                 Variantes ({(reference.variants || []).length})
               </Label>
               <span className="text-xs text-muted-foreground">
-                Stock total : {(reference.variants || []).reduce((s: number, v: any) => s + v.stock_actuel, 0)}
+                Stock total :{" "}
+                {(reference.variants || []).reduce(
+                  (s: number, v: any) => s + v.stock_actuel,
+                  0,
+                )}
               </span>
             </div>
             <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -761,10 +871,18 @@ function ProductDetailDialog({
                   </div>
                   {canEdit && (
                     <div className="flex items-center gap-1">
-                      <Button size="sm" variant="outline" onClick={() => setAdjusting(v)}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setAdjusting(v)}
+                      >
                         Ajuster
                       </Button>
-                      <Button size="icon" variant="ghost" onClick={() => setDeletingVariant(v)}>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => setDeletingVariant(v)}
+                      >
                         <Trash2 className="h-4 w-4 text-red-500" />
                       </Button>
                     </div>
@@ -782,33 +900,52 @@ function ProductDetailDialog({
               <div className="border rounded-md p-3 space-y-2">
                 <p className="text-sm font-medium">Ajouter une couleur</p>
                 <div className="grid grid-cols-3 gap-2">
-                  <Select value={variantColorId} onValueChange={setVariantColorId}>
-                    <SelectTrigger className="col-span-3">
-                      <SelectValue placeholder="Couleur" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableColors.map((c: any) => (
-                        <SelectItem key={c.id} value={String(c.id)}>
-                          {c.nom}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    type="number"
-                    placeholder="Nombre"
-                    value={newStock}
-                    onChange={(e) => setNewStock(Number(e.target.value))}
-                  />
-                  <Input
-                    type="number"
-                    placeholder="Seuil d'alerte"
-                    value={newSeuil}
-                    onChange={(e) => setNewSeuil(Number(e.target.value))}
-                  />
-                  <Button size="sm" onClick={addVariant} disabled={!variantColorId} className="col-span-1">
-                    <Plus className="h-4 w-4 mr-1" /> Ajouter
-                  </Button>
+                  <div className="col-span-3 space-y-1">
+                    <Label className="text-xs text-muted-foreground">Couleur</Label>
+                    <Select
+                      value={variantColorId}
+                      onValueChange={setVariantColorId}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Couleur" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableColors.map((c: any) => (
+                          <SelectItem key={c.id} value={String(c.id)}>
+                            {c.nom}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Stock initial</Label>
+                    <Input
+                      type="number"
+                      placeholder="0"
+                      value={newStock}
+                      onChange={(e) => setNewStock(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Seuil d'alerte</Label>
+                    <Input
+                      type="number"
+                      placeholder="1"
+                      value={newSeuil}
+                      onChange={(e) => setNewSeuil(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <Button
+                      size="sm"
+                      onClick={addVariant}
+                      disabled={!variantColorId}
+                      className="w-full"
+                    >
+                      <Plus className="h-4 w-4 mr-1" /> Ajouter
+                    </Button>
+                  </div>
                 </div>
                 <div className="flex gap-2 pt-1 border-t">
                   <Input
@@ -817,7 +954,12 @@ function ProductDetailDialog({
                     onChange={(e) => setNewColorName(e.target.value)}
                     className="flex-1 h-8 text-xs"
                   />
-                  <Button size="sm" variant="outline" className="h-8" onClick={createColor}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8"
+                    onClick={createColor}
+                  >
                     Créer
                   </Button>
                 </div>
@@ -835,14 +977,24 @@ function ProductDetailDialog({
           }}
         />
 
-        <Dialog open={!!deletingVariant} onOpenChange={(o) => !o && setDeletingVariant(null)}>
+        <Dialog
+          open={!!deletingVariant}
+          onOpenChange={(o) => !o && setDeletingVariant(null)}
+        >
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Supprimer la couleur {deletingVariant?.couleur} ?</DialogTitle>
-              <DialogDescription>Cette variante et son historique de stock seront supprimés.</DialogDescription>
+              <DialogTitle>
+                Supprimer la couleur {deletingVariant?.couleur} ?
+              </DialogTitle>
+              <DialogDescription>
+                Cette variante et son historique de stock seront supprimés.
+              </DialogDescription>
             </DialogHeader>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setDeletingVariant(null)}>
+              <Button
+                variant="outline"
+                onClick={() => setDeletingVariant(null)}
+              >
                 Annuler
               </Button>
               <Button variant="destructive" onClick={removeVariant}>
@@ -866,24 +1018,29 @@ function AdjustStockDialog({
   onAdjusted: () => void;
 }) {
   const [type, setType] = useState<"ENTREE" | "SORTIE">("ENTREE");
-  const [quantite, setQuantite] = useState(1);
+  const [quantite, setQuantite] = useState("");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     setType("ENTREE");
-    setQuantite(1);
+    setQuantite("");
     setNote("");
   }, [variant]);
 
   if (!variant) return null;
 
   const submit = async () => {
+    const qty = Number(quantite);
+    if (!quantite || qty < 1) {
+      toast.error("Quantité requise");
+      return;
+    }
     setSubmitting(true);
     try {
       await djangoClient.catalog.variants.adjust(variant.id, {
         type,
-        quantite,
+        quantite: qty,
         note,
       });
       toast.success("Stock ajusté");
@@ -911,7 +1068,10 @@ function AdjustStockDialog({
           <span className="text-muted-foreground">Couleur :</span>
           <Badge variant="secondary">{variant.couleur}</Badge>
           <span className="text-muted-foreground ml-auto">
-            Stock actuel : <span className="font-medium text-foreground">{variant.stock_actuel}</span>
+            Stock actuel :{" "}
+            <span className="font-medium text-foreground">
+              {variant.stock_actuel}
+            </span>
             {" · "}Seuil d&apos;alerte : {variant.seuil_alerte}
           </span>
         </div>
@@ -937,8 +1097,9 @@ function AdjustStockDialog({
             <Input
               type="number"
               min={1}
+              placeholder={`Stock actuel : ${variant.stock_actuel}`}
               value={quantite}
-              onChange={(e) => setQuantite(Math.max(1, Number(e.target.value)))}
+              onChange={(e) => setQuantite(e.target.value)}
             />
           </div>
           <div className="space-y-1">
@@ -992,8 +1153,8 @@ function CreateReferenceDialog({
     { couleur: string; stock: number; seuil: number }[]
   >([]);
   const [variantCouleurId, setVariantCouleurId] = useState("");
-  const [variantStock, setVariantStock] = useState(0);
-  const [variantSeuil, setVariantSeuil] = useState(1);
+  const [variantStock, setVariantStock] = useState("");
+  const [variantSeuil, setVariantSeuil] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [newTypeName, setNewTypeName] = useState("");
   const [newBrandName, setNewBrandName] = useState("");
@@ -1011,8 +1172,8 @@ function CreateReferenceDialog({
     setPrixVente("");
     setVariants([]);
     setVariantCouleurId("");
-    setVariantStock(0);
-    setVariantSeuil(1);
+    setVariantStock("");
+    setVariantSeuil("");
     setNewTypeName("");
     setNewBrandName("");
     setNewColorName("");
@@ -1048,18 +1209,22 @@ function CreateReferenceDialog({
 
   const addVariant = () => {
     const color = colors.find((c) => String(c.id) === variantCouleurId);
-    if (!color || variantStock < 0) return;
+    if (!color) return;
     if (variants.some((v) => v.couleur === color.nom)) {
       toast.error("Cette couleur est déjà dans la liste");
       return;
     }
     setVariants((prev) => [
       ...prev,
-      { couleur: color.nom, stock: variantStock, seuil: variantSeuil },
+      {
+        couleur: color.nom,
+        stock: variantStock ? Number(variantStock) : 0,
+        seuil: variantSeuil ? Number(variantSeuil) : 1,
+      },
     ]);
     setVariantCouleurId("");
-    setVariantStock(0);
-    setVariantSeuil(1);
+    setVariantStock("");
+    setVariantSeuil("");
   };
 
   const removeVariant = (couleur: string) => {
@@ -1303,7 +1468,10 @@ function CreateReferenceDialog({
             <div className="flex flex-wrap gap-2 items-end">
               <div className="space-y-1 flex-[2] min-w-[130px]">
                 <Label className="text-xs">Couleur</Label>
-                <Select value={variantCouleurId} onValueChange={setVariantCouleurId}>
+                <Select
+                  value={variantCouleurId}
+                  onValueChange={setVariantCouleurId}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Choisir" />
                   </SelectTrigger>
@@ -1321,8 +1489,9 @@ function CreateReferenceDialog({
                 <Input
                   type="number"
                   min={0}
+                  placeholder="0"
                   value={variantStock}
-                  onChange={(e) => setVariantStock(Number(e.target.value))}
+                  onChange={(e) => setVariantStock(e.target.value)}
                 />
               </div>
               <div className="space-y-1 min-w-[80px]">
@@ -1330,8 +1499,9 @@ function CreateReferenceDialog({
                 <Input
                   type="number"
                   min={0}
+                  placeholder="1"
                   value={variantSeuil}
-                  onChange={(e) => setVariantSeuil(Number(e.target.value))}
+                  onChange={(e) => setVariantSeuil(e.target.value)}
                 />
               </div>
               <Button
@@ -1605,9 +1775,9 @@ function BulkPriceDialog({
         <DialogHeader>
           <DialogTitle>Modifier le prix par sous-type</DialogTitle>
           <DialogDescription>
-            Change le prix d'achat et/ou de vente de TOUTES les références
-            d'un sous-type en une seule fois (ex : toutes les "Flip cover",
-            quelle que soit la marque).
+            Change le prix d'achat et/ou de vente de TOUTES les références d'un
+            sous-type en une seule fois (ex : toutes les "Flip cover", quelle
+            que soit la marque).
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
