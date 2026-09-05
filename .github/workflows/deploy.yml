@@ -6,19 +6,23 @@ on:
       - main
 
 jobs:
+  # ============================================================
+  # VERIFY
+  # ============================================================
   verify:
+    name: Verify application
     runs-on: ubuntu-latest
 
     steps:
-      # ========================================
+      # --------------------------------------------------------
       # CHECKOUT
-      # ========================================
+      # --------------------------------------------------------
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ========================================
-      # PYTHON / DJANGO
-      # ========================================
+      # --------------------------------------------------------
+      # PYTHON
+      # --------------------------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -27,233 +31,410 @@ jobs:
 
       - name: Install backend dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # --------------------------------------------------------
+      # DJANGO CHECK
+      # --------------------------------------------------------
       - name: Django check
         run: |
           python manage.py check
 
-      # ========================================
-      # NODE / NEXT.JS
-      # ========================================
-      - name: Set up Node
+      # --------------------------------------------------------
+      # NODE.JS
+      # --------------------------------------------------------
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Check Node version
+      # --------------------------------------------------------
+      # NODE VERSION
+      # --------------------------------------------------------
+      - name: Check Node.js version
         run: |
+          echo "Node:"
           node --version
+
+          echo "NPM:"
           npm --version
 
+      # --------------------------------------------------------
+      # FRONTEND DEPENDENCIES
+      # --------------------------------------------------------
       - name: Install frontend dependencies
         working-directory: frontend
         run: |
           npm ci
 
+      # --------------------------------------------------------
+      # NEXT.JS BUILD
+      # --------------------------------------------------------
       - name: Build frontend
         working-directory: frontend
         run: |
           npm run build
 
-      # ========================================
+      # --------------------------------------------------------
       # TYPESCRIPT
-      # ========================================
-      - name: Type-check frontend (advisory)
+      # --------------------------------------------------------
+      - name: Type-check frontend
         working-directory: frontend
         continue-on-error: true
         run: |
           npx tsc --noEmit
 
-  # ============================================
+  # ============================================================
   # DEPLOY
-  # ============================================
+  # ============================================================
   deploy:
+    name: Deploy to VPS
     needs: verify
     runs-on: ubuntu-latest
 
     steps:
-      # ========================================
-      # SSH
-      # ========================================
+      # --------------------------------------------------------
+      # SSH AGENT
+      # --------------------------------------------------------
       - name: Setup SSH
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      # ========================================
-      # ADD SERVER TO KNOWN HOSTS
-      # ========================================
-      - name: Add host
+      # --------------------------------------------------------
+      # CHECK SSH KEY
+      # --------------------------------------------------------
+      - name: Check SSH key
+        run: |
+          echo "Loaded SSH keys:"
+          ssh-add -l
+
+      # --------------------------------------------------------
+      # KNOWN HOSTS
+      # --------------------------------------------------------
+      - name: Add server to known_hosts
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          ssh-keyscan -H "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -H "${{ secrets.SERVER_HOST }}" \
+            >> ~/.ssh/known_hosts
 
           chmod 600 ~/.ssh/known_hosts
 
-      # ========================================
+      # --------------------------------------------------------
       # TEST SSH CONNECTION
-      # ========================================
+      # --------------------------------------------------------
       - name: Test SSH connection
         run: |
           ssh \
             -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
             -o ConnectTimeout=10 \
             "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
-            "echo 'SSH connection successful'; whoami; hostname"
+            "echo '======================================'; \
+             echo 'SSH connection successful'; \
+             echo 'User:'; whoami; \
+             echo 'Hostname:'; hostname; \
+             echo 'Home:'; echo \$HOME; \
+             echo '======================================'"
 
-      # ========================================
-      # DEPLOY ON SERVER
-      # ========================================
+      # --------------------------------------------------------
+      # DEPLOY
+      # --------------------------------------------------------
       - name: Deploy on server
         run: |
           ssh \
             -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
             -o ConnectTimeout=10 \
             "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
             'bash -s' << 'EOF'
 
-            # ====================================
-            # STOP ON ERROR
-            # ====================================
             set -e
 
-            # ====================================
-            # PROJECT DIRECTORY
-            # ====================================
-            cd /home/smart/Smartphone
+            # ==================================================
+            # VARIABLES
+            # ==================================================
 
+            PROJECT_DIR="/home/smart/Smartphone"
+            COMPOSE_FILE="docker-compose.prod.yml"
+
+            # ==================================================
+            # START
+            # ==================================================
+
+            echo ""
             echo "======================================"
             echo "Starting deployment"
             echo "======================================"
 
-            echo "Current directory:"
-            pwd
+            # ==================================================
+            # CURRENT USER
+            # ==================================================
 
+            echo ""
             echo "Current user:"
             whoami
 
-            # ====================================
-            # UPDATE SOURCE CODE
-            # ====================================
+            echo ""
+            echo "Home:"
+            echo "$HOME"
+
+            # ==================================================
+            # PROJECT DIRECTORY
+            # ==================================================
+
+            if [ ! -d "$PROJECT_DIR" ]; then
+              echo "ERROR: Project directory not found:"
+              echo "$PROJECT_DIR"
+              exit 1
+            fi
+
+            cd "$PROJECT_DIR"
+
+            echo ""
+            echo "Project directory:"
+            pwd
+
+            # ==================================================
+            # GIT
+            # ==================================================
+
             echo ""
             echo "======================================"
             echo "Updating repository"
             echo "======================================"
 
             git fetch origin main
+
             git reset --hard origin/main
 
-            # ====================================
-            # CHECK ENVIRONMENT
-            # ====================================
+            echo ""
+            echo "Current commit:"
+            git rev-parse --short HEAD
+
+            # ==================================================
+            # ENVIRONMENT
+            # ==================================================
+
             echo ""
             echo "======================================"
             echo "Checking environment"
             echo "======================================"
 
             if [ ! -f ".env" ]; then
+              echo ""
               echo "ERROR: .env file not found!"
-              echo "Expected location: /home/smart/Smartphone/.env"
+              echo ""
+              echo "Expected:"
+              echo "$PROJECT_DIR/.env"
+              echo ""
               exit 1
             fi
 
             echo ".env found."
 
-            # ====================================
-            # CHECK DOCKER
-            # ====================================
+            # ==================================================
+            # DOCKER
+            # ==================================================
+
             echo ""
             echo "======================================"
             echo "Checking Docker"
             echo "======================================"
 
             docker --version
+
             docker compose version
 
-            # ====================================
-            # DOCKER COMPOSE COMMAND
-            # ====================================
-            COMPOSE="docker compose -f docker-compose.prod.yml"
+            # ==================================================
+            # DOCKER PERMISSION
+            # ==================================================
 
-            # ====================================
-            # BUILD IMAGES
-            # ====================================
+            echo ""
+            echo "Testing Docker access..."
+
+            if ! docker ps >/dev/null 2>&1; then
+              echo ""
+              echo "ERROR: User cannot access Docker daemon."
+              echo ""
+              echo "Run on the VPS:"
+              echo "sudo usermod -aG docker smart"
+              echo ""
+              echo "Then logout/login again."
+              echo ""
+              exit 1
+            fi
+
+            echo "Docker access: OK"
+
+            # ==================================================
+            # CHECK COMPOSE FILE
+            # ==================================================
+
+            echo ""
+            echo "Checking Docker Compose file..."
+
+            if [ ! -f "$COMPOSE_FILE" ]; then
+              echo ""
+              echo "ERROR: $COMPOSE_FILE not found!"
+              exit 1
+            fi
+
+            echo "$COMPOSE_FILE found."
+
+            # ==================================================
+            # DOCKER COMPOSE CONFIG
+            # ==================================================
+
+            echo ""
+            echo "======================================"
+            echo "Validating Docker Compose"
+            echo "======================================"
+
+            docker compose \
+              -f "$COMPOSE_FILE" \
+              config -q
+
+            echo "Docker Compose configuration: OK"
+
+            # ==================================================
+            # BUILD
+            # ==================================================
+
             echo ""
             echo "======================================"
             echo "Building Docker images"
             echo "======================================"
 
-            $COMPOSE build
+            docker compose \
+              -f "$COMPOSE_FILE" \
+              build
 
-            # ====================================
+            # ==================================================
             # STOP OLD CONTAINERS
-            # ====================================
+            # ==================================================
+
             echo ""
             echo "======================================"
             echo "Stopping old containers"
             echo "======================================"
 
-            $COMPOSE down
+            docker compose \
+              -f "$COMPOSE_FILE" \
+              down
 
-            # ====================================
-            # START NEW CONTAINERS
-            # ====================================
+            # ==================================================
+            # START
+            # ==================================================
+
             echo ""
             echo "======================================"
             echo "Starting containers"
             echo "======================================"
 
-            $COMPOSE up -d
+            docker compose \
+              -f "$COMPOSE_FILE" \
+              up -d
 
-            # ====================================
-            # SHOW CONTAINER STATUS
-            # ====================================
+            # ==================================================
+            # STATUS
+            # ==================================================
+
             echo ""
             echo "======================================"
             echo "Container status"
             echo "======================================"
 
-            $COMPOSE ps
+            docker compose \
+              -f "$COMPOSE_FILE" \
+              ps
 
-            # ====================================
-            # DATABASE MIGRATIONS
-            # ====================================
+            # ==================================================
+            # WAIT FOR BACKEND
+            # ==================================================
+
+            echo ""
+            echo "======================================"
+            echo "Waiting for backend"
+            echo "======================================"
+
+            sleep 10
+
+            # ==================================================
+            # BACKEND STATUS
+            # ==================================================
+
+            if ! docker compose \
+              -f "$COMPOSE_FILE" \
+              ps backend | grep -q "Up"; then
+
+              echo ""
+              echo "ERROR: Backend container is not running."
+              echo ""
+              echo "Backend logs:"
+              
+              docker compose \
+                -f "$COMPOSE_FILE" \
+                logs --tail=100 backend
+
+              exit 1
+            fi
+
+            echo "Backend is running."
+
+            # ==================================================
+            # MIGRATIONS
+            # ==================================================
+
             echo ""
             echo "======================================"
             echo "Running Django migrations"
             echo "======================================"
 
-            $COMPOSE exec -T backend python manage.py migrate
+            docker compose \
+              -f "$COMPOSE_FILE" \
+              exec -T backend \
+              python manage.py migrate
 
-            # ====================================
-            # COLLECT STATIC FILES
-            # ====================================
+            # ==================================================
+            # STATIC FILES
+            # ==================================================
+
             echo ""
             echo "======================================"
             echo "Collecting static files"
             echo "======================================"
 
-            $COMPOSE exec -T backend \
-              python manage.py collectstatic --noinput || true
+            docker compose \
+              -f "$COMPOSE_FILE" \
+              exec -T backend \
+              python manage.py collectstatic --noinput
 
-            # ====================================
+            # ==================================================
             # FINAL STATUS
-            # ====================================
+            # ==================================================
+
             echo ""
             echo "======================================"
             echo "Final container status"
             echo "======================================"
 
-            $COMPOSE ps
+            docker compose \
+              -f "$COMPOSE_FILE" \
+              ps
+
+            # ==================================================
+            # FINAL LOG CHECK
+            # ==================================================
 
             echo ""
             echo "======================================"
-            echo "Deployment completed successfully!"
+            echo "Deployment completed successfully"
             echo "======================================"
 
           EOF
