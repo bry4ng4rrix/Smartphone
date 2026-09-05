@@ -36,6 +36,12 @@ const navigationItems = [
     icon: BarChart3,
     adminOnly: true,
   },
+
+  {
+    label: "Commandes",
+    href: "/orders",
+    icon: ShoppingCart,
+  },
   {
     label: "Produits",
     href: "/products",
@@ -43,26 +49,15 @@ const navigationItems = [
   },
 
   {
-    label: "Transferts",
-    href: "/transfers",
-    icon: ArrowLeftRight,
-    superAdminOnly: true,
-  },
-  {
-    label: "Commandes",
-    href: "/orders",
-    icon: ShoppingCart,
-  },
-  {
-    label: "Fournisseurs",
-    href: "/suppliers",
-    icon: Truck,
-    adminOnly: true,
-  },
-  {
     label: "Caisse",
     href: "/caisse",
     icon: Wallet,
+  },
+
+  {
+    label: "Chats",
+    href: "/chats",
+    icon: MessageCircle,
   },
   {
     label: "Mouvements",
@@ -76,23 +71,31 @@ const navigationItems = [
     icon: AlertCircle,
     adminOnly: true,
   },
+
   {
-    label: "Rapports",
-    href: "/reports",
-    icon: FileBarChart,
+    label: "Fournisseurs",
+    href: "/suppliers",
+    icon: Truck,
     adminOnly: true,
   },
+  {
+    label: "Transferts",
+    href: "/transfers",
+    icon: ArrowLeftRight,
+    superAdminOnly: true,
+  },
+
   {
     label: "Notifications",
     href: "/notifications",
     icon: Bell,
     adminOnly: true,
   },
-
   {
-    label: "Chats",
-    href: "/chats",
-    icon: MessageCircle,
+    label: "Rapports",
+    href: "/reports",
+    icon: FileBarChart,
+    adminOnly: true,
   },
   {
     label: "Magasins",
