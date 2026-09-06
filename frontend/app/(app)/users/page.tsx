@@ -24,6 +24,7 @@ import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useCurrentUser } from '@/lib/auth/useCurrentUser';
 import { ConfirmDeleteDialog } from '@/components/confirm-delete-dialog';
+import { useDebouncedValue } from '@/lib/hooks/useDebouncedValue';
 
 export default function UsersPage() {
   const { user: currentUser, loading: currentUserLoading, isAdmin, isManager, isCompanyOwner } = useCurrentUser();
@@ -272,14 +273,16 @@ export default function UsersPage() {
     }
   };
 
+  const debouncedSearchTerm = useDebouncedValue(searchTerm);
+
   const filteredAll = allUsers.filter(u =>
-    (u.full_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (u.email || '').toLowerCase().includes(searchTerm.toLowerCase())
+    (u.full_name || '').toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+    (u.email || '').toLowerCase().includes(debouncedSearchTerm.toLowerCase())
   );
 
   const filteredPending = pendingUsers.filter(u =>
-    (u.full_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (u.email || '').toLowerCase().includes(searchTerm.toLowerCase())
+    (u.full_name || '').toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+    (u.email || '').toLowerCase().includes(debouncedSearchTerm.toLowerCase())
   );
 
   const getRoleIcon = (role: string) => {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { djangoClient } from "@/lib/django-client";
 import { useCurrentUser } from "@/lib/auth/useCurrentUser";
 import { useRealtimeRefresh } from "@/lib/hooks/useRealtimeRefresh";
+import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -119,8 +120,10 @@ export default function ProductsPage() {
     [types, categoryFilter],
   );
 
+  const debouncedSearch = useDebouncedValue(search);
+
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = debouncedSearch.trim().toLowerCase();
     return references.filter((r) => {
       if (
         categoryFilter !== "ALL" &&
@@ -139,7 +142,7 @@ export default function ProductsPage() {
     });
   }, [
     references,
-    search,
+    debouncedSearch,
     categoryFilter,
     typeFilter,
     brandFilter,
@@ -346,7 +349,8 @@ export default function ProductsPage() {
                     <TableHead>Sous-type</TableHead>
                     <TableHead>Marque</TableHead>
                     <TableHead>Référence</TableHead>
-                    <TableHead>Prix vente</TableHead>
+                    {isGerant && <TableHead>Prix actuel</TableHead>}
+                    <TableHead>Prix de vente</TableHead>
                     {isGerant && <TableHead>Marge</TableHead>}
                     <TableHead>Variantes</TableHead>
                     <TableHead>Stock total</TableHead>
@@ -385,6 +389,7 @@ export default function ProductsPage() {
                           {ref.brand_name}
                         </TableCell>
                         <TableCell>{ref.reference_name}</TableCell>
+                        {isGerant && <TableCell>{fmt(ref.prix_achat)}</TableCell>}
                         <TableCell>{fmt(ref.prix_vente)}</TableCell>
                         {isGerant && (
                           <TableCell
@@ -771,7 +776,7 @@ function ProductDetailDialog({
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label>Prix d&apos;achat (Ar)</Label>
+                <Label>Prix actuel (Ar)</Label>
                 <Input
                   type="number"
                   value={prixAchat}
@@ -1415,7 +1420,7 @@ function CreateReferenceDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label>Prix d&apos;achat (Ar)</Label>
+              <Label>Prix actuel (Ar)</Label>
               <Input
                 type="number"
                 placeholder="0"
@@ -1804,7 +1809,7 @@ function BulkPriceDialog({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label>Nouveau prix d'achat</Label>
+              <Label>Nouveau prix actuel</Label>
               <Input
                 type="number"
                 min={0}

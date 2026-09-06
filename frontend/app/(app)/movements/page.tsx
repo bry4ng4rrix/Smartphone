@@ -27,22 +27,37 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   ArrowDown,
   TrendingUp,
   Package,
   RefreshCw,
   Download,
+  CalendarIcon,
+  X,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 import { useCurrentUser } from "@/lib/auth/useCurrentUser";
 import { useRealtimeRefresh } from "@/lib/hooks/useRealtimeRefresh";
+import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
 
 const fmt = (n: number) =>
   new Intl.NumberFormat("fr-MG", { minimumFractionDigits: 0 }).format(
     Math.round(n),
   );
+
+// YYYY-MM-DD en heure locale (pas UTC) — même format que <input type="date">.
+const toDateInputValue = (d: Date) => {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
 
 const getMovementTypeBadgeClass = (type: string) => {
   switch (type) {
@@ -122,10 +137,12 @@ export default function MovementsPage() {
     fetchData();
   }, [fetchData]);
 
+  const debouncedSearchTerm = useDebouncedValue(searchTerm);
+
   const filteredMovements = useMemo(
     () =>
       movements.filter((m) => {
-        const term = searchTerm.toLowerCase();
+        const term = debouncedSearchTerm.toLowerCase();
         const mDateStr = m.created_at ? m.created_at.split("T")[0] : "";
         const matchesTerm =
           !term ||
@@ -139,7 +156,7 @@ export default function MovementsPage() {
         const matchesEnd = !endDate || mDateStr <= endDate;
         return matchesTerm && matchesStart && matchesEnd;
       }),
-    [movements, searchTerm, startDate, endDate],
+    [movements, debouncedSearchTerm, startDate, endDate],
   );
 
   const statsFilteredMovements = useMemo(
@@ -684,10 +701,48 @@ export default function MovementsPage() {
       </Card>
 
       {/* Grouped by day */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h2 className="text-xl font-bold tracking-tight">Mouvements par jour</h2>
+        <div className="flex items-center gap-2">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm">
+                <CalendarIcon className="h-4 w-4 mr-2" />
+                {startDate && startDate === endDate
+                  ? new Date(startDate).toLocaleDateString("fr-FR", {
+                      day: "numeric",
+                      month: "long",
+                      year: "numeric",
+                    })
+                  : "Filtrer par jour"}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="end">
+              <Calendar
+                mode="single"
+                captionLayout="dropdown"
+                selected={startDate && startDate === endDate ? new Date(startDate + "T00:00:00") : undefined}
+                onSelect={(d) => {
+                  if (!d) return;
+                  const value = toDateInputValue(d);
+                  setStartDate(value);
+                  setEndDate(value);
+                }}
+              />
+            </PopoverContent>
+          </Popover>
+          {startDate && startDate === endDate && (
+            <Button variant="ghost" size="icon" onClick={() => { setStartDate(""); setEndDate(""); }}>
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+      </div>
       <DailyMovementsTable
         groups={groupedByDay.groups}
         today={groupedByDay.today}
         isManager={isManager}
+        hideToday={!(startDate && startDate === endDate)}
       />
     </div>
   );
@@ -697,15 +752,16 @@ function DailyMovementsTable({
   groups,
   today,
   isManager,
+  hideToday = true,
 }: {
   groups: Record<string, any[]>;
   today: string;
   isManager: boolean;
+  hideToday?: boolean;
 }) {
   const sortedDates = Object.keys(groups)
-    .filter((d) => d !== today)
+    .filter((d) => !hideToday || d !== today)
     .sort((a, b) => b.localeCompare(a));
-  if (sortedDates.length === 0) return null;
 
   const fmt = (n: number) =>
     new Intl.NumberFormat("fr-MG").format(Math.round(n));
@@ -726,9 +782,16 @@ function DailyMovementsTable({
     });
   };
 
+  if (sortedDates.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground text-center py-8">
+        Aucun mouvement pour cette période.
+      </p>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-bold tracking-tight">Mouvements par jour</h2>
       {sortedDates.map((dateKey) => (
         <Card key={dateKey}>
           <CardHeader>

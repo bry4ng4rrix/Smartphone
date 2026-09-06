@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useCurrentUser } from '@/lib/auth/useCurrentUser';
 import { djangoClient } from '@/lib/django-client';
+import { useDebouncedValue } from '@/lib/hooks/useDebouncedValue';
 import {
   Send,
   Search,
@@ -344,8 +345,10 @@ export default function ChatsPage() {
     setProductSearch('');
   };
 
+  const debouncedProductSearch = useDebouncedValue(productSearch);
+
   const filteredProducts = allProducts.filter((p) => {
-    const term = productSearch.toLowerCase();
+    const term = debouncedProductSearch.toLowerCase();
     return (
       !term ||
       p.name?.toLowerCase().includes(term) ||
@@ -409,8 +412,9 @@ export default function ChatsPage() {
   };
 
   // Filter users based on query
+  const debouncedSearchQuery = useDebouncedValue(searchQuery);
   const filteredUsers = users.filter((u) => {
-    const term = searchQuery.toLowerCase();
+    const term = debouncedSearchQuery.toLowerCase();
     return (
       u.full_name.toLowerCase().includes(term) ||
       u.email.toLowerCase().includes(term) ||
