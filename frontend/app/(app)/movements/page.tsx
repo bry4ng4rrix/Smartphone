@@ -61,14 +61,18 @@ const toDateInputValue = (d: Date) => {
 
 const getMovementTypeBadgeClass = (type: string) => {
   switch (type) {
-    case "Entrée":
-      return "bg-green-50 text-green-700";
-    case "Sortie":
-      return "bg-red-50 text-red-700";
-    case "Transfert":
-      return "bg-blue-50 text-blue-700";
+    case "Réception fournisseur":
+      return "font-normal border-green-200 text-green-700 bg-green-50/50";
+    case "Retour de commande":
+      return "font-normal border-cyan-200 text-cyan-700 bg-cyan-50/50";
+    case "Préparation de commande":
+      return "font-normal border-amber-200 text-amber-700 bg-amber-50/50";
+    case "Commande livrée":
+      return "font-normal border-indigo-200 text-indigo-700 bg-indigo-50/50";
+    case "Ajustement manuel":
+      return "font-normal border-slate-200 text-slate-700 bg-slate-50/50";
     default:
-      return "bg-orange-50 text-orange-700";
+      return "font-normal border-orange-200 text-orange-700 bg-orange-50/50";
   }
 };
 
