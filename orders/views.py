@@ -39,7 +39,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_permissions(self):
-        if self.action in ("create", "available_staff", "partial_update", "destroy"):
+        if self.action in ("available_staff", "partial_update", "destroy"):
             return [IsGerant()]
         return super().get_permissions()
 
@@ -67,7 +67,12 @@ class OrderViewSet(viewsets.ModelViewSet):
             # commandes en retard restent visibles, pour ne pas les égarer).
             qs = qs.filter(date_commande__date__lte=timezone.localdate())
             if role == "PREPARATEUR":
-                return qs.filter(statut_courant__in=PREPARATEUR_STATUTS)
+                # + les récupérations sur place déjà prêtes (pas de livreur
+                # pour ce cas — le préparateur en garde le suivi jusqu'au
+                # retrait, validé par le gérant sur la page Récupération).
+                return qs.filter(statut_courant__in=PREPARATEUR_STATUTS) | qs.filter(
+                    statut_courant="PRETE", livraison_zone="RECUPERATION"
+                )
             # Prêtes à récupérer + en livraison (§7.3 Smartreadme.md) — hors
             # retrait sur place, qui ne passe jamais par un livreur.
             return qs.filter(statut_courant__in=LIVREUR_STATUTS).exclude(
@@ -95,9 +100,19 @@ class OrderViewSet(viewsets.ModelViewSet):
         return qs
 
     def create(self, request, *args, **kwargs):
+        role = user_commande_role(request.user)
+        if role not in ("GERANT", "PREPARATEUR"):
+            raise DRFPermissionDenied("Seuls le gérant et le préparateur peuvent créer une commande.")
+
         serializer = OrderCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+
+        if role == "PREPARATEUR" and data["livraison_zone"] != "RECUPERATION":
+            raise DRFValidationError(
+                "Le préparateur ne peut créer que des commandes 'Récupération sur place'."
+            )
+
         magasin = resolve_magasin_for_request(request)
 
         order = services.create_order(
@@ -111,7 +126,8 @@ class OrderViewSet(viewsets.ModelViewSet):
             date_commande=data.get("date_commande"),
             created_by=request.user,
         )
-        return Response(OrderGerantSerializer(order).data, status=status.HTTP_201_CREATED)
+        response_serializer = OrderPreparateurSerializer if role == "PREPARATEUR" else OrderGerantSerializer
+        return Response(response_serializer(order).data, status=status.HTTP_201_CREATED)
 
     def partial_update(self, request, *args, **kwargs):
         order = self.get_object()

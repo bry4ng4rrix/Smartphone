@@ -96,6 +96,9 @@ export default function OrdersPage() {
   const [editTarget, setEditTarget] = useState<any | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Le préparateur suit séparément sa file "à préparer" (livraison) et ses
+  // commandes "Récupération sur place" (qu'il peut créer lui-même).
+  const [preparateurTab, setPreparateurTab] = useState<'A_PREPARER' | 'RECUPERATIONS'>('A_PREPARER');
 
   const fetchOrders = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -171,6 +174,10 @@ export default function OrdersPage() {
     }
   };
 
+  const visibleOrders = isPreparateur
+    ? orders.filter((o) => (preparateurTab === 'RECUPERATIONS' ? o.livraison_zone === 'RECUPERATION' : o.livraison_zone !== 'RECUPERATION'))
+    : orders;
+
   return (
     <div className="p-4 sm:p-6 space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -182,13 +189,32 @@ export default function OrdersPage() {
           <Button variant="outline" size="icon" onClick={() => fetchOrders()}>
             <RefreshCw className="h-4 w-4" />
           </Button>
-          {isGerant && (
+          {(isGerant || isPreparateur) && (
             <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" /> Nouvelle commande
+              <Plus className="h-4 w-4 mr-2" /> {isGerant ? 'Nouvelle commande' : 'Nouvelle récupération'}
             </Button>
           )}
         </div>
       </div>
+
+      {isPreparateur && (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant={preparateurTab === 'A_PREPARER' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setPreparateurTab('A_PREPARER')}
+          >
+            <Truck className="h-4 w-4 mr-2" /> À préparer
+          </Button>
+          <Button
+            variant={preparateurTab === 'RECUPERATIONS' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setPreparateurTab('RECUPERATIONS')}
+          >
+            <Package className="h-4 w-4 mr-2" /> Récupérations
+          </Button>
+        </div>
+      )}
 
       {isGerant && (
         <div className="flex flex-wrap gap-2">
@@ -216,7 +242,7 @@ export default function OrdersPage() {
         <CardContent className="p-0">
           {loading ? (
             <div className="p-6"><Skeleton className="h-64 w-full" /></div>
-          ) : orders.length === 0 ? (
+          ) : visibleOrders.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-12">Aucune commande.</p>
           ) : (
             <div className="overflow-x-auto">
@@ -237,7 +263,7 @@ export default function OrdersPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {orders.map((order) => {
+                  {visibleOrders.map((order) => {
                     const action = nextAction(order);
                     const assignedName = order.preparateur_name || order.livreur_name;
                     const assignedStatus = order.preparateur_name ? 'EN_PREPARATION' : 'EN_LIVRAISON';
@@ -418,7 +444,7 @@ export default function OrdersPage() {
         </DialogContent>
       </Dialog>
 
-      {isGerant && (
+      {(isGerant || isPreparateur) && (
         <CreateOrderDialog
           open={createOpen}
           onOpenChange={setCreateOpen}
@@ -726,6 +752,11 @@ function toDatetimeLocalValue(d: Date) {
 }
 
 function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; onOpenChange: (o: boolean) => void; onCreated: () => void }) {
+  const { isPreparateur } = useCurrentUser();
+  // Le préparateur ne crée que des retraits sur place, et ne voit aucune
+  // donnée financière (§4/§7.2 du cahier des charges — même règle que pour
+  // la consultation des commandes).
+  const showPrices = !isPreparateur;
   const [clientNom, setClientNom] = useState('');
   const [telephone, setTelephone] = useState('+261');
   const [zone, setZone] = useState('ZONE1');
@@ -758,12 +789,14 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
     djangoClient.catalog.categories.list().then(setCategories).catch(() => {});
     djangoClient.catalog.types.list().then(setTypes).catch(() => {});
     djangoClient.catalog.brands.list().then(setBrands).catch(() => {});
-    djangoClient.orders.availableStaff('PREPARATEUR').then(setPreparateurs).catch(() => setPreparateurs([]));
-    setClientNom(''); setTelephone('+261'); setZone('ZONE1'); setAdresseLivraison('');
+    if (!isPreparateur) {
+      djangoClient.orders.availableStaff('PREPARATEUR').then(setPreparateurs).catch(() => setPreparateurs([]));
+    }
+    setClientNom(''); setTelephone('+261'); setZone(isPreparateur ? 'RECUPERATION' : 'ZONE1'); setAdresseLivraison('');
     setDateCommande(toDatetimeLocalValue(new Date())); setNote(''); setItems([]);
     setCategoryId(null); setTypeId(null); setBrandId(null); setPreparateurId('');
     setQuery(''); setSuggestions([]); setSelectedRef(null); setVariantId(null); setQuantite(1);
-  }, [open]);
+  }, [open, isPreparateur]);
 
   const typesForCategory = categoryId ? types.filter((t) => t.category === categoryId) : types;
 
@@ -869,33 +902,40 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
           <p className="text-xs text-muted-foreground">Vide = maintenant.</p>
         </div>
 
-        <div className="space-y-2">
-          <Label>Type de commande</Label>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant={zone !== 'RECUPERATION' ? 'default' : 'outline'}
-              className="flex-1"
-              onClick={() => setZone('ZONE1')}
-            >
-              <Truck className="h-4 w-4 mr-2" /> À livrer
-            </Button>
-            <Button
-              type="button"
-              variant={zone === 'RECUPERATION' ? 'default' : 'outline'}
-              className="flex-1"
-              onClick={() => setZone('RECUPERATION')}
-            >
-              <Package className="h-4 w-4 mr-2" /> Récupération sur place
-            </Button>
+        {isPreparateur ? (
+          <p className="text-xs text-muted-foreground -mt-2">
+            Retrait sur place uniquement — la commande apparaîtra dans "Récupérations"
+            une fois prête, à valider comme livrée au comptoir par le gérant.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            <Label>Type de commande</Label>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={zone !== 'RECUPERATION' ? 'default' : 'outline'}
+                className="flex-1"
+                onClick={() => setZone('ZONE1')}
+              >
+                <Truck className="h-4 w-4 mr-2" /> À livrer
+              </Button>
+              <Button
+                type="button"
+                variant={zone === 'RECUPERATION' ? 'default' : 'outline'}
+                className="flex-1"
+                onClick={() => setZone('RECUPERATION')}
+              >
+                <Package className="h-4 w-4 mr-2" /> Récupération sur place
+              </Button>
+            </div>
+            {zone === 'RECUPERATION' && (
+              <p className="text-xs text-muted-foreground">
+                Pas de frais ni de livreur — la commande apparaîtra dans "Récupération" une
+                fois prête, à valider comme livrée au comptoir quand le client vient la chercher.
+              </p>
+            )}
           </div>
-          {zone === 'RECUPERATION' && (
-            <p className="text-xs text-muted-foreground">
-              Pas de frais ni de livreur — la commande apparaîtra dans "Récupération" une
-              fois prête, à valider comme livrée au comptoir quand le client vient la chercher.
-            </p>
-          )}
-        </div>
+        )}
 
         {zone !== 'RECUPERATION' && (
           <div className="space-y-2">
@@ -922,27 +962,29 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
           </div>
         )}
 
-        <div className="space-y-2">
-          <Label>Préparateur</Label>
-          <Select value={preparateurId} onValueChange={setPreparateurId}>
-            <SelectTrigger><SelectValue placeholder="Assigner plus tard" /></SelectTrigger>
-            <SelectContent>
-              {preparateurs.map((p) => (
-                <SelectItem key={p.id} value={String(p.id)} disabled={!p.available}>
-                  <span className="flex items-center gap-2">
-                    {p.full_name}
-                    <Badge variant="outline" className={p.available ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}>
-                      {p.available ? 'Libre' : 'Occupé'}
-                    </Badge>
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground">
-            Optionnel — assigne et démarre la préparation dès la création de la commande.
-          </p>
-        </div>
+        {!isPreparateur && (
+          <div className="space-y-2">
+            <Label>Préparateur</Label>
+            <Select value={preparateurId} onValueChange={setPreparateurId}>
+              <SelectTrigger><SelectValue placeholder="Assigner plus tard" /></SelectTrigger>
+              <SelectContent>
+                {preparateurs.map((p) => (
+                  <SelectItem key={p.id} value={String(p.id)} disabled={!p.available}>
+                    <span className="flex items-center gap-2">
+                      {p.full_name}
+                      <Badge variant="outline" className={p.available ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}>
+                        {p.available ? 'Libre' : 'Occupé'}
+                      </Badge>
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Optionnel — assigne et démarre la préparation dès la création de la commande.
+            </p>
+          </div>
+        )}
 
         <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
           <p className="text-sm font-medium">Ajouter un article</p>
@@ -1015,7 +1057,7 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
                       onClick={() => { setSelectedRef(s); setQuery(''); setSuggestions([]); }}
                     >
                       <span>{s.brand_name} {s.reference_name} <span className="text-muted-foreground">({s.type_name})</span></span>
-                      <span>{fmt(s.prix_vente)}</span>
+                      {showPrices && <span>{fmt(s.prix_vente)}</span>}
                     </button>
                   ))
                 )}
@@ -1042,10 +1084,12 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
                 <Label>Quantité</Label>
                 <Input type="number" min={1} value={quantite} onChange={(e) => setQuantite(Math.max(1, Number(e.target.value)))} />
               </div>
-              <div className="space-y-1">
-                <Label>Prix (Ar)</Label>
-                <Input value={fmt(selectedRef.prix_vente)} readOnly disabled />
-              </div>
+              {showPrices && (
+                <div className="space-y-1">
+                  <Label>Prix (Ar)</Label>
+                  <Input value={fmt(selectedRef.prix_vente)} readOnly disabled />
+                </div>
+              )}
               <Button type="button" className="sm:col-span-3" variant="secondary" onClick={addItem}>
                 <Plus className="h-4 w-4 mr-2" /> Ajouter à la commande
               </Button>
@@ -1059,7 +1103,7 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
               <div key={it.key} className="flex items-center justify-between text-sm border rounded-md px-3 py-2">
                 <span>{it.reference_label} ({it.couleur}) x{it.quantite}</span>
                 <div className="flex items-center gap-3">
-                  <span>{fmt(it.prix_vente * it.quantite)}</span>
+                  {showPrices && <span>{fmt(it.prix_vente * it.quantite)}</span>}
                   <Button size="icon" variant="ghost" onClick={() => setItems((prev) => prev.filter((_, i) => i !== idx))}>
                     <Trash2 className="h-4 w-4 text-red-500" />
                   </Button>
@@ -1074,14 +1118,18 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} />
         </div>
 
-        <div className="flex justify-between items-center border-t pt-3 text-sm">
-          <span>Frais de livraison</span>
-          <span>{fmt(zoneInfo.frais)}</span>
-        </div>
-        <div className="flex justify-between items-center font-semibold">
-          <span>Total à payer</span>
-          <span>{fmt(total)}</span>
-        </div>
+        {showPrices && (
+          <>
+            <div className="flex justify-between items-center border-t pt-3 text-sm">
+              <span>Frais de livraison</span>
+              <span>{fmt(zoneInfo.frais)}</span>
+            </div>
+            <div className="flex justify-between items-center font-semibold">
+              <span>Total à payer</span>
+              <span>{fmt(total)}</span>
+            </div>
+          </>
+        )}
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Annuler</Button>

@@ -59,6 +59,7 @@ const navigationItems = [
     label: "Caisse",
     href: "/caisse",
     icon: Wallet,
+    hidePreparateur: true,
   },
 
   {
@@ -127,7 +128,7 @@ export function Sidebar() {
   const [open, setOpen] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
-  const { user, isAdmin, isSuperAdmin, isAdminOrSuperAdmin, loading } =
+  const { user, isAdmin, isSuperAdmin, isAdminOrSuperAdmin, isPreparateur, loading } =
     useCurrentUser();
 
   const handleLogout = async () => {
@@ -188,6 +189,7 @@ export function Sidebar() {
                 if (loading) return !item.superAdminOnly;
                 if (item.superAdminOnly && !isSuperAdmin) return false;
                 if (item.adminOnly && !isAdminOrSuperAdmin) return false;
+                if (item.hidePreparateur && isPreparateur) return false;
                 return true;
               })
               .map((item) => {
