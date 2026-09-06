@@ -450,34 +450,29 @@ function AssignStaffDialog({
           </DialogDescription>
         </DialogHeader>
         {loading ? (
-          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-10 w-full" />
         ) : staff.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-6">
             Aucun {roleLabel} enregistré pour ce magasin.
           </p>
         ) : (
-          <div className="space-y-2">
-            {staff.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                disabled={!s.available}
-                onClick={() => setSelected(String(s.id))}
-                className={`w-full flex items-center justify-between rounded-md border px-3 py-2 text-sm text-left transition-colors ${
-                  !s.available
-                    ? 'opacity-50 cursor-not-allowed bg-muted/30'
-                    : selected === String(s.id)
-                    ? 'border-primary bg-primary/5'
-                    : 'hover:bg-muted/50'
-                }`}
-              >
-                <span>{s.full_name}</span>
-                <Badge variant="outline" className={s.available ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}>
-                  {s.available ? 'Libre' : 'Occupé'}
-                </Badge>
-              </button>
-            ))}
-          </div>
+          <Select value={selected} onValueChange={setSelected}>
+            <SelectTrigger>
+              <SelectValue placeholder={`Choisir un ${roleLabel}`} />
+            </SelectTrigger>
+            <SelectContent>
+              {staff.map((s) => (
+                <SelectItem key={s.id} value={String(s.id)} disabled={!s.available}>
+                  <span className="flex items-center gap-2">
+                    {s.full_name}
+                    <Badge variant="outline" className={s.available ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}>
+                      {s.available ? 'Libre' : 'Occupé'}
+                    </Badge>
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Annuler</Button>

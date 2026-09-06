@@ -195,4 +195,5 @@ CSRF_TRUSTED_ORIGINS = _csrf_env.split() if _csrf_env else [
     "http://157.173.103.147",
     "http://157.173.103.147:3010",
     "http://157.173.103.147:8010",
+    "http://localhost:3010",
 ]

@@ -70,12 +70,19 @@ Inchangé, c'est ce qui a servi pendant tout le développement :
 python -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python manage.py migrate
 .venv/bin/python manage.py seed_smartphone   # catalogue réel + comptes de démo
-.venv/bin/python manage.py runserver
+.venv/bin/python manage.py runserver 8010
 ```
 
 ```bash
 cd frontend && npm install && npm run dev
 ```
+
+`npm run dev`/`npm run start` sont déjà fixés sur le port 3010 (voir
+`frontend/package.json`) — `manage.py runserver` doit par contre toujours
+préciser `8010` explicitement (Django n'a pas d'équivalent du `PORT` env var
+de Next.js), sinon il retombe sur son port par défaut 8000 et le frontend
+(configuré pour appeler `:8010` via `NEXT_PUBLIC_API_URL`) échoue avec
+"Failed to fetch".
 
 ## 5. Test local avec Docker (SQLite) — `docker-compose.yml`
 

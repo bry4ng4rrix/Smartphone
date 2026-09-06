@@ -1,9 +1,27 @@
 1- Après enregistrement modification stock Mila Miala automatique le onglet fa tsy mijanona miandry fermena 
-2- Magasin de destination atao Accès Tech ny ray, otrany tsy mahita option ajout magasin 
-3- Le forms quantité rehetra tsy afaka fafana le 1, raha oatra te anoratra 23 de lasa 123, de mamafa manokana 1 vao 23
+
+
+
+
+2- Magasin de destination atao Accès Tech ny ray, otrany tsy mahita option ajout magasin
+??
+
+
+##3- Le forms quantité rehetra tsy afaka fafana le 1, raha oatra te anoratra 23 de lasa 123, de mamafa manokana 1 vao 23
+
 Le recherche produit anaty commande koa mandainga kely, raha manoratra Redmi 15 a oatra de redmi bdb no mipoitra, asiana espace+ delete vao tena mipoitra le redmi 15
-4- Fournisseur tsisy idirany le pub meta fa pub meta dépense hafa, de le commande fournisseur tonga de mandeha par lot de commande, oatra hoe LOT FLIP COVER, 100.000 Ar total commande, douane 50.000 Ar, Frais 50.000 Ar = masonkarena total anle LOT commande ray io. Zay no ilaina 
+
+
+
+####4- Fournisseur tsisy idirany le pub meta fa pub meta dépense hafa, de le commande fournisseur tonga de mandeha par lot de commande, oatra hoe LOT FLIP COVER, 100.000 Ar total commande, douane 50.000 Ar, Frais 50.000 Ar = masonkarena total anle LOT commande ray io. Zay no ilaina 
+
+
+
 5- Ao anatinle caisse io amzay no tokony ahitana ny depense rehetra, sy ny entre rehetra, oatra karamany piasa, pub meta, livraison, tokony afaka filtrena journalier, hebdomadaire, mensuel, annuel, 
+
+
+
+
 Mouvement de la session koa tokony modifiable
 6- Base de donnée produit tokony afaka atao Maj à partir fichier xls importer,
 
@@ -21,7 +39,7 @@ Oatra livraison demain 5 septembre, 5 septembre à 00:00 vao tokony ipoitra anat
 Izy no responsable an olona manao récupération. 
 Oatra misy olona hanao récupération privacy Redmi 15, miantso anazy le olona, de tonga naka anle entana, de nandoha 25.000 Ar tamnazy, de tokony manao marquage anzay Izy hie nisy nanao récupération anle privacy tao aminy, vente conclus zany. Mihena stock, tafiditra anaty compta ny vente-ny. 
 Chat OK, 
-Paramètre : Olona roa ny préparateur, olona 3 ny livreur, tokony tsy afaka Manova nenarany, sy téléphone, ary adresse sy mdp zareo fa admin ihany no Manova azy vao miova
+##Paramètre : Olona roa ny préparateur, olona 3 ny livreur, tokony tsy afaka Manova nenarany, sy téléphone, ary adresse sy mdp zareo fa admin ihany no Manova azy vao miova
 
 
 
@@ -71,7 +89,7 @@ De ao anatinle Rapport io amzay no tokony tena miasa le IA, ao no tokony ahitana
 
 
 
-Farany, le préparateur sy livreur tokony misy historique tsara ahitana hoe iza nlivré aniza de iza no npreparer aniza.  
+Farany, le préparateur sy livreur tokony misy historique tsara ahitana hoe iza nlivré aniza de iza no npreparer aniza. 
 Otrzay ko le récupération 
 
 
