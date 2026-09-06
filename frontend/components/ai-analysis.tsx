@@ -68,6 +68,9 @@ export function AIAnalysis({ data }: { data: AIAnalysisData }) {
           </Button>
         ) : loading ? (
           <div className="space-y-2">
+            <p className="text-xs text-muted-foreground mb-1">
+              Génération en cours (modèle IA local — cela peut prendre plusieurs minutes)...
+            </p>
             <Skeleton className="h-4 w-full" />
             <Skeleton className="h-4 w-[90%]" />
             <Skeleton className="h-4 w-[80%]" />

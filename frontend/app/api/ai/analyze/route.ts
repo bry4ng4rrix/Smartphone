@@ -72,10 +72,17 @@ export async function POST(req: Request) {
         model: OLLAMA_MODEL,
         prompt,
         stream: false,
+        // qwen3 est un modèle "hybrid reasoning" : sans ce flag, il passe
+        // souvent le plus clair du temps à raisonner en interne (balises
+        // <think>) avant de répondre — le désactiver accélère nettement la
+        // réponse (Ollama l'ignore silencieusement si le modèle ne le supporte pas).
+        think: false,
       }),
-      // Qwen3:4b tourne en CPU sur beaucoup de VPS — une analyse peut prendre
-      // largement plus que le timeout par défaut du navigateur.
-      signal: AbortSignal.timeout(120_000),
+      // qwen3:4b est un modèle "hybrid reasoning" qui raisonne longuement en
+      // interne avant de répondre (balises <think>, non désactivable de façon
+      // fiable selon la version d'Ollama) — en CPU sur un VPS, une analyse
+      // complète peut prendre plusieurs minutes. Délai volontairement large.
+      signal: AbortSignal.timeout(600_000),
     });
 
     if (!response.ok) {

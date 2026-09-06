@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh';
+import { AIAnalysis } from '@/components/ai-analysis';
 
 const fmt = (n: number) => new Intl.NumberFormat('fr-MG').format(Math.round(n));
 const PERIODS = [7, 30, 90] as const;
@@ -155,6 +156,39 @@ export default function ReportsPage() {
     { label: 'Produits en stock', value: `${fmt(totalStock)} u.`, icon: Package, color: 'text-indigo-600' },
     { label: 'Alertes stock', value: lowStockCount + expiredCount, icon: AlertTriangle, color: 'text-amber-600' },
   ];
+
+  // Données envoyées à l'analyse IA (voir components/ai-analysis.tsx et
+  // app/api/ai/analyze/route.ts) — les chiffres financiers viennent du
+  // dashboard (seule source qui connaît le coût d'achat), le reste des
+  // données déjà calculées ci-dessus pour les tableaux de cette page.
+  const rupturesStock = products
+    .filter((p) => (p.initial_quantity ?? 0) === 0)
+    .slice(0, 15)
+    .map((p) => ({ name: p.name, stock: 0 }));
+  const stockBas = products
+    .filter((p) => (p.initial_quantity ?? 0) > 0 && (p.initial_quantity ?? 0) <= (p.alert_threshold ?? 0))
+    .slice(0, 15)
+    .map((p) => ({ name: p.name, stock: p.initial_quantity, seuil: p.alert_threshold }));
+  const produitsSansMouvement = products
+    .filter((p) => !byProduct[p.name])
+    .slice(0, 15)
+    .map((p) => ({ name: p.name }));
+
+  const aiData = {
+    periode: 'toutes périodes confondues',
+    ca: dashboardKpis.ca ?? totalRevenue,
+    beneficeNet: dashboardKpis.total_profit ?? totalProfit,
+    valeurStock: dashboardKpis.total_stock_value ?? dashboardKpis.stock_value,
+    beneficeEstimeStock: dashboardKpis.benefice_estime_stock,
+    ventesImpayeesCount: unpaidSales.length,
+    topProduits: topProducts,
+    produitsSansMouvement,
+    rupturesStock,
+    stockBas,
+    repartitionMouvements: movementCounts,
+    topVendeurs: topSellers.map((s) => ({ name: s.name, revenue: s.revenue })),
+    topMagasins: isAdmin ? topShops.map((s) => ({ name: s.name, revenue: s.revenue })) : undefined,
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -416,6 +450,8 @@ export default function ReportsPage() {
           )}
         </CardContent>
       </Card>
+
+      <AIAnalysis data={aiData} />
     </div>
   );
 }

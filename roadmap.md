@@ -212,7 +212,49 @@ Le backend expose aussi un export/import complet (DB + médias) via
 `/api/users/backup/export/` et `/api/users/backup/import/` (réservé admin,
 utilisé par le bouton correspondant du frontend web).
 
-## 10. Dépannage courant
+## 10. Analyse IA (Ollama local)
+
+Le bouton "Générer l'analyse" de la page Rapports (`frontend/components/ai-analysis.tsx`)
+appelle `frontend/app/api/ai/analyze/route.ts`, qui interroge un modèle
+**Ollama local** — pas d'API cloud, pas de clé à gérer/exposer.
+
+**Installation sur le VPS** (une fois, en dehors de ce docker-compose — Ollama
+tourne directement sur l'hôte) :
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull qwen3:4b
+ollama serve   # ou : systemctl enable --now ollama (si installé comme service)
+```
+
+Vérifier qu'il répond sur l'hôte :
+
+```bash
+curl http://localhost:11434/api/generate -d '{"model":"qwen3:4b","prompt":"Bonjour","stream":false}'
+```
+
+**Depuis le conteneur frontend**, Ollama est joignable via
+`http://host.docker.internal:11434` (voir `extra_hosts` dans
+`docker-compose.prod.yml`, et `OLLAMA_BASE_URL`/`OLLAMA_MODEL` dans `.env`).
+Si `host.docker.internal` ne résout pas sur votre configuration Docker,
+remplacer `OLLAMA_BASE_URL` par l'IP du VPS elle-même (`http://<ip-vps>:11434`)
+dans `.env`, puis `docker compose -f docker-compose.prod.yml up -d frontend`.
+
+**Modifier le prompt d'analyse** : tout est dans la constante `buildPrompt()`
+en haut de `frontend/app/api/ai/analyze/route.ts`, avec un commentaire dédié.
+Le plus simple, directement sur le VPS avec Claude Code :
+
+```
+claude "dans frontend/app/api/ai/analyze/route.ts, modifie buildPrompt() pour ..."
+```
+
+Puis reconstruire le conteneur pour que le changement soit pris en compte :
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build frontend
+```
+
+## 11. Dépannage courant
 
 | Symptôme | Piste |
 |---|---|
@@ -220,5 +262,6 @@ utilisé par le bouton correspondant du frontend web).
 | Frontend appelle `127.0.0.1:8010` en prod | `NEXT_PUBLIC_DJANGO_API_URL` doit être fourni **avant** le build (c'est un `build.args`, pas juste une variable runtime — voir `frontend/Dockerfile`) ; rebuild avec `--build` après correction du `.env` |
 | Frontend inaccessible (rien ne répond sur `FRONTEND_PORT`) | Le conteneur `next start` doit recevoir `PORT=3010` (déjà réglé dans les deux compose) — sans ça il écoute sur 3000 alors que le mapping hôte cible 3010 |
 | 401 CORS/CSRF en prod | Vérifier que le domaine exact (avec `https://`) est bien dans `CORS_ALLOWED_ORIGINS`/`CSRF_TRUSTED_ORIGINS` |
+| "Impossible de contacter Ollama" sur la page Rapports | Ollama n'est pas lancé sur le VPS (`systemctl status ollama` / `ollama serve`), ou `host.docker.internal` ne résout pas depuis le conteneur — voir §10, remplacer `OLLAMA_BASE_URL` par l'IP du VPS |
 | `Limite d'appareils atteinte` en boucle pendant les tests | Purger les `Device` de test : `manage.py shell -c "from users.models import Device; Device.objects.filter(user__email='...').delete()"` |
 | Catalogue vide après un déploiement propre | `seed_smartphone` n'a pas été lancée (§6.3) — les migrations seules ne créent pas de données |

@@ -67,6 +67,15 @@ services:
       # n'écouterait pas sur 3010, alors que le mapping ci-dessous transfère
       # le trafic hôte vers le port conteneur 3010 (rien n'y répondrait).
       PORT: "3010"
+      # Analyse IA (Ollama) — voir roadmap.md § Analyse IA. Ollama tourne sur
+      # le VPS lui-même, pas dans ce compose : host.docker.internal (mappé
+      # ci-dessous via extra_hosts) permet au conteneur de l'atteindre.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:4b}
+    extra_hosts:
+      # Linux n'a pas host.docker.internal par défaut (contrairement à
+      # Docker Desktop) — cette entrée le fait pointer vers l'hôte.
+      - "host.docker.internal:host-gateway"
     ports:
       # Même logique que BACKEND_PORT ci-dessus.
       - "${FRONTEND_PORT:-3010}:3010"
