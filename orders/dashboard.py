@@ -1,12 +1,14 @@
 from datetime import datetime
 
-from django.db.models import Sum, F
+from django.db.models import DecimalField, Sum, F
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from catalog.models import ProductVariant
+from users.models import CaisseMovement
 from users.permissions import get_accessible_magasins
 
 from .models import Order, OrderItem
@@ -101,7 +103,63 @@ class DashboardView(APIView):
         ruptures = variants.filter(stock_actuel__lte=0).count()
         stock_bas = variants.filter(stock_actuel__gt=0, stock_actuel__lte=F("seuil_alerte")).count()
 
+        # --- Résumé principal (haut du dashboard) ---
+        # Bénéfice réel des produits vendus sur la période (prix de vente -
+        # coût actuel, sur les commandes Livré) — distinct de
+        # analyse_financiere.benefice_estime (qui lui vient du coût
+        # fournisseur/pub, §7.7).
+        items_vendus_periode = OrderItem.objects.filter(order__in=livrees)
+        ca_produits_vendus = items_vendus_periode.aggregate(
+            t=Coalesce(Sum(F("prix_unitaire") * F("quantite")), 0, output_field=DecimalField())
+        )["t"]
+        cout_produits_vendus = items_vendus_periode.aggregate(
+            t=Coalesce(
+                Sum(F("quantite") * F("product_variant__product_reference__prix_achat")),
+                0,
+                output_field=DecimalField(),
+            )
+        )["t"]
+        total_benefices_produits_vendus = ca_produits_vendus - cout_produits_vendus
+
+        # Valeur de stock actuelle, au prix de vente catalogue (snapshot,
+        # indépendant de la période — cohérent avec
+        # users/views.py::_stock_value_for_magasins).
+        valeur_stock = variants.aggregate(
+            t=Coalesce(
+                Sum(F("stock_actuel") * F("product_reference__prix_vente")),
+                0,
+                output_field=DecimalField(),
+            )
+        )["t"]
+
+        # Bénéfice potentiel si tout le stock actuel était vendu (snapshot,
+        # indépendant de la période) — prix de vente - prix actuel (coût).
+        benefice_estime_stock = variants.aggregate(
+            t=Coalesce(
+                Sum(
+                    F("stock_actuel")
+                    * (F("product_reference__prix_vente") - F("product_reference__prix_achat"))
+                ),
+                0,
+                output_field=DecimalField(),
+            )
+        )["t"]
+
+        # CA (snapshot) = valeur du stock actuel + tout ce qui a été
+        # enregistré en Entrée de caisse (ventes encaissées + apports
+        # manuels), toutes périodes confondues.
+        total_entrees_caisse = CaisseMovement.objects.filter(
+            magasin__in=magasins, movement_type="in"
+        ).aggregate(t=Coalesce(Sum("amount"), 0, output_field=DecimalField()))["t"]
+        ca_snapshot = valeur_stock + total_entrees_caisse
+
         return Response({
+            "resume": {
+                "ca": ca_snapshot,
+                "total_benefices_produits_vendus": total_benefices_produits_vendus,
+                "valeur_stock": valeur_stock,
+                "benefice_estime_stock": benefice_estime_stock,
+            },
             "periode": {"date_debut": date_from, "date_fin": date_to},
             "kpis": {
                 "nb_ventes": nb_livrees,

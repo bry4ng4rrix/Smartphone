@@ -868,10 +868,12 @@ class DjangoAPIClient {
       return this.post<any>(`/users/caisse/sessions/${sessionId}/close/`, data)
     },
 
-    listMovements: async (params?: { sessionId?: number; magasinId?: number }) => {
+    listMovements: async (params?: { sessionId?: number; magasinId?: number; dateFrom?: string; dateTo?: string }) => {
       const qs = new URLSearchParams()
       if (params?.sessionId) qs.set('session_id', String(params.sessionId))
       if (params?.magasinId) qs.set('magasin_id', String(params.magasinId))
+      if (params?.dateFrom) qs.set('date_from', params.dateFrom)
+      if (params?.dateTo) qs.set('date_to', params.dateTo)
       const suffix = qs.toString() ? `?${qs}` : ''
       return this.get<any[]>(`/users/caisse/movements/${suffix}`)
     },
@@ -881,8 +883,47 @@ class DjangoAPIClient {
       movement_type: 'in' | 'out'
       amount: number | string
       reason: string
+      category?: number
     }) => {
       return this.post<any>('/users/caisse/movements/', data)
+    },
+
+    deleteMovement: async (id: number) => {
+      return this.delete<void>(`/users/caisse/movements/${id}/`)
+    },
+
+    summary: async (params?: { dateFrom?: string; dateTo?: string; magasinId?: number }) => {
+      const qs = new URLSearchParams()
+      if (params?.dateFrom) qs.set('date_from', params.dateFrom)
+      if (params?.dateTo) qs.set('date_to', params.dateTo)
+      if (params?.magasinId) qs.set('magasin_id', String(params.magasinId))
+      const suffix = qs.toString() ? `?${qs}` : ''
+      return this.get<{
+        date_from: string
+        date_to: string
+        total_entrees: number
+        total_sorties: number
+        solde: number
+        sorties_par_categorie: { categorie: string; total: number }[]
+        ca_produits_vendus: number
+        cout_produits_vendus: number
+        benefice_produits_vendus: number
+      }>(`/users/caisse/summary/${suffix}`)
+    },
+
+    categories: {
+      list: async () => {
+        return this.get<{ id: number; nom: string; created_at: string }[]>('/users/caisse/categories/')
+      },
+      create: async (nom: string) => {
+        return this.post<any>('/users/caisse/categories/', { nom })
+      },
+      update: async (id: number, nom: string) => {
+        return this.patch<any>(`/users/caisse/categories/${id}/`, { nom })
+      },
+      delete: async (id: number) => {
+        return this.delete<void>(`/users/caisse/categories/${id}/`)
+      },
     },
   }
 

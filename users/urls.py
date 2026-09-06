@@ -1,7 +1,7 @@
 from django.urls import path
 
 # Import view classes and viewsets
-from .views import (AddAdminView,RegisterView,ApproveUserView,Myprofile,RoleManagementView,EmployerCommandeRoleUpdateView,CaisseSessionViewSet,CaisseMovementViewSet,AdminMagasinOverviewView,UsersByMagasinView,LogoutEventView,MagasinStatsView,DashboardView,ApiEndpointsListView,PendingUsersView,DeleteUserView,RejectUserView,ChangePasswordView,NotificationViewSet,MagasinViewSet,ChatUsersListView,ChatMessageHistoryView,TransferProductsView,BackupExportView,BackupImportView,PublicForgotPasswordRequestView,PublicForgotPasswordStatusView,PublicForgotPasswordConfirmView,EmployeePasswordResetListView,EmployeePasswordResetResolveView,
+from .views import (AddAdminView,RegisterView,ApproveUserView,Myprofile,RoleManagementView,EmployerCommandeRoleUpdateView,CaisseSessionViewSet,CaisseMovementViewSet,CaisseCategoryViewSet,CaisseSummaryView,AdminMagasinOverviewView,UsersByMagasinView,LogoutEventView,MagasinStatsView,DashboardView,ApiEndpointsListView,PendingUsersView,DeleteUserView,RejectUserView,ChangePasswordView,NotificationViewSet,MagasinViewSet,ChatUsersListView,ChatMessageHistoryView,TransferProductsView,BackupExportView,BackupImportView,PublicForgotPasswordRequestView,PublicForgotPasswordStatusView,PublicForgotPasswordConfirmView,EmployeePasswordResetListView,EmployeePasswordResetResolveView,
 )
 
 from rest_framework_simplejwt.views import TokenViewBase
@@ -11,6 +11,7 @@ from rest_framework.routers import DefaultRouter
 router = DefaultRouter()
 router.register(r"caisse/sessions", CaisseSessionViewSet, basename="caisse-sessions")
 router.register(r"caisse/movements", CaisseMovementViewSet, basename="caisse-movements")
+router.register(r"caisse/categories", CaisseCategoryViewSet, basename="caisse-categories")
 router.register(r"notifications", NotificationViewSet, basename="notifications")
 router.register(r"magasins", MagasinViewSet, basename="magasins")
 
@@ -43,6 +44,8 @@ urlpatterns = [
     path("magasins/overview/", AdminMagasinOverviewView.as_view()),
     # Dashboard stats
     path("dashboard/", DashboardView.as_view()),
+    # Caisse: résumé (entrées/sorties + coût/bénéfice des produits vendus)
+    path("caisse/summary/", CaisseSummaryView.as_view()),
     # Pending users (awaiting approval)
     path("change-password/", ChangePasswordView.as_view()),
     path("pending/", PendingUsersView.as_view()),

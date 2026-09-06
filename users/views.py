@@ -22,8 +22,8 @@ from django.core.management import call_command
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
-from .models import CustomUser, MagasinProfile, EmployerProfile, AdminProfile, CaisseSession, CaisseMovement, ChatMessage, Notification, LoginEvent, EmployeePasswordResetRequest
-from .serializers import RegisterSerializer, CaisseSessionSerializer, CaisseMovementSerializer, NotificationSerializer, MagasinProfileSerializer, ChatMessageSerializer, EmployeePasswordResetRequestSerializer
+from .models import CustomUser, MagasinProfile, EmployerProfile, AdminProfile, CaisseSession, CaisseMovement, CaisseCategory, ChatMessage, Notification, LoginEvent, EmployeePasswordResetRequest
+from .serializers import RegisterSerializer, CaisseSessionSerializer, CaisseMovementSerializer, CaisseCategorySerializer, NotificationSerializer, MagasinProfileSerializer, ChatMessageSerializer, EmployeePasswordResetRequestSerializer
 from .permissions import IsAdmin, IsCompanyOwner, IsGerant, get_accessible_magasins, resolve_magasin_for_request, user_commande_role
 from .subscriptions import get_company_magasins, get_company_user_ids, get_company_owner
 from rest_framework_simplejwt.views import TokenViewBase
@@ -810,7 +810,7 @@ class CaisseMovementViewSet(viewsets.ModelViewSet):
     http_method_names = ["get", "post", "delete", "head", "options"]
 
     def get_queryset(self):
-        qs = CaisseMovement.objects.select_related("magasin", "created_by", "session")
+        qs = CaisseMovement.objects.select_related("magasin", "created_by", "session", "category")
         qs = qs.filter(magasin__in=_accessible_magasins(self.request.user))
 
         session_id = self.request.query_params.get("session_id") or self.request.query_params.get("session")
@@ -819,6 +819,12 @@ class CaisseMovementViewSet(viewsets.ModelViewSet):
         magasin_id = self.request.query_params.get("magasin_id") or self.request.query_params.get("store_id")
         if magasin_id:
             qs = qs.filter(magasin_id=magasin_id)
+        date_from = self.request.query_params.get("date_from")
+        date_to = self.request.query_params.get("date_to")
+        if date_from:
+            qs = qs.filter(created_at__date__gte=date_from)
+        if date_to:
+            qs = qs.filter(created_at__date__lte=date_to)
         return qs
 
     def perform_create(self, serializer):
@@ -840,6 +846,110 @@ class CaisseMovementViewSet(viewsets.ModelViewSet):
         if session.status != "open":
             raise serializers.ValidationError("Cette session de caisse est fermée.")
         serializer.save(session=session, magasin=session.magasin, created_by=user)
+
+
+DEFAULT_CAISSE_CATEGORIES = ["Salaire", "Pub", "Commande stock", "Autre"]
+
+
+class CaisseCategoryViewSet(viewsets.ModelViewSet):
+    """Catégories de dépense (mouvements "Sortie") — CRUD dans Paramètres,
+    partagées par toute la société (voir CaisseCategory). Lecture ouverte à
+    tous (nécessaire pour peupler le select lors d'une saisie de sortie),
+    écriture réservée au gérant."""
+
+    serializer_class = CaisseCategorySerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    def get_permissions(self):
+        if self.action in ("create", "partial_update", "update", "destroy"):
+            return [IsGerant()]
+        return super().get_permissions()
+
+    def get_queryset(self):
+        owner = get_company_owner(self.request.user)
+        admin_profile = getattr(owner, "admin_profile", None) if owner else None
+        if not admin_profile:
+            return CaisseCategory.objects.none()
+
+        if not admin_profile.caisse_categories.exists():
+            CaisseCategory.objects.bulk_create([
+                CaisseCategory(admin_profile=admin_profile, nom=nom) for nom in DEFAULT_CAISSE_CATEGORIES
+            ])
+        return admin_profile.caisse_categories.all()
+
+    def perform_create(self, serializer):
+        owner = get_company_owner(self.request.user)
+        admin_profile = getattr(owner, "admin_profile", None) if owner else None
+        if not admin_profile:
+            raise serializers.ValidationError("Société introuvable.")
+        serializer.save(admin_profile=admin_profile)
+
+
+class CaisseSummaryView(APIView):
+    """GET /api/users/caisse/summary/?date_from&date_to&magasin_id — vue
+    d'ensemble caisse + ventes pour la période (par défaut le mois en
+    cours) : entrées/sorties de caisse, coût et bénéfice réel des produits
+    livrés, en plus du solde brut de caisse."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        magasins = _accessible_magasins(request.user)
+        magasin_id = request.query_params.get("magasin_id")
+        if magasin_id:
+            magasins = magasins.filter(id=magasin_id)
+
+        today = timezone.now().date()
+        date_from = request.query_params.get("date_from") or today.replace(day=1).isoformat()
+        date_to = request.query_params.get("date_to") or today.isoformat()
+
+        movements_qs = CaisseMovement.objects.filter(
+            magasin__in=magasins, created_at__date__gte=date_from, created_at__date__lte=date_to,
+        )
+        total_entrees = movements_qs.filter(movement_type="in").aggregate(
+            t=Coalesce(Sum("amount"), 0, output_field=DecimalField())
+        )["t"]
+        total_sorties = movements_qs.filter(movement_type="out").aggregate(
+            t=Coalesce(Sum("amount"), 0, output_field=DecimalField())
+        )["t"]
+        sorties_par_categorie = list(
+            movements_qs.filter(movement_type="out")
+            .values("category__nom")
+            .annotate(total=Sum("amount"))
+            .order_by("-total")
+        )
+
+        items_vendus = OrderItem.objects.filter(
+            order__magasin__in=magasins, order__statut_courant="LIVRE",
+            order__date_commande__date__gte=date_from, order__date_commande__date__lte=date_to,
+        )
+        ca_produits_vendus = items_vendus.aggregate(
+            t=Coalesce(Sum(F("prix_unitaire") * F("quantite")), 0, output_field=DecimalField())
+        )["t"]
+        cout_produits_vendus = items_vendus.aggregate(
+            t=Coalesce(
+                Sum(F("quantite") * F("product_variant__product_reference__prix_achat")),
+                0,
+                output_field=DecimalField(),
+            )
+        )["t"]
+        benefice_produits_vendus = ca_produits_vendus - cout_produits_vendus
+
+        return Response({
+            "date_from": date_from,
+            "date_to": date_to,
+            "total_entrees": total_entrees,
+            "total_sorties": total_sorties,
+            "solde": total_entrees - total_sorties,
+            "sorties_par_categorie": [
+                {"categorie": row["category__nom"] or "Sans catégorie", "total": row["total"]}
+                for row in sorties_par_categorie
+            ],
+            "ca_produits_vendus": ca_produits_vendus,
+            "cout_produits_vendus": cout_produits_vendus,
+            "benefice_produits_vendus": benefice_produits_vendus,
+        })
 
 
 # =========================
@@ -1207,9 +1317,23 @@ class DashboardView(APIView):
             for row in best_shops:
                 row["total_stock"] = 0
 
+            benefice_estime_stock = admin_variants.aggregate(
+                t=Coalesce(
+                    Sum(F("stock_actuel") * (F("product_reference__prix_vente") - F("product_reference__prix_achat"))),
+                    0,
+                    output_field=DecimalField(),
+                )
+            )["t"]
+            total_entrees_caisse = CaisseMovement.objects.filter(
+                magasin_id__in=admin_magasin_ids, movement_type="in"
+            ).aggregate(t=Coalesce(Sum("amount"), 0, output_field=DecimalField()))["t"]
+            ca = total_stock_value + total_entrees_caisse
+
             return Response({
                 "role": role,
                 "kpis": {
+                    "ca": ca,
+                    "benefice_estime_stock": benefice_estime_stock,
                     "total_revenue": total_revenue,
                     "total_profit": total_profit,
                     "total_stock_value": total_stock_value,
@@ -1291,9 +1415,23 @@ class DashboardView(APIView):
                 .order_by('-total_amount')[:5]
             )
 
+            benefice_estime_stock = variants_qs.aggregate(
+                t=Coalesce(
+                    Sum(F("stock_actuel") * (F("product_reference__prix_vente") - F("product_reference__prix_achat"))),
+                    0,
+                    output_field=DecimalField(),
+                )
+            )["t"]
+            total_entrees_caisse = CaisseMovement.objects.filter(
+                magasin=magasin, movement_type="in"
+            ).aggregate(t=Coalesce(Sum("amount"), 0, output_field=DecimalField()))["t"]
+            ca = stock_value + total_entrees_caisse
+
             return Response({
                 "role": role,
                 "kpis": {
+                    "ca": ca,
+                    "benefice_estime_stock": benefice_estime_stock,
                     "sales_today": sales_today,
                     "profit_today": profit_today,
                     "total_revenue": total_revenue,

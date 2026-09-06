@@ -21,7 +21,10 @@ import {
 } from '@/components/ui/table';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
-  Wallet, Store, Plus, Lock, LockOpen, Loader2, RefreshCw, ArrowDownCircle, ArrowUpCircle,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import {
+  Wallet, Store, Plus, Lock, LockOpen, Loader2, RefreshCw, ArrowDownCircle, ArrowUpCircle, PiggyBank,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -66,6 +69,17 @@ export default function CaissePage() {
   const [movementType, setMovementType] = useState<'in' | 'out'>('in');
   const [movementAmount, setMovementAmount] = useState('');
   const [movementReason, setMovementReason] = useState('');
+  const [movementCategory, setMovementCategory] = useState<string>('');
+  const [expenseCategories, setExpenseCategories] = useState<any[]>([]);
+
+  // Résumé + historique complet des mouvements, filtrables par période
+  // (indépendant de la session en cours, qui ne montre que ses propres mouvements).
+  const todayStr = new Date().toISOString().split('T')[0];
+  const [summaryFrom, setSummaryFrom] = useState(todayStr.slice(0, 8) + '01');
+  const [summaryTo, setSummaryTo] = useState(todayStr);
+  const [summary, setSummary] = useState<any | null>(null);
+  const [periodMovements, setPeriodMovements] = useState<any[]>([]);
+  const [summaryLoading, setSummaryLoading] = useState(false);
 
   // Admin has no magasin of their own — resolve which store's caisse to manage.
   const magasinId = isAdmin ? selectedMagasinId : (user?.magasin_id ?? null);
@@ -102,6 +116,31 @@ export default function CaissePage() {
     }
   }, [magasinId]);
 
+  const fetchSummary = useCallback(async () => {
+    if (!magasinId) {
+      setSummary(null);
+      setPeriodMovements([]);
+      return;
+    }
+    setSummaryLoading(true);
+    try {
+      const [summaryData, movementsData] = await Promise.all([
+        djangoClient.caisse.summary({ magasinId, dateFrom: summaryFrom, dateTo: summaryTo }),
+        djangoClient.caisse.listMovements({ magasinId, dateFrom: summaryFrom, dateTo: summaryTo }),
+      ]);
+      setSummary(summaryData);
+      setPeriodMovements(movementsData);
+    } catch (err: any) {
+      toast.error('Erreur de chargement du résumé: ' + (err.message || err));
+    } finally {
+      setSummaryLoading(false);
+    }
+  }, [magasinId, summaryFrom, summaryTo]);
+
+  useEffect(() => {
+    djangoClient.caisse.categories.list().then(setExpenseCategories).catch(() => {});
+  }, []);
+
   useEffect(() => {
     if (!userLoading) fetchStores();
   }, [userLoading, fetchStores]);
@@ -110,7 +149,11 @@ export default function CaissePage() {
     if (!userLoading) fetchCaisse();
   }, [userLoading, fetchCaisse]);
 
-  useRealtimeRefresh(['caisse_session', 'caisse_movement'], () => fetchCaisse());
+  useEffect(() => {
+    if (!userLoading) fetchSummary();
+  }, [userLoading, fetchSummary]);
+
+  useRealtimeRefresh(['caisse_session', 'caisse_movement'], () => { fetchCaisse(); fetchSummary(); });
 
   const movementTotals = (session?.movements || []).reduce(
     (acc: { in: number; out: number }, m: any) => {
@@ -156,6 +199,7 @@ export default function CaissePage() {
     setMovementType('in');
     setMovementAmount('');
     setMovementReason('');
+    setMovementCategory('');
     setMovementDialogOpen(true);
   };
 
@@ -219,10 +263,12 @@ export default function CaissePage() {
         movement_type: movementType,
         amount: movementAmount,
         reason: movementReason,
+        category: movementType === 'out' && movementCategory ? Number(movementCategory) : undefined,
       });
       toast.success('Mouvement ajouté');
       setMovementDialogOpen(false);
       fetchCaisse();
+      fetchSummary();
     } catch (err: any) {
       toast.error(err.message || 'Erreur lors de l’ajout du mouvement');
     } finally {
@@ -370,6 +416,99 @@ export default function CaissePage() {
                 </div>
               </CardContent>
             )}
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 space-y-0">
+              <div>
+                <CardTitle>Résumé de la caisse</CardTitle>
+                <CardDescription>Tous les mouvements et les ventes de la période, quelle que soit la session.</CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input type="date" value={summaryFrom} onChange={(e) => setSummaryFrom(e.target.value)} className="w-auto" />
+                <span className="text-sm text-muted-foreground">→</span>
+                <Input type="date" value={summaryTo} onChange={(e) => setSummaryTo(e.target.value)} className="w-auto" />
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {summaryLoading ? (
+                <Skeleton className="h-40 w-full" />
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Entrées</p>
+                      <p className="text-lg font-semibold text-green-600">+{money(summary?.total_entrees)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Sorties</p>
+                      <p className="text-lg font-semibold text-red-600">-{money(summary?.total_sorties)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Solde</p>
+                      <p className="text-lg font-semibold">{money(summary?.solde)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">CA produits vendus</p>
+                      <p className="text-lg font-semibold">{money(summary?.ca_produits_vendus)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Coût des produits vendus</p>
+                      <p className="text-lg font-semibold text-orange-600">{money(summary?.cout_produits_vendus)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground flex items-center gap-1"><PiggyBank className="h-3.5 w-3.5" />Bénéfice produits vendus</p>
+                      <p className="text-lg font-semibold text-green-700">{money(summary?.benefice_produits_vendus)}</p>
+                    </div>
+                  </div>
+
+                  {summary?.sorties_par_categorie?.length > 0 && (
+                    <div>
+                      <Label className="text-sm">Sorties par catégorie</Label>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {summary.sorties_par_categorie.map((row: any) => (
+                          <Badge key={row.categorie} variant="outline" className="text-sm">
+                            {row.categorie} : {money(row.total)}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <Label className="text-sm">Mouvements de la période ({periodMovements.length})</Label>
+                    <div className="mt-2 border rounded-lg divide-y max-h-72 overflow-y-auto">
+                      {periodMovements.length === 0 ? (
+                        <p className="p-4 text-sm text-muted-foreground text-center">Aucun mouvement pour cette période</p>
+                      ) : (
+                        periodMovements.map((m: any) => (
+                          <div key={m.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              {m.movement_type === 'in' ? (
+                                <ArrowUpCircle className="h-4 w-4 text-green-600 shrink-0" />
+                              ) : (
+                                <ArrowDownCircle className="h-4 w-4 text-red-600 shrink-0" />
+                              )}
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium truncate">
+                                  {m.reason}{m.category_name ? ` · ${m.category_name}` : ''}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {formatDateTime(m.created_at)}{m.created_by_name ? ` · ${m.created_by_name}` : ''}
+                                </p>
+                              </div>
+                            </div>
+                            <span className={`text-sm font-semibold shrink-0 ${m.movement_type === 'in' ? 'text-green-600' : 'text-red-600'}`}>
+                              {m.movement_type === 'in' ? '+' : '-'}{money(m.amount)}
+                            </span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </CardContent>
           </Card>
 
           <Card>
@@ -527,6 +666,22 @@ export default function CaissePage() {
               <Label>Motif *</Label>
               <Input value={movementReason} onChange={(e) => setMovementReason(e.target.value)} placeholder="Ex: Achat fournitures" required />
             </div>
+            {movementType === 'out' && (
+              <div className="space-y-2">
+                <Label>Catégorie (optionnel)</Label>
+                <Select value={movementCategory} onValueChange={setMovementCategory}>
+                  <SelectTrigger><SelectValue placeholder="Aucune catégorie" /></SelectTrigger>
+                  <SelectContent>
+                    {expenseCategories.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>{c.nom}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Gérez les catégories dans Paramètres &gt; Dépenses.
+                </p>
+              </div>
+            )}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setMovementDialogOpen(false)} disabled={submitting}>Annuler</Button>
               <Button type="submit" disabled={submitting}>

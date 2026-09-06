@@ -8,6 +8,7 @@ from .models import (
     Notification,
     CaisseSession,
     CaisseMovement,
+    CaisseCategory,
     ChatMessage,
     LoginEvent,
     EmployeePasswordResetRequest,
@@ -113,9 +114,17 @@ class RegisterSerializer(serializers.ModelSerializer):
             return user
         raise serializers.ValidationError("Role invalide")
 
+class CaisseCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CaisseCategory
+        fields = ["id", "nom", "created_at"]
+        read_only_fields = ["id", "created_at"]
+
+
 class CaisseMovementSerializer(serializers.ModelSerializer):
     magasin_name = serializers.CharField(source="magasin.shop_name", read_only=True)
     created_by_name = serializers.CharField(source="created_by.full_name", read_only=True)
+    category_name = serializers.CharField(source="category.nom", read_only=True)
 
     class Meta:
         model = CaisseMovement
@@ -127,11 +136,20 @@ class CaisseMovementSerializer(serializers.ModelSerializer):
             "movement_type",
             "amount",
             "reason",
+            "category",
+            "category_name",
             "created_by",
             "created_by_name",
             "created_at",
         ]
         read_only_fields = ["id", "session", "magasin", "created_by", "created_at"]
+
+    def validate(self, attrs):
+        category = attrs.get("category")
+        movement_type = attrs.get("movement_type")
+        if category and movement_type == "in":
+            raise serializers.ValidationError("Une catégorie ne s'applique qu'aux sorties.")
+        return attrs
 
 
 class CaisseSessionSerializer(serializers.ModelSerializer):

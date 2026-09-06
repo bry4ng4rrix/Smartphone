@@ -275,6 +275,26 @@ class CaisseSession(models.Model):
         return f"Caisse {self.magasin.shop_name} - {self.opened_at:%d/%m/%Y %H:%M}"
 
 
+class CaisseCategory(models.Model):
+    """Catégorie de dépense pour les mouvements de caisse "Sortie" (Salaire,
+    Pub, Commande stock, Autre...) — gérée en CRUD dans Paramètres, partagée
+    par toute la société (pas par magasin) puisqu'il s'agit d'une
+    classification comptable, pas d'un réglage propre à un point de vente."""
+
+    admin_profile = models.ForeignKey("AdminProfile", on_delete=models.CASCADE, related_name="caisse_categories")
+    nom = models.CharField(max_length=100)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Catégorie de dépense"
+        verbose_name_plural = "Catégories de dépense"
+        ordering = ["nom"]
+        unique_together = ("admin_profile", "nom")
+
+    def __str__(self):
+        return self.nom
+
+
 class CaisseMovement(models.Model):
     """Mouvement d'espèces (apport, retrait, dépense...) au sein d'une
     session de caisse — distinct de `catalog.StockMovement` qui suit le stock produit."""
@@ -289,6 +309,8 @@ class CaisseMovement(models.Model):
     movement_type = models.CharField(max_length=10, choices=MOVEMENT_TYPES)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     reason = models.CharField(max_length=255)
+    # Uniquement pour les sorties (dépenses) — voir CaisseCategory.
+    category = models.ForeignKey(CaisseCategory, on_delete=models.SET_NULL, null=True, blank=True, related_name="movements")
     created_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True, related_name="caisse_movements")
     created_at = models.DateTimeField(auto_now_add=True)
 

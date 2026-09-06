@@ -18,7 +18,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { User, Lock, Building2, Loader2, Tag, Plus, Check, Pencil, Trash2, FolderPlus } from 'lucide-react';
+import { User, Lock, Building2, Loader2, Tag, Plus, Check, Pencil, Trash2, FolderPlus, Wallet } from 'lucide-react';
 
 const roleLabel: Record<string, string> = {
   admin: 'Administrateur',
@@ -40,6 +40,7 @@ export default function SettingsPage() {
   const [categories, setCategories] = useState<any[]>([]);
   const [types, setTypes] = useState<any[]>([]);
   const [colors, setColors] = useState<any[]>([]);
+  const [expenseCategories, setExpenseCategories] = useState<any[]>([]);
 
   const loadCatalogue = () => {
     if (!isGerant) return;
@@ -49,7 +50,13 @@ export default function SettingsPage() {
     djangoClient.catalog.colors.list().then(setColors).catch(() => {});
   };
 
+  const loadExpenseCategories = () => {
+    if (!isGerant) return;
+    djangoClient.caisse.categories.list().then(setExpenseCategories).catch(() => {});
+  };
+
   useEffect(loadCatalogue, [isGerant]);
+  useEffect(loadExpenseCategories, [isGerant]);
 
   const addSuggestedBrand = async (nom: string) => {
     setAddingBrand(nom);
@@ -209,6 +216,11 @@ export default function SettingsPage() {
           {isGerant && (
             <TabsTrigger value="catalogue">
               <Tag className="h-4 w-4 mr-2" />Catalogue
+            </TabsTrigger>
+          )}
+          {isGerant && (
+            <TabsTrigger value="depenses">
+              <Wallet className="h-4 w-4 mr-2" />Dépenses
             </TabsTrigger>
           )}
         </TabsList>
@@ -425,6 +437,24 @@ export default function SettingsPage() {
             </Card>
           </TabsContent>
         )}
+
+        {/* Dépenses tab — bien séparé du Catalogue : classification comptable des sorties de caisse, pas un réglage produit */}
+        {isGerant && (
+          <TabsContent value="depenses" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Catégories de dépenses</CardTitle>
+                <CardDescription>
+                  Catégories proposées lors d'une saisie de sortie de caisse (Salaire, Pub, Commande
+                  stock...). Ajoutez-en, renommez ou supprimez-les selon vos besoins.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ExpenseCategoriesCrudList categories={expenseCategories} onChanged={loadExpenseCategories} />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
       </Tabs>
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
@@ -557,6 +587,78 @@ function BrandsCrudList({ brands, onChanged }: { brands: any[]; onChanged: () =>
       <div className="flex gap-2 mt-3">
         <Input placeholder="Nouvelle marque" value={newName} onChange={(e) => setNewName(e.target.value)} />
         <Button onClick={addBrand}><Plus className="h-4 w-4 mr-2" /> Ajouter</Button>
+      </div>
+    </div>
+  );
+}
+
+function ExpenseCategoriesCrudList({ categories, onChanged }: { categories: any[]; onChanged: () => void }) {
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingName, setEditingName] = useState('');
+  const [newName, setNewName] = useState('');
+
+  const startEdit = (c: any) => { setEditingId(c.id); setEditingName(c.nom); };
+
+  const saveEdit = async () => {
+    if (!editingId || !editingName.trim()) return;
+    try {
+      await djangoClient.caisse.categories.update(editingId, editingName.trim());
+      toast.success('Catégorie renommée');
+      setEditingId(null);
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur');
+    }
+  };
+
+  const removeCategory = async (c: any) => {
+    try {
+      await djangoClient.caisse.categories.delete(c.id);
+      toast.success('Catégorie supprimée');
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur lors de la suppression');
+    }
+  };
+
+  const addCategory = async () => {
+    if (!newName.trim()) return;
+    try {
+      await djangoClient.caisse.categories.create(newName.trim());
+      toast.success('Catégorie ajoutée');
+      setNewName('');
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur');
+    }
+  };
+
+  return (
+    <div>
+      <p className="text-sm font-medium mb-2">Toutes les catégories ({categories.length})</p>
+      <div className="space-y-2 max-h-72 overflow-y-auto">
+        {categories.map((c) => (
+          <div key={c.id} className="flex items-center gap-2 border rounded-md px-3 py-2">
+            {editingId === c.id ? (
+              <>
+                <Input value={editingName} onChange={(e) => setEditingName(e.target.value)} className="h-8 flex-1" autoFocus />
+                <Button size="sm" onClick={saveEdit}>OK</Button>
+                <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Annuler</Button>
+              </>
+            ) : (
+              <>
+                <span className="flex-1 text-sm">{c.nom}</span>
+                <Button size="icon" variant="ghost" onClick={() => startEdit(c)}><Pencil className="h-4 w-4" /></Button>
+                <Button size="icon" variant="ghost" onClick={() => removeCategory(c)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+              </>
+            )}
+          </div>
+        ))}
+        {categories.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Aucune catégorie.</p>}
+      </div>
+      <div className="flex gap-2 mt-3">
+        <Input placeholder="Nouvelle catégorie (ex: Transport)" value={newName} onChange={(e) => setNewName(e.target.value)} />
+        <Button onClick={addCategory}><Plus className="h-4 w-4 mr-2" /> Ajouter</Button>
       </div>
     </div>
   );

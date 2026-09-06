@@ -12,7 +12,7 @@ import {
 } from 'recharts';
 import {
   Package, AlertTriangle, TrendingUp, DollarSign, Users,
-  ArrowUp, ArrowDown, CheckCircle2, ShieldAlert,
+  ArrowUp, ArrowDown, CheckCircle2, ShieldAlert, Wallet,
 } from 'lucide-react';
 import { AIAnalysis } from '@/components/ai-analysis';
 import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh';
@@ -29,6 +29,8 @@ export default function DashboardPage() {
 
   // KPIs
   const [kpis, setKpis] = useState({
+    ca: 0,
+    beneficeEstimeStock: 0,
     totalProducts: 0,
     totalQuantity: 0,
     totalValue: 0,
@@ -119,6 +121,8 @@ export default function DashboardPage() {
       const stockValue = rKpis.total_stock_value ?? rKpis.stock_value ?? totalValue;
 
       setKpis({
+        ca: rKpis.ca || 0,
+        beneficeEstimeStock: rKpis.benefice_estime_stock || 0,
         totalProducts: products.length,
         totalQuantity,
         totalValue: stockValue,
@@ -304,11 +308,20 @@ export default function DashboardPage() {
           <>
             <div className="xl:col-span-2">
               <KpiCard
-                title="Ventes totales "
-                value={`${fmt(kpis.totalSalesAllStores)} Ar`}
-                sub="Chiffre d'affaires global"
-                icon={TrendingUp}
-                color="text-green-600"
+                title="CA"
+                value={`${fmt(kpis.ca)} Ar`}
+                sub="Valeur du stock + entrées de caisse"
+                icon={Wallet}
+                color="text-blue-600"
+              />
+            </div>
+            <div className="xl:col-span-2">
+              <KpiCard
+                title="Bénéfice total"
+                value={`${fmt(kpis.totalProfit)} Ar`}
+                sub="Produits vendus (vente - achat)"
+                icon={CheckCircle2}
+                color="text-emerald-600"
               />
             </div>
             <div className="xl:col-span-2">
@@ -319,25 +332,24 @@ export default function DashboardPage() {
                 icon={DollarSign}
               />
             </div>
-
-
-
-          {role === "admin" && (
-  <div className="xl:col-span-2">
-    <KpiCard
-      title="Bénéfice total"
-      value={`${fmt(kpis.totalProfit)} Ar`}
-      sub="Profit net (vente - achat)"
-      icon={CheckCircle2}
-      color="text-emerald-600"
-    />
-  </div>
-)}
-           
-
-
-
-
+            <div className="xl:col-span-2">
+              <KpiCard
+                title="Bénéfice estimé"
+                value={`${fmt(kpis.beneficeEstimeStock)} Ar`}
+                sub="Potentiel si tout le stock est vendu"
+                icon={TrendingUp}
+                color="text-emerald-600"
+              />
+            </div>
+            <div className="xl:col-span-2">
+              <KpiCard
+                title="Ventes livrées"
+                value={`${fmt(kpis.totalSalesAllStores)} Ar`}
+                sub="Chiffre d'affaires des commandes livrées"
+                icon={TrendingUp}
+                color="text-green-600"
+              />
+            </div>
 
             <div className="xl:col-span-2">
               <KpiCard
