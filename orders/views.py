@@ -23,6 +23,7 @@ from .serializers import (
     OrderLivreurSerializer,
     OrderPreparateurSerializer,
     OrderStatusChangeSerializer,
+    OrderUpdateSerializer,
 )
 
 # Statuts visibles par rôle sur leur module dédié (§7.2, §7.3 Smartreadme.md).
@@ -31,17 +32,22 @@ LIVREUR_STATUTS = ["PRETE", "EN_LIVRAISON"]
 
 
 class OrderViewSet(viewsets.ModelViewSet):
-    http_method_names = ["get", "post", "head", "options"]  # pas d'update/delete direct : tout passe par /status/
+    # patch/delete : uniquement tant que la commande est "Nouvelle" (rien
+    # préparé/déduit du stock) — cf. partial_update/destroy ci-dessous.
+    # Statut/affectation passent toujours exclusivement par /status/.
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
     permission_classes = [IsAuthenticated]
 
     def get_permissions(self):
-        if self.action in ("create", "available_staff"):
+        if self.action in ("create", "available_staff", "partial_update", "destroy"):
             return [IsGerant()]
         return super().get_permissions()
 
     def get_serializer_class(self):
         if self.action == "create":
             return OrderCreateSerializer
+        if self.action == "partial_update":
+            return OrderUpdateSerializer
         role = user_commande_role(self.request.user)
         if role == "PREPARATEUR":
             return OrderPreparateurSerializer
@@ -106,6 +112,31 @@ class OrderViewSet(viewsets.ModelViewSet):
             created_by=request.user,
         )
         return Response(OrderGerantSerializer(order).data, status=status.HTTP_201_CREATED)
+
+    def partial_update(self, request, *args, **kwargs):
+        order = self.get_object()
+        if order.statut_courant != "NOUVELLE":
+            raise DRFValidationError(
+                "Seule une commande 'Nouvelle' peut être modifiée — le stock ou une "
+                "affectation est déjà engagé sur celle-ci."
+            )
+        serializer = OrderUpdateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        for field, value in serializer.validated_data.items():
+            setattr(order, field, value)
+        order.save()
+        order.recompute_total()
+        return Response(OrderGerantSerializer(order).data)
+
+    def destroy(self, request, *args, **kwargs):
+        order = self.get_object()
+        if order.statut_courant != "NOUVELLE":
+            raise DRFValidationError(
+                "Seule une commande 'Nouvelle' peut être supprimée — le stock ou une "
+                "affectation est déjà engagé sur celle-ci."
+            )
+        order.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=["post"], url_path="status")
     def change_status(self, request, pk=None):

@@ -113,6 +113,21 @@ class OrderCreateSerializer(serializers.Serializer):
         return value
 
 
+class OrderUpdateSerializer(serializers.Serializer):
+    """Modification d'une commande — uniquement tant qu'elle est 'Nouvelle'
+    (rien n'a encore été préparé/déduit du stock). Les articles ne sont pas
+    modifiables ici : supprimer et recréer la commande dans ce cas."""
+
+    client_nom = serializers.CharField(max_length=255, required=False)
+    telephone = serializers.RegexField(regex=r"^\+261\d{9}$", required=False, error_messages={
+        "invalid": "Format attendu : +261XXXXXXXXX"
+    })
+    livraison_zone = serializers.ChoiceField(choices=Order.ZONE_CHOICES, required=False)
+    adresse_livraison = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    date_commande = serializers.DateTimeField(required=False)
+    note = serializers.CharField(required=False, allow_blank=True)
+
+
 class OrderStatusChangeSerializer(serializers.Serializer):
     statut = serializers.ChoiceField(choices=Order.STATUT_CHOICES)
     note = serializers.CharField(required=False, allow_blank=True, default="")

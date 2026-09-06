@@ -637,6 +637,20 @@ class DjangoAPIClient {
         `/orders/available-staff/?${params.toString()}`
       )
     },
+    // Uniquement pour une commande encore "Nouvelle" (voir orders/views.py).
+    update: async (id: number, data: {
+      client_nom?: string
+      telephone?: string
+      livraison_zone?: 'ZONE1' | 'ZONE2' | 'ZONE3' | 'RECUPERATION'
+      adresse_livraison?: string
+      date_commande?: string
+      note?: string
+    }) => {
+      return this.patch<any>(`/orders/${id}/`, data)
+    },
+    delete: async (id: number) => {
+      return this.delete<void>(`/orders/${id}/`)
+    },
     dashboard: async (params?: { date_from?: string; date_to?: string; magasin_id?: number }) => {
       const q = new URLSearchParams()
       if (params?.date_from) q.append('date_from', params.date_from)

@@ -20,8 +20,36 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, Truck, Package, RefreshCw, Phone, ShoppingCart, Wrench, Boxes, CheckCircle2, Undo2, UserCheck } from 'lucide-react';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { Plus, Trash2, Truck, Package, RefreshCw, Phone, ShoppingCart, Wrench, Boxes, CheckCircle2, Undo2, UserCheck, Pencil, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
+
+function IconAction({
+  label,
+  onClick,
+  icon: Icon,
+  variant = 'default',
+  className = '',
+  disabled = false,
+}: {
+  label: string;
+  onClick: (e: React.MouseEvent) => void;
+  icon: any;
+  variant?: 'default' | 'outline' | 'ghost' | 'destructive';
+  className?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button size="icon" variant={variant} className={className} onClick={onClick} disabled={disabled}>
+          <Icon className="h-4 w-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 const fmt = (n: number | string | null | undefined) =>
   new Intl.NumberFormat('fr-MG').format(Math.round(Number(n || 0))) + ' Ar';
@@ -65,6 +93,9 @@ export default function OrdersPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [actionNote, setActionNote] = useState<{ order: any; target: string } | null>(null);
   const [assignTarget, setAssignTarget] = useState<{ order: any; role: 'PREPARATEUR' | 'LIVREUR' } | null>(null);
+  const [editTarget, setEditTarget] = useState<any | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchOrders = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -122,6 +153,21 @@ export default function OrdersPage() {
       setAssignTarget(null);
     } catch (err: any) {
       toast.error(err.message || 'Action impossible');
+    }
+  };
+
+  const handleDeleteOrder = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await djangoClient.orders.delete(deleteTarget.id);
+      toast.success(`Commande ${deleteTarget.numero} supprimée`);
+      setDeleteTarget(null);
+      fetchOrders(true);
+    } catch (err: any) {
+      toast.error(err.message || 'Suppression impossible');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -186,12 +232,17 @@ export default function OrdersPage() {
                     {isLivreur && <TableHead>Adresse</TableHead>}
                     {!isPreparateur && <TableHead>Total</TableHead>}
                     <TableHead>Statut</TableHead>
+                    {isGerant && <TableHead>Assigné à</TableHead>}
                     <TableHead className="text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {orders.map((order) => {
                     const action = nextAction(order);
+                    const assignedName = order.preparateur_name || order.livreur_name;
+                    const assignedStatus = order.preparateur_name ? 'EN_PREPARATION' : 'EN_LIVRAISON';
+                    const assignedAt = (order.status_history || []).find((h: any) => h.nouveau_statut === assignedStatus)?.timestamp;
+                    const canEditOrDelete = isGerant && order.statut_courant === 'NOUVELLE';
                     return (
                       <TableRow key={order.id} className="cursor-pointer" onClick={() => setDetail(order)}>
                         <TableCell className="font-medium">{order.numero}</TableCell>
@@ -219,34 +270,68 @@ export default function OrdersPage() {
                         <TableCell>
                           <Badge className={statutInfo(order.statut_courant).color}>{statutInfo(order.statut_courant).label}</Badge>
                         </TableCell>
+                        {isGerant && (
+                          <TableCell className="text-xs">
+                            {assignedName ? (
+                              <div className="flex items-center gap-1.5 text-muted-foreground">
+                                <UserRound className="h-3.5 w-3.5 shrink-0" />
+                                <div>
+                                  <div className="text-foreground">{assignedName}</div>
+                                  {assignedAt && (
+                                    <div>{new Date(assignedAt).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</div>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                        )}
                         <TableCell className="text-right">
-                          {action && (
-                            <Button
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (isLivreur && order.statut_courant === 'EN_LIVRAISON') {
-                                  setActionNote({ order, target: action.target });
-                                } else if (isGerant) {
-                                  setAssignTarget({ order, role: action.target === 'EN_PREPARATION' ? 'PREPARATEUR' : 'LIVREUR' });
-                                } else {
-                                  doChangeStatus(order, action.target);
-                                }
-                              }}
-                            >
-                              <action.icon className="h-4 w-4 mr-1" /> {action.label}
-                            </Button>
-                          )}
-                          {isLivreur && order.statut_courant === 'EN_LIVRAISON' && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="ml-2 text-red-600"
-                              onClick={(e) => { e.stopPropagation(); setActionNote({ order, target: 'RETOUR' }); }}
-                            >
-                              Retour
-                            </Button>
-                          )}
+                          <div className="flex items-center justify-end gap-1">
+                            {action && (
+                              <IconAction
+                                label={action.label}
+                                icon={action.icon}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (isLivreur && order.statut_courant === 'EN_LIVRAISON') {
+                                    setActionNote({ order, target: action.target });
+                                  } else if (isGerant) {
+                                    setAssignTarget({ order, role: action.target === 'EN_PREPARATION' ? 'PREPARATEUR' : 'LIVREUR' });
+                                  } else {
+                                    doChangeStatus(order, action.target);
+                                  }
+                                }}
+                              />
+                            )}
+                            {isLivreur && order.statut_courant === 'EN_LIVRAISON' && (
+                              <IconAction
+                                label="Retour"
+                                icon={Undo2}
+                                variant="outline"
+                                className="text-red-600"
+                                onClick={(e) => { e.stopPropagation(); setActionNote({ order, target: 'RETOUR' }); }}
+                              />
+                            )}
+                            {canEditOrDelete && (
+                              <IconAction
+                                label="Modifier"
+                                icon={Pencil}
+                                variant="outline"
+                                onClick={(e) => { e.stopPropagation(); setEditTarget(order); }}
+                              />
+                            )}
+                            {canEditOrDelete && (
+                              <IconAction
+                                label="Supprimer"
+                                icon={Trash2}
+                                variant="outline"
+                                className="text-red-600"
+                                onClick={(e) => { e.stopPropagation(); setDeleteTarget(order); }}
+                              />
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
@@ -356,6 +441,31 @@ export default function OrdersPage() {
           }
         />
       )}
+
+      {isGerant && (
+        <EditOrderDialog
+          order={editTarget}
+          onOpenChange={(o) => !o && setEditTarget(null)}
+          onSaved={() => { setEditTarget(null); fetchOrders(true); }}
+        />
+      )}
+
+      <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Supprimer la commande {deleteTarget?.numero} ?</DialogTitle>
+            <DialogDescription>
+              Cette action est définitive — la commande de {deleteTarget?.client_nom} sera supprimée.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Annuler</Button>
+            <Button variant="destructive" onClick={handleDeleteOrder} disabled={deleting}>
+              {deleting ? 'Suppression...' : 'Supprimer'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -485,6 +595,130 @@ function AssignStaffDialog({
   );
 }
 
+// Modification d'une commande "Nouvelle" (client, téléphone, date, zone,
+// adresse, note) — les articles ne sont pas modifiables ici (voir
+// orders/views.py::partial_update).
+function EditOrderDialog({
+  order,
+  onOpenChange,
+  onSaved,
+}: {
+  order: any | null;
+  onOpenChange: (o: boolean) => void;
+  onSaved: () => void;
+}) {
+  const [clientNom, setClientNom] = useState('');
+  const [telephone, setTelephone] = useState('');
+  const [zone, setZone] = useState('ZONE1');
+  const [adresseLivraison, setAdresseLivraison] = useState('');
+  const [dateCommande, setDateCommande] = useState('');
+  const [note, setNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!order) return;
+    setClientNom(order.client_nom || '');
+    setTelephone(order.telephone || '');
+    setZone(order.livraison_zone || 'ZONE1');
+    setAdresseLivraison(order.adresse_livraison || '');
+    setDateCommande(order.date_commande ? toDatetimeLocalValue(new Date(order.date_commande)) : '');
+    setNote(order.note || '');
+  }, [order]);
+
+  const submit = async () => {
+    if (!order) return;
+    if (!clientNom.trim()) { toast.error('Nom du client requis'); return; }
+    if (!/^\+261\d{9}$/.test(telephone)) { toast.error('Téléphone au format +261XXXXXXXXX'); return; }
+    setSubmitting(true);
+    try {
+      await djangoClient.orders.update(order.id, {
+        client_nom: clientNom.trim(),
+        telephone,
+        livraison_zone: zone as any,
+        adresse_livraison: zone === 'RECUPERATION' ? '' : adresseLivraison.trim(),
+        ...(dateCommande ? { date_commande: new Date(dateCommande).toISOString() } : {}),
+        note,
+      });
+      toast.success('Commande mise à jour');
+      onSaved();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur lors de la modification');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={!!order} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Modifier la commande {order?.numero}</DialogTitle>
+          <DialogDescription>Uniquement possible tant que la commande est "Nouvelle".</DialogDescription>
+        </DialogHeader>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Nom client</Label>
+            <Input value={clientNom} onChange={(e) => setClientNom(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label>Téléphone</Label>
+            <Input value={telephone} onChange={(e) => setTelephone(e.target.value)} />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Date et heure de la commande</Label>
+          <Input type="datetime-local" value={dateCommande} onChange={(e) => setDateCommande(e.target.value)} />
+        </div>
+
+        <div className="space-y-2">
+          <Label>Type de commande</Label>
+          <div className="flex gap-2">
+            <Button type="button" variant={zone !== 'RECUPERATION' ? 'default' : 'outline'} className="flex-1" onClick={() => setZone('ZONE1')}>
+              <Truck className="h-4 w-4 mr-2" /> À livrer
+            </Button>
+            <Button type="button" variant={zone === 'RECUPERATION' ? 'default' : 'outline'} className="flex-1" onClick={() => setZone('RECUPERATION')}>
+              <Package className="h-4 w-4 mr-2" /> Récupération sur place
+            </Button>
+          </div>
+        </div>
+
+        {zone !== 'RECUPERATION' && (
+          <div className="space-y-2">
+            <Label>Zone de livraison</Label>
+            <Select value={zone} onValueChange={setZone}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {ZONES.filter((z) => z.value !== 'RECUPERATION').map((z) => (
+                  <SelectItem key={z.value} value={z.value}>{z.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {zone !== 'RECUPERATION' && (
+          <div className="space-y-2">
+            <Label>Adresse de livraison</Label>
+            <Input value={adresseLivraison} onChange={(e) => setAdresseLivraison(e.target.value)} />
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <Label>Note (optionnel)</Label>
+          <Textarea value={note} onChange={(e) => setNote(e.target.value)} />
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Annuler</Button>
+          <Button onClick={submit} disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // Format un Date en valeur locale pour <input type="datetime-local"> (pas d'UTC).
 function toDatetimeLocalValue(d: Date) {
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -500,6 +734,8 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
   const [note, setNote] = useState('');
   const [items, setItems] = useState<CartItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [preparateurId, setPreparateurId] = useState('');
+  const [preparateurs, setPreparateurs] = useState<{ id: number; full_name: string; available: boolean }[]>([]);
 
   // Sélecteur en cours d'ajout — filtres Catégorie → Sous-type + Marque,
   // combinés à la recherche texte (§6 du cahier des charges : "Type produit"
@@ -522,9 +758,10 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
     djangoClient.catalog.categories.list().then(setCategories).catch(() => {});
     djangoClient.catalog.types.list().then(setTypes).catch(() => {});
     djangoClient.catalog.brands.list().then(setBrands).catch(() => {});
+    djangoClient.orders.availableStaff('PREPARATEUR').then(setPreparateurs).catch(() => setPreparateurs([]));
     setClientNom(''); setTelephone('+261'); setZone('ZONE1'); setAdresseLivraison('');
     setDateCommande(toDatetimeLocalValue(new Date())); setNote(''); setItems([]);
-    setCategoryId(null); setTypeId(null); setBrandId(null);
+    setCategoryId(null); setTypeId(null); setBrandId(null); setPreparateurId('');
     setQuery(''); setSuggestions([]); setSelectedRef(null); setVariantId(null); setQuantite(1);
   }, [open]);
 
@@ -570,7 +807,7 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
     if (items.length === 0) { toast.error('Ajoutez au moins un article'); return; }
     setSubmitting(true);
     try {
-      await djangoClient.orders.create({
+      const order = await djangoClient.orders.create({
         client_nom: clientNom.trim(),
         telephone,
         livraison_zone: zone as any,
@@ -580,7 +817,21 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
         note,
         items: items.map((it) => ({ product_variant: it.variant_id, quantite: it.quantite })),
       });
-      toast.success('Commande créée');
+      if (preparateurId) {
+        try {
+          await djangoClient.orders.changeStatus(order.id, 'EN_PREPARATION', undefined, {
+            preparateur_id: Number(preparateurId),
+          });
+          toast.success('Commande créée et assignée');
+        } catch (assignErr: any) {
+          toast.error(
+            `Commande créée, mais l'assignation a échoué : ${assignErr.message || 'erreur inconnue'} ` +
+              '(à assigner depuis le tableau).',
+          );
+        }
+      } else {
+        toast.success('Commande créée');
+      }
       onCreated();
     } catch (err: any) {
       toast.error(err.message || 'Erreur lors de la création');
@@ -608,34 +859,89 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label>Date et heure de la commande</Label>
-            <Input
-              type="datetime-local"
-              value={dateCommande}
-              onChange={(e) => setDateCommande(e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">Vide = maintenant.</p>
-          </div>
-          <div className="space-y-2">
-            <Label>Livraison</Label>
-            <Select value={zone} onValueChange={setZone}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {ZONES.map((z) => <SelectItem key={z.value} value={z.value}>{z.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
+        <div className="space-y-2">
+          <Label>Date et heure de la commande</Label>
+          <Input
+            type="datetime-local"
+            value={dateCommande}
+            onChange={(e) => setDateCommande(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">Vide = maintenant.</p>
         </div>
 
         <div className="space-y-2">
-          <Label>Adresse de livraison</Label>
-          <Input
-            value={adresseLivraison}
-            onChange={(e) => setAdresseLivraison(e.target.value)}
-            placeholder="Ex: Lot II M 45 Antanimena, Antananarivo"
-          />
+          <Label>Type de commande</Label>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant={zone !== 'RECUPERATION' ? 'default' : 'outline'}
+              className="flex-1"
+              onClick={() => setZone('ZONE1')}
+            >
+              <Truck className="h-4 w-4 mr-2" /> À livrer
+            </Button>
+            <Button
+              type="button"
+              variant={zone === 'RECUPERATION' ? 'default' : 'outline'}
+              className="flex-1"
+              onClick={() => setZone('RECUPERATION')}
+            >
+              <Package className="h-4 w-4 mr-2" /> Récupération sur place
+            </Button>
+          </div>
+          {zone === 'RECUPERATION' && (
+            <p className="text-xs text-muted-foreground">
+              Pas de frais ni de livreur — la commande apparaîtra dans "Récupération" une
+              fois prête, à valider comme livrée au comptoir quand le client vient la chercher.
+            </p>
+          )}
+        </div>
+
+        {zone !== 'RECUPERATION' && (
+          <div className="space-y-2">
+            <Label>Zone de livraison</Label>
+            <Select value={zone} onValueChange={setZone}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {ZONES.filter((z) => z.value !== 'RECUPERATION').map((z) => (
+                  <SelectItem key={z.value} value={z.value}>{z.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {zone !== 'RECUPERATION' && (
+          <div className="space-y-2">
+            <Label>Adresse de livraison</Label>
+            <Input
+              value={adresseLivraison}
+              onChange={(e) => setAdresseLivraison(e.target.value)}
+              placeholder="Ex: Lot II M 45 Antanimena, Antananarivo"
+            />
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <Label>Préparateur</Label>
+          <Select value={preparateurId} onValueChange={setPreparateurId}>
+            <SelectTrigger><SelectValue placeholder="Assigner plus tard" /></SelectTrigger>
+            <SelectContent>
+              {preparateurs.map((p) => (
+                <SelectItem key={p.id} value={String(p.id)} disabled={!p.available}>
+                  <span className="flex items-center gap-2">
+                    {p.full_name}
+                    <Badge variant="outline" className={p.available ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}>
+                      {p.available ? 'Libre' : 'Occupé'}
+                    </Badge>
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Optionnel — assigne et démarre la préparation dès la création de la commande.
+          </p>
         </div>
 
         <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
