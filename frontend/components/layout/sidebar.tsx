@@ -23,6 +23,7 @@ import {
   ShoppingCart,
   ArrowLeftRight,
   Wallet,
+  PackageCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -41,6 +42,12 @@ const navigationItems = [
     label: "Commandes",
     href: "/orders",
     icon: ShoppingCart,
+  },
+  {
+    label: "Récupération",
+    href: "/pickup",
+    icon: PackageCheck,
+    adminOnly: true,
   },
   {
     label: "Produits",

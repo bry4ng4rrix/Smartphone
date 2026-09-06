@@ -40,12 +40,15 @@ class OrderGerantSerializer(serializers.ModelSerializer):
 
     items = OrderItemSerializer(many=True, read_only=True)
     status_history = OrderStatusHistorySerializer(many=True, read_only=True)
+    preparateur_name = serializers.CharField(source="preparateur.full_name", read_only=True)
+    livreur_name = serializers.CharField(source="livreur.full_name", read_only=True)
 
     class Meta:
         model = Order
         fields = [
             "id", "magasin", "numero", "date_commande", "client_nom", "telephone", "livraison_zone",
-            "adresse_livraison", "frais_livraison", "total_a_payer", "note", "statut_courant", "items",
+            "adresse_livraison", "frais_livraison", "total_a_payer", "note", "statut_courant",
+            "preparateur", "preparateur_name", "livreur", "livreur_name", "items",
             "status_history", "created_at", "updated_at",
         ]
         read_only_fields = fields
@@ -56,12 +59,13 @@ class OrderPreparateurSerializer(serializers.ModelSerializer):
     Couleur, Zone. Aucune donnée financière."""
 
     items = OrderItemPublicSerializer(many=True, read_only=True)
+    preparateur_name = serializers.CharField(source="preparateur.full_name", read_only=True)
 
     class Meta:
         model = Order
         fields = [
             "id", "numero", "date_commande", "client_nom", "livraison_zone", "adresse_livraison",
-            "statut_courant", "items", "created_at",
+            "statut_courant", "preparateur", "preparateur_name", "items", "created_at",
         ]
         read_only_fields = fields
 
@@ -72,12 +76,13 @@ class OrderLivreurSerializer(serializers.ModelSerializer):
     coût/marge."""
 
     items = OrderItemPublicSerializer(many=True, read_only=True)
+    livreur_name = serializers.CharField(source="livreur.full_name", read_only=True)
 
     class Meta:
         model = Order
         fields = [
             "id", "numero", "date_commande", "client_nom", "telephone", "livraison_zone", "adresse_livraison",
-            "total_a_payer", "statut_courant", "note", "items", "created_at",
+            "total_a_payer", "statut_courant", "note", "livreur", "livreur_name", "items", "created_at",
         ]
         read_only_fields = fields
 
@@ -111,3 +116,8 @@ class OrderCreateSerializer(serializers.Serializer):
 class OrderStatusChangeSerializer(serializers.Serializer):
     statut = serializers.ChoiceField(choices=Order.STATUT_CHOICES)
     note = serializers.CharField(required=False, allow_blank=True, default="")
+    # Requis quand le gérant désigne lui-même qui prend la commande en charge
+    # (Nouvelle -> En préparation / Prête -> En livraison) ; optionnel pour
+    # une auto-affectation par le préparateur/livreur concerné.
+    preparateur_id = serializers.IntegerField(required=False, allow_null=True)
+    livreur_id = serializers.IntegerField(required=False, allow_null=True)

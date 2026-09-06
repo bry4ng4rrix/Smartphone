@@ -57,6 +57,16 @@ class Order(models.Model):
     created_by = models.ForeignKey(
         "users.CustomUser", on_delete=models.SET_NULL, null=True, blank=True, related_name="orders_created"
     )
+    # Préparateur/livreur désigné pour CETTE commande (un seul à la fois par
+    # personne — voir orders/services.py::is_preparateur_busy/is_livreur_busy)
+    # — assigné par le gérant (ou en auto-affectation) au moment de passer la
+    # commande à "En préparation"/"En livraison".
+    preparateur = models.ForeignKey(
+        "users.CustomUser", on_delete=models.SET_NULL, null=True, blank=True, related_name="orders_prepared"
+    )
+    livreur = models.ForeignKey(
+        "users.CustomUser", on_delete=models.SET_NULL, null=True, blank=True, related_name="orders_delivered"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

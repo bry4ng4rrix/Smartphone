@@ -26,8 +26,10 @@ SEED_FILE = Path(__file__).resolve().parent / "data" / "seed_catalogue.sql"
 # management/commands/seed_catalog.py), adaptés au modèle multi-tenant
 # (magasin/employer) de ce projet plutôt qu'à un rôle direct sur CustomUser.
 GERANT_EMAIL = "gerant@smartphone.mg"
-PREPARATEUR_EMAIL = "preparateur@smartphone.mg"
-LIVREUR_EMAIL = "livreur@smartphone.mg"
+# Plusieurs comptes par rôle pour pouvoir tester l'affectation nominative
+# (un préparateur/livreur à la fois par commande — voir orders/services.py).
+PREPARATEUR_EMAILS = ["preparateur@smartphone.mg", "preparateur2@smartphone.mg"]
+LIVREUR_EMAILS = ["livreur@smartphone.mg", "livreur2@smartphone.mg", "livreur3@smartphone.mg"]
 DEFAULT_PASSWORD = "smartphone2026"
 
 INSERT_RE = re.compile(r"INSERT INTO (\w+) \([^)]*\) VALUES\s*(.*?);", re.DOTALL)
@@ -149,9 +151,10 @@ class Command(BaseCommand):
             f"{ProductReference.objects.filter(type__category__magasin=magasin).count()} références, "
             f"{ProductVariant.objects.filter(product_reference__type__category__magasin=magasin).count()} variantes."
         ))
+        demo_emails = ", ".join([GERANT_EMAIL] + PREPARATEUR_EMAILS + LIVREUR_EMAILS)
         self.stdout.write(self.style.WARNING(
             "⚠ Comptes de démo (re)créés avec le mot de passe par défaut "
-            f"'{DEFAULT_PASSWORD}' : {GERANT_EMAIL}, {PREPARATEUR_EMAIL}, {LIVREUR_EMAIL}. "
+            f"'{DEFAULT_PASSWORD}' : {demo_emails}. "
             "En production, changez ces mots de passe avant d'ouvrir l'accès au public "
             "(voir roadmap.md § Sécurité)."
         ))
@@ -183,8 +186,12 @@ class Command(BaseCommand):
         )
         magasin.admins.add(gerant_user)
 
-        self._ensure_employee(PREPARATEUR_EMAIL, "Préparateur Smartphone.Mg", "PREPARATEUR", gerant_user, magasin)
-        self._ensure_employee(LIVREUR_EMAIL, "Livreur Smartphone.Mg", "LIVREUR", gerant_user, magasin)
+        for i, email in enumerate(PREPARATEUR_EMAILS, start=1):
+            full_name = "Préparateur Smartphone.Mg" if i == 1 else f"Préparateur {i} Smartphone.Mg"
+            self._ensure_employee(email, full_name, "PREPARATEUR", gerant_user, magasin)
+        for i, email in enumerate(LIVREUR_EMAILS, start=1):
+            full_name = "Livreur Smartphone.Mg" if i == 1 else f"Livreur {i} Smartphone.Mg"
+            self._ensure_employee(email, full_name, "LIVREUR", gerant_user, magasin)
 
         return magasin
 

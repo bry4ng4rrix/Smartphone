@@ -20,7 +20,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, Truck, Package, RefreshCw, Phone, ShoppingCart, Wrench, Boxes, CheckCircle2, Undo2 } from 'lucide-react';
+import { Plus, Trash2, Truck, Package, RefreshCw, Phone, ShoppingCart, Wrench, Boxes, CheckCircle2, Undo2, UserCheck } from 'lucide-react';
 import { toast } from 'sonner';
 
 const fmt = (n: number | string | null | undefined) =>
@@ -64,6 +64,7 @@ export default function OrdersPage() {
   const [detail, setDetail] = useState<any | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [actionNote, setActionNote] = useState<{ order: any; target: string } | null>(null);
+  const [assignTarget, setAssignTarget] = useState<{ order: any; role: 'PREPARATEUR' | 'LIVREUR' } | null>(null);
 
   const fetchOrders = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -100,15 +101,25 @@ export default function OrdersPage() {
       if (order.statut_courant === 'EN_LIVRAISON') return { label: 'Livré', target: 'LIVRE', icon: Truck };
       return null;
     }
+    // Gérant : désigne un préparateur/livreur libre pour faire avancer la
+    // commande (les retraits sur place se gèrent sur la page Récupération).
+    if (isGerant) {
+      if (order.statut_courant === 'NOUVELLE') return { label: 'Assigner un préparateur', target: 'EN_PREPARATION', icon: UserCheck };
+      if (order.statut_courant === 'PRETE' && order.livraison_zone !== 'RECUPERATION') {
+        return { label: 'Assigner un livreur', target: 'EN_LIVRAISON', icon: UserCheck };
+      }
+      return null;
+    }
     return null;
   };
 
-  const doChangeStatus = async (order: any, target: string, note?: string) => {
+  const doChangeStatus = async (order: any, target: string, note?: string, assignee?: { preparateur_id?: number; livreur_id?: number }) => {
     try {
-      await djangoClient.orders.changeStatus(order.id, target, note);
+      await djangoClient.orders.changeStatus(order.id, target, note, assignee);
       toast.success(`Commande ${order.numero} → ${statutInfo(target).label}`);
       fetchOrders(true);
       setActionNote(null);
+      setAssignTarget(null);
     } catch (err: any) {
       toast.error(err.message || 'Action impossible');
     }
@@ -216,6 +227,8 @@ export default function OrdersPage() {
                                 e.stopPropagation();
                                 if (isLivreur && order.statut_courant === 'EN_LIVRAISON') {
                                   setActionNote({ order, target: action.target });
+                                } else if (isGerant) {
+                                  setAssignTarget({ order, role: action.target === 'EN_PREPARATION' ? 'PREPARATEUR' : 'LIVREUR' });
                                 } else {
                                   doChangeStatus(order, action.target);
                                 }
@@ -265,6 +278,12 @@ export default function OrdersPage() {
                 )}
                 {detail.total_a_payer != null && (
                   <div className="flex justify-between"><span className="text-muted-foreground">Total à payer</span><span className="font-semibold">{fmt(detail.total_a_payer)}</span></div>
+                )}
+                {detail.preparateur_name && (
+                  <div className="flex justify-between"><span className="text-muted-foreground">Préparateur</span><span>{detail.preparateur_name}</span></div>
+                )}
+                {detail.livreur_name && (
+                  <div className="flex justify-between"><span className="text-muted-foreground">Livreur</span><span>{detail.livreur_name}</span></div>
                 )}
                 {detail.note && <div><span className="text-muted-foreground">Note</span><p>{detail.note}</p></div>}
                 <div>
@@ -321,6 +340,22 @@ export default function OrdersPage() {
           onCreated={() => { setCreateOpen(false); fetchOrders(); }}
         />
       )}
+
+      {isGerant && (
+        <AssignStaffDialog
+          target={assignTarget}
+          onOpenChange={(o) => !o && setAssignTarget(null)}
+          onAssign={(userId) =>
+            assignTarget &&
+            doChangeStatus(
+              assignTarget.order,
+              assignTarget.role === 'PREPARATEUR' ? 'EN_PREPARATION' : 'EN_LIVRAISON',
+              undefined,
+              assignTarget.role === 'PREPARATEUR' ? { preparateur_id: userId } : { livreur_id: userId },
+            )
+          }
+        />
+      )}
     </div>
   );
 }
@@ -374,6 +409,84 @@ function NoteForm({ onSubmit }: { onSubmit: (note: string) => void }) {
         <Button onClick={() => onSubmit(note)}>Confirmer</Button>
       </DialogFooter>
     </div>
+  );
+}
+
+// Le gérant désigne un préparateur/livreur — seuls ceux libres (pas déjà en
+// charge d'une autre commande) sont sélectionnables.
+function AssignStaffDialog({
+  target,
+  onOpenChange,
+  onAssign,
+}: {
+  target: { order: any; role: 'PREPARATEUR' | 'LIVREUR' } | null;
+  onOpenChange: (o: boolean) => void;
+  onAssign: (userId: number) => void;
+}) {
+  const [staff, setStaff] = useState<{ id: number; full_name: string; available: boolean }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState<string>('');
+
+  useEffect(() => {
+    if (!target) return;
+    setSelected('');
+    setLoading(true);
+    djangoClient.orders
+      .availableStaff(target.role, target.order.magasin)
+      .then(setStaff)
+      .catch(() => setStaff([]))
+      .finally(() => setLoading(false));
+  }, [target]);
+
+  const roleLabel = target?.role === 'PREPARATEUR' ? 'préparateur' : 'livreur';
+
+  return (
+    <Dialog open={!!target} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Assigner un {roleLabel}</DialogTitle>
+          <DialogDescription>
+            Commande {target?.order?.numero} — seul un {roleLabel} libre peut être désigné.
+          </DialogDescription>
+        </DialogHeader>
+        {loading ? (
+          <Skeleton className="h-24 w-full" />
+        ) : staff.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-6">
+            Aucun {roleLabel} enregistré pour ce magasin.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {staff.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                disabled={!s.available}
+                onClick={() => setSelected(String(s.id))}
+                className={`w-full flex items-center justify-between rounded-md border px-3 py-2 text-sm text-left transition-colors ${
+                  !s.available
+                    ? 'opacity-50 cursor-not-allowed bg-muted/30'
+                    : selected === String(s.id)
+                    ? 'border-primary bg-primary/5'
+                    : 'hover:bg-muted/50'
+                }`}
+              >
+                <span>{s.full_name}</span>
+                <Badge variant="outline" className={s.available ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}>
+                  {s.available ? 'Libre' : 'Occupé'}
+                </Badge>
+              </button>
+            ))}
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Annuler</Button>
+          <Button disabled={!selected} onClick={() => onAssign(Number(selected))}>
+            Assigner
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -1,4 +1,5 @@
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied as DRFPermissionDenied
@@ -6,6 +7,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from users.models import EmployerProfile
 from users.permissions import (
     IsGerant,
     get_accessible_magasins,
@@ -33,7 +35,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_permissions(self):
-        if self.action == "create":
+        if self.action in ("create", "available_staff"):
             return [IsGerant()]
         return super().get_permissions()
 
@@ -53,19 +55,29 @@ class OrderViewSet(viewsets.ModelViewSet):
         )
         role = user_commande_role(self.request.user)
 
-        if role == "PREPARATEUR":
-            return qs.filter(statut_courant__in=PREPARATEUR_STATUTS)
-        if role == "LIVREUR":
-            # Prêtes à récupérer + en livraison du jour (§7.3 Smartreadme.md).
-            return qs.filter(statut_courant__in=LIVREUR_STATUTS)
+        if role in ("PREPARATEUR", "LIVREUR"):
+            # Ni préparateur ni livreur ne voit une commande prévue pour un
+            # jour futur — une commande de demain n'apparaît que demain (les
+            # commandes en retard restent visibles, pour ne pas les égarer).
+            qs = qs.filter(date_commande__date__lte=timezone.localdate())
+            if role == "PREPARATEUR":
+                return qs.filter(statut_courant__in=PREPARATEUR_STATUTS)
+            # Prêtes à récupérer + en livraison (§7.3 Smartreadme.md) — hors
+            # retrait sur place, qui ne passe jamais par un livreur.
+            return qs.filter(statut_courant__in=LIVREUR_STATUTS).exclude(
+                statut_courant="PRETE", livraison_zone="RECUPERATION"
+            )
 
-        # Gérant : filtres optionnels date / statut / magasin (§7.1 Smartreadme.md).
+        # Gérant : filtres optionnels date / statut / magasin / zone (§7.1 Smartreadme.md).
         statut = self.request.query_params.get("statut")
         date_debut = self.request.query_params.get("date_debut")
         date_fin = self.request.query_params.get("date_fin")
         magasin_id = self.request.query_params.get("magasin_id")
+        livraison_zone = self.request.query_params.get("livraison_zone")
         if statut:
             qs = qs.filter(statut_courant=statut)
+        if livraison_zone:
+            qs = qs.filter(livraison_zone=livraison_zone)
         if date_debut:
             # `__date` : date_commande est un datetime — comparer uniquement
             # la date pour que date_fin inclue toute la journée (pas juste minuit).
@@ -107,6 +119,8 @@ class OrderViewSet(viewsets.ModelViewSet):
                 new_status=serializer.validated_data["statut"],
                 user=request.user,
                 note=serializer.validated_data.get("note", ""),
+                preparateur_id=serializer.validated_data.get("preparateur_id"),
+                livreur_id=serializer.validated_data.get("livreur_id"),
             )
         except PermissionDenied as exc:
             raise DRFPermissionDenied(str(exc))
@@ -114,3 +128,33 @@ class OrderViewSet(viewsets.ModelViewSet):
             raise DRFValidationError(str(exc))
 
         return Response(self.get_serializer(order).data)
+
+    @action(detail=False, methods=["get"], url_path="available-staff")
+    def available_staff(self, request):
+        """GET /api/orders/available-staff/?role=PREPARATEUR|LIVREUR&magasin_id=
+        Liste les préparateurs/livreurs du magasin avec leur disponibilité,
+        pour le sélecteur d'affectation du gérant (occupé = déjà en charge
+        d'une commande En préparation / En livraison)."""
+        requested_role = request.query_params.get("role")
+        if requested_role not in ("PREPARATEUR", "LIVREUR"):
+            raise DRFValidationError("Paramètre 'role' requis : PREPARATEUR ou LIVREUR.")
+
+        magasins = get_accessible_magasins(request.user)
+        magasin_id = request.query_params.get("magasin_id")
+        if magasin_id:
+            magasins = magasins.filter(id=magasin_id)
+
+        busy_check = services.is_preparateur_busy if requested_role == "PREPARATEUR" else services.is_livreur_busy
+        employers = EmployerProfile.objects.filter(
+            magasin__in=magasins, commande_role=requested_role
+        ).select_related("user")
+
+        return Response([
+            {
+                "id": ep.user_id,
+                "full_name": ep.user.full_name,
+                "magasin_id": ep.magasin_id,
+                "available": not busy_check(ep.user),
+            }
+            for ep in employers
+        ])

@@ -81,6 +81,8 @@ class Order {
     required this.items,
     this.statusHistory = const [],
     this.createdAt,
+    this.preparateurName,
+    this.livreurName,
   });
 
   final int id;
@@ -97,6 +99,10 @@ class Order {
   final List<OrderItem> items;
   final List<OrderStatusHistoryEntry> statusHistory;
   final DateTime? createdAt;
+  // Préparateur/livreur désigné pour cette commande (voir orders/services.py
+  // — un seul à la fois par personne).
+  final String? preparateurName;
+  final String? livreurName;
 
   factory Order.fromJson(Map<String, dynamic> json) {
     return Order(
@@ -116,6 +122,8 @@ class Order {
           .map((e) => OrderStatusHistoryEntry.fromJson(e as Map<String, dynamic>))
           .toList(),
       createdAt: asDateOrNull(json['created_at']),
+      preparateurName: asStringOrNull(json['preparateur_name']),
+      livreurName: asStringOrNull(json['livreur_name']),
     );
   }
 }

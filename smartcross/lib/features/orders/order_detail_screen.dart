@@ -119,6 +119,10 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
                   _InfoRow(icon: Icons.place_outlined, label: 'Adresse', value: order.adresseLivraison!),
                 if (order.dateCommande != null)
                   _InfoRow(icon: Icons.event_outlined, label: 'Date commande', value: DateFormat('dd/MM/yyyy HH:mm').format(order.dateCommande!.toLocal())),
+                if (order.preparateurName != null)
+                  _InfoRow(icon: Icons.inventory_2_outlined, label: 'Préparateur', value: order.preparateurName!),
+                if (order.livreurName != null)
+                  _InfoRow(icon: Icons.moped_outlined, label: 'Livreur', value: order.livreurName!),
                 if (order.note != null && order.note!.isNotEmpty) _InfoRow(icon: Icons.notes_outlined, label: 'Note', value: order.note!),
               ],
             ),

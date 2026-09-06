@@ -138,8 +138,8 @@ class ProductVariant(models.Model):
 
 class StockMovement(models.Model):
     """Historique obligatoire de tout mouvement de stock (§10 Smartreadme.md
-    — traçabilité). Seul le statut Livré d'une commande (le Retour ne touche
-    pas le stock — voir orders/services.py), une entrée fournisseur, ou un
+    — traçabilité). Seule la préparation d'une commande (sortie), son retour
+    (entrée — voir orders/services.py), une entrée fournisseur, ou un
     ajustement manuel du gérant, créent un mouvement — jamais un autre
     événement. Point d'écriture unique : catalog/services.py::apply_stock_movement."""
 
@@ -148,7 +148,8 @@ class StockMovement(models.Model):
         ("SORTIE", "Sortie"),
     )
     ORIGINE_CHOICES = (
-        ("LIVRE", "Commande livrée"),
+        ("PREPARATION", "Préparation de commande"),
+        ("RETOUR", "Retour de commande"),
         ("FOURNISSEUR", "Réception fournisseur"),
         ("AJUSTEMENT", "Ajustement manuel"),
     )

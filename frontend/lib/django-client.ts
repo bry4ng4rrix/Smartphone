@@ -597,12 +597,13 @@ class DjangoAPIClient {
 
   // ==================== Orders Service (module Commandes, §5-§7 Smartreadme.md) ====================
   orders = {
-    list: async (filters?: { statut?: string; date_debut?: string; date_fin?: string; magasin_id?: number }) => {
+    list: async (filters?: { statut?: string; date_debut?: string; date_fin?: string; magasin_id?: number; livraison_zone?: string }) => {
       const params = new URLSearchParams()
       if (filters?.statut) params.append('statut', filters.statut)
       if (filters?.date_debut) params.append('date_debut', filters.date_debut)
       if (filters?.date_fin) params.append('date_fin', filters.date_fin)
       if (filters?.magasin_id) params.append('magasin_id', String(filters.magasin_id))
+      if (filters?.livraison_zone) params.append('livraison_zone', filters.livraison_zone)
       const query = params.toString() ? `?${params.toString()}` : ''
       return this.get<any[]>(`/orders/${query}`)
     },
@@ -621,8 +622,20 @@ class DjangoAPIClient {
     }) => {
       return this.post<any>('/orders/', data)
     },
-    changeStatus: async (id: number, statut: string, note?: string) => {
-      return this.post<any>(`/orders/${id}/status/`, { statut, note })
+    changeStatus: async (
+      id: number,
+      statut: string,
+      note?: string,
+      assignee?: { preparateur_id?: number; livreur_id?: number },
+    ) => {
+      return this.post<any>(`/orders/${id}/status/`, { statut, note, ...assignee })
+    },
+    availableStaff: async (role: 'PREPARATEUR' | 'LIVREUR', magasinId?: number) => {
+      const params = new URLSearchParams({ role })
+      if (magasinId) params.append('magasin_id', String(magasinId))
+      return this.get<{ id: number; full_name: string; magasin_id: number; available: boolean }[]>(
+        `/orders/available-staff/?${params.toString()}`
+      )
     },
     dashboard: async (params?: { date_from?: string; date_to?: string; magasin_id?: number }) => {
       const q = new URLSearchParams()
@@ -640,6 +653,8 @@ class DjangoAPIClient {
       const query = filters?.variant_id ? `?variant=${filters.variant_id}` : ''
       const rows = await this.get<any[]>(`/catalog/movements/${query}`)
       const originLabel: Record<string, string> = {
+        PREPARATION: 'Préparation de commande',
+        RETOUR: 'Retour de commande',
         LIVRE: 'Commande livrée',
         FOURNISSEUR: 'Réception fournisseur',
         AJUSTEMENT: 'Ajustement manuel',
