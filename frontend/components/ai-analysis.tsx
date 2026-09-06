@@ -6,22 +6,44 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Sparkles } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 
-export function AIAnalysis({ fastest, slowest, expiring }: { fastest: any[]; slowest: any[]; expiring: any[] }) {
+export interface AIAnalysisData {
+  periode?: string;
+  ca?: number;
+  beneficeNet?: number;
+  valeurStock?: number;
+  beneficeEstimeStock?: number;
+  ventesImpayeesCount?: number;
+  topProduits?: { name: string; qty: number; revenue?: number; profit?: number }[];
+  produitsSansMouvement?: { name: string }[];
+  rupturesStock?: { name: string; stock?: number }[];
+  stockBas?: { name: string; stock?: number; seuil?: number }[];
+  repartitionMouvements?: Record<string, number>;
+  topVendeurs?: { name: string; revenue: number }[];
+  topMagasins?: { name: string; revenue: number }[];
+}
+
+// Analyse générée par un modèle Ollama local (voir frontend/app/api/ai/analyze/route.ts).
+export function AIAnalysis({ data }: { data: AIAnalysisData }) {
   const [analysis, setAnalysis] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
 
   const generateAnalysis = async () => {
     setLoading(true);
+    setError(false);
     try {
-      const res = await fetch('/api/ai/analyze-movements', {
+      const res = await fetch('/api/ai/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fastest, slowest, expiring }),
+        body: JSON.stringify(data),
       });
-      const data = await res.json();
-      setAnalysis(data.analysis);
-    } catch (error) {
-      console.error(error);
+      const result = await res.json();
+      setAnalysis(result.analysis);
+      if (!res.ok) setError(true);
+    } catch (err) {
+      console.error(err);
+      setAnalysis("Erreur réseau lors de l'appel à l'analyse IA.");
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -35,7 +57,7 @@ export function AIAnalysis({ fastest, slowest, expiring }: { fastest: any[]; slo
           Analyse IA Stratégique
         </CardTitle>
         <CardDescription>
-          Générez une analyse basée sur vos produits les plus vendus, vos stocks morts et les produits proches de la péremption.
+          Générez une analyse basée sur le CA, le bénéfice, le stock et les produits les plus vendus.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -52,8 +74,14 @@ export function AIAnalysis({ fastest, slowest, expiring }: { fastest: any[]; slo
             <Skeleton className="h-4 w-[85%]" />
           </div>
         ) : (
-          <div className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap leading-relaxed">
-            {analysis}
+          <div className="space-y-3">
+            <div className={`text-sm whitespace-pre-wrap leading-relaxed ${error ? 'text-red-600 dark:text-red-400' : 'text-gray-800 dark:text-gray-200'}`}>
+              {analysis}
+            </div>
+            <Button size="sm" variant="outline" onClick={generateAnalysis} disabled={loading}>
+              <Sparkles className="h-3.5 w-3.5 mr-2" />
+              Régénérer
+            </Button>
           </div>
         )}
       </CardContent>

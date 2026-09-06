@@ -23,20 +23,23 @@ export default function ReportsPage() {
   const [sales, setSales] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [movements, setMovements] = useState<any[]>([]);
+  const [dashboardKpis, setDashboardKpis] = useState<any>({});
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState<typeof PERIODS[number]>(30);
 
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [s, p, m] = await Promise.all([
+      const [s, p, m, dashboard] = await Promise.all([
         djangoClient.sales.list(),
         djangoClient.products.list(),
         djangoClient.movements.list(),
+        djangoClient.get<any>('/users/dashboard/').catch(() => ({})),
       ]);
       setSales(s);
       setProducts(p);
       setMovements(Array.isArray(m) ? m : (m as any)?.results || []);
+      setDashboardKpis(dashboard?.kpis || {});
     } catch (err) {
       console.error(err);
     } finally {

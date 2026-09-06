@@ -14,7 +14,6 @@ import {
   Package, AlertTriangle, TrendingUp, DollarSign, Users,
   ArrowUp, ArrowDown, CheckCircle2, ShieldAlert, Wallet,
 } from 'lucide-react';
-import { AIAnalysis } from '@/components/ai-analysis';
 import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh';
 
 const CHART_COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#ef4444', '#6366f1', '#f97316'];
@@ -51,8 +50,6 @@ export default function DashboardPage() {
   const [categoryChart, setCategoryChart] = useState<any[]>([]);
   const [recentMovements, setRecentMovements] = useState<any[]>([]);
   const [lowStockProducts, setLowStockProducts] = useState<any[]>([]);
-  const [expiringProducts, setExpiringProducts] = useState<any[]>([]);
-  const [movementStats, setMovementStats] = useState<{ fastest: any[], slowest: any[] }>({ fastest: [], slowest: [] });
 
   const fetchDashboard = useCallback(async (silent = false) => {
     try {
@@ -145,35 +142,7 @@ export default function DashboardPage() {
       );
 
       setLowStockProducts(lowProducts.slice(0, 8));
-
-      // Expiring products (within 30 days)
-      const today = new Date();
-      const thirtyDaysFromNow = new Date();
-      thirtyDaysFromNow.setDate(today.getDate() + 30);
-
-      const expiring = products
-        .filter((p: any) => p.expiry_date && new Date(p.expiry_date) <= thirtyDaysFromNow)
-        .sort((a: any, b: any) => new Date(a.expiry_date!).getTime() - new Date(b.expiry_date!).getTime())
-        .map((p: any) => ({ ...p, quantity: p.initial_quantity }));
-
-      setExpiringProducts(expiring.slice(0, 8));
-
       setRecentMovements(salesList.slice(0, 8));
-
-      // Movement Stats for AI推荐
-      const topSales = rLists.top_products || [];
-      const fastest = topSales.map((t: any) => ({
-        name: t.product__name || t.name || 'Produit',
-        outQty: t.qty_sold || t.quantity_sold || 0,
-      }));
-      setMovementStats({
-        fastest,
-        slowest: products
-          .filter((p: any) => !topSales.some((t: any) => (t.product__name || t.name) === p.name))
-          .slice(0, 5)
-          .map((p: any) => ({ name: p.name, outQty: 0 })),
-      });
-
     } catch (err) {
       console.error('Dashboard error:', err);
     } finally {
@@ -399,12 +368,6 @@ export default function DashboardPage() {
           </>
         )}
       </div>
-
-      <AIAnalysis
-        fastest={movementStats.fastest}
-        slowest={movementStats.slowest}
-        expiring={expiringProducts}
-      />
 
       {/* ── Charts ────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
