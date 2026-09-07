@@ -511,6 +511,8 @@ class Myprofile(APIView):
 
     def patch(self, request):
         user = request.user
+        if user.role not in ["admin", "magasin"]:
+            return Response({"error": "Seul le gérant peut modifier ces informations. Contactez votre gérant."}, status=403)
         full_name = request.data.get("full_name")
         phone = request.data.get("phone")
         adresse = request.data.get("adresse")
@@ -1642,6 +1644,8 @@ class ChangePasswordView(APIView):
 
     def post(self, request):
         user = request.user
+        if user.role not in ["admin", "magasin"]:
+            return Response({"error": "Seul le gérant peut modifier ces informations. Contactez votre gérant."}, status=403)
         old_password = request.data.get("old_password")
         new_password = request.data.get("new_password")
         if not old_password or not new_password:

@@ -230,7 +230,11 @@ export default function SettingsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Informations personnelles</CardTitle>
-              <CardDescription>Mettez à jour vos informations</CardDescription>
+              <CardDescription>
+                {isGerant
+                  ? 'Mettez à jour vos informations'
+                  : 'Seul le gérant peut modifier ces informations. Contactez votre gérant pour toute correction.'}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleUpdateProfile} className="space-y-4 max-w-md">
@@ -248,7 +252,7 @@ export default function SettingsPage() {
                         <User className="h-6 w-6 text-muted-foreground" />
                       </div>
                     )}
-                    <Input type="file" accept="image/*" onChange={handleAvatarChange} className="max-w-xs" />
+                    <Input type="file" accept="image/*" onChange={handleAvatarChange} className="max-w-xs" disabled={!isGerant} />
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -269,6 +273,7 @@ export default function SettingsPage() {
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder="Votre nom"
+                    disabled={!isGerant}
                   />
                 </div>
                 <div className="space-y-2">
@@ -278,6 +283,7 @@ export default function SettingsPage() {
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     placeholder="+261 XX XXX XX XX"
+                    disabled={!isGerant}
                   />
                 </div>
                 <div className="space-y-2">
@@ -287,6 +293,7 @@ export default function SettingsPage() {
                     value={adresse}
                     onChange={(e) => setAdresse(e.target.value)}
                     placeholder="Ex: Lot II A 45, Antanimena, Antananarivo"
+                    disabled={!isGerant}
                   />
                 </div>
                 {user?.role === 'magasin' && user.shop_name && (
@@ -317,9 +324,11 @@ export default function SettingsPage() {
                     </div>
                   </div>
                 )}
-                <Button type="submit" disabled={saving}>
-                  {saving ? 'Enregistrement...' : 'Enregistrer'}
-                </Button>
+                {isGerant && (
+                  <Button type="submit" disabled={saving}>
+                    {saving ? 'Enregistrement...' : 'Enregistrer'}
+                  </Button>
+                )}
               </form>
             </CardContent>
           </Card>
@@ -330,49 +339,55 @@ export default function SettingsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Changer le mot de passe</CardTitle>
-              <CardDescription>Sécurisez votre compte</CardDescription>
+              <CardDescription>
+                {isGerant
+                  ? 'Sécurisez votre compte'
+                  : 'Seul le gérant peut modifier le mot de passe. Contactez votre gérant.'}
+              </CardDescription>
             </CardHeader>
-            <CardContent>
-              <form onSubmit={handleChangePassword} className="space-y-4 max-w-md">
-                <div className="space-y-2">
-                  <Label htmlFor="oldPw">Mot de passe actuel</Label>
-                  <Input
-                    id="oldPw"
-                    type="password"
-                    value={oldPassword}
-                    onChange={(e) => setOldPassword(e.target.value)}
-                    placeholder="••••••••"
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="newPw">Nouveau mot de passe</Label>
-                  <Input
-                    id="newPw"
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="••••••••"
-                    minLength={6}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="confirmPw">Confirmer le mot de passe</Label>
-                  <Input
-                    id="confirmPw"
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="••••••••"
-                    required
-                  />
-                </div>
-                <Button type="submit" disabled={changingPw}>
-                  {changingPw ? 'Changement...' : 'Changer le mot de passe'}
-                </Button>
-              </form>
-            </CardContent>
+            {isGerant && (
+              <CardContent>
+                <form onSubmit={handleChangePassword} className="space-y-4 max-w-md">
+                  <div className="space-y-2">
+                    <Label htmlFor="oldPw">Mot de passe actuel</Label>
+                    <Input
+                      id="oldPw"
+                      type="password"
+                      value={oldPassword}
+                      onChange={(e) => setOldPassword(e.target.value)}
+                      placeholder="••••••••"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="newPw">Nouveau mot de passe</Label>
+                    <Input
+                      id="newPw"
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="••••••••"
+                      minLength={6}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="confirmPw">Confirmer le mot de passe</Label>
+                    <Input
+                      id="confirmPw"
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="••••••••"
+                      required
+                    />
+                  </div>
+                  <Button type="submit" disabled={changingPw}>
+                    {changingPw ? 'Changement...' : 'Changer le mot de passe'}
+                  </Button>
+                </form>
+              </CardContent>
+            )}
           </Card>
         </TabsContent>
 

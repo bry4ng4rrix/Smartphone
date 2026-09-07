@@ -122,6 +122,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider).user;
+    final isGerant = user?.role == UserRole.gerant;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Paramètres')),
@@ -148,14 +149,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             : null,
                       ),
                       const SizedBox(width: 16),
-                      OutlinedButton.icon(
-                        onPressed: _pickPhoto,
-                        icon: const Icon(Icons.photo_outlined, size: 18),
-                        label: const Text('Changer la photo'),
-                      ),
+                      if (isGerant)
+                        OutlinedButton.icon(
+                          onPressed: _pickPhoto,
+                          icon: const Icon(Icons.photo_outlined, size: 18),
+                          label: const Text('Changer la photo'),
+                        ),
                     ],
                   ),
                   const SizedBox(height: 16),
+                  if (!isGerant) ...[
+                    Text(
+                      'Seul le gérant peut modifier ces informations. Contactez votre gérant pour toute correction.',
+                      style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
                   TextField(controller: TextEditingController(text: user?.email), decoration: const InputDecoration(labelText: 'Email'), enabled: false),
                   const SizedBox(height: 10),
                   TextField(
@@ -164,20 +173,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     enabled: false,
                   ),
                   const SizedBox(height: 10),
-                  TextField(controller: _nameController, decoration: const InputDecoration(labelText: 'Nom complet')),
+                  TextField(controller: _nameController, enabled: isGerant, decoration: const InputDecoration(labelText: 'Nom complet')),
                   const SizedBox(height: 10),
-                  TextField(controller: _phoneController, decoration: const InputDecoration(labelText: 'Téléphone')),
+                  TextField(controller: _phoneController, enabled: isGerant, decoration: const InputDecoration(labelText: 'Téléphone')),
                   const SizedBox(height: 10),
-                  TextField(controller: _adresseController, decoration: const InputDecoration(labelText: 'Adresse')),
+                  TextField(controller: _adresseController, enabled: isGerant, decoration: const InputDecoration(labelText: 'Adresse')),
                   if (_profileError != null) ...[
                     const SizedBox(height: 8),
                     Text(_profileError!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
                   ],
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: FilledButton(onPressed: _savingProfile ? null : _saveProfile, child: Text(_savingProfile ? 'Enregistrement…' : 'Enregistrer')),
-                  ),
+                  if (isGerant) ...[
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: FilledButton(onPressed: _savingProfile ? null : _saveProfile, child: Text(_savingProfile ? 'Enregistrement…' : 'Enregistrer')),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -191,24 +202,31 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 children: [
                   Text('Changer le mot de passe', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 12),
-                  TextField(controller: _oldPwController, obscureText: true, decoration: const InputDecoration(labelText: 'Mot de passe actuel')),
-                  const SizedBox(height: 10),
-                  TextField(controller: _newPwController, obscureText: true, decoration: const InputDecoration(labelText: 'Nouveau mot de passe')),
-                  const SizedBox(height: 10),
-                  TextField(controller: _confirmPwController, obscureText: true, decoration: const InputDecoration(labelText: 'Confirmer le nouveau mot de passe')),
-                  if (_passwordError != null) ...[
-                    const SizedBox(height: 8),
-                    Text(_passwordError!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                  if (!isGerant)
+                    Text(
+                      'Seul le gérant peut modifier le mot de passe. Contactez votre gérant.',
+                      style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    )
+                  else ...[
+                    TextField(controller: _oldPwController, obscureText: true, decoration: const InputDecoration(labelText: 'Mot de passe actuel')),
+                    const SizedBox(height: 10),
+                    TextField(controller: _newPwController, obscureText: true, decoration: const InputDecoration(labelText: 'Nouveau mot de passe')),
+                    const SizedBox(height: 10),
+                    TextField(controller: _confirmPwController, obscureText: true, decoration: const InputDecoration(labelText: 'Confirmer le nouveau mot de passe')),
+                    if (_passwordError != null) ...[
+                      const SizedBox(height: 8),
+                      Text(_passwordError!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                    ],
+                    if (_passwordSuccess != null) ...[
+                      const SizedBox(height: 8),
+                      Text(_passwordSuccess!, style: const TextStyle(color: Colors.green)),
+                    ],
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: FilledButton(onPressed: _savingPassword ? null : _changePassword, child: Text(_savingPassword ? 'Enregistrement…' : 'Changer')),
+                    ),
                   ],
-                  if (_passwordSuccess != null) ...[
-                    const SizedBox(height: 8),
-                    Text(_passwordSuccess!, style: const TextStyle(color: Colors.green)),
-                  ],
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: FilledButton(onPressed: _savingPassword ? null : _changePassword, child: Text(_savingPassword ? 'Enregistrement…' : 'Changer')),
-                  ),
                 ],
               ),
             ),
