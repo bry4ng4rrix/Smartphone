@@ -174,6 +174,10 @@ function CreateSupplierOrderDialog({ open, onOpenChange, onCreated }: { open: bo
   const [douane, setDouane] = useState('0');
   const [lines, setLines] = useState<Line[]>([]);
   const [references, setReferences] = useState<any[]>([]);
+  const [brands, setBrands] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [filterBrandId, setFilterBrandId] = useState('');
+  const [filterCategoryId, setFilterCategoryId] = useState('');
   const [referenceId, setReferenceId] = useState('');
   const [variantId, setVariantId] = useState('');
   const [quantite, setQuantite] = useState(1);
@@ -183,8 +187,21 @@ function CreateSupplierOrderDialog({ open, onOpenChange, onCreated }: { open: bo
     if (!open) return;
     setDescription(''); setPrixFournisseur('0'); setFretImport('0'); setDouane('0');
     setLines([]); setReferenceId(''); setVariantId(''); setQuantite(1);
-    djangoClient.catalog.references.list().then(setReferences).catch(() => {});
+    setFilterBrandId(''); setFilterCategoryId('');
+    djangoClient.catalog.brands.list().then(setBrands).catch(() => {});
+    djangoClient.catalog.categories.list().then(setCategories).catch(() => {});
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    djangoClient.catalog.references
+      .list({
+        brand: filterBrandId ? Number(filterBrandId) : undefined,
+        category: filterCategoryId ? Number(filterCategoryId) : undefined,
+      })
+      .then(setReferences)
+      .catch(() => {});
+  }, [open, filterBrandId, filterCategoryId]);
 
   const selectedRef = references.find((r) => String(r.id) === referenceId);
 
@@ -242,6 +259,20 @@ function CreateSupplierOrderDialog({ open, onOpenChange, onCreated }: { open: bo
 
           <div className="border rounded-lg p-3 space-y-2 bg-muted/30">
             <p className="text-sm font-medium">Ajouter une ligne</p>
+            <div className="grid grid-cols-2 gap-2">
+              <Select value={filterBrandId} onValueChange={(v) => { setFilterBrandId(v); setReferenceId(''); setVariantId(''); }}>
+                <SelectTrigger><SelectValue placeholder="Marque" /></SelectTrigger>
+                <SelectContent>
+                  {brands.map((b) => <SelectItem key={b.id} value={String(b.id)}>{b.nom}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select value={filterCategoryId} onValueChange={(v) => { setFilterCategoryId(v); setReferenceId(''); setVariantId(''); }}>
+                <SelectTrigger><SelectValue placeholder="Catégorie" /></SelectTrigger>
+                <SelectContent>
+                  {categories.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.nom}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
             <Select value={referenceId} onValueChange={(v) => { setReferenceId(v); setVariantId(''); }}>
               <SelectTrigger><SelectValue placeholder="Référence" /></SelectTrigger>
               <SelectContent>

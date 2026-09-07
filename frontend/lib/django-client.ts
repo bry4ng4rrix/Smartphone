@@ -536,10 +536,11 @@ class DjangoAPIClient {
       },
     },
     references: {
-      list: async (filters?: { type?: number; brand?: number }) => {
+      list: async (filters?: { type?: number; brand?: number; category?: number }) => {
         const params = new URLSearchParams()
         if (filters?.type) params.append('type', String(filters.type))
         if (filters?.brand) params.append('brand', String(filters.brand))
+        if (filters?.category) params.append('category', String(filters.category))
         const query = params.toString() ? `?${params.toString()}` : ''
         return this.get<any[]>(`/catalog/references/${query}`)
       },
