@@ -7,6 +7,7 @@ import '../../core/api_client.dart';
 import '../../core/constants.dart';
 import '../../models/order.dart';
 import '../../state/orders_provider.dart';
+import '../../widgets/assign_staff_dialog.dart';
 import '../../widgets/async_state_widgets.dart';
 import '../../widgets/status_badge.dart';
 
@@ -28,6 +29,7 @@ List<OrderStatus> _nextOptions(OrderStatus current) {
       return [OrderStatus.livre, OrderStatus.retour];
     case OrderStatus.livre:
     case OrderStatus.retour:
+    case OrderStatus.annulee:
       return [];
   }
 }
@@ -66,6 +68,29 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
   bool _changing = false;
 
   Future<void> _changeStatus(OrderStatus target) async {
+    // Nouvelle -> En préparation / Prête -> En livraison : le gérant désigne
+    // manuellement qui prend la commande en charge (occupé ou non n'empêche
+    // plus la sélection, voir services.py::_resolve_assignee).
+    int? preparateurId;
+    int? livreurId;
+    DateTime? assignedAt;
+    if (target == OrderStatus.enPreparation || target == OrderStatus.enLivraison) {
+      final role = target == OrderStatus.enPreparation ? 'PREPARATEUR' : 'LIVREUR';
+      final result = await showAssignStaffDialog(
+        context,
+        role: role,
+        loadStaff: () => ref.read(ordersProvider.notifier).availableStaff(role),
+      );
+      if (result == null) return;
+      if (target == OrderStatus.enPreparation) {
+        preparateurId = result.staffId;
+      } else {
+        livreurId = result.staffId;
+      }
+      assignedAt = result.assignedAt;
+    }
+    if (!mounted) return;
+
     final note = await showDialog<String>(
       context: context,
       builder: (context) => _NoteDialog(title: 'Confirmer : ${target.label}'),
@@ -73,8 +98,51 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
     if (note == null) return;
     setState(() => _changing = true);
     try {
-      await ref.read(ordersProvider.notifier).changeStatus(widget.order.id, target.apiValue, note: note);
+      await ref.read(ordersProvider.notifier).changeStatus(
+            widget.order.id,
+            target.apiValue,
+            note: note,
+            preparateurId: preparateurId,
+            livreurId: livreurId,
+            assignedAt: assignedAt,
+          );
       ref.invalidate(orderDetailProvider(widget.order.id));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      }
+    } finally {
+      if (mounted) setState(() => _changing = false);
+    }
+  }
+
+  Future<void> _cancel() async {
+    final order = widget.order;
+    final restocks = [OrderStatus.enPreparation, OrderStatus.prete, OrderStatus.enLivraison].contains(order.statutCourant);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Annuler la commande ${order.numero} ?'),
+        content: Text(
+          restocks
+              ? 'La commande de ${order.clientNom} sera annulée. Le stock déjà déduit pour cette commande sera automatiquement restitué.'
+              : 'La commande de ${order.clientNom} sera annulée.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Retour')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Annuler la commande'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    setState(() => _changing = true);
+    try {
+      await ref.read(ordersProvider.notifier).cancel(order.id);
+      ref.invalidate(orderDetailProvider(order.id));
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
@@ -88,6 +156,7 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
   Widget build(BuildContext context) {
     final order = widget.order;
     final nextOptions = _nextOptions(order.statutCourant);
+    final canCancel = ![OrderStatus.livre, OrderStatus.retour, OrderStatus.annulee].contains(order.statutCourant);
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -168,7 +237,7 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
             ),
           ),
         ],
-        if (nextOptions.isNotEmpty) ...[
+        if (nextOptions.isNotEmpty || canCancel) ...[
           const SizedBox(height: 20),
           Wrap(
             spacing: 10,
@@ -179,6 +248,13 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
                   icon: Icon(target == OrderStatus.retour ? Icons.undo : Icons.check),
                   label: Text(target.label),
                   style: target == OrderStatus.retour ? FilledButton.styleFrom(backgroundColor: Colors.red) : null,
+                ),
+              if (canCancel)
+                OutlinedButton.icon(
+                  onPressed: _changing ? null : _cancel,
+                  icon: const Icon(Icons.cancel_outlined),
+                  label: const Text('Annuler la commande'),
+                  style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
                 ),
             ],
           ),

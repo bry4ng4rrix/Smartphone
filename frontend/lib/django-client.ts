@@ -607,6 +607,7 @@ class DjangoAPIClient {
       historique?: boolean
       date_from?: string
       date_to?: string
+      preparateur_id?: number
     }) => {
       const params = new URLSearchParams()
       if (filters?.statut) params.append('statut', filters.statut)
@@ -617,6 +618,7 @@ class DjangoAPIClient {
       if (filters?.historique) params.append('historique', '1')
       if (filters?.date_from) params.append('date_from', filters.date_from)
       if (filters?.date_to) params.append('date_to', filters.date_to)
+      if (filters?.preparateur_id) params.append('preparateur_id', String(filters.preparateur_id))
       const query = params.toString() ? `?${params.toString()}` : ''
       return this.get<any[]>(`/orders/${query}`)
     },

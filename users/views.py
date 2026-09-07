@@ -713,7 +713,7 @@ class CaisseSessionViewSet(viewsets.ModelViewSet):
     ouverte à la fois par magasin" au même endroit."""
 
     serializer_class = CaisseSessionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsGerant]
     http_method_names = ["get", "post", "head", "options"]
 
     def get_queryset(self):
@@ -808,7 +808,7 @@ class CaisseSessionViewSet(viewsets.ModelViewSet):
 
 class CaisseMovementViewSet(viewsets.ModelViewSet):
     serializer_class = CaisseMovementSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsGerant]
     http_method_names = ["get", "post", "delete", "head", "options"]
 
     def get_queryset(self):
@@ -894,7 +894,7 @@ class CaisseSummaryView(APIView):
     cours) : entrées/sorties de caisse, coût et bénéfice réel des produits
     livrés, en plus du solde brut de caisse."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsGerant]
 
     def get(self, request):
         magasins = _accessible_magasins(request.user)

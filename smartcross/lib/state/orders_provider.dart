@@ -7,16 +7,42 @@ import 'realtime_provider.dart';
 final ordersRepositoryProvider = Provider((ref) => OrdersRepository());
 
 class OrdersFilter {
-  const OrdersFilter({this.statut, this.dateDebut, this.dateFin});
+  const OrdersFilter({
+    this.statut,
+    this.dateDebut,
+    this.dateFin,
+    this.preparateurId,
+    this.historique = false,
+    this.dateFrom,
+    this.dateTo,
+  });
   final String? statut;
   final DateTime? dateDebut;
   final DateTime? dateFin;
+  final int? preparateurId;
+  final bool historique;
+  final DateTime? dateFrom;
+  final DateTime? dateTo;
 
-  OrdersFilter copyWith({String? statut, bool clearStatut = false, DateTime? dateDebut, DateTime? dateFin}) {
+  OrdersFilter copyWith({
+    String? statut,
+    bool clearStatut = false,
+    DateTime? dateDebut,
+    DateTime? dateFin,
+    int? preparateurId,
+    bool clearPreparateurId = false,
+    bool? historique,
+    DateTime? dateFrom,
+    DateTime? dateTo,
+  }) {
     return OrdersFilter(
       statut: clearStatut ? null : (statut ?? this.statut),
       dateDebut: dateDebut ?? this.dateDebut,
       dateFin: dateFin ?? this.dateFin,
+      preparateurId: clearPreparateurId ? null : (preparateurId ?? this.preparateurId),
+      historique: historique ?? this.historique,
+      dateFrom: dateFrom ?? this.dateFrom,
+      dateTo: dateTo ?? this.dateTo,
     );
   }
 }
@@ -36,19 +62,28 @@ final ordersFilterProvider = NotifierProvider<OrdersFilterNotifier, OrdersFilter
 class OrdersNotifier extends AsyncNotifier<List<Order>> {
   late final _repo = ref.read(ordersRepositoryProvider);
 
+  Future<List<Order>> _fetch(OrdersFilter filter) {
+    return _repo.list(
+      statut: filter.statut,
+      dateDebut: filter.dateDebut,
+      dateFin: filter.dateFin,
+      preparateurId: filter.preparateurId,
+      historique: filter.historique,
+      dateFrom: filter.dateFrom,
+      dateTo: filter.dateTo,
+    );
+  }
+
   @override
   Future<List<Order>> build() {
     ref.watch(realtimeTickProvider);
     final filter = ref.watch(ordersFilterProvider);
-    return _repo.list(statut: filter.statut, dateDebut: filter.dateDebut, dateFin: filter.dateFin);
+    return _fetch(filter);
   }
 
   Future<void> refresh() async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(() {
-      final filter = ref.read(ordersFilterProvider);
-      return _repo.list(statut: filter.statut, dateDebut: filter.dateDebut, dateFin: filter.dateFin);
-    });
+    state = await AsyncValue.guard(() => _fetch(ref.read(ordersFilterProvider)));
   }
 
   Future<Order> create({
@@ -73,11 +108,33 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
     return order;
   }
 
-  Future<Order> changeStatus(int id, String statut, {String note = ''}) async {
-    final order = await _repo.changeStatus(id, statut, note: note);
+  Future<Order> changeStatus(
+    int id,
+    String statut, {
+    String note = '',
+    int? preparateurId,
+    int? livreurId,
+    DateTime? assignedAt,
+  }) async {
+    final order = await _repo.changeStatus(
+      id,
+      statut,
+      note: note,
+      preparateurId: preparateurId,
+      livreurId: livreurId,
+      assignedAt: assignedAt,
+    );
     await refresh();
     return order;
   }
+
+  Future<Order> cancel(int id, {String note = ''}) async {
+    final order = await _repo.cancel(id, note: note);
+    await refresh();
+    return order;
+  }
+
+  Future<List<StaffOption>> availableStaff(String role) => _repo.availableStaff(role);
 }
 
 final ordersProvider = AsyncNotifierProvider<OrdersNotifier, List<Order>>(OrdersNotifier.new);

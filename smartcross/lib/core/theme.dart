@@ -84,6 +84,8 @@ Color statusColor(BuildContext context, String apiStatus) {
       return const Color(0xFF10B981);
     case 'RETOUR':
       return const Color(0xFFEF4444);
+    case 'ANNULEE':
+      return const Color(0xFF71717A);
     default:
       return Theme.of(context).colorScheme.outline;
   }

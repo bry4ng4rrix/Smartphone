@@ -27,8 +27,10 @@ from .serializers import (
 )
 
 # Statuts visibles par rôle sur leur module dédié (§7.2, §7.3 Smartreadme.md).
+# Le livreur voit aussi "En préparation" (visibilité/planning — pas encore
+# actionnable pour lui, § demande), en plus de ses statuts habituels.
 PREPARATEUR_STATUTS = ["NOUVELLE", "EN_PREPARATION"]
-LIVREUR_STATUTS = ["PRETE", "EN_LIVRAISON"]
+LIVREUR_STATUTS = ["EN_PREPARATION", "PRETE", "EN_LIVRAISON"]
 
 
 class OrderViewSet(viewsets.ModelViewSet):
@@ -86,21 +88,36 @@ class OrderViewSet(viewsets.ModelViewSet):
                 # + les récupérations sur place déjà prêtes (pas de livreur
                 # pour ce cas — le préparateur en garde le suivi jusqu'au
                 # retrait, validé par le gérant sur la page Récupération).
-                return qs.filter(statut_courant__in=PREPARATEUR_STATUTS) | qs.filter(
+                base = qs.filter(statut_courant__in=PREPARATEUR_STATUTS) | qs.filter(
                     statut_courant="PRETE", livraison_zone="RECUPERATION"
                 )
-            # Prêtes à récupérer + en livraison (§7.3 Smartreadme.md) — hors
-            # retrait sur place, qui ne passe jamais par un livreur.
-            return qs.filter(statut_courant__in=LIVREUR_STATUTS).exclude(
-                statut_courant="PRETE", livraison_zone="RECUPERATION"
-            )
+            else:
+                # Prêtes à récupérer + en livraison (§7.3 Smartreadme.md) — hors
+                # retrait sur place, qui ne passe jamais par un livreur.
+                base = qs.filter(statut_courant__in=LIVREUR_STATUTS).exclude(
+                    statut_courant="PRETE", livraison_zone="RECUPERATION"
+                )
 
-        # Gérant : filtres optionnels date / statut / magasin / zone (§7.1 Smartreadme.md).
+            # Filtres optionnels statut/date (§ demande — page livreur), sans
+            # sortir de l'ensemble de statuts déjà autorisé pour ce rôle.
+            statut = self.request.query_params.get("statut")
+            date_debut = self.request.query_params.get("date_debut")
+            date_fin = self.request.query_params.get("date_fin")
+            if statut:
+                base = base.filter(statut_courant=statut)
+            if date_debut:
+                base = base.filter(date_commande__date__gte=date_debut)
+            if date_fin:
+                base = base.filter(date_commande__date__lte=date_fin)
+            return base
+
+        # Gérant : filtres optionnels date / statut / magasin / zone / préparateur (§7.1 Smartreadme.md).
         statut = self.request.query_params.get("statut")
         date_debut = self.request.query_params.get("date_debut")
         date_fin = self.request.query_params.get("date_fin")
         magasin_id = self.request.query_params.get("magasin_id")
         livraison_zone = self.request.query_params.get("livraison_zone")
+        preparateur_id = self.request.query_params.get("preparateur_id")
         if statut:
             qs = qs.filter(statut_courant=statut)
         if livraison_zone:
@@ -113,6 +130,8 @@ class OrderViewSet(viewsets.ModelViewSet):
             qs = qs.filter(date_commande__date__lte=date_fin)
         if magasin_id:
             qs = qs.filter(magasin_id=magasin_id)
+        if preparateur_id:
+            qs = qs.filter(preparateur_id=preparateur_id)
         return qs
 
     def create(self, request, *args, **kwargs):

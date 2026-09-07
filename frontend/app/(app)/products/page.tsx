@@ -47,8 +47,20 @@ import {
   DollarSign,
   Download,
   Upload,
+  Settings,
+  Check,
+  FolderPlus,
 } from "lucide-react";
 import { toast } from "sonner";
+
+// Indicateur de couleur par variante (badge "Variantes") — seuils fixes,
+// affichés en légende dans l'entête du tableau (§ demande) : rouge = plus
+// aucun stock, bleu = 2 pièces ou moins, vert = 3 pièces ou plus.
+const variantStockBadgeClass = (stock: number) => {
+  if (stock <= 0) return "font-normal border-red-200 text-red-700 bg-red-50/50";
+  if (stock <= 2) return "font-normal border-blue-200 text-blue-700 bg-blue-50/50";
+  return "font-normal border-green-200 text-green-700 bg-green-50/50";
+};
 
 const fmt = (n: number | string | null | undefined) =>
   new Intl.NumberFormat("fr-MG").format(Math.round(Number(n || 0))) + " Ar";
@@ -66,7 +78,7 @@ export default function ProductsPage() {
   const [typeFilter, setTypeFilter] = useState<string>("ALL");
   const [brandFilter, setBrandFilter] = useState<string>("ALL");
   const [createOpen, setCreateOpen] = useState(false);
-  const [manageBrandsOpen, setManageBrandsOpen] = useState(false);
+  const [catalogSettingsOpen, setCatalogSettingsOpen] = useState(false);
   const [bulkPriceOpen, setBulkPriceOpen] = useState(false);
   const [variantsOf, setVariantsOf] = useState<any | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
@@ -124,6 +136,7 @@ export default function ProductsPage() {
 
   const filtered = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase();
+    const tokens = q.split(/\s+/).filter(Boolean);
     return references.filter((r) => {
       if (
         categoryFilter !== "ALL" &&
@@ -133,12 +146,21 @@ export default function ProductsPage() {
       if (typeFilter !== "ALL" && String(r.type) !== typeFilter) return false;
       if (brandFilter !== "ALL" && String(r.brand) !== brandFilter)
         return false;
-      if (!q) return true;
-      return (
-        r.reference_name.toLowerCase().includes(q) ||
-        (r.brand_name || "").toLowerCase().includes(q) ||
-        (r.category_name || "").toLowerCase().includes(q)
-      );
+      if (tokens.length === 0) return true;
+      // Chaque mot doit se retrouver quelque part (nom, marque, catégorie,
+      // sous-type OU une couleur de variante) — permet "samsung bleu",
+      // "pixel 6 pro vert", peu importe l'ordre des mots.
+      const haystack = [
+        r.reference_name,
+        r.brand_name,
+        r.category_name,
+        r.type_name,
+        ...(r.variants || []).map((v: any) => v.couleur),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return tokens.every((t) => haystack.includes(t));
     });
   }, [
     references,
@@ -255,8 +277,8 @@ export default function ProductsPage() {
             </>
           )}
           {isGerant && (
-            <Button variant="outline" onClick={() => setManageBrandsOpen(true)}>
-              <Tag className="h-4 w-4 mr-2" /> Marques
+            <Button variant="outline" onClick={() => setCatalogSettingsOpen(true)}>
+              <Settings className="h-4 w-4 mr-2" /> Paramètres
             </Button>
           )}
           {isGerant && (
@@ -407,7 +429,23 @@ export default function ProductsPage() {
                             )}
                           </TableCell>
                         )}
-                        <TableCell>{(ref.variants || []).length}</TableCell>
+                        <TableCell className="max-w-60">
+                          {(ref.variants || []).length === 0 ? (
+                            <span className="text-xs text-muted-foreground">Aucune</span>
+                          ) : (
+                            <div className="flex flex-wrap gap-1">
+                              {(ref.variants || []).map((v: any) => (
+                                <Badge
+                                  key={v.id}
+                                  variant="outline"
+                                  className={variantStockBadgeClass(v.stock_actuel)}
+                                >
+                                  {v.couleur} · {v.stock_actuel}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                        </TableCell>
                         <TableCell>{total}</TableCell>
                         <TableCell>
                           <Badge className={info.class}>{info.label}</Badge>
@@ -476,10 +514,13 @@ export default function ProductsPage() {
         />
       )}
 
-      <ManageBrandsDialog
-        open={manageBrandsOpen}
-        onOpenChange={setManageBrandsOpen}
+      <CatalogSettingsDialog
+        open={catalogSettingsOpen}
+        onOpenChange={setCatalogSettingsOpen}
         brands={brands}
+        categories={categories}
+        types={types}
+        colors={colors}
         onChanged={() => fetchAll(true)}
       />
 
@@ -774,16 +815,18 @@ function ProductDetailDialog({
                 disabled={!canEdit}
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label>Prix actuel (Ar)</Label>
-                <Input
-                  type="number"
-                  value={prixAchat}
-                  onChange={(e) => setPrixAchat(e.target.value)}
-                  disabled={!canEdit}
-                />
-              </div>
+            <div className={canEdit ? "grid grid-cols-2 gap-3" : "space-y-1"}>
+              {canEdit && (
+                <div className="space-y-1">
+                  <Label>Prix actuel (Ar)</Label>
+                  <Input
+                    type="number"
+                    value={prixAchat}
+                    onChange={(e) => setPrixAchat(e.target.value)}
+                    disabled={!canEdit}
+                  />
+                </div>
+              )}
               <div className="space-y-1">
                 <Label>Prix de vente (Ar)</Label>
                 <Input
@@ -794,7 +837,7 @@ function ProductDetailDialog({
                 />
               </div>
             </div>
-            {margin !== null && (
+            {canEdit && margin !== null && (
               <p
                 className={`text-xs -mt-2 ${margin >= 0 ? "text-green-600" : "text-red-600"}`}
               >
@@ -1572,20 +1615,34 @@ function CreateReferenceDialog({
   );
 }
 
-function ManageBrandsDialog({
+// Marques de téléphones courantes (§8.1 du cahier des charges) — proposées
+// en un clic pour éviter de les retaper à chaque nouvelle référence produit.
+const SUGGESTED_BRANDS = [
+  "Samsung", "iPhone", "Huawei", "Redmi", "Xiaomi", "Tecno", "Infinix",
+  "Itel", "Oppo", "Realme", "Google Pixel", "Poco", "Vivo", "Honor",
+];
+
+function CatalogSettingsDialog({
   open,
   onOpenChange,
   brands,
+  categories,
+  types,
+  colors,
   onChanged,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   brands: any[];
+  categories: any[];
+  types: any[];
+  colors: any[];
   onChanged: () => void;
 }) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingName, setEditingName] = useState("");
   const [newName, setNewName] = useState("");
+  const [addingBrand, setAddingBrand] = useState<string | null>(null);
 
   const startEdit = (b: any) => {
     setEditingId(b.id);
@@ -1631,78 +1688,138 @@ function ManageBrandsDialog({
     }
   };
 
+  const addSuggestedBrand = async (nom: string) => {
+    setAddingBrand(nom);
+    try {
+      await djangoClient.catalog.brands.create({ nom });
+      toast.success("Marque ajoutée");
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || "Erreur");
+    } finally {
+      setAddingBrand(null);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Gérer les marques</DialogTitle>
+          <DialogTitle>Paramètres du catalogue</DialogTitle>
           <DialogDescription>
-            Renommer ou supprimer une marque (impossible si elle a des
-            références).
+            Marques, sous-types et couleurs utilisés dans le catalogue produits (§8 du cahier des charges).
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-2 max-h-72 overflow-y-auto">
-          {brands.map((b) => (
-            <div
-              key={b.id}
-              className="flex items-center gap-2 border rounded-md px-3 py-2"
-            >
-              {editingId === b.id ? (
-                <>
-                  <Input
-                    value={editingName}
-                    onChange={(e) => setEditingName(e.target.value)}
-                    className="h-8 flex-1"
-                    autoFocus
-                  />
-                  <Button size="sm" onClick={saveEdit}>
-                    OK
-                  </Button>
+
+        <div className="space-y-6">
+          <div>
+            <h3 className="text-sm font-semibold mb-2">Marques</h3>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {SUGGESTED_BRANDS.map((nom) => {
+                const already = brands.some(
+                  (b) => b.nom.toLowerCase() === nom.toLowerCase(),
+                );
+                return (
                   <Button
+                    key={nom}
+                    type="button"
                     size="sm"
-                    variant="ghost"
-                    onClick={() => setEditingId(null)}
+                    variant={already ? "secondary" : "outline"}
+                    disabled={already || addingBrand === nom}
+                    onClick={() => addSuggestedBrand(nom)}
                   >
-                    Annuler
+                    {already ? (
+                      <Check className="h-3.5 w-3.5 mr-1.5" />
+                    ) : (
+                      <Plus className="h-3.5 w-3.5 mr-1.5" />
+                    )}
+                    {nom}
                   </Button>
-                </>
-              ) : (
-                <>
-                  <span className="flex-1 text-sm">{b.nom}</span>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={() => startEdit(b)}
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={() => removeBrand(b)}
-                  >
-                    <Trash2 className="h-4 w-4 text-red-500" />
-                  </Button>
-                </>
+                );
+              })}
+            </div>
+            <div className="space-y-2 max-h-56 overflow-y-auto">
+              {brands.map((b) => (
+                <div
+                  key={b.id}
+                  className="flex items-center gap-2 border rounded-md px-3 py-2"
+                >
+                  {editingId === b.id ? (
+                    <>
+                      <Input
+                        value={editingName}
+                        onChange={(e) => setEditingName(e.target.value)}
+                        className="h-8 flex-1"
+                        autoFocus
+                      />
+                      <Button size="sm" onClick={saveEdit}>
+                        OK
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setEditingId(null)}
+                      >
+                        Annuler
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="flex-1 text-sm">{b.nom}</span>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => startEdit(b)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => removeBrand(b)}
+                      >
+                        <Trash2 className="h-4 w-4 text-red-500" />
+                      </Button>
+                    </>
+                  )}
+                </div>
+              ))}
+              {brands.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  Aucune marque.
+                </p>
               )}
             </div>
-          ))}
-          {brands.length === 0 && (
-            <p className="text-sm text-muted-foreground text-center py-4">
-              Aucune marque.
+            <div className="flex gap-2 mt-3">
+              <Input
+                placeholder="Nouvelle marque"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+              />
+              <Button onClick={addBrand}>
+                <Plus className="h-4 w-4 mr-2" /> Ajouter
+              </Button>
+            </div>
+          </div>
+
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-semibold mb-1">Sous-types (catégories produit)</h3>
+            <p className="text-xs text-muted-foreground mb-3">
+              Le niveau entre la catégorie (ex. Housse, Cache écran) et la marque — ex. Flip
+              cover, Privacy, Chargeur, Écouteur.
             </p>
-          )}
+            <CategoriesTypesCrud categories={categories} types={types} onChanged={onChanged} />
+          </div>
+
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-semibold mb-1">Couleurs</h3>
+            <p className="text-xs text-muted-foreground mb-3">
+              Liste des couleurs proposées dans le sélecteur de variante.
+            </p>
+            <ColorsCrudList colors={colors} onChanged={onChanged} />
+          </div>
         </div>
-        <div className="flex gap-2 border-t pt-3">
-          <Input
-            placeholder="Nouvelle marque"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-          />
-          <Button onClick={addBrand}>
-            <Plus className="h-4 w-4 mr-2" /> Ajouter
-          </Button>
-        </div>
+
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Fermer
@@ -1710,6 +1827,218 @@ function ManageBrandsDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ColorsCrudList({ colors, onChanged }: { colors: any[]; onChanged: () => void }) {
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingName, setEditingName] = useState("");
+  const [newName, setNewName] = useState("");
+
+  const startEdit = (c: any) => { setEditingId(c.id); setEditingName(c.nom); };
+
+  const saveEdit = async () => {
+    if (!editingId || !editingName.trim()) return;
+    try {
+      await djangoClient.catalog.colors.update(editingId, { nom: editingName.trim() });
+      toast.success("Couleur renommée");
+      setEditingId(null);
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || "Erreur");
+    }
+  };
+
+  const removeColor = async (c: any) => {
+    try {
+      await djangoClient.catalog.colors.delete(c.id);
+      toast.success("Couleur supprimée");
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || "Erreur lors de la suppression");
+    }
+  };
+
+  const addColor = async () => {
+    if (!newName.trim()) return;
+    try {
+      await djangoClient.catalog.colors.create({ nom: newName.trim() });
+      toast.success("Couleur ajoutée");
+      setNewName("");
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || "Erreur");
+    }
+  };
+
+  return (
+    <div>
+      <div className="space-y-2 max-h-56 overflow-y-auto">
+        {colors.map((c) => (
+          <div key={c.id} className="flex items-center gap-2 border rounded-md px-3 py-2">
+            {editingId === c.id ? (
+              <>
+                <Input value={editingName} onChange={(e) => setEditingName(e.target.value)} className="h-8 flex-1" autoFocus />
+                <Button size="sm" onClick={saveEdit}>OK</Button>
+                <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Annuler</Button>
+              </>
+            ) : (
+              <>
+                <span className="flex-1 text-sm">{c.nom}</span>
+                <Button size="icon" variant="ghost" onClick={() => startEdit(c)}><Pencil className="h-4 w-4" /></Button>
+                <Button size="icon" variant="ghost" onClick={() => removeColor(c)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+              </>
+            )}
+          </div>
+        ))}
+        {colors.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Aucune couleur.</p>}
+      </div>
+      <div className="flex gap-2 mt-3">
+        <Input placeholder="Nouvelle couleur (ex: Bleu)" value={newName} onChange={(e) => setNewName(e.target.value)} />
+        <Button onClick={addColor}><Plus className="h-4 w-4 mr-2" /> Ajouter</Button>
+      </div>
+    </div>
+  );
+}
+
+function CategoriesTypesCrud({
+  categories, types, onChanged,
+}: { categories: any[]; types: any[]; onChanged: () => void }) {
+  const [editingCatId, setEditingCatId] = useState<number | null>(null);
+  const [editingCatName, setEditingCatName] = useState("");
+  const [newCatName, setNewCatName] = useState("");
+
+  const [editingTypeId, setEditingTypeId] = useState<number | null>(null);
+  const [editingTypeName, setEditingTypeName] = useState("");
+  const [newTypeNameByCategory, setNewTypeNameByCategory] = useState<Record<number, string>>({});
+
+  const startEditCat = (c: any) => { setEditingCatId(c.id); setEditingCatName(c.nom); };
+  const saveEditCat = async () => {
+    if (!editingCatId || !editingCatName.trim()) return;
+    try {
+      await djangoClient.catalog.categories.update(editingCatId, { nom: editingCatName.trim() });
+      toast.success("Catégorie renommée");
+      setEditingCatId(null);
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || "Erreur");
+    }
+  };
+  const removeCategory = async (c: any) => {
+    try {
+      await djangoClient.catalog.categories.delete(c.id);
+      toast.success("Catégorie supprimée");
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || "Suppression impossible (des sous-types en dépendent encore)");
+    }
+  };
+  const addCategory = async () => {
+    if (!newCatName.trim()) return;
+    try {
+      await djangoClient.catalog.categories.create({ nom: newCatName.trim(), ordre: categories.length });
+      toast.success("Catégorie ajoutée");
+      setNewCatName("");
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || "Erreur");
+    }
+  };
+
+  const startEditType = (t: any) => { setEditingTypeId(t.id); setEditingTypeName(t.nom); };
+  const saveEditType = async () => {
+    if (!editingTypeId || !editingTypeName.trim()) return;
+    try {
+      await djangoClient.catalog.types.update(editingTypeId, { nom: editingTypeName.trim() });
+      toast.success("Sous-type renommé");
+      setEditingTypeId(null);
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || "Erreur");
+    }
+  };
+  const removeType = async (t: any) => {
+    try {
+      await djangoClient.catalog.types.delete(t.id);
+      toast.success("Sous-type supprimé");
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || "Suppression impossible (des références en dépendent encore)");
+    }
+  };
+  const addType = async (categoryId: number) => {
+    const nom = (newTypeNameByCategory[categoryId] || "").trim();
+    if (!nom) return;
+    try {
+      await djangoClient.catalog.types.create({ category: categoryId, nom });
+      toast.success("Sous-type ajouté");
+      setNewTypeNameByCategory((prev) => ({ ...prev, [categoryId]: "" }));
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || "Erreur");
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {categories.map((c) => {
+        const typesForCat = types.filter((t) => t.category === c.id);
+        return (
+          <div key={c.id} className="border rounded-md p-3">
+            <div className="flex items-center gap-2 mb-2">
+              {editingCatId === c.id ? (
+                <>
+                  <Input value={editingCatName} onChange={(e) => setEditingCatName(e.target.value)} className="h-8 flex-1 font-medium" autoFocus />
+                  <Button size="sm" onClick={saveEditCat}>OK</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setEditingCatId(null)}>Annuler</Button>
+                </>
+              ) : (
+                <>
+                  <Tag className="h-4 w-4 text-muted-foreground" />
+                  <span className="flex-1 text-sm font-semibold">{c.nom}</span>
+                  <Button size="icon" variant="ghost" onClick={() => startEditCat(c)}><Pencil className="h-4 w-4" /></Button>
+                  <Button size="icon" variant="ghost" onClick={() => removeCategory(c)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+                </>
+              )}
+            </div>
+            <div className="space-y-1.5 pl-6">
+              {typesForCat.map((t) => (
+                <div key={t.id} className="flex items-center gap-2">
+                  {editingTypeId === t.id ? (
+                    <>
+                      <Input value={editingTypeName} onChange={(e) => setEditingTypeName(e.target.value)} className="h-8 flex-1" autoFocus />
+                      <Button size="sm" onClick={saveEditType}>OK</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setEditingTypeId(null)}>Annuler</Button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="flex-1 text-sm text-muted-foreground">{t.nom}</span>
+                      <Button size="icon" variant="ghost" onClick={() => startEditType(t)}><Pencil className="h-3.5 w-3.5" /></Button>
+                      <Button size="icon" variant="ghost" onClick={() => removeType(t)}><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>
+                    </>
+                  )}
+                </div>
+              ))}
+              {typesForCat.length === 0 && <p className="text-xs text-muted-foreground">Aucun sous-type.</p>}
+              <div className="flex gap-2 pt-1">
+                <Input
+                  placeholder="Nouveau sous-type (ex. Chargeur, Écouteur)"
+                  value={newTypeNameByCategory[c.id] || ""}
+                  onChange={(e) => setNewTypeNameByCategory((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                  className="h-8"
+                />
+                <Button size="sm" onClick={() => addType(c.id)}><Plus className="h-3.5 w-3.5 mr-1" /> Ajouter</Button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      {categories.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Aucune catégorie.</p>}
+      <div className="flex gap-2 border-t pt-4">
+        <Input placeholder="Nouvelle catégorie (ex. Accessoires)" value={newCatName} onChange={(e) => setNewCatName(e.target.value)} />
+        <Button onClick={addCategory}><FolderPlus className="h-4 w-4 mr-2" /> Ajouter</Button>
+      </div>
+    </div>
   );
 }
 

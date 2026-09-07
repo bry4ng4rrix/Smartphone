@@ -55,8 +55,11 @@ class OrderGerantSerializer(serializers.ModelSerializer):
 
 
 class OrderPreparateurSerializer(serializers.ModelSerializer):
-    """Module Dépôt — Préparateur (§7.2) : N° commande, Client, Produit +
-    Couleur, Zone. Aucune donnée financière."""
+    """Module Dépôt — Préparateur (§7.2) : N° commande, Client, Téléphone,
+    Produit + Couleur, Zone. Pas de détail des prix unitaires ni de données de
+    coût/marge — seuls le sous-total (prix de vente), les frais de livraison
+    et le total sont exposés, pour le résumé affiché avant confirmation
+    d'une action (§ demande)."""
 
     items = OrderItemPublicSerializer(many=True, read_only=True)
     preparateur_name = serializers.CharField(source="preparateur.full_name", read_only=True)
@@ -64,16 +67,17 @@ class OrderPreparateurSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
-            "id", "numero", "date_commande", "client_nom", "livraison_zone", "adresse_livraison",
-            "statut_courant", "preparateur", "preparateur_name", "items", "created_at",
+            "id", "numero", "date_commande", "client_nom", "telephone", "livraison_zone", "adresse_livraison",
+            "frais_livraison", "total_a_payer", "statut_courant", "preparateur", "preparateur_name",
+            "items", "created_at",
         ]
         read_only_fields = fields
 
 
 class OrderLivreurSerializer(serializers.ModelSerializer):
     """Module Livreur (§7.3) : N° commande, Client, Téléphone, Produit, Zone,
-    Total à encaisser. Pas de détail des prix unitaires ni de données de
-    coût/marge."""
+    Frais de livraison, Total à encaisser. Pas de détail des prix unitaires
+    ni de données de coût/marge."""
 
     items = OrderItemPublicSerializer(many=True, read_only=True)
     livreur_name = serializers.CharField(source="livreur.full_name", read_only=True)
@@ -82,7 +86,8 @@ class OrderLivreurSerializer(serializers.ModelSerializer):
         model = Order
         fields = [
             "id", "numero", "date_commande", "client_nom", "telephone", "livraison_zone", "adresse_livraison",
-            "total_a_payer", "statut_courant", "note", "livreur", "livreur_name", "items", "created_at",
+            "frais_livraison", "total_a_payer", "statut_courant", "note", "livreur", "livreur_name",
+            "items", "created_at",
         ]
         read_only_fields = fields
 

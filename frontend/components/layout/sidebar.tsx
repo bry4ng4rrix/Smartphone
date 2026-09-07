@@ -53,6 +53,7 @@ const navigationItems = [
     label: "Produits",
     href: "/products",
     icon: Shirt,
+    hideLivreur: true,
   },
 
   {
@@ -60,6 +61,7 @@ const navigationItems = [
     href: "/caisse",
     icon: Wallet,
     hidePreparateur: true,
+    hideLivreur: true,
   },
 
   {
@@ -121,6 +123,7 @@ const navigationItems = [
     label: "Paramètres",
     href: "/settings",
     icon: Settings,
+    hideLivreur: true,
   },
 ];
 
@@ -128,7 +131,7 @@ export function Sidebar() {
   const [open, setOpen] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
-  const { user, isAdmin, isSuperAdmin, isAdminOrSuperAdmin, isPreparateur, loading } =
+  const { user, isAdmin, isSuperAdmin, isAdminOrSuperAdmin, isPreparateur, isLivreur, loading } =
     useCurrentUser();
 
   const handleLogout = async () => {
@@ -190,6 +193,7 @@ export function Sidebar() {
                 if (item.superAdminOnly && !isSuperAdmin) return false;
                 if (item.adminOnly && !isAdminOrSuperAdmin) return false;
                 if (item.hidePreparateur && isPreparateur) return false;
+                if (item.hideLivreur && isLivreur) return false;
                 return true;
               })
               .map((item) => {

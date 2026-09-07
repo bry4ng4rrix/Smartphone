@@ -54,6 +54,12 @@ function IconAction({
 const fmt = (n: number | string | null | undefined) =>
   new Intl.NumberFormat('fr-MG').format(Math.round(Number(n || 0))) + ' Ar';
 
+const fmtDT = (iso?: string | null) =>
+  iso ? new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : null;
+
+const historyAt = (order: any, statut: string) =>
+  (order.status_history || []).find((h: any) => h.nouveau_statut === statut)?.timestamp;
+
 const STATUTS = [
   { value: 'NOUVELLE', label: 'Nouvelle', color: 'bg-slate-100 text-slate-800' },
   { value: 'EN_PREPARATION', label: 'En préparation', color: 'bg-amber-100 text-amber-800' },
@@ -119,16 +125,40 @@ export default function OrdersPage() {
   const [viewMode, setViewMode] = useState<'ACTIF' | 'HISTORIQUE'>('ACTIF');
   const [historiqueFrom, setHistoriqueFrom] = useState('');
   const [historiqueTo, setHistoriqueTo] = useState('');
+  // Filtres gérant : date (période) + préparateur assigné.
+  const [dateDebut, setDateDebut] = useState('');
+  const [dateFin, setDateFin] = useState('');
+  const [preparateurFilterId, setPreparateurFilterId] = useState('');
+  const [preparateurFilterList, setPreparateurFilterList] = useState<{ id: number; full_name: string }[]>([]);
+  // Filtres livreur (vue "Ma tournée") : statut + date.
+  const [livreurStatutFilter, setLivreurStatutFilter] = useState('ALL');
+  const [livreurDateDebut, setLivreurDateDebut] = useState('');
+  const [livreurDateFin, setLivreurDateFin] = useState('');
+
+  useEffect(() => {
+    if (!isGerant) return;
+    djangoClient.orders.availableStaff('PREPARATEUR').then(setPreparateurFilterList).catch(() => {});
+  }, [isGerant]);
 
   const fetchOrders = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
       const filters: any = {};
-      if (isGerant && statutFilter !== 'ALL') filters.statut = statutFilter;
+      if (isGerant) {
+        if (statutFilter !== 'ALL' && statutFilter !== 'NON_LIVREE') filters.statut = statutFilter;
+        if (dateDebut) filters.date_debut = dateDebut;
+        if (dateFin) filters.date_fin = dateFin;
+        if (preparateurFilterId) filters.preparateur_id = Number(preparateurFilterId);
+      }
       if ((isPreparateur || isLivreur) && viewMode === 'HISTORIQUE') {
         filters.historique = true;
         if (historiqueFrom) filters.date_from = new Date(historiqueFrom).toISOString();
         if (historiqueTo) filters.date_to = new Date(historiqueTo).toISOString();
+      }
+      if (isLivreur && viewMode === 'ACTIF') {
+        if (livreurStatutFilter !== 'ALL') filters.statut = livreurStatutFilter;
+        if (livreurDateDebut) filters.date_debut = livreurDateDebut;
+        if (livreurDateFin) filters.date_fin = livreurDateFin;
       }
       const data = await djangoClient.orders.list(filters);
       setOrders(data);
@@ -137,7 +167,7 @@ export default function OrdersPage() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [isGerant, statutFilter, isPreparateur, isLivreur, viewMode, historiqueFrom, historiqueTo]);
+  }, [isGerant, statutFilter, dateDebut, dateFin, preparateurFilterId, isPreparateur, isLivreur, viewMode, historiqueFrom, historiqueTo, livreurStatutFilter, livreurDateDebut, livreurDateFin]);
 
   useRealtimeRefresh(['order', 'order_status_history'], () => fetchOrders(true));
   useEffect(() => { if (!userLoading) fetchOrders(); }, [userLoading, fetchOrders]);
@@ -222,6 +252,8 @@ export default function OrdersPage() {
     ? orders
     : isPreparateur
     ? orders.filter((o) => (preparateurTab === 'RECUPERATIONS' ? o.livraison_zone === 'RECUPERATION' : o.livraison_zone !== 'RECUPERATION'))
+    : isGerant && statutFilter === 'NON_LIVREE'
+    ? orders.filter((o) => o.statut_courant !== 'LIVRE')
     : orders;
 
   return (
@@ -288,6 +320,40 @@ export default function OrdersPage() {
         </div>
       )}
 
+      {isLivreur && viewMode === 'ACTIF' && (
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Statut</Label>
+            <Select value={livreurStatutFilter} onValueChange={setLivreurStatutFilter}>
+              <SelectTrigger className="w-45"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">Tous</SelectItem>
+                <SelectItem value="EN_PREPARATION">En préparation</SelectItem>
+                <SelectItem value="PRETE">Prête</SelectItem>
+                <SelectItem value="EN_LIVRAISON">En livraison</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Du</Label>
+            <Input type="date" value={livreurDateDebut} onChange={(e) => setLivreurDateDebut(e.target.value)} className="w-auto" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Au</Label>
+            <Input type="date" value={livreurDateFin} onChange={(e) => setLivreurDateFin(e.target.value)} className="w-auto" />
+          </div>
+          {(livreurStatutFilter !== 'ALL' || livreurDateDebut || livreurDateFin) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => { setLivreurStatutFilter('ALL'); setLivreurDateDebut(''); setLivreurDateFin(''); }}
+            >
+              Réinitialiser
+            </Button>
+          )}
+        </div>
+      )}
+
       {(isPreparateur || isLivreur) && viewMode === 'HISTORIQUE' && (
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1">
@@ -315,6 +381,13 @@ export default function OrdersPage() {
           >
             Toutes
           </Button>
+          <Button
+            variant={statutFilter === 'NON_LIVREE' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setStatutFilter('NON_LIVREE')}
+          >
+            Pas encore livrée
+          </Button>
           {STATUTS.map((s) => (
             <Button
               key={s.value}
@@ -325,6 +398,52 @@ export default function OrdersPage() {
               {s.label}
             </Button>
           ))}
+        </div>
+      )}
+
+      {isGerant && (
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Du</Label>
+            <Input type="date" value={dateDebut} onChange={(e) => setDateDebut(e.target.value)} className="w-auto" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Au</Label>
+            <Input type="date" value={dateFin} onChange={(e) => setDateFin(e.target.value)} className="w-auto" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Statut</Label>
+            <Select value={statutFilter} onValueChange={setStatutFilter}>
+              <SelectTrigger className="w-45"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">Tous</SelectItem>
+                <SelectItem value="NON_LIVREE">Pas encore livrée</SelectItem>
+                {STATUTS.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Préparateur</Label>
+            <Select value={preparateurFilterId} onValueChange={setPreparateurFilterId}>
+              <SelectTrigger className="w-45"><SelectValue placeholder="Tous" /></SelectTrigger>
+              <SelectContent>
+                {preparateurFilterList.map((p) => (
+                  <SelectItem key={p.id} value={String(p.id)}>{p.full_name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {(dateDebut || dateFin || preparateurFilterId || statutFilter !== 'ALL') && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => { setDateDebut(''); setDateFin(''); setPreparateurFilterId(''); setStatutFilter('ALL'); }}
+            >
+              Réinitialiser
+            </Button>
+          )}
         </div>
       )}
 
@@ -342,10 +461,10 @@ export default function OrdersPage() {
                     <TableHead>N° commande</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Client</TableHead>
+                    {isLivreur && <TableHead>Adresse</TableHead>}
                     {isLivreur && <TableHead>Téléphone</TableHead>}
                     <TableHead>Produit</TableHead>
                     <TableHead>Zone</TableHead>
-                    {isLivreur && <TableHead>Adresse</TableHead>}
                     {!isPreparateur && <TableHead>Total</TableHead>}
                     <TableHead>Statut</TableHead>
                     {isGerant && <TableHead>Assigné à</TableHead>}
@@ -355,9 +474,12 @@ export default function OrdersPage() {
                 <TableBody>
                   {visibleOrders.map((order) => {
                     const action = nextAction(order);
-                    const assignedName = order.preparateur_name || order.livreur_name;
-                    const assignedStatus = order.preparateur_name ? 'EN_PREPARATION' : 'EN_LIVRAISON';
-                    const assignedAt = (order.status_history || []).find((h: any) => h.nouveau_statut === assignedStatus)?.timestamp;
+                    const preparedAt = historyAt(order, 'EN_PREPARATION');
+                    // Une fois livrée, on affiche l'heure de livraison réelle (LIVRE) plutôt
+                    // que celle de la simple prise en charge (EN_LIVRAISON).
+                    const livreurAt = order.statut_courant === 'LIVRE'
+                      ? historyAt(order, 'LIVRE')
+                      : historyAt(order, 'EN_LIVRAISON');
                     const canEditOrDelete = isGerant && order.statut_courant === 'NOUVELLE';
                     const canCancel = isGerant && !['LIVRE', 'RETOUR', 'ANNULEE'].includes(order.statut_courant);
                     const notYetDue = (isPreparateur || isLivreur) && !isJourJ(order.date_commande);
@@ -371,6 +493,7 @@ export default function OrdersPage() {
                           {order.date_commande ? new Date(order.date_commande).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'}
                         </TableCell>
                         <TableCell>{order.client_nom}</TableCell>
+                        {isLivreur && <TableCell className="max-w-[180px] truncate">{order.adresse_livraison || '-'}</TableCell>}
                         {isLivreur && (
                           <TableCell>
                             <a
@@ -386,25 +509,40 @@ export default function OrdersPage() {
                           {(order.items || []).map((it: any) => `${it.reference_name} (${it.couleur}) x${it.quantite}`).join(', ')}
                         </TableCell>
                         <TableCell>{ZONES.find((z) => z.value === order.livraison_zone)?.label.split(' (')[0] || order.livraison_zone}</TableCell>
-                        {isLivreur && <TableCell className="max-w-[180px] truncate">{order.adresse_livraison || '-'}</TableCell>}
                         {!isPreparateur && <TableCell>{fmt(order.total_a_payer)}</TableCell>}
                         <TableCell>
                           <Badge className={statutInfo(order.statut_courant).color}>{statutInfo(order.statut_courant).label}</Badge>
                         </TableCell>
                         {isGerant && (
                           <TableCell className="text-xs">
-                            {assignedName ? (
-                              <div className="flex items-center gap-1.5 text-muted-foreground">
-                                <UserRound className="h-3.5 w-3.5 shrink-0" />
-                                <div>
-                                  <div className="text-foreground">{assignedName}</div>
-                                  {assignedAt && (
-                                    <div>{new Date(assignedAt).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</div>
-                                  )}
-                                </div>
-                              </div>
-                            ) : (
+                            {!order.preparateur_name && !order.livreur_name ? (
                               <span className="text-muted-foreground">-</span>
+                            ) : (
+                              <div className="space-y-1.5">
+                                {order.preparateur_name && (
+                                  <div className="flex items-center gap-1.5 text-muted-foreground">
+                                    <UserRound className="h-3.5 w-3.5 shrink-0" />
+                                    <div>
+                                      <div className="text-foreground">{order.preparateur_name}</div>
+                                      {fmtDT(preparedAt) && <div>{fmtDT(preparedAt)}</div>}
+                                    </div>
+                                  </div>
+                                )}
+                                {order.livreur_name && (
+                                  <div className="flex items-center gap-1.5 text-muted-foreground">
+                                    <Truck className="h-3.5 w-3.5 shrink-0" />
+                                    <div>
+                                      <div className="text-foreground">{order.livreur_name}</div>
+                                      {fmtDT(livreurAt) && (
+                                        <div>
+                                          {order.statut_courant === 'LIVRE' ? 'Livré le ' : ''}
+                                          {fmtDT(livreurAt)}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             )}
                           </TableCell>
                         )}
@@ -550,7 +688,7 @@ export default function OrdersPage() {
                 <span className="text-muted-foreground">Client</span>
                 <span className="font-medium">{actionNote.order.client_nom}</span>
               </div>
-              {isLivreur && (
+              {actionNote.order.telephone && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Téléphone</span>
                   <span>{actionNote.order.telephone}</span>
@@ -578,9 +716,23 @@ export default function OrdersPage() {
                 </ul>
               </div>
               {actionNote.order.total_a_payer != null && (
-                <div className="flex justify-between border-t pt-1.5 font-medium">
-                  <span>Total à payer</span>
-                  <span>{fmt(actionNote.order.total_a_payer)}</span>
+                <div className="border-t pt-1.5 space-y-0.5">
+                  {actionNote.order.livraison_zone !== 'RECUPERATION' && actionNote.order.frais_livraison != null && (
+                    <>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Prix de vente</span>
+                        <span>{fmt(Number(actionNote.order.total_a_payer) - Number(actionNote.order.frais_livraison))}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Frais de livraison</span>
+                        <span>{fmt(actionNote.order.frais_livraison)}</span>
+                      </div>
+                    </>
+                  )}
+                  <div className="flex justify-between font-medium">
+                    <span>Total</span>
+                    <span>{fmt(actionNote.order.total_a_payer)}</span>
+                  </div>
                 </div>
               )}
             </div>
@@ -774,14 +926,7 @@ function AssignStaffDialog({
               </SelectTrigger>
               <SelectContent>
                 {staff.map((s) => (
-                  <SelectItem key={s.id} value={String(s.id)}>
-                    <span className="flex items-center gap-2">
-                      {s.full_name}
-                      <Badge variant="outline" className={s.available ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}>
-                        {s.available ? 'Libre' : 'Occupé'}
-                      </Badge>
-                    </span>
-                  </SelectItem>
+                  <SelectItem key={s.id} value={String(s.id)}>{s.full_name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -1166,14 +1311,7 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
               <SelectTrigger><SelectValue placeholder="Assigner plus tard" /></SelectTrigger>
               <SelectContent>
                 {preparateurs.map((p) => (
-                  <SelectItem key={p.id} value={String(p.id)}>
-                    <span className="flex items-center gap-2">
-                      {p.full_name}
-                      <Badge variant="outline" className={p.available ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}>
-                        {p.available ? 'Libre' : 'Occupé'}
-                      </Badge>
-                    </span>
-                  </SelectItem>
+                  <SelectItem key={p.id} value={String(p.id)}>{p.full_name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>

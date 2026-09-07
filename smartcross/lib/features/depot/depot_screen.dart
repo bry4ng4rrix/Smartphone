@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
 import '../../core/constants.dart';
 import '../../models/order.dart';
 import '../../state/orders_provider.dart';
 import '../../widgets/async_state_widgets.dart';
+import '../../widgets/order_confirm_dialog.dart';
 import '../../widgets/status_badge.dart';
 
 /// Module Dépôt — Préparateur (§7.2 README) : UX mobile simplifiée, lecture
@@ -55,9 +57,11 @@ class _DepotCardState extends ConsumerState<_DepotCard> {
   Future<void> _advance() async {
     final order = widget.order;
     final target = order.statutCourant == OrderStatus.nouvelle ? OrderStatus.enPreparation : OrderStatus.prete;
+    final note = await showOrderConfirmDialog(context, title: 'Confirmer : ${target.label}', order: order);
+    if (note == null) return;
     setState(() => _loading = true);
     try {
-      await ref.read(ordersProvider.notifier).changeStatus(order.id, target.apiValue);
+      await ref.read(ordersProvider.notifier).changeStatus(order.id, target.apiValue, note: note);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
     } finally {
@@ -69,6 +73,7 @@ class _DepotCardState extends ConsumerState<_DepotCard> {
   Widget build(BuildContext context) {
     final order = widget.order;
     final isNouvelle = order.statutCourant == OrderStatus.nouvelle;
+    final dueToday = isJourJ(order.dateCommande);
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 6),
@@ -86,6 +91,17 @@ class _DepotCardState extends ConsumerState<_DepotCard> {
             ),
             const SizedBox(height: 6),
             Text(order.clientNom, style: const TextStyle(fontWeight: FontWeight.w600)),
+            if (order.telephone != null)
+              InkWell(
+                onTap: () => launchUrl(Uri.parse('tel:${order.telephone}')),
+                child: Row(
+                  children: [
+                    Icon(Icons.phone_outlined, size: 16, color: Theme.of(context).colorScheme.primary),
+                    const SizedBox(width: 6),
+                    Text(order.telephone!, style: TextStyle(color: Theme.of(context).colorScheme.primary, decoration: TextDecoration.underline)),
+                  ],
+                ),
+              ),
             const SizedBox(height: 4),
             for (final item in order.items) Text('• ${item.referenceName} — ${item.couleur} (x${item.quantite})'),
             const SizedBox(height: 6),
@@ -100,11 +116,15 @@ class _DepotCardState extends ConsumerState<_DepotCard> {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: _loading ? null : _advance,
+                onPressed: (_loading || !dueToday) ? null : _advance,
                 icon: _loading
                     ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
                     : const Icon(Icons.check),
-                label: Text(isNouvelle ? 'Commencer la préparation' : 'Commande prête'),
+                label: Text(
+                  !dueToday && order.dateCommande != null
+                      ? 'Disponible le ${dueDateLabel(order.dateCommande!)}'
+                      : (isNouvelle ? 'Commencer la préparation' : 'Commande prête'),
+                ),
               ),
             ),
           ],

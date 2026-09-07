@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 
 import '../../core/api_client.dart';
 import '../../core/constants.dart';
+import '../../data/repositories/orders_repository.dart';
 import '../../models/order.dart';
 import '../../state/orders_provider.dart';
 import '../../widgets/async_state_widgets.dart';
@@ -12,20 +13,58 @@ import '../../widgets/status_badge.dart';
 
 final _moneyFmt = NumberFormat.decimalPattern('fr_FR');
 String _ar(num v) => '${_moneyFmt.format(v.round())} Ar';
+final _dateFmt = DateFormat('dd/MM/yyyy');
 
-/// Module Commandes (§7.1 README) : liste filtrable par statut/date.
+/// Module Commandes (§7.1 README) : liste filtrable par statut/date/préparateur.
 class OrdersListScreen extends ConsumerWidget {
   const OrdersListScreen({super.key});
+
+  Future<void> _pickDateRange(BuildContext context, WidgetRef ref, OrdersFilter filter) async {
+    final range = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime.now().subtract(const Duration(days: 365)),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialDateRange: filter.dateDebut != null && filter.dateFin != null
+          ? DateTimeRange(start: filter.dateDebut!, end: filter.dateFin!)
+          : null,
+    );
+    if (range == null) return;
+    ref.read(ordersFilterProvider.notifier).set(filter.copyWith(dateDebut: range.start, dateFin: range.end));
+  }
+
+  Future<void> _pickPreparateur(BuildContext context, WidgetRef ref, OrdersFilter filter) async {
+    final selected = await showDialog<int?>(
+      context: context,
+      builder: (context) => _PreparateurPickerDialog(
+        loadStaff: () => ref.read(ordersProvider.notifier).availableStaff('PREPARATEUR'),
+      ),
+    );
+    if (selected == null && filter.preparateurId == null) return;
+    ref.read(ordersFilterProvider.notifier).set(
+          filter.copyWith(preparateurId: selected, clearPreparateurId: selected == null),
+        );
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(ordersProvider);
     final filter = ref.watch(ordersFilterProvider);
+    final hasActiveFilter = filter.statut != null || filter.dateDebut != null || filter.preparateurId != null;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Commandes'),
         actions: [
+          IconButton(
+            tooltip: 'Filtrer par date',
+            icon: const Icon(Icons.date_range_outlined),
+            onPressed: () => _pickDateRange(context, ref, filter),
+          ),
+          IconButton(
+            tooltip: 'Filtrer par préparateur',
+            icon: const Icon(Icons.person_search_outlined),
+            onPressed: () => _pickPreparateur(context, ref, filter),
+          ),
           PopupMenuButton<String?>(
             tooltip: 'Filtrer par statut',
             icon: const Icon(Icons.filter_list),
@@ -39,28 +78,113 @@ class OrdersListScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: () => ref.read(ordersProvider.notifier).refresh(),
-        child: switch (async) {
-          AsyncData(:final value) => value.isEmpty
-              ? const EmptyState(message: 'Aucune commande.', icon: Icons.receipt_long_outlined)
-              : ListView.builder(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: value.length,
-                  itemBuilder: (context, i) => _OrderTile(order: value[i]),
-                ),
-          AsyncError(:final error) => ErrorState(
-              message: ApiClient.messageFromError(error),
-              onRetry: () => ref.read(ordersProvider.notifier).refresh(),
+      body: Column(
+        children: [
+          if (hasActiveFilter)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  if (filter.statut != null)
+                    Chip(
+                      label: Text(OrderStatusX.fromApi(filter.statut).label),
+                      onDeleted: () => ref.read(ordersFilterProvider.notifier).set(filter.copyWith(clearStatut: true)),
+                    ),
+                  if (filter.dateDebut != null && filter.dateFin != null)
+                    Chip(
+                      label: Text('${_dateFmt.format(filter.dateDebut!)} → ${_dateFmt.format(filter.dateFin!)}'),
+                      onDeleted: () => ref.read(ordersFilterProvider.notifier).set(
+                            OrdersFilter(statut: filter.statut, preparateurId: filter.preparateurId),
+                          ),
+                    ),
+                  if (filter.preparateurId != null)
+                    Chip(
+                      label: const Text('Préparateur'),
+                      onDeleted: () => ref.read(ordersFilterProvider.notifier).set(filter.copyWith(clearPreparateurId: true)),
+                    ),
+                ],
+              ),
             ),
-          _ => const LoadingState(),
-        },
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: () => ref.read(ordersProvider.notifier).refresh(),
+              child: switch (async) {
+                AsyncData(:final value) => value.isEmpty
+                    ? const EmptyState(message: 'Aucune commande.', icon: Icons.receipt_long_outlined)
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(12),
+                        itemCount: value.length,
+                        itemBuilder: (context, i) => _OrderTile(order: value[i]),
+                      ),
+                AsyncError(:final error) => ErrorState(
+                    message: ApiClient.messageFromError(error),
+                    onRetry: () => ref.read(ordersProvider.notifier).refresh(),
+                  ),
+                _ => const LoadingState(),
+              },
+            ),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => context.push('/orders/new'),
         icon: const Icon(Icons.add),
         label: const Text('Nouvelle commande'),
       ),
+    );
+  }
+}
+
+class _PreparateurPickerDialog extends StatefulWidget {
+  const _PreparateurPickerDialog({required this.loadStaff});
+  final Future<List<StaffOption>> Function() loadStaff;
+
+  @override
+  State<_PreparateurPickerDialog> createState() => _PreparateurPickerDialogState();
+}
+
+class _PreparateurPickerDialogState extends State<_PreparateurPickerDialog> {
+  List<StaffOption>? _staff;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.loadStaff().then((staff) {
+      if (mounted) setState(() { _staff = staff; _loading = false; });
+    }).catchError((_) {
+      if (mounted) setState(() => _loading = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Filtrer par préparateur'),
+      content: SizedBox(
+        width: 320,
+        child: _loading
+            ? const SizedBox(height: 80, child: Center(child: CircularProgressIndicator()))
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ListTile(
+                    title: const Text('Tous'),
+                    onTap: () => Navigator.of(context).pop(null),
+                  ),
+                  for (final s in _staff ?? [])
+                    ListTile(
+                      title: Text(s.fullName),
+                      onTap: () => Navigator.of(context).pop(s.id),
+                    ),
+                ],
+              ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Fermer')),
+      ],
     );
   }
 }

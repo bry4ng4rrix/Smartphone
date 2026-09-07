@@ -8,13 +8,15 @@ import '../../core/constants.dart';
 import '../../models/order.dart';
 import '../../state/orders_provider.dart';
 import '../../widgets/async_state_widgets.dart';
+import '../../widgets/order_confirm_dialog.dart';
 import '../../widgets/status_badge.dart';
 
 final _moneyFmt = NumberFormat.decimalPattern('fr_FR');
 String _ar(num v) => '${_moneyFmt.format(v.round())} Ar';
 
-/// Module Livreur (§7.3 README) : UX ultra simplifiée, orientée tournée.
-/// Le serveur ne renvoie que PRETE (à récupérer) et EN_LIVRAISON (du jour).
+/// Module Livreur (§7.3 README) : UX ultra simplifiée, orientée tournée. Le
+/// serveur renvoie aussi les commandes "En préparation" (visibilité/planning,
+/// pas encore actionnable pour ce rôle) en plus de PRETE/EN_LIVRAISON.
 class TourneeScreen extends ConsumerWidget {
   const TourneeScreen({super.key});
 
@@ -67,11 +69,8 @@ class _TourneeCardState extends ConsumerState<_TourneeCard> {
     }
   }
 
-  Future<void> _confirmWithNote(OrderStatus target) async {
-    final note = await showDialog<String>(
-      context: context,
-      builder: (context) => _NoteDialog(title: target == OrderStatus.livre ? 'Confirmer la livraison' : 'Confirmer le retour'),
-    );
+  Future<void> _confirm(OrderStatus target) async {
+    final note = await showOrderConfirmDialog(context, title: 'Confirmer : ${target.label}', order: widget.order);
     if (note != null) _changeStatus(target, note: note);
   }
 
@@ -79,6 +78,8 @@ class _TourneeCardState extends ConsumerState<_TourneeCard> {
   Widget build(BuildContext context) {
     final order = widget.order;
     final isPrete = order.statutCourant == OrderStatus.prete;
+    final isEnPreparation = order.statutCourant == OrderStatus.enPreparation;
+    final dueToday = isJourJ(order.dateCommande);
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 6),
@@ -136,13 +137,27 @@ class _TourneeCardState extends ConsumerState<_TourneeCard> {
             const SizedBox(height: 12),
             if (_loading)
               const Center(child: CircularProgressIndicator(strokeWidth: 2))
+            else if (isEnPreparation)
+              // Visible pour planning uniquement — pas encore prête, rien à
+              // faire ici pour le livreur.
+              Row(
+                children: [
+                  Icon(Icons.hourglass_empty, size: 16, color: Theme.of(context).colorScheme.outline),
+                  const SizedBox(width: 6),
+                  Text('En cours de préparation', style: TextStyle(color: Theme.of(context).colorScheme.outline)),
+                ],
+              )
             else if (isPrete)
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed: () => _changeStatus(OrderStatus.enLivraison),
+                  onPressed: dueToday ? () => _confirm(OrderStatus.enLivraison) : null,
                   icon: const Icon(Icons.play_arrow),
-                  label: const Text('Récupérer le colis'),
+                  label: Text(
+                    dueToday || order.dateCommande == null
+                        ? 'Récupérer le colis'
+                        : 'Disponible le ${dueDateLabel(order.dateCommande!)}',
+                  ),
                 ),
               )
             else
@@ -150,7 +165,7 @@ class _TourneeCardState extends ConsumerState<_TourneeCard> {
                 children: [
                   Expanded(
                     child: FilledButton.icon(
-                      onPressed: () => _confirmWithNote(OrderStatus.livre),
+                      onPressed: dueToday ? () => _confirm(OrderStatus.livre) : null,
                       icon: const Icon(Icons.check),
                       label: const Text('Livré'),
                     ),
@@ -158,7 +173,7 @@ class _TourneeCardState extends ConsumerState<_TourneeCard> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: () => _confirmWithNote(OrderStatus.retour),
+                      onPressed: dueToday ? () => _confirm(OrderStatus.retour) : null,
                       icon: const Icon(Icons.undo),
                       label: const Text('Retour'),
                       style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
@@ -169,40 +184,6 @@ class _TourneeCardState extends ConsumerState<_TourneeCard> {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _NoteDialog extends StatefulWidget {
-  const _NoteDialog({required this.title});
-  final String title;
-
-  @override
-  State<_NoteDialog> createState() => _NoteDialogState();
-}
-
-class _NoteDialogState extends State<_NoteDialog> {
-  final _controller = TextEditingController();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.title),
-      content: TextField(
-        controller: _controller,
-        decoration: const InputDecoration(labelText: 'Note (optionnel)', hintText: 'ex : client absent'),
-        maxLines: 2,
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
-        FilledButton(onPressed: () => Navigator.of(context).pop(_controller.text.trim()), child: const Text('Confirmer')),
-      ],
     );
   }
 }

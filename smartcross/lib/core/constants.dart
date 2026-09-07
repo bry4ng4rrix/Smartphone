@@ -44,7 +44,7 @@ extension UserRoleX on UserRole {
 }
 
 /// Les 6 statuts de commande, dans l'ordre strict du workflow (§5 README).
-enum OrderStatus { nouvelle, enPreparation, prete, enLivraison, livre, retour }
+enum OrderStatus { nouvelle, enPreparation, prete, enLivraison, livre, retour, annulee }
 
 extension OrderStatusX on OrderStatus {
   static OrderStatus fromApi(String? value) {
@@ -61,6 +61,8 @@ extension OrderStatusX on OrderStatus {
         return OrderStatus.livre;
       case 'RETOUR':
         return OrderStatus.retour;
+      case 'ANNULEE':
+        return OrderStatus.annulee;
       default:
         return OrderStatus.nouvelle;
     }
@@ -80,6 +82,8 @@ extension OrderStatusX on OrderStatus {
         return 'LIVRE';
       case OrderStatus.retour:
         return 'RETOUR';
+      case OrderStatus.annulee:
+        return 'ANNULEE';
     }
   }
 
@@ -97,6 +101,8 @@ extension OrderStatusX on OrderStatus {
         return 'Livrée';
       case OrderStatus.retour:
         return 'Retour';
+      case OrderStatus.annulee:
+        return 'Annulée';
     }
   }
 }
