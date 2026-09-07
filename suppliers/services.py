@@ -5,7 +5,7 @@ from catalog.services import apply_stock_movement
 
 
 @transaction.atomic
-def create_supplier_order(*, magasin, description, prix_fournisseur, fret_import, douane, meta_ads, lines, created_by):
+def create_supplier_order(*, magasin, description, prix_fournisseur, fret_import, douane, lines, created_by):
     from .models import SupplierOrder, SupplierOrderLine
 
     supplier_order = SupplierOrder.objects.create(
@@ -14,7 +14,6 @@ def create_supplier_order(*, magasin, description, prix_fournisseur, fret_import
         prix_fournisseur=prix_fournisseur,
         fret_import=fret_import,
         douane=douane,
-        meta_ads=meta_ads,
         created_by=created_by,
     )
     for line in lines:
@@ -29,7 +28,7 @@ def create_supplier_order(*, magasin, description, prix_fournisseur, fret_import
 
 @transaction.atomic
 def recompute_costs(supplier_order):
-    """Coût total = fournisseur + fret + douane + pub ; coût unitaire =
+    """Coût total = fournisseur + fret + douane ; coût unitaire =
     coût total / quantité totale ; réparti sur chaque ligne (§7.6 Smartreadme.md)."""
 
     lines = list(supplier_order.lines.select_related("product_variant").all())
@@ -39,7 +38,6 @@ def recompute_costs(supplier_order):
         supplier_order.prix_fournisseur
         + supplier_order.fret_import
         + supplier_order.douane
-        + supplier_order.meta_ads
     )
     cout_unitaire = (cout_total / total_qty) if total_qty else 0
 

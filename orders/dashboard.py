@@ -75,8 +75,7 @@ class DashboardView(APIView):
         }
 
         # Coût de revient réel (§7.6/§7.7) — commandes fournisseur de la
-        # période, imputées au pilotage qu'elles soient reçues ou non
-        # (le budget pub Meta Ads notamment est engagé dès la commande).
+        # période, imputées au pilotage qu'elles soient reçues ou non.
         from suppliers.models import SupplierOrder
 
         supplier_qs = SupplierOrder.objects.filter(magasin__in=magasins)
@@ -84,13 +83,12 @@ class DashboardView(APIView):
             supplier_qs = supplier_qs.filter(date__gte=date_from)
         if date_to:
             supplier_qs = supplier_qs.filter(date__lte=date_to)
-        total_meta_ads = supplier_qs.aggregate(total=Sum("meta_ads"))["total"] or 0
         total_fournisseurs = supplier_qs.aggregate(
             total=Sum("prix_fournisseur") + Sum("fret_import") + Sum("douane")
         )["total"] or 0
 
-        # Bénéfice estimé = CA + Livraisons − Fournisseurs − Pub (§7.7 Smartreadme.md).
-        benefice_estime = (ca_produits + frais_livraison_total) - total_fournisseurs - total_meta_ads
+        # Bénéfice estimé = CA + Livraisons − Fournisseurs (§7.7 Smartreadme.md).
+        benefice_estime = (ca_produits + frais_livraison_total) - total_fournisseurs
 
         items_livres = OrderItem.objects.filter(order__in=livrees)
         top_par_sous_type = _top_entries(items_livres, "product_variant__product_reference__type__nom")
@@ -173,7 +171,6 @@ class DashboardView(APIView):
                 "ca_produits_vendus": ca_produits,
                 "frais_livraison_encaisses": frais_livraison_total,
                 "total_investi_fournisseurs": total_fournisseurs,
-                "total_pub_meta_ads": total_meta_ads,
                 "benefice_estime": benefice_estime,
             },
             "top_produits": {

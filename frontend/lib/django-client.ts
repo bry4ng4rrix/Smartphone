@@ -943,7 +943,6 @@ class DjangoAPIClient {
       prix_fournisseur: number | string
       fret_import: number | string
       douane: number | string
-      meta_ads: number | string
       lines: { product_variant: number; quantite: number }[]
       magasin_id?: number
     }) => {

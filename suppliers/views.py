@@ -40,7 +40,6 @@ class SupplierOrderViewSet(viewsets.ModelViewSet):
             prix_fournisseur=data["prix_fournisseur"],
             fret_import=data["fret_import"],
             douane=data["douane"],
-            meta_ads=data["meta_ads"],
             lines=data["lines"],
             created_by=request.user,
         )

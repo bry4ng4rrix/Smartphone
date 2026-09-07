@@ -6,7 +6,7 @@ from catalog.models import ProductVariant
 
 class SupplierOrder(models.Model):
     """Commande fournisseur (§7.6 Smartreadme.md) — permet de calculer le
-    coût de revient réel : marchandise + fret/import + douane + pub Meta Ads."""
+    coût de revient réel : marchandise + fret/import + douane."""
 
     STATUT_CHOICES = (
         ("BROUILLON", "Brouillon"),
@@ -25,7 +25,6 @@ class SupplierOrder(models.Model):
     prix_fournisseur = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     fret_import = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     douane = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    meta_ads = models.DecimalField(max_digits=14, decimal_places=2, default=0)
 
     # Calculés automatiquement (§7.6) via suppliers/services.py::recompute_costs.
     total_qty = models.PositiveIntegerField(default=0, editable=False)

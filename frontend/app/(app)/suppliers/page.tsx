@@ -69,7 +69,7 @@ export default function SuppliersPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><Truck className="h-6 w-6" /> Fournisseurs</h1>
-          <p className="text-sm text-muted-foreground">Coût de revient réel : marchandise + fret/import + douane + pub Meta Ads (§7.6 du cahier des charges).</p>
+          <p className="text-sm text-muted-foreground">Coût de revient réel : marchandise + fret/import + douane (§7.6 du cahier des charges).</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="icon" onClick={() => fetchOrders()}><RefreshCw className="h-4 w-4" /></Button>
@@ -133,7 +133,6 @@ export default function SuppliersPage() {
                   <div><p className="text-muted-foreground text-xs">Prix fournisseur</p><p>{fmt(detail.prix_fournisseur)}</p></div>
                   <div><p className="text-muted-foreground text-xs">Fret/import</p><p>{fmt(detail.fret_import)}</p></div>
                   <div><p className="text-muted-foreground text-xs">Douane</p><p>{fmt(detail.douane)}</p></div>
-                  <div><p className="text-muted-foreground text-xs">Pub Meta Ads</p><p>{fmt(detail.meta_ads)}</p></div>
                 </div>
                 <div className="flex justify-between border-t pt-2 font-medium">
                   <span>Coût total ({detail.total_qty} u.)</span><span>{fmt(detail.cout_total)}</span>
@@ -173,7 +172,6 @@ function CreateSupplierOrderDialog({ open, onOpenChange, onCreated }: { open: bo
   const [prixFournisseur, setPrixFournisseur] = useState('0');
   const [fretImport, setFretImport] = useState('0');
   const [douane, setDouane] = useState('0');
-  const [metaAds, setMetaAds] = useState('0');
   const [lines, setLines] = useState<Line[]>([]);
   const [references, setReferences] = useState<any[]>([]);
   const [referenceId, setReferenceId] = useState('');
@@ -183,7 +181,7 @@ function CreateSupplierOrderDialog({ open, onOpenChange, onCreated }: { open: bo
 
   useEffect(() => {
     if (!open) return;
-    setDescription(''); setPrixFournisseur('0'); setFretImport('0'); setDouane('0'); setMetaAds('0');
+    setDescription(''); setPrixFournisseur('0'); setFretImport('0'); setDouane('0');
     setLines([]); setReferenceId(''); setVariantId(''); setQuantite(1);
     djangoClient.catalog.references.list().then(setReferences).catch(() => {});
   }, [open]);
@@ -202,7 +200,7 @@ function CreateSupplierOrderDialog({ open, onOpenChange, onCreated }: { open: bo
   };
 
   const totalQty = lines.reduce((s, l) => s + l.quantite, 0);
-  const coutTotal = Number(prixFournisseur || 0) + Number(fretImport || 0) + Number(douane || 0) + Number(metaAds || 0);
+  const coutTotal = Number(prixFournisseur || 0) + Number(fretImport || 0) + Number(douane || 0);
   const coutUnitaire = totalQty > 0 ? coutTotal / totalQty : 0;
 
   const submit = async () => {
@@ -211,7 +209,7 @@ function CreateSupplierOrderDialog({ open, onOpenChange, onCreated }: { open: bo
     try {
       await djangoClient.suppliers.create({
         description,
-        prix_fournisseur: prixFournisseur, fret_import: fretImport, douane, meta_ads: metaAds,
+        prix_fournisseur: prixFournisseur, fret_import: fretImport, douane,
         lines: lines.map((l) => ({ product_variant: l.variant_id, quantite: l.quantite })),
       });
       toast.success('Commande fournisseur créée');
@@ -240,7 +238,6 @@ function CreateSupplierOrderDialog({ open, onOpenChange, onCreated }: { open: bo
             <div className="space-y-1"><Label>Prix fournisseur (Ar)</Label><Input type="number" value={prixFournisseur} onChange={(e) => setPrixFournisseur(e.target.value)} /></div>
             <div className="space-y-1"><Label>Fret/import (Ar)</Label><Input type="number" value={fretImport} onChange={(e) => setFretImport(e.target.value)} /></div>
             <div className="space-y-1"><Label>Douane (Ar)</Label><Input type="number" value={douane} onChange={(e) => setDouane(e.target.value)} /></div>
-            <div className="space-y-1"><Label>Pub Meta Ads (Ar)</Label><Input type="number" value={metaAds} onChange={(e) => setMetaAds(e.target.value)} /></div>
           </div>
 
           <div className="border rounded-lg p-3 space-y-2 bg-muted/30">

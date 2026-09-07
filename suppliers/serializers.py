@@ -26,7 +26,7 @@ class SupplierOrderSerializer(serializers.ModelSerializer):
         model = SupplierOrder
         fields = [
             "id", "magasin", "numero", "date", "description", "statut",
-            "prix_fournisseur", "fret_import", "douane", "meta_ads",
+            "prix_fournisseur", "fret_import", "douane",
             "total_qty", "cout_total", "cout_unitaire", "lines",
             "created_at", "received_at",
         ]
@@ -43,7 +43,6 @@ class SupplierOrderCreateSerializer(serializers.Serializer):
     prix_fournisseur = serializers.DecimalField(max_digits=14, decimal_places=2, default=0)
     fret_import = serializers.DecimalField(max_digits=14, decimal_places=2, default=0)
     douane = serializers.DecimalField(max_digits=14, decimal_places=2, default=0)
-    meta_ads = serializers.DecimalField(max_digits=14, decimal_places=2, default=0)
     lines = SupplierOrderLineInputSerializer(many=True)
 
     def validate_lines(self, value):
