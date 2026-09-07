@@ -782,7 +782,7 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
   const [searching, setSearching] = useState(false);
   const [selectedRef, setSelectedRef] = useState<any | null>(null);
   const [variantId, setVariantId] = useState<number | null>(null);
-  const [quantite, setQuantite] = useState(1);
+  const [quantite, setQuantite] = useState('');
 
   useEffect(() => {
     if (!open) return;
@@ -795,7 +795,7 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
     setClientNom(''); setTelephone('+261'); setZone(isPreparateur ? 'RECUPERATION' : 'ZONE1'); setAdresseLivraison('');
     setDateCommande(toDatetimeLocalValue(new Date())); setNote(''); setItems([]);
     setCategoryId(null); setTypeId(null); setBrandId(null); setPreparateurId('');
-    setQuery(''); setSuggestions([]); setSelectedRef(null); setVariantId(null); setQuantite(1);
+    setQuery(''); setSuggestions([]); setSelectedRef(null); setVariantId(null); setQuantite('');
   }, [open, isPreparateur]);
 
   const typesForCategory = categoryId ? types.filter((t) => t.category === categoryId) : types;
@@ -823,15 +823,17 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
     if (!selectedRef || !variantId) { toast.error('Sélectionnez une référence et une couleur'); return; }
     const variant = selectedRef.couleurs.find((c: any) => c.variant_id === variantId);
     if (!variant) return;
-    if (quantite > variant.stock_actuel) { toast.error(`Stock insuffisant (disponible: ${variant.stock_actuel})`); return; }
+    const qty = Number(quantite);
+    if (!qty || qty < 1) { toast.error('Quantité invalide'); return; }
+    if (qty > variant.stock_actuel) { toast.error(`Stock insuffisant (disponible: ${variant.stock_actuel})`); return; }
     setItems((prev) => [...prev, {
       key: `${variantId}-${Date.now()}`,
       type_id: selectedRef.type, type_name: selectedRef.type_name,
       reference_id: selectedRef.id, reference_label: `${selectedRef.brand_name} ${selectedRef.reference_name}`,
       prix_vente: Number(selectedRef.prix_vente),
-      variant_id: variantId, couleur: variant.couleur, stock_actuel: variant.stock_actuel, quantite,
+      variant_id: variantId, couleur: variant.couleur, stock_actuel: variant.stock_actuel, quantite: qty,
     }]);
-    setQuery(''); setSuggestions([]); setSelectedRef(null); setVariantId(null); setQuantite(1);
+    setQuery(''); setSuggestions([]); setSelectedRef(null); setVariantId(null); setQuantite('');
   };
 
   const submit = async () => {
@@ -1082,7 +1084,7 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
               </div>
               <div className="space-y-1">
                 <Label>Quantité</Label>
-                <Input type="number" min={1} value={quantite} onChange={(e) => setQuantite(Math.max(1, Number(e.target.value)))} />
+                <Input type="number" min={1} placeholder="Ex: 1" value={quantite} onChange={(e) => setQuantite(e.target.value)} />
               </div>
               {showPrices && (
                 <div className="space-y-1">

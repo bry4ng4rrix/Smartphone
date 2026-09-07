@@ -178,15 +178,15 @@ function CreateSupplierOrderDialog({ open, onOpenChange, onCreated }: { open: bo
   const [categories, setCategories] = useState<any[]>([]);
   const [filterBrandId, setFilterBrandId] = useState('');
   const [filterCategoryId, setFilterCategoryId] = useState('');
-  const [referenceId, setReferenceId] = useState('');
+  const [variantSearch, setVariantSearch] = useState('');
   const [variantId, setVariantId] = useState('');
-  const [quantite, setQuantite] = useState(1);
+  const [quantite, setQuantite] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setDescription(''); setPrixFournisseur('0'); setFretImport('0'); setDouane('0');
-    setLines([]); setReferenceId(''); setVariantId(''); setQuantite(1);
+    setLines([]); setVariantId(''); setQuantite(''); setVariantSearch('');
     setFilterBrandId(''); setFilterCategoryId('');
     djangoClient.catalog.brands.list().then(setBrands).catch(() => {});
     djangoClient.catalog.categories.list().then(setCategories).catch(() => {});
@@ -203,17 +203,27 @@ function CreateSupplierOrderDialog({ open, onOpenChange, onCreated }: { open: bo
       .catch(() => {});
   }, [open, filterBrandId, filterCategoryId]);
 
-  const selectedRef = references.find((r) => String(r.id) === referenceId);
+  const variantOptions = references.flatMap((r) =>
+    (r.variants || []).map((v: any) => ({
+      id: v.id,
+      label: `${r.brand_name} ${r.reference_name} (${v.couleur})`,
+    })),
+  );
+  const filteredVariantOptions = variantSearch.trim()
+    ? variantOptions.filter((o) => o.label.toLowerCase().includes(variantSearch.trim().toLowerCase()))
+    : variantOptions;
 
   const addLine = () => {
     if (!variantId) { toast.error('Choisissez une couleur'); return; }
-    const variant = selectedRef?.variants?.find((v: any) => String(v.id) === variantId);
-    if (!variant) return;
+    const qty = Number(quantite);
+    if (!qty || qty < 1) { toast.error('Quantité invalide'); return; }
+    const option = variantOptions.find((o) => String(o.id) === variantId);
+    if (!option) return;
     setLines((prev) => [...prev, {
       key: `${variantId}-${Date.now()}`, variant_id: Number(variantId),
-      label: `${selectedRef.brand_name} ${selectedRef.reference_name} (${variant.couleur})`, quantite,
+      label: option.label, quantite: qty,
     }]);
-    setReferenceId(''); setVariantId(''); setQuantite(1);
+    setVariantId(''); setQuantite('');
   };
 
   const totalQty = lines.reduce((s, l) => s + l.quantite, 0);
@@ -260,36 +270,52 @@ function CreateSupplierOrderDialog({ open, onOpenChange, onCreated }: { open: bo
           <div className="border rounded-lg p-3 space-y-2 bg-muted/30">
             <p className="text-sm font-medium">Ajouter une ligne</p>
             <div className="grid grid-cols-2 gap-2">
-              <Select value={filterBrandId} onValueChange={(v) => { setFilterBrandId(v); setReferenceId(''); setVariantId(''); }}>
-                <SelectTrigger><SelectValue placeholder="Marque" /></SelectTrigger>
-                <SelectContent>
-                  {brands.map((b) => <SelectItem key={b.id} value={String(b.id)}>{b.nom}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <Select value={filterCategoryId} onValueChange={(v) => { setFilterCategoryId(v); setReferenceId(''); setVariantId(''); }}>
-                <SelectTrigger><SelectValue placeholder="Catégorie" /></SelectTrigger>
-                <SelectContent>
-                  {categories.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.nom}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Marque</Label>
+                <Select value={filterBrandId} onValueChange={(v) => { setFilterBrandId(v); setVariantId(''); }}>
+                  <SelectTrigger><SelectValue placeholder="Marque" /></SelectTrigger>
+                  <SelectContent>
+                    {brands.map((b) => <SelectItem key={b.id} value={String(b.id)}>{b.nom}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Catégorie</Label>
+                <Select value={filterCategoryId} onValueChange={(v) => { setFilterCategoryId(v); setVariantId(''); }}>
+                  <SelectTrigger><SelectValue placeholder="Catégorie" /></SelectTrigger>
+                  <SelectContent>
+                    {categories.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.nom}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <Select value={referenceId} onValueChange={(v) => { setReferenceId(v); setVariantId(''); }}>
-              <SelectTrigger><SelectValue placeholder="Référence" /></SelectTrigger>
-              <SelectContent>
-                {references.map((r) => <SelectItem key={r.id} value={String(r.id)}>{r.brand_name} {r.reference_name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            {selectedRef && (
-              <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Rechercher</Label>
+              <Input
+                placeholder="Rechercher une référence ou couleur…"
+                value={variantSearch}
+                onChange={(e) => setVariantSearch(e.target.value)}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Couleur</Label>
                 <Select value={variantId} onValueChange={setVariantId}>
                   <SelectTrigger><SelectValue placeholder="Couleur" /></SelectTrigger>
                   <SelectContent>
-                    {(selectedRef.variants || []).map((v: any) => <SelectItem key={v.id} value={String(v.id)}>{v.couleur}</SelectItem>)}
+                    {filteredVariantOptions.length === 0 ? (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">Aucun résultat</div>
+                    ) : (
+                      filteredVariantOptions.map((o) => <SelectItem key={o.id} value={String(o.id)}>{o.label}</SelectItem>)
+                    )}
                   </SelectContent>
                 </Select>
-                <Input type="number" min={1} value={quantite} onChange={(e) => setQuantite(Math.max(1, Number(e.target.value)))} />
               </div>
-            )}
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Quantité</Label>
+                <Input type="number" min={1} placeholder="Ex: 10" value={quantite} onChange={(e) => setQuantite(e.target.value)} />
+              </div>
+            </div>
             <Button type="button" variant="secondary" size="sm" onClick={addLine}><Plus className="h-4 w-4 mr-2" /> Ajouter</Button>
           </div>
 
