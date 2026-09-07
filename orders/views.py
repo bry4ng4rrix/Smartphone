@@ -1,5 +1,5 @@
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied as DRFPermissionDenied
@@ -62,10 +62,26 @@ class OrderViewSet(viewsets.ModelViewSet):
         role = user_commande_role(self.request.user)
 
         if role in ("PREPARATEUR", "LIVREUR"):
-            # Ni préparateur ni livreur ne voit une commande prévue pour un
-            # jour futur — une commande de demain n'apparaît que demain (les
-            # commandes en retard restent visibles, pour ne pas les égarer).
-            qs = qs.filter(date_commande__date__lte=timezone.localdate())
+            if self.request.query_params.get("historique"):
+                # Historique personnel : toutes les commandes déjà désignées
+                # à cet utilisateur, tous statuts confondus, filtrables par
+                # date ET heure (§ demande) — pas de restriction "jour J" ici,
+                # c'est un journal, pas la file d'attente du jour.
+                qs = qs.filter(preparateur=self.request.user) if role == "PREPARATEUR" else qs.filter(livreur=self.request.user)
+                date_from = self.request.query_params.get("date_from")
+                date_to = self.request.query_params.get("date_to")
+                parsed_from = parse_datetime(date_from) if date_from else None
+                parsed_to = parse_datetime(date_to) if date_to else None
+                if parsed_from:
+                    qs = qs.filter(date_commande__gte=parsed_from)
+                if parsed_to:
+                    qs = qs.filter(date_commande__lte=parsed_to)
+                return qs.order_by("-date_commande")
+
+            # Ni préparateur ni livreur ne voit une action bloquée par le
+            # "jour J" comme un problème de visibilité : la commande reste
+            # affichée à l'avance (planning), seule l'action est retardée
+            # côté services.change_order_status.
             if role == "PREPARATEUR":
                 # + les récupérations sur place déjà prêtes (pas de livreur
                 # pour ce cas — le préparateur en garde le suivi jusqu'au
@@ -168,6 +184,23 @@ class OrderViewSet(viewsets.ModelViewSet):
                 note=serializer.validated_data.get("note", ""),
                 preparateur_id=serializer.validated_data.get("preparateur_id"),
                 livreur_id=serializer.validated_data.get("livreur_id"),
+                assigned_at=serializer.validated_data.get("assigned_at"),
+            )
+        except PermissionDenied as exc:
+            raise DRFPermissionDenied(str(exc))
+        except ValidationError as exc:
+            raise DRFValidationError(str(exc))
+
+        return Response(self.get_serializer(order).data)
+
+    @action(detail=True, methods=["post"], url_path="cancel")
+    def cancel(self, request, pk=None):
+        """POST /api/orders/{id}/cancel/ — annulation gérant (restitue le
+        stock si déjà déduit). Voir services.cancel_order."""
+        order = self.get_object()
+        try:
+            order = services.cancel_order(
+                order=order, user=request.user, note=request.data.get("note", ""),
             )
         except PermissionDenied as exc:
             raise DRFPermissionDenied(str(exc))

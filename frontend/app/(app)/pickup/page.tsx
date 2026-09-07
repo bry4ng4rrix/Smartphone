@@ -8,6 +8,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog';
 import { ShieldAlert, RefreshCw, PackageCheck, Phone } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -19,6 +22,7 @@ export default function PickupPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState<number | null>(null);
+  const [pickupTarget, setPickupTarget] = useState<any | null>(null);
 
   const fetchOrders = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -40,6 +44,7 @@ export default function PickupPage() {
     try {
       await djangoClient.orders.changeStatus(order.id, 'LIVRE');
       toast.success(`Commande ${order.numero} récupérée`);
+      setPickupTarget(null);
       fetchOrders(true);
     } catch (err: any) {
       toast.error(err.message || 'Action impossible');
@@ -111,7 +116,7 @@ export default function PickupPage() {
                 </div>
                 <div className="flex items-center justify-between border-t pt-3">
                   <span className="text-sm font-semibold">{fmt(order.total_a_payer)}</span>
-                  <Button size="sm" onClick={() => confirmPickup(order)} disabled={confirming === order.id}>
+                  <Button size="sm" onClick={() => setPickupTarget(order)} disabled={confirming === order.id}>
                     <PackageCheck className="h-4 w-4 mr-1" />
                     {confirming === order.id ? 'Confirmation...' : 'Marquer comme récupérée'}
                   </Button>
@@ -121,6 +126,23 @@ export default function PickupPage() {
           ))}
         </div>
       )}
+
+      <Dialog open={!!pickupTarget} onOpenChange={(o) => !o && setPickupTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmer la récupération de {pickupTarget?.numero} ?</DialogTitle>
+            <DialogDescription>
+              La commande de {pickupTarget?.client_nom} sera marquée comme livrée (récupérée sur place).
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPickupTarget(null)}>Annuler</Button>
+            <Button onClick={() => confirmPickup(pickupTarget)} disabled={confirming === pickupTarget?.id}>
+              {confirming === pickupTarget?.id ? 'Confirmation...' : 'Confirmer'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

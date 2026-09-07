@@ -21,7 +21,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { Plus, Trash2, Truck, Package, RefreshCw, Phone, ShoppingCart, Wrench, Boxes, CheckCircle2, Undo2, UserCheck, Pencil, UserRound } from 'lucide-react';
+import { Plus, Trash2, Truck, Package, RefreshCw, Phone, ShoppingCart, Wrench, Boxes, CheckCircle2, Undo2, UserCheck, Pencil, UserRound, Ban, History } from 'lucide-react';
 import { toast } from 'sonner';
 
 function IconAction({
@@ -61,8 +61,21 @@ const STATUTS = [
   { value: 'EN_LIVRAISON', label: 'En livraison', color: 'bg-purple-100 text-purple-800' },
   { value: 'LIVRE', label: 'Livré', color: 'bg-green-100 text-green-800' },
   { value: 'RETOUR', label: 'Retour', color: 'bg-red-100 text-red-800' },
+  { value: 'ANNULEE', label: 'Annulée', color: 'bg-zinc-200 text-zinc-800' },
 ];
 const statutInfo = (s: string) => STATUTS.find((x) => x.value === s) || STATUTS[0];
+
+// "Jour J" = jour du champ date_commande (planning) — le préparateur/livreur
+// voit toutes ses commandes à venir mais ne peut agir dessus qu'à partir de
+// ce jour (le serveur applique la même règle, voir orders/services.py).
+const isJourJ = (dateStr?: string | null) => {
+  if (!dateStr) return true;
+  const d = new Date(dateStr);
+  const today = new Date();
+  d.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+  return d.getTime() <= today.getTime();
+};
 
 const ZONES = [
   { value: 'ZONE1', label: 'Zone 1 (3 000 Ar)', frais: 3000 },
@@ -91,20 +104,32 @@ export default function OrdersPage() {
   const [statutFilter, setStatutFilter] = useState<string>('ALL');
   const [detail, setDetail] = useState<any | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [actionNote, setActionNote] = useState<{ order: any; target: string } | null>(null);
+  const [actionNote, setActionNote] = useState<{ order: any; target: string; label: string } | null>(null);
   const [assignTarget, setAssignTarget] = useState<{ order: any; role: 'PREPARATEUR' | 'LIVREUR' } | null>(null);
   const [editTarget, setEditTarget] = useState<any | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<any | null>(null);
+  const [cancelling, setCancelling] = useState(false);
   // Le préparateur suit séparément sa file "à préparer" (livraison) et ses
   // commandes "Récupération sur place" (qu'il peut créer lui-même).
   const [preparateurTab, setPreparateurTab] = useState<'A_PREPARER' | 'RECUPERATIONS'>('A_PREPARER');
+  // Onglet "Historique" (préparateur/livreur) — journal de leurs commandes
+  // déjà traitées, tous statuts, filtrable par date/heure.
+  const [viewMode, setViewMode] = useState<'ACTIF' | 'HISTORIQUE'>('ACTIF');
+  const [historiqueFrom, setHistoriqueFrom] = useState('');
+  const [historiqueTo, setHistoriqueTo] = useState('');
 
   const fetchOrders = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
       const filters: any = {};
       if (isGerant && statutFilter !== 'ALL') filters.statut = statutFilter;
+      if ((isPreparateur || isLivreur) && viewMode === 'HISTORIQUE') {
+        filters.historique = true;
+        if (historiqueFrom) filters.date_from = new Date(historiqueFrom).toISOString();
+        if (historiqueTo) filters.date_to = new Date(historiqueTo).toISOString();
+      }
       const data = await djangoClient.orders.list(filters);
       setOrders(data);
     } catch (err: any) {
@@ -112,13 +137,17 @@ export default function OrdersPage() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [isGerant, statutFilter]);
+  }, [isGerant, statutFilter, isPreparateur, isLivreur, viewMode, historiqueFrom, historiqueTo]);
 
   useRealtimeRefresh(['order', 'order_status_history'], () => fetchOrders(true));
   useEffect(() => { if (!userLoading) fetchOrders(); }, [userLoading, fetchOrders]);
 
-  const title = isPreparateur ? 'Dépôt — Commandes à préparer' : isLivreur ? 'Ma tournée' : 'Commandes';
-  const description = isPreparateur
+  const title = viewMode === 'HISTORIQUE'
+    ? 'Historique'
+    : isPreparateur ? 'Dépôt — Commandes à préparer' : isLivreur ? 'Ma tournée' : 'Commandes';
+  const description = viewMode === 'HISTORIQUE'
+    ? 'Vos commandes déjà traitées, tous statuts — filtrables par date et heure.'
+    : isPreparateur
     ? 'Commandes reçues à préparer, puis à marquer "Prête" pour le livreur.'
     : isLivreur
     ? 'Commandes prêtes à récupérer, puis "Livré" ou "Retour" une fois la tournée faite.'
@@ -147,7 +176,7 @@ export default function OrdersPage() {
     return null;
   };
 
-  const doChangeStatus = async (order: any, target: string, note?: string, assignee?: { preparateur_id?: number; livreur_id?: number }) => {
+  const doChangeStatus = async (order: any, target: string, note?: string, assignee?: { preparateur_id?: number; livreur_id?: number; assigned_at?: string }) => {
     try {
       await djangoClient.orders.changeStatus(order.id, target, note, assignee);
       toast.success(`Commande ${order.numero} → ${statutInfo(target).label}`);
@@ -174,7 +203,24 @@ export default function OrdersPage() {
     }
   };
 
-  const visibleOrders = isPreparateur
+  const handleCancelOrder = async () => {
+    if (!cancelTarget) return;
+    setCancelling(true);
+    try {
+      await djangoClient.orders.cancel(cancelTarget.id);
+      toast.success(`Commande ${cancelTarget.numero} annulée`);
+      setCancelTarget(null);
+      fetchOrders(true);
+    } catch (err: any) {
+      toast.error(err.message || 'Annulation impossible');
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  const visibleOrders = viewMode === 'HISTORIQUE'
+    ? orders
+    : isPreparateur
     ? orders.filter((o) => (preparateurTab === 'RECUPERATIONS' ? o.livraison_zone === 'RECUPERATION' : o.livraison_zone !== 'RECUPERATION'))
     : orders;
 
@@ -200,19 +246,63 @@ export default function OrdersPage() {
       {isPreparateur && (
         <div className="flex flex-wrap gap-2">
           <Button
-            variant={preparateurTab === 'A_PREPARER' ? 'default' : 'outline'}
+            variant={viewMode === 'ACTIF' && preparateurTab === 'A_PREPARER' ? 'default' : 'outline'}
             size="sm"
-            onClick={() => setPreparateurTab('A_PREPARER')}
+            onClick={() => { setViewMode('ACTIF'); setPreparateurTab('A_PREPARER'); }}
           >
             <Truck className="h-4 w-4 mr-2" /> À préparer
           </Button>
           <Button
-            variant={preparateurTab === 'RECUPERATIONS' ? 'default' : 'outline'}
+            variant={viewMode === 'ACTIF' && preparateurTab === 'RECUPERATIONS' ? 'default' : 'outline'}
             size="sm"
-            onClick={() => setPreparateurTab('RECUPERATIONS')}
+            onClick={() => { setViewMode('ACTIF'); setPreparateurTab('RECUPERATIONS'); }}
           >
             <Package className="h-4 w-4 mr-2" /> Récupérations
           </Button>
+          <Button
+            variant={viewMode === 'HISTORIQUE' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setViewMode('HISTORIQUE')}
+          >
+            <History className="h-4 w-4 mr-2" /> Historique
+          </Button>
+        </div>
+      )}
+
+      {isLivreur && (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant={viewMode === 'ACTIF' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setViewMode('ACTIF')}
+          >
+            <Truck className="h-4 w-4 mr-2" /> Ma tournée
+          </Button>
+          <Button
+            variant={viewMode === 'HISTORIQUE' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setViewMode('HISTORIQUE')}
+          >
+            <History className="h-4 w-4 mr-2" /> Historique
+          </Button>
+        </div>
+      )}
+
+      {(isPreparateur || isLivreur) && viewMode === 'HISTORIQUE' && (
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Du</Label>
+            <Input type="datetime-local" value={historiqueFrom} onChange={(e) => setHistoriqueFrom(e.target.value)} className="w-auto" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Au</Label>
+            <Input type="datetime-local" value={historiqueTo} onChange={(e) => setHistoriqueTo(e.target.value)} className="w-auto" />
+          </div>
+          {(historiqueFrom || historiqueTo) && (
+            <Button variant="ghost" size="sm" onClick={() => { setHistoriqueFrom(''); setHistoriqueTo(''); }}>
+              Réinitialiser
+            </Button>
+          )}
         </div>
       )}
 
@@ -269,6 +359,11 @@ export default function OrdersPage() {
                     const assignedStatus = order.preparateur_name ? 'EN_PREPARATION' : 'EN_LIVRAISON';
                     const assignedAt = (order.status_history || []).find((h: any) => h.nouveau_statut === assignedStatus)?.timestamp;
                     const canEditOrDelete = isGerant && order.statut_courant === 'NOUVELLE';
+                    const canCancel = isGerant && !['LIVRE', 'RETOUR', 'ANNULEE'].includes(order.statut_courant);
+                    const notYetDue = (isPreparateur || isLivreur) && !isJourJ(order.date_commande);
+                    const dueDateLabel = order.date_commande
+                      ? new Date(order.date_commande).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                      : '';
                     return (
                       <TableRow key={order.id} className="cursor-pointer" onClick={() => setDetail(order)}>
                         <TableCell className="font-medium">{order.numero}</TableCell>
@@ -317,27 +412,27 @@ export default function OrdersPage() {
                           <div className="flex items-center justify-end gap-1">
                             {action && (
                               <IconAction
-                                label={action.label}
+                                label={notYetDue ? `Disponible le ${dueDateLabel}` : action.label}
                                 icon={action.icon}
+                                disabled={notYetDue}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  if (isLivreur && order.statut_courant === 'EN_LIVRAISON') {
-                                    setActionNote({ order, target: action.target });
-                                  } else if (isGerant) {
+                                  if (isGerant) {
                                     setAssignTarget({ order, role: action.target === 'EN_PREPARATION' ? 'PREPARATEUR' : 'LIVREUR' });
                                   } else {
-                                    doChangeStatus(order, action.target);
+                                    setActionNote({ order, target: action.target, label: action.label });
                                   }
                                 }}
                               />
                             )}
                             {isLivreur && order.statut_courant === 'EN_LIVRAISON' && (
                               <IconAction
-                                label="Retour"
+                                label={notYetDue ? `Disponible le ${dueDateLabel}` : 'Retour'}
                                 icon={Undo2}
                                 variant="outline"
                                 className="text-red-600"
-                                onClick={(e) => { e.stopPropagation(); setActionNote({ order, target: 'RETOUR' }); }}
+                                disabled={notYetDue}
+                                onClick={(e) => { e.stopPropagation(); setActionNote({ order, target: 'RETOUR', label: 'Retour' }); }}
                               />
                             )}
                             {canEditOrDelete && (
@@ -346,6 +441,15 @@ export default function OrdersPage() {
                                 icon={Pencil}
                                 variant="outline"
                                 onClick={(e) => { e.stopPropagation(); setEditTarget(order); }}
+                              />
+                            )}
+                            {canCancel && (
+                              <IconAction
+                                label="Annuler la commande"
+                                icon={Ban}
+                                variant="outline"
+                                className="text-red-600"
+                                onClick={(e) => { e.stopPropagation(); setCancelTarget(order); }}
                               />
                             )}
                             {canEditOrDelete && (
@@ -433,14 +537,79 @@ export default function OrdersPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Note livreur (Livré / Retour) */}
+      {/* Confirmation avant toute action de statut (préparateur/livreur) */}
       <Dialog open={!!actionNote} onOpenChange={(o) => !o && setActionNote(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{actionNote?.target === 'RETOUR' ? 'Marquer un retour' : 'Marquer comme livré'}</DialogTitle>
-            <DialogDescription>Commande {actionNote?.order?.numero} — note optionnelle (ex: "client absent").</DialogDescription>
+            <DialogTitle>Confirmer : {actionNote?.label}</DialogTitle>
+            <DialogDescription>Commande {actionNote?.order?.numero} — vérifiez le résumé avant de confirmer.</DialogDescription>
           </DialogHeader>
-          <NoteForm onSubmit={(note) => actionNote && doChangeStatus(actionNote.order, actionNote.target, note)} />
+          {actionNote?.order && (
+            <div className="rounded-md border bg-muted/30 p-3 space-y-1.5 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Client</span>
+                <span className="font-medium">{actionNote.order.client_nom}</span>
+              </div>
+              {isLivreur && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Téléphone</span>
+                  <span>{actionNote.order.telephone}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Zone</span>
+                <span>{ZONES.find((z) => z.value === actionNote.order.livraison_zone)?.label.split(' (')[0] || actionNote.order.livraison_zone}</span>
+              </div>
+              {actionNote.order.adresse_livraison && (
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground shrink-0">Adresse</span>
+                  <span className="text-right">{actionNote.order.adresse_livraison}</span>
+                </div>
+              )}
+              <div className="border-t pt-1.5">
+                <span className="text-muted-foreground">Articles</span>
+                <ul className="mt-1 space-y-0.5">
+                  {(actionNote.order.items || []).map((it: any, i: number) => (
+                    <li key={i} className="flex justify-between">
+                      <span>{it.reference_name} ({it.couleur})</span>
+                      <span>x{it.quantite}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              {actionNote.order.total_a_payer != null && (
+                <div className="flex justify-between border-t pt-1.5 font-medium">
+                  <span>Total à payer</span>
+                  <span>{fmt(actionNote.order.total_a_payer)}</span>
+                </div>
+              )}
+            </div>
+          )}
+          <NoteForm
+            onCancel={() => setActionNote(null)}
+            onSubmit={(note) => actionNote && doChangeStatus(actionNote.order, actionNote.target, note)}
+          />
+        </DialogContent>
+      </Dialog>
+
+      {/* Annulation commande (gérant) — restitue le stock si déjà déduit */}
+      <Dialog open={!!cancelTarget} onOpenChange={(o) => !o && setCancelTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Annuler la commande {cancelTarget?.numero} ?</DialogTitle>
+            <DialogDescription>
+              La commande de {cancelTarget?.client_nom} sera annulée.
+              {cancelTarget && ['EN_PREPARATION', 'PRETE', 'EN_LIVRAISON'].includes(cancelTarget.statut_courant) && (
+                <> Le stock déjà déduit pour cette commande sera automatiquement restitué.</>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCancelTarget(null)}>Retour</Button>
+            <Button variant="destructive" onClick={handleCancelOrder} disabled={cancelling}>
+              {cancelling ? 'Annulation...' : 'Annuler la commande'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -456,13 +625,16 @@ export default function OrdersPage() {
         <AssignStaffDialog
           target={assignTarget}
           onOpenChange={(o) => !o && setAssignTarget(null)}
-          onAssign={(userId) =>
+          onAssign={(userId, assignedAt) =>
             assignTarget &&
             doChangeStatus(
               assignTarget.order,
               assignTarget.role === 'PREPARATEUR' ? 'EN_PREPARATION' : 'EN_LIVRAISON',
               undefined,
-              assignTarget.role === 'PREPARATEUR' ? { preparateur_id: userId } : { livreur_id: userId },
+              {
+                ...(assignTarget.role === 'PREPARATEUR' ? { preparateur_id: userId } : { livreur_id: userId }),
+                assigned_at: assignedAt,
+              },
             )
           }
         />
@@ -536,12 +708,13 @@ function OrderTimeline({ order }: { order: any }) {
   );
 }
 
-function NoteForm({ onSubmit }: { onSubmit: (note: string) => void }) {
+function NoteForm({ onSubmit, onCancel }: { onSubmit: (note: string) => void; onCancel?: () => void }) {
   const [note, setNote] = useState('');
   return (
     <div className="space-y-4">
       <Textarea placeholder="Note (optionnel)" value={note} onChange={(e) => setNote(e.target.value)} />
       <DialogFooter>
+        {onCancel && <Button variant="outline" onClick={onCancel}>Annuler</Button>}
         <Button onClick={() => onSubmit(note)}>Confirmer</Button>
       </DialogFooter>
     </div>
@@ -557,15 +730,17 @@ function AssignStaffDialog({
 }: {
   target: { order: any; role: 'PREPARATEUR' | 'LIVREUR' } | null;
   onOpenChange: (o: boolean) => void;
-  onAssign: (userId: number) => void;
+  onAssign: (userId: number, assignedAt?: string) => void;
 }) {
   const [staff, setStaff] = useState<{ id: number; full_name: string; available: boolean }[]>([]);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<string>('');
+  const [assignedAt, setAssignedAt] = useState('');
 
   useEffect(() => {
     if (!target) return;
     setSelected('');
+    setAssignedAt(toDatetimeLocalValue(new Date()));
     setLoading(true);
     djangoClient.orders
       .availableStaff(target.role, target.order.magasin)
@@ -582,7 +757,7 @@ function AssignStaffDialog({
         <DialogHeader>
           <DialogTitle>Assigner un {roleLabel}</DialogTitle>
           <DialogDescription>
-            Commande {target?.order?.numero} — seul un {roleLabel} libre peut être désigné.
+            Commande {target?.order?.numero} — choisissez manuellement qui prend cette commande en charge.
           </DialogDescription>
         </DialogHeader>
         {loading ? (
@@ -592,27 +767,44 @@ function AssignStaffDialog({
             Aucun {roleLabel} enregistré pour ce magasin.
           </p>
         ) : (
-          <Select value={selected} onValueChange={setSelected}>
-            <SelectTrigger>
-              <SelectValue placeholder={`Choisir un ${roleLabel}`} />
-            </SelectTrigger>
-            <SelectContent>
-              {staff.map((s) => (
-                <SelectItem key={s.id} value={String(s.id)} disabled={!s.available}>
-                  <span className="flex items-center gap-2">
-                    {s.full_name}
-                    <Badge variant="outline" className={s.available ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}>
-                      {s.available ? 'Libre' : 'Occupé'}
-                    </Badge>
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="space-y-3">
+            <Select value={selected} onValueChange={setSelected}>
+              <SelectTrigger>
+                <SelectValue placeholder={`Choisir un ${roleLabel}`} />
+              </SelectTrigger>
+              <SelectContent>
+                {staff.map((s) => (
+                  <SelectItem key={s.id} value={String(s.id)}>
+                    <span className="flex items-center gap-2">
+                      {s.full_name}
+                      <Badge variant="outline" className={s.available ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}>
+                        {s.available ? 'Libre' : 'Occupé'}
+                      </Badge>
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="space-y-1">
+              <Label>Date et heure</Label>
+              <Input
+                type="datetime-local"
+                value={assignedAt}
+                onChange={(e) => setAssignedAt(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">Vide = maintenant.</p>
+            </div>
+          </div>
         )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Annuler</Button>
-          <Button disabled={!selected} onClick={() => onAssign(Number(selected))}>
+          <Button
+            disabled={!selected}
+            onClick={() => onAssign(
+              Number(selected),
+              assignedAt ? new Date(assignedAt).toISOString() : undefined,
+            )}
+          >
             Assigner
           </Button>
         </DialogFooter>
@@ -766,6 +958,7 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
   const [items, setItems] = useState<CartItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [preparateurId, setPreparateurId] = useState('');
+  const [preparateurAssignedAt, setPreparateurAssignedAt] = useState('');
   const [preparateurs, setPreparateurs] = useState<{ id: number; full_name: string; available: boolean }[]>([]);
 
   // Sélecteur en cours d'ajout — filtres Catégorie → Sous-type + Marque,
@@ -795,6 +988,7 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
     setClientNom(''); setTelephone('+261'); setZone(isPreparateur ? 'RECUPERATION' : 'ZONE1'); setAdresseLivraison('');
     setDateCommande(toDatetimeLocalValue(new Date())); setNote(''); setItems([]);
     setCategoryId(null); setTypeId(null); setBrandId(null); setPreparateurId('');
+    setPreparateurAssignedAt(toDatetimeLocalValue(new Date()));
     setQuery(''); setSuggestions([]); setSelectedRef(null); setVariantId(null); setQuantite('');
   }, [open, isPreparateur]);
 
@@ -856,6 +1050,7 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
         try {
           await djangoClient.orders.changeStatus(order.id, 'EN_PREPARATION', undefined, {
             preparateur_id: Number(preparateurId),
+            assigned_at: preparateurAssignedAt ? new Date(preparateurAssignedAt).toISOString() : undefined,
           });
           toast.success('Commande créée et assignée');
         } catch (assignErr: any) {
@@ -971,7 +1166,7 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
               <SelectTrigger><SelectValue placeholder="Assigner plus tard" /></SelectTrigger>
               <SelectContent>
                 {preparateurs.map((p) => (
-                  <SelectItem key={p.id} value={String(p.id)} disabled={!p.available}>
+                  <SelectItem key={p.id} value={String(p.id)}>
                     <span className="flex items-center gap-2">
                       {p.full_name}
                       <Badge variant="outline" className={p.available ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}>
@@ -985,6 +1180,16 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
             <p className="text-xs text-muted-foreground">
               Optionnel — assigne et démarre la préparation dès la création de la commande.
             </p>
+            {preparateurId && (
+              <div className="space-y-1 pt-1">
+                <Label className="text-xs text-muted-foreground">Date et heure d'assignation</Label>
+                <Input
+                  type="datetime-local"
+                  value={preparateurAssignedAt}
+                  onChange={(e) => setPreparateurAssignedAt(e.target.value)}
+                />
+              </div>
+            )}
           </div>
         )}
 

@@ -136,3 +136,5 @@ class OrderStatusChangeSerializer(serializers.Serializer):
     # une auto-affectation par le préparateur/livreur concerné.
     preparateur_id = serializers.IntegerField(required=False, allow_null=True)
     livreur_id = serializers.IntegerField(required=False, allow_null=True)
+    # Heure manuelle optionnelle pour l'affectation (voir services.change_order_status).
+    assigned_at = serializers.DateTimeField(required=False, allow_null=True)

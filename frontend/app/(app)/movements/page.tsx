@@ -65,6 +65,8 @@ const getMovementTypeBadgeClass = (type: string) => {
       return "font-normal border-green-200 text-green-700 bg-green-50/50";
     case "Retour de commande":
       return "font-normal border-cyan-200 text-cyan-700 bg-cyan-50/50";
+    case "Annulation de commande":
+      return "font-normal border-red-200 text-red-700 bg-red-50/50";
     case "Préparation de commande":
       return "font-normal border-amber-200 text-amber-700 bg-amber-50/50";
     case "Commande livrée":

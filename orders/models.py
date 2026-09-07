@@ -16,6 +16,7 @@ class Order(models.Model):
         ("EN_LIVRAISON", "En livraison"),
         ("LIVRE", "Livré"),
         ("RETOUR", "Retour"),
+        ("ANNULEE", "Annulée"),
     )
 
     ZONE_CHOICES = (
@@ -130,7 +131,11 @@ class OrderStatusHistory(models.Model):
         "users.CustomUser", on_delete=models.SET_NULL, null=True, blank=True, related_name="order_status_changes"
     )
     note = models.CharField(max_length=255, blank=True, null=True)
-    timestamp = models.DateTimeField(auto_now_add=True)
+    # Pas `auto_now_add` : le gérant peut renseigner une heure manuelle pour
+    # l'affectation préparateur/livreur (ex: consigner une heure passée) —
+    # voir orders/services.py::change_order_status(assigned_at=...). Sans
+    # valeur fournie, se comporte comme auto_now_add (= maintenant).
+    timestamp = models.DateTimeField(default=timezone.now)
 
     class Meta:
         verbose_name = "Historique statut commande"

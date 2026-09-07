@@ -598,13 +598,25 @@ class DjangoAPIClient {
 
   // ==================== Orders Service (module Commandes, §5-§7 Smartreadme.md) ====================
   orders = {
-    list: async (filters?: { statut?: string; date_debut?: string; date_fin?: string; magasin_id?: number; livraison_zone?: string }) => {
+    list: async (filters?: {
+      statut?: string
+      date_debut?: string
+      date_fin?: string
+      magasin_id?: number
+      livraison_zone?: string
+      historique?: boolean
+      date_from?: string
+      date_to?: string
+    }) => {
       const params = new URLSearchParams()
       if (filters?.statut) params.append('statut', filters.statut)
       if (filters?.date_debut) params.append('date_debut', filters.date_debut)
       if (filters?.date_fin) params.append('date_fin', filters.date_fin)
       if (filters?.magasin_id) params.append('magasin_id', String(filters.magasin_id))
       if (filters?.livraison_zone) params.append('livraison_zone', filters.livraison_zone)
+      if (filters?.historique) params.append('historique', '1')
+      if (filters?.date_from) params.append('date_from', filters.date_from)
+      if (filters?.date_to) params.append('date_to', filters.date_to)
       const query = params.toString() ? `?${params.toString()}` : ''
       return this.get<any[]>(`/orders/${query}`)
     },
@@ -627,9 +639,12 @@ class DjangoAPIClient {
       id: number,
       statut: string,
       note?: string,
-      assignee?: { preparateur_id?: number; livreur_id?: number },
+      assignee?: { preparateur_id?: number; livreur_id?: number; assigned_at?: string },
     ) => {
       return this.post<any>(`/orders/${id}/status/`, { statut, note, ...assignee })
+    },
+    cancel: async (id: number, note?: string) => {
+      return this.post<any>(`/orders/${id}/cancel/`, { note })
     },
     availableStaff: async (role: 'PREPARATEUR' | 'LIVREUR', magasinId?: number) => {
       const params = new URLSearchParams({ role })
@@ -670,6 +685,7 @@ class DjangoAPIClient {
       const originLabel: Record<string, string> = {
         PREPARATION: 'Préparation de commande',
         RETOUR: 'Retour de commande',
+        ANNULATION: 'Annulation de commande',
         LIVRE: 'Commande livrée',
         FOURNISSEUR: 'Réception fournisseur',
         AJUSTEMENT: 'Ajustement manuel',

@@ -1,5 +1,6 @@
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.utils import timezone
 
 from catalog.services import apply_stock_movement
 from users.models import EmployerProfile, Notification
@@ -99,10 +100,12 @@ def create_order(*, magasin, client_nom, telephone, livraison_zone, items, note=
     return order
 
 
-def _resolve_assignee(*, order, role, requesting_user, requested_role, assignee_id, busy_check, field_name):
+def _resolve_assignee(*, order, role, requesting_user, requested_role, assignee_id, field_name):
     """Résout qui doit être assigné (préparateur/livreur) pour une
-    transition, et vérifie sa disponibilité (§ demande : un préparateur/
-    livreur occupé ne peut pas être désigné sur une autre commande).
+    transition. Le gérant désigne manuellement qui il veut (un préparateur/
+    livreur déjà occupé sur une autre commande reste sélectionnable — c'est
+    au gérant d'en juger, voir is_preparateur_busy/is_livreur_busy qui
+    restent utilisées côté "available-staff" comme simple indication).
 
     - Gérant : doit désigner explicitement quelqu'un (`assignee_id` requis).
     - Le rôle concerné (Préparateur/Livreur) lui-même : auto-affectation si
@@ -112,7 +115,7 @@ def _resolve_assignee(*, order, role, requesting_user, requested_role, assignee_
 
     if role == "GERANT":
         if not assignee_id:
-            raise ValidationError(f"Choisissez un {requested_role.lower()} disponible pour cette commande.")
+            raise ValidationError(f"Choisissez un {requested_role.lower()} pour cette commande.")
         try:
             user = CustomUser.objects.get(id=assignee_id, employer_profile__commande_role=requested_role)
         except CustomUser.DoesNotExist:
@@ -124,17 +127,15 @@ def _resolve_assignee(*, order, role, requesting_user, requested_role, assignee_
         if assignee_id and int(assignee_id) != user.id:
             raise PermissionDenied("Vous ne pouvez vous assigner que vous-même cette commande.")
 
-    if busy_check(user, exclude_order=order):
-        raise ValidationError(
-            f"{user.full_name} a déjà une commande en cours — choisissez un {requested_role.lower()} disponible."
-        )
-
     setattr(order, field_name, user)
     return user
 
 
 @transaction.atomic
-def change_order_status(*, order, new_status, user, note="", preparateur_id=None, livreur_id=None):
+def change_order_status(*, order, new_status, user, note="", preparateur_id=None, livreur_id=None, assigned_at=None):
+    """`assigned_at` : heure manuelle optionnelle (le gérant peut consigner
+    une heure passée pour l'affectation préparateur/livreur) — sans valeur,
+    l'historique prend l'heure réelle (maintenant), comme avant."""
     role = user_commande_role(user)
 
     # Cas spécial : retrait sur place ("Récupération") — aucun livreur
@@ -166,6 +167,16 @@ def change_order_status(*, order, new_status, user, note="", preparateur_id=None
             f"Seul le rôle {rule['role']} (ou le gérant) peut passer une commande à '{new_status}'."
         )
 
+    # Le préparateur/livreur voit toutes ses commandes à venir (planning),
+    # mais ne peut agir dessus qu'à partir du jour J (date_commande) — le
+    # gérant, lui, peut toujours forcer une transition en avance.
+    if role != "GERANT" and timezone.localtime(order.date_commande).date() > timezone.localdate():
+        raise PermissionDenied(
+            f"Cette commande est planifiée pour le "
+            f"{timezone.localtime(order.date_commande).strftime('%d/%m/%Y')} — "
+            "l'action ne sera possible qu'à partir de ce jour."
+        )
+
     # Une fois assignée, seule la personne désignée (ou le gérant) peut faire
     # progresser la commande — évite qu'un autre préparateur/livreur
     # n'interfère sur le travail de quelqu'un d'autre.
@@ -179,19 +190,20 @@ def change_order_status(*, order, new_status, user, note="", preparateur_id=None
     if new_status == "EN_PREPARATION":
         _resolve_assignee(
             order=order, role=role, requesting_user=user, requested_role="PREPARATEUR",
-            assignee_id=preparateur_id, busy_check=is_preparateur_busy, field_name="preparateur",
+            assignee_id=preparateur_id, field_name="preparateur",
         )
     if new_status == "EN_LIVRAISON":
         _resolve_assignee(
             order=order, role=role, requesting_user=user, requested_role="LIVREUR",
-            assignee_id=livreur_id, busy_check=is_livreur_busy, field_name="livreur",
+            assignee_id=livreur_id, field_name="livreur",
         )
 
     order.statut_courant = new_status
     order.save()
 
     OrderStatusHistory.objects.create(
-        order=order, ancien_statut=old_status, nouveau_statut=new_status, changed_by=user, note=note
+        order=order, ancien_statut=old_status, nouveau_statut=new_status, changed_by=user, note=note,
+        **({"timestamp": assigned_at} if assigned_at else {}),
     )
 
     # Le stock quitte physiquement le magasin au moment où le préparateur
@@ -235,5 +247,49 @@ def change_order_status(*, order, new_status, user, note="", preparateur_id=None
                 message=f"Commande {order.numero} prête — {order.client_nom} ({order.livraison_zone})",
                 order=order,
             )
+
+    return order
+
+
+# Une commande déjà "Livré"/"Retour"/"Annulée" est terminale — rien à annuler.
+_TERMINAL_STATUSES = {"LIVRE", "RETOUR", "ANNULEE"}
+# Le stock n'a été déduit qu'à partir de "En préparation" (voir plus haut) —
+# une commande encore "Nouvelle" n'a jamais touché le stock.
+_STOCK_DEDUCTED_STATUSES = {"EN_PREPARATION", "PRETE", "EN_LIVRAISON"}
+
+
+@transaction.atomic
+def cancel_order(*, order, user, note=""):
+    """Annulation d'une commande par le gérant — possible à n'importe quelle
+    étape non terminale. Si le stock avait déjà été déduit (préparation en
+    cours ou plus loin), il est intégralement restitué."""
+    role = user_commande_role(user)
+    if role != "GERANT":
+        raise PermissionDenied("Seul le gérant peut annuler une commande.")
+
+    if order.statut_courant in _TERMINAL_STATUSES:
+        raise ValidationError(
+            f"Cette commande est déjà '{order.get_statut_courant_display()}' — impossible de l'annuler."
+        )
+
+    old_status = order.statut_courant
+
+    if old_status in _STOCK_DEDUCTED_STATUSES:
+        for item in order.items.select_related("product_variant"):
+            apply_stock_movement(
+                product_variant=item.product_variant,
+                movement_type="ENTREE",
+                quantite=item.quantite,
+                origine="ANNULATION",
+                user=user,
+                reference=order.numero,
+            )
+
+    order.statut_courant = "ANNULEE"
+    order.save(update_fields=["statut_courant", "updated_at"])
+
+    OrderStatusHistory.objects.create(
+        order=order, ancien_statut=old_status, nouveau_statut="ANNULEE", changed_by=user, note=note,
+    )
 
     return order
