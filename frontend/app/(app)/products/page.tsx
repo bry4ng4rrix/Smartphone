@@ -1408,7 +1408,7 @@ function CreateReferenceDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Nouvelle référence produit</DialogTitle>
           <DialogDescription>
@@ -1418,7 +1418,7 @@ function CreateReferenceDialog({
         </DialogHeader>
 
         <div className="space-y-3">
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="space-y-1">
               <Label>Catégorie</Label>
               <Select
@@ -1428,8 +1428,8 @@ function CreateReferenceDialog({
                   setTypeId("");
                 }}
               >
-                <SelectTrigger>
-                  <SelectValue placeholder="Choisir une catégorie" />
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Choisir" />
                 </SelectTrigger>
                 <SelectContent>
                   {categories.map((c) => (
@@ -1444,8 +1444,8 @@ function CreateReferenceDialog({
             <div className="space-y-1">
               <Label>Marque</Label>
               <Select value={brandId} onValueChange={setBrandId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Choisir une marque" />
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Choisir" />
                 </SelectTrigger>
                 <SelectContent>
                   {brands.map((b) => (
@@ -1563,7 +1563,7 @@ function CreateReferenceDialog({
                     value={variantCouleurId}
                     onValueChange={setVariantCouleurId}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full">
                       <SelectValue placeholder="Choisir" />
                     </SelectTrigger>
                     <SelectContent>

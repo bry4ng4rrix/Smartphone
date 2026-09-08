@@ -1867,167 +1867,6 @@ function CreateOrderDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label>Nom client</Label>
-            <Input
-              value={clientNom}
-              onChange={(e) => setClientNom(e.target.value)}
-              placeholder="Rakoto Jean"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Téléphone</Label>
-            <Input
-              value={telephone}
-              onChange={(e) => setTelephone(e.target.value)}
-              placeholder="+261340000000"
-            />
-          </div>
-        </div>
-
-        {/* informations du client  */}
-
-        <div className="space-y-2">
-          <Label>Date et heure de la commande</Label>
-          <Input
-            type="datetime-local"
-            value={dateCommande}
-            onChange={(e) => setDateCommande(e.target.value)}
-          />
-          <p className="text-xs text-muted-foreground">Vide = maintenant.</p>
-        </div>
-        {isPreparateur ? (
-          <p className="text-xs text-muted-foreground -mt-2">
-            Retrait sur place uniquement — la commande apparaîtra dans
-            "Récupérations" une fois prête, à valider comme livrée au comptoir
-            par le gérant.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            <Label>Type de commande</Label>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant={zone !== "RECUPERATION" ? "default" : "outline"}
-                className="flex-1"
-                onClick={() => setZone("ZONE1")}
-              >
-                <Truck className="h-4 w-4 mr-2" /> À livrer
-              </Button>
-              <Button
-                type="button"
-                variant={zone === "RECUPERATION" ? "default" : "outline"}
-                className="flex-1"
-                onClick={() => setZone("RECUPERATION")}
-              >
-                <Package className="h-4 w-4 mr-2" /> Récupération sur place
-              </Button>
-            </div>
-            {zone === "RECUPERATION" && (
-              <p className="text-xs text-muted-foreground">
-                Pas de frais ni de livreur — la commande apparaîtra dans
-                "Récupération" une fois prête, à valider comme livrée au
-                comptoir quand le client vient la chercher.
-              </p>
-            )}
-          </div>
-        )}
-        {zone !== "RECUPERATION" && (
-          <div className="space-y-2 grid grid-cols-1 sm:grid-cols-2z gap-2 w-full">
-            <div className="space-y-2">
-              <Label>Zone de livraison</Label>
-              <Select value={zone} onValueChange={setZone}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {ZONES.filter((z) => z.value !== "RECUPERATION").map((z) => (
-                    <SelectItem key={z.value} value={z.value}>
-                      {z.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Adresse de livraison</Label>
-              <Input
-                value={adresseLivraison}
-                onChange={(e) => setAdresseLivraison(e.target.value)}
-                placeholder="Ex: Lot II M 45 Antanimena, Antananarivo"
-              />
-            </div>
-          </div>
-        )}
-        {!isPreparateur && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Préparateur</Label>
-              <Select value={preparateurId} onValueChange={setPreparateurId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Assigner plus tard" />
-                </SelectTrigger>
-                <SelectContent>
-                  {preparateurs.map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.full_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Optionnel — assigne et démarre la préparation dès la création de
-                la commande.
-              </p>
-              {preparateurId && (
-                <div className="space-y-1 pt-1">
-                  <Label className="text-xs text-muted-foreground">
-                    Date et heure d'assignation
-                  </Label>
-                  <Input
-                    type="datetime-local"
-                    value={preparateurAssignedAt}
-                    onChange={(e) => setPreparateurAssignedAt(e.target.value)}
-                  />
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label>Livreur</Label>
-              <Select value={livreurId} onValueChange={setLivreurId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Assigner plus tard" />
-                </SelectTrigger>
-                <SelectContent>
-                  {livreurs.map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.full_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Optionnel — affecte le livreur pour la livraison quand la
-                commande est prête.
-              </p>
-              {livreurId && (
-                <div className="space-y-1 pt-1">
-                  <Label className="text-xs text-muted-foreground">
-                    Date et heure d'assignation
-                  </Label>
-                  <Input
-                    type="datetime-local"
-                    value={livreurAssignedAt}
-                    onChange={(e) => setLivreurAssignedAt(e.target.value)}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* ajout de l'article  */}
 
         <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
@@ -2040,7 +1879,7 @@ function CreateOrderDialog({
                 setTypeId(null);
               }}
             >
-              <SelectTrigger>
+              <SelectTrigger className="w-full">
                 <SelectValue placeholder="Catégorie" />
               </SelectTrigger>
               <SelectContent>
@@ -2055,7 +1894,7 @@ function CreateOrderDialog({
               value={typeId ? String(typeId) : ""}
               onValueChange={(v) => setTypeId(Number(v))}
             >
-              <SelectTrigger>
+              <SelectTrigger className="w-full">
                 <SelectValue placeholder="Sous-type" />
               </SelectTrigger>
               <SelectContent>
@@ -2070,7 +1909,7 @@ function CreateOrderDialog({
               value={brandId ? String(brandId) : ""}
               onValueChange={(v) => setBrandId(Number(v))}
             >
-              <SelectTrigger>
+              <SelectTrigger className="w-full">
                 <SelectValue placeholder="Marque" />
               </SelectTrigger>
               <SelectContent>
@@ -2177,7 +2016,7 @@ function CreateOrderDialog({
                   value={variantId ? String(variantId) : ""}
                   onValueChange={(v) => setVariantId(Number(v))}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Couleur" />
                   </SelectTrigger>
                   <SelectContent>
@@ -2253,6 +2092,167 @@ function CreateOrderDialog({
             ))}
           </div>
         )}
+        {isPreparateur ? (
+          <p className="text-xs text-muted-foreground -mt-2">
+            Retrait sur place uniquement — la commande apparaîtra dans
+            "Récupérations" une fois prête, à valider comme livrée au comptoir
+            par le gérant.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            <Label>Type de commande</Label>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={zone !== "RECUPERATION" ? "default" : "outline"}
+                className="flex-1"
+                onClick={() => setZone("ZONE1")}
+              >
+                <Truck className="h-4 w-4 mr-2" /> À livrer
+              </Button>
+              <Button
+                type="button"
+                variant={zone === "RECUPERATION" ? "default" : "outline"}
+                className="flex-1"
+                onClick={() => setZone("RECUPERATION")}
+              >
+                <Package className="h-4 w-4 mr-2" /> Récupération sur place
+              </Button>
+            </div>
+            {zone === "RECUPERATION" && (
+              <p className="text-xs text-muted-foreground">
+                Pas de frais ni de livreur — la commande apparaîtra dans
+                "Récupération" une fois prête, à valider comme livrée au
+                comptoir quand le client vient la chercher.
+              </p>
+            )}
+          </div>
+        )}
+        <div className="space-y-2">
+          <Label>Date et heure de la commande</Label>
+          <Input
+            type="datetime-local"
+            value={dateCommande}
+            onChange={(e) => setDateCommande(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">Vide = maintenant.</p>
+        </div>
+        {!isPreparateur && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Préparateur</Label>
+              <Select value={preparateurId} onValueChange={setPreparateurId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Assigner plus tard" />
+                </SelectTrigger>
+                <SelectContent>
+                  {preparateurs.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>
+                      {p.full_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Optionnel — assigne et démarre la préparation dès la création de
+                la commande.
+              </p>
+              {preparateurId && (
+                <div className="space-y-1 pt-1">
+                  <Label className="text-xs text-muted-foreground">
+                    Date et heure d'assignation
+                  </Label>
+                  <Input
+                    type="datetime-local"
+                    value={preparateurAssignedAt}
+                    onChange={(e) => setPreparateurAssignedAt(e.target.value)}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Livreur</Label>
+              <Select value={livreurId} onValueChange={setLivreurId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Assigner plus tard" />
+                </SelectTrigger>
+                <SelectContent>
+                  {livreurs.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>
+                      {p.full_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Optionnel — affecte le livreur pour la livraison quand la
+                commande est prête.
+              </p>
+              {livreurId && (
+                <div className="space-y-1 pt-1">
+                  <Label className="text-xs text-muted-foreground">
+                    Date et heure d'assignation
+                  </Label>
+                  <Input
+                    type="datetime-local"
+                    value={livreurAssignedAt}
+                    onChange={(e) => setLivreurAssignedAt(e.target.value)}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        {zone !== "RECUPERATION" && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>Zone de livraison</Label>
+              <Select value={zone} onValueChange={setZone}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ZONES.filter((z) => z.value !== "RECUPERATION").map((z) => (
+                    <SelectItem key={z.value} value={z.value}>
+                      {z.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Adresse de livraison</Label>
+              <Input
+                value={adresseLivraison}
+                onChange={(e) => setAdresseLivraison(e.target.value)}
+                placeholder="Ex: Lot II M 45 Antanimena, Antananarivo"
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Nom client</Label>
+            <Input
+              value={clientNom}
+              onChange={(e) => setClientNom(e.target.value)}
+              placeholder="Rakoto Jean"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Téléphone</Label>
+            <Input
+              value={telephone}
+              onChange={(e) => setTelephone(e.target.value)}
+              placeholder="+261340000000"
+            />
+          </div>
+        </div>
+
+        {/* informations du client  */}
+
         <div className="space-y-2">
           <Label>Note (optionnel)</Label>
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} />
