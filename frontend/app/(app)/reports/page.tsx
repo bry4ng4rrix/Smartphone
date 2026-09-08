@@ -151,8 +151,6 @@ export default function ReportsPage() {
     { label: 'Bénéfice net', value: `${fmt(totalProfit)} Ar`, icon: TrendingUp, color: 'text-emerald-600' },
     { label: 'Unités vendues', value: `${fmt(totalQty)}`, icon: ShoppingBag, color: 'text-blue-600' },
     { label: 'Transactions', value: sales.length, icon: ShoppingBag, color: 'text-purple-600' },
-    { label: 'Ventes impayées', value: unpaidSales.length, icon: AlertTriangle, color: 'text-orange-600' },
-    { label: 'Montant impayé', value: `${fmt(unpaidValue)} Ar`, icon: AlertTriangle, color: 'text-red-600' },
     { label: 'Produits en stock', value: `${fmt(totalStock)} u.`, icon: Package, color: 'text-indigo-600' },
     { label: 'Alertes stock', value: lowStockCount + expiredCount, icon: AlertTriangle, color: 'text-amber-600' },
   ];

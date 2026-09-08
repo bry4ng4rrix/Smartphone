@@ -41,8 +41,6 @@ export default function DashboardPage() {
     totalSalesAllStores: 0,
     clientsCount: 0,
     totalProfit: 0,
-    unpaidSalesCount: 0,
-    unpaidAmount: 0,
   });
 
   // Charts
@@ -131,8 +129,6 @@ export default function DashboardPage() {
         totalSalesAllStores: rKpis.total_revenue || 0,
         clientsCount: rKpis.clients_count || rKpis.total_sales || 0,
         totalProfit: rKpis.total_profit || 0,
-        unpaidSalesCount: rKpis.unpaid_sales_count || 0,
-        unpaidAmount: rKpis.unpaid_sales_value || 0,
       });
 
       setCategoryChart(
@@ -254,24 +250,6 @@ export default function DashboardPage() {
                 icon={Users}
               />
             </div>
-            <div className="xl:col-span-2">
-              <KpiCard
-                title="Ventes impayées"
-                value={kpis.unpaidSalesCount}
-                sub="Transactions avec paiement en attente"
-                icon={AlertTriangle}
-                color="text-orange-600"
-              />
-            </div>
-            <div className="xl:col-span-2">
-              <KpiCard
-                title="Montant impayé"
-                value={`${fmt(kpis.unpaidAmount)} Ar`}
-                sub="Somme due sur ventes impayées"
-                icon={DollarSign}
-                color="text-red-600"
-              />
-            </div>
           </>
         ) : (
           <>
@@ -320,24 +298,6 @@ export default function DashboardPage() {
               />
             </div>
 
-            <div className="xl:col-span-2">
-              <KpiCard
-                title="Ventes impayées"
-                value={kpis.unpaidSalesCount}
-                sub="Transactions avec paiement en attente"
-                icon={AlertTriangle}
-                color="text-orange-600"
-              />
-            </div>
-            <div className="xl:col-span-2">
-              <KpiCard
-                title="Montant impayé"
-                value={`${fmt(kpis.unpaidAmount)} Ar`}
-                sub="Somme due sur ventes impayées"
-                icon={DollarSign}
-                color="text-red-600"
-              />
-            </div>
             <div className="xl:col-span-2">
               <KpiCard
                 title="Produits"
