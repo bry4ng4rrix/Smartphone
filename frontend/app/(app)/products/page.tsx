@@ -1205,8 +1205,6 @@ function CreateReferenceDialog({
   const [variantSeuil, setVariantSeuil] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [newTypeName, setNewTypeName] = useState("");
-  const [newBrandName, setNewBrandName] = useState("");
-  const [newColorName, setNewColorName] = useState("");
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
@@ -1223,8 +1221,6 @@ function CreateReferenceDialog({
     setVariantStock("");
     setVariantSeuil("");
     setNewTypeName("");
-    setNewBrandName("");
-    setNewColorName("");
     setPhotoFile(null);
     setPhotoPreview(null);
   }, [open]);
@@ -1239,21 +1235,6 @@ function CreateReferenceDialog({
 
   const margin =
     prixAchat && prixVente ? Number(prixVente) - Number(prixAchat) : null;
-
-  const createColor = async () => {
-    if (!newColorName.trim()) return;
-    try {
-      const created = await djangoClient.catalog.colors.create({
-        nom: newColorName.trim(),
-      });
-      toast.success("Couleur créée");
-      setNewColorName("");
-      onCatalogChanged();
-      setVariantCouleurId(String(created.id));
-    } catch (err: any) {
-      toast.error(err.message || "Erreur");
-    }
-  };
 
   const addVariant = () => {
     const color = colors.find((c) => String(c.id) === variantCouleurId);
@@ -1294,21 +1275,6 @@ function CreateReferenceDialog({
       setNewTypeName("");
       onCatalogChanged();
       setTypeId(String(created.id));
-    } catch (err: any) {
-      toast.error(err.message || "Erreur");
-    }
-  };
-
-  const createBrand = async () => {
-    if (!newBrandName.trim()) return;
-    try {
-      const created = await djangoClient.catalog.brands.create({
-        nom: newBrandName.trim(),
-      });
-      toast.success("Marque créée");
-      setNewBrandName("");
-      onCatalogChanged();
-      setBrandId(String(created.id));
     } catch (err: any) {
       toast.error(err.message || "Erreur");
     }
@@ -1434,22 +1400,6 @@ function CreateReferenceDialog({
                 ))}
               </SelectContent>
             </Select>
-            <div className="flex gap-2 mt-1">
-              <Input
-                placeholder="Nouvelle marque"
-                value={newBrandName}
-                onChange={(e) => setNewBrandName(e.target.value)}
-                className="flex-1 h-8 text-xs"
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8"
-                onClick={createBrand}
-              >
-                Créer
-              </Button>
-            </div>
           </div>
 
           <div className="space-y-1">
@@ -1563,23 +1513,6 @@ function CreateReferenceDialog({
                 <Plus className="h-4 w-4 mr-1" /> Ajouter
               </Button>
             </div>
-            <div className="flex gap-2">
-              <Input
-                placeholder="Nouvelle couleur (ex: Bleu)"
-                value={newColorName}
-                onChange={(e) => setNewColorName(e.target.value)}
-                className="flex-1 h-8 text-xs"
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8"
-                onClick={createColor}
-              >
-                Créer
-              </Button>
-            </div>
-
             {variants.length > 0 && (
               <div className="flex flex-wrap gap-2 pt-1">
                 {variants.map((v) => (
