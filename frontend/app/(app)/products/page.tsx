@@ -57,9 +57,11 @@ import { toast } from "sonner";
 // affichés en légende dans l'entête du tableau (§ demande) : rouge = plus
 // aucun stock, bleu = 2 pièces ou moins, vert = 3 pièces ou plus.
 const variantStockBadgeClass = (stock: number) => {
-  if (stock <= 0) return "font-normal border-red-200 text-red-700 bg-red-50/50";
-  if (stock <= 2) return "font-normal border-blue-200 text-blue-700 bg-blue-50/50";
-  return "font-normal border-green-200 text-green-700 bg-green-50/50";
+  if (stock <= 0)
+    return "font-normal border-red-200 text-red-700 dark:text-red-500 bg-red-50/50 dark:bg-red-900/20";
+  if (stock <= 2)
+    return "font-normal border-blue-200 text-blue-700 dark:text-blue-500 bg-blue-50/50 dark:bg-blue-900/20";
+  return "font-normal border-green-200 text-green-700 dark:text-green-500  bg-green-50/50 dark:bg-green-900/20";
 };
 
 const fmt = (n: number | string | null | undefined) =>
@@ -176,10 +178,22 @@ export default function ProductsPage() {
     const total = variants.reduce((s: number, v: any) => s + v.stock_actuel, 0);
     const rupture = variants.some((v: any) => v.is_rupture);
     const bas = variants.some((v: any) => v.is_stock_bas);
-    if (rupture) return { label: "Rupture", class: "bg-red-100 text-red-800" };
+    if (rupture)
+      return {
+        label: "Rupture",
+        class: "bg-red-100 text-red-800  dark:bg-red-900/20 dark:text-red-500",
+      };
     if (bas)
-      return { label: "Stock bas", class: "bg-orange-100 text-orange-800" };
-    return { label: "OK", class: "bg-green-100 text-green-800" };
+      return {
+        label: "Stock bas",
+        class:
+          "bg-orange-100  dark:bg-orange-900/20 dark:text-orange-500 text-orange-800",
+      };
+    return {
+      label: "OK",
+      class:
+        "bg-green-100 text-green-800  dark:bg-green-900/20 dark:text-green-500",
+    };
   };
 
   const handleDelete = async () => {
@@ -197,7 +211,8 @@ export default function ProductsPage() {
   const handleExportExcel = async () => {
     setExporting(true);
     try {
-      const { blob, filename } = await djangoClient.catalog.references.exportExcel();
+      const { blob, filename } =
+        await djangoClient.catalog.references.exportExcel();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -225,9 +240,12 @@ export default function ProductsPage() {
           `${res.created_variants} couleur(s) créée(s), ${res.updated_variants} mise(s) à jour.`,
       );
       if (res.errors.length > 0) {
-        toast.error(`${res.errors.length} ligne(s) ignorée(s) : ${res.errors.slice(0, 3).join(" · ")}`, {
-          duration: 10000,
-        });
+        toast.error(
+          `${res.errors.length} ligne(s) ignorée(s) : ${res.errors.slice(0, 3).join(" · ")}`,
+          {
+            duration: 10000,
+          },
+        );
       }
       fetchAll();
     } catch (err: any) {
@@ -253,10 +271,17 @@ export default function ProductsPage() {
           <Button variant="outline" size="icon" onClick={() => fetchAll()}>
             <RefreshCw className="h-4 w-4" />
           </Button>
-          <Button variant="outline" onClick={handleExportExcel} disabled={exporting}>
-            <Download className="h-4 w-4 mr-2" />
-            {exporting ? "Export..." : "Exporter Excel"}
-          </Button>
+          {isGerant && (
+            <Button
+              variant="outline"
+              onClick={handleExportExcel}
+              disabled={exporting}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              {exporting ? "Export..." : "Exporter Excel"}
+            </Button>
+          )}
+
           {isGerant && (
             <>
               <input
@@ -277,7 +302,10 @@ export default function ProductsPage() {
             </>
           )}
           {isGerant && (
-            <Button variant="outline" onClick={() => setCatalogSettingsOpen(true)}>
+            <Button
+              variant="outline"
+              onClick={() => setCatalogSettingsOpen(true)}
+            >
               <Settings className="h-4 w-4 mr-2" /> Paramètres
             </Button>
           )}
@@ -411,7 +439,9 @@ export default function ProductsPage() {
                           {ref.brand_name}
                         </TableCell>
                         <TableCell>{ref.reference_name}</TableCell>
-                        {isGerant && <TableCell>{fmt(ref.prix_achat)}</TableCell>}
+                        {isGerant && (
+                          <TableCell>{fmt(ref.prix_achat)}</TableCell>
+                        )}
                         <TableCell>{fmt(ref.prix_vente)}</TableCell>
                         {isGerant && (
                           <TableCell
@@ -431,14 +461,16 @@ export default function ProductsPage() {
                         )}
                         <TableCell className="max-w-60">
                           {(ref.variants || []).length === 0 ? (
-                            <span className="text-xs text-muted-foreground">Aucune</span>
+                            <span className="text-xs text-muted-foreground">
+                              Aucune
+                            </span>
                           ) : (
                             <div className="flex flex-wrap gap-1">
                               {(ref.variants || []).map((v: any) => (
                                 <Badge
                                   key={v.id}
                                   variant="outline"
-                                  className={variantStockBadgeClass(v.stock_actuel)}
+                                  className={`${variantStockBadgeClass(v.stock_actuel)}`}
                                 >
                                   {v.couleur} · {v.stock_actuel}
                                 </Badge>
@@ -949,7 +981,9 @@ function ProductDetailDialog({
                 <p className="text-sm font-medium">Ajouter une couleur</p>
                 <div className="grid grid-cols-3 gap-2">
                   <div className="col-span-3 space-y-1">
-                    <Label className="text-xs text-muted-foreground">Couleur</Label>
+                    <Label className="text-xs text-muted-foreground">
+                      Couleur
+                    </Label>
                     <Select
                       value={variantColorId}
                       onValueChange={setVariantColorId}
@@ -967,7 +1001,9 @@ function ProductDetailDialog({
                     </Select>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Stock initial</Label>
+                    <Label className="text-xs text-muted-foreground">
+                      Stock initial
+                    </Label>
                     <Input
                       type="number"
                       placeholder="0"
@@ -976,7 +1012,9 @@ function ProductDetailDialog({
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Seuil d'alerte</Label>
+                    <Label className="text-xs text-muted-foreground">
+                      Seuil d'alerte
+                    </Label>
                     <Input
                       type="number"
                       placeholder="1"
@@ -1551,8 +1589,20 @@ function CreateReferenceDialog({
 // Marques de téléphones courantes (§8.1 du cahier des charges) — proposées
 // en un clic pour éviter de les retaper à chaque nouvelle référence produit.
 const SUGGESTED_BRANDS = [
-  "Samsung", "iPhone", "Huawei", "Redmi", "Xiaomi", "Tecno", "Infinix",
-  "Itel", "Oppo", "Realme", "Google Pixel", "Poco", "Vivo", "Honor",
+  "Samsung",
+  "iPhone",
+  "Huawei",
+  "Redmi",
+  "Xiaomi",
+  "Tecno",
+  "Infinix",
+  "Itel",
+  "Oppo",
+  "Realme",
+  "Google Pixel",
+  "Poco",
+  "Vivo",
+  "Honor",
 ];
 
 function CatalogSettingsDialog({
@@ -1640,7 +1690,8 @@ function CatalogSettingsDialog({
         <DialogHeader>
           <DialogTitle>Paramètres du catalogue</DialogTitle>
           <DialogDescription>
-            Marques, sous-types et couleurs utilisés dans le catalogue produits (§8 du cahier des charges).
+            Marques, sous-types et couleurs utilisés dans le catalogue produits
+            (§8 du cahier des charges).
           </DialogDescription>
         </DialogHeader>
 
@@ -1736,12 +1787,18 @@ function CatalogSettingsDialog({
           </div>
 
           <div className="border-t pt-4">
-            <h3 className="text-sm font-semibold mb-1">Sous-types (catégories produit)</h3>
+            <h3 className="text-sm font-semibold mb-1">
+              Sous-types (catégories produit)
+            </h3>
             <p className="text-xs text-muted-foreground mb-3">
-              Le niveau entre la catégorie (ex. Housse, Cache écran) et la marque — ex. Flip
-              cover, Privacy, Chargeur, Écouteur.
+              Le niveau entre la catégorie (ex. Housse, Cache écran) et la
+              marque — ex. Flip cover, Privacy, Chargeur, Écouteur.
             </p>
-            <CategoriesTypesCrud categories={categories} types={types} onChanged={onChanged} />
+            <CategoriesTypesCrud
+              categories={categories}
+              types={types}
+              onChanged={onChanged}
+            />
           </div>
 
           <div className="border-t pt-4">
@@ -1763,17 +1820,28 @@ function CatalogSettingsDialog({
   );
 }
 
-function ColorsCrudList({ colors, onChanged }: { colors: any[]; onChanged: () => void }) {
+function ColorsCrudList({
+  colors,
+  onChanged,
+}: {
+  colors: any[];
+  onChanged: () => void;
+}) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingName, setEditingName] = useState("");
   const [newName, setNewName] = useState("");
 
-  const startEdit = (c: any) => { setEditingId(c.id); setEditingName(c.nom); };
+  const startEdit = (c: any) => {
+    setEditingId(c.id);
+    setEditingName(c.nom);
+  };
 
   const saveEdit = async () => {
     if (!editingId || !editingName.trim()) return;
     try {
-      await djangoClient.catalog.colors.update(editingId, { nom: editingName.trim() });
+      await djangoClient.catalog.colors.update(editingId, {
+        nom: editingName.trim(),
+      });
       toast.success("Couleur renommée");
       setEditingId(null);
       onChanged();
@@ -1808,48 +1876,99 @@ function ColorsCrudList({ colors, onChanged }: { colors: any[]; onChanged: () =>
     <div>
       <div className="space-y-2 max-h-56 overflow-y-auto">
         {colors.map((c) => (
-          <div key={c.id} className="flex items-center gap-2 border rounded-md px-3 py-2">
+          <div
+            key={c.id}
+            className="flex items-center gap-2 border rounded-md px-3 py-2"
+          >
             {editingId === c.id ? (
               <>
-                <Input value={editingName} onChange={(e) => setEditingName(e.target.value)} className="h-8 flex-1" autoFocus />
-                <Button size="sm" onClick={saveEdit}>OK</Button>
-                <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Annuler</Button>
+                <Input
+                  value={editingName}
+                  onChange={(e) => setEditingName(e.target.value)}
+                  className="h-8 flex-1"
+                  autoFocus
+                />
+                <Button size="sm" onClick={saveEdit}>
+                  OK
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setEditingId(null)}
+                >
+                  Annuler
+                </Button>
               </>
             ) : (
               <>
                 <span className="flex-1 text-sm">{c.nom}</span>
-                <Button size="icon" variant="ghost" onClick={() => startEdit(c)}><Pencil className="h-4 w-4" /></Button>
-                <Button size="icon" variant="ghost" onClick={() => removeColor(c)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => startEdit(c)}
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => removeColor(c)}
+                >
+                  <Trash2 className="h-4 w-4 text-red-500" />
+                </Button>
               </>
             )}
           </div>
         ))}
-        {colors.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Aucune couleur.</p>}
+        {colors.length === 0 && (
+          <p className="text-sm text-muted-foreground text-center py-4">
+            Aucune couleur.
+          </p>
+        )}
       </div>
       <div className="flex gap-2 mt-3">
-        <Input placeholder="Nouvelle couleur (ex: Bleu)" value={newName} onChange={(e) => setNewName(e.target.value)} />
-        <Button onClick={addColor}><Plus className="h-4 w-4 mr-2" /> Ajouter</Button>
+        <Input
+          placeholder="Nouvelle couleur (ex: Bleu)"
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+        />
+        <Button onClick={addColor}>
+          <Plus className="h-4 w-4 mr-2" /> Ajouter
+        </Button>
       </div>
     </div>
   );
 }
 
 function CategoriesTypesCrud({
-  categories, types, onChanged,
-}: { categories: any[]; types: any[]; onChanged: () => void }) {
+  categories,
+  types,
+  onChanged,
+}: {
+  categories: any[];
+  types: any[];
+  onChanged: () => void;
+}) {
   const [editingCatId, setEditingCatId] = useState<number | null>(null);
   const [editingCatName, setEditingCatName] = useState("");
   const [newCatName, setNewCatName] = useState("");
 
   const [editingTypeId, setEditingTypeId] = useState<number | null>(null);
   const [editingTypeName, setEditingTypeName] = useState("");
-  const [newTypeNameByCategory, setNewTypeNameByCategory] = useState<Record<number, string>>({});
+  const [newTypeNameByCategory, setNewTypeNameByCategory] = useState<
+    Record<number, string>
+  >({});
 
-  const startEditCat = (c: any) => { setEditingCatId(c.id); setEditingCatName(c.nom); };
+  const startEditCat = (c: any) => {
+    setEditingCatId(c.id);
+    setEditingCatName(c.nom);
+  };
   const saveEditCat = async () => {
     if (!editingCatId || !editingCatName.trim()) return;
     try {
-      await djangoClient.catalog.categories.update(editingCatId, { nom: editingCatName.trim() });
+      await djangoClient.catalog.categories.update(editingCatId, {
+        nom: editingCatName.trim(),
+      });
       toast.success("Catégorie renommée");
       setEditingCatId(null);
       onChanged();
@@ -1863,13 +1982,19 @@ function CategoriesTypesCrud({
       toast.success("Catégorie supprimée");
       onChanged();
     } catch (err: any) {
-      toast.error(err.message || "Suppression impossible (des sous-types en dépendent encore)");
+      toast.error(
+        err.message ||
+          "Suppression impossible (des sous-types en dépendent encore)",
+      );
     }
   };
   const addCategory = async () => {
     if (!newCatName.trim()) return;
     try {
-      await djangoClient.catalog.categories.create({ nom: newCatName.trim(), ordre: categories.length });
+      await djangoClient.catalog.categories.create({
+        nom: newCatName.trim(),
+        ordre: categories.length,
+      });
       toast.success("Catégorie ajoutée");
       setNewCatName("");
       onChanged();
@@ -1878,11 +2003,16 @@ function CategoriesTypesCrud({
     }
   };
 
-  const startEditType = (t: any) => { setEditingTypeId(t.id); setEditingTypeName(t.nom); };
+  const startEditType = (t: any) => {
+    setEditingTypeId(t.id);
+    setEditingTypeName(t.nom);
+  };
   const saveEditType = async () => {
     if (!editingTypeId || !editingTypeName.trim()) return;
     try {
-      await djangoClient.catalog.types.update(editingTypeId, { nom: editingTypeName.trim() });
+      await djangoClient.catalog.types.update(editingTypeId, {
+        nom: editingTypeName.trim(),
+      });
       toast.success("Sous-type renommé");
       setEditingTypeId(null);
       onChanged();
@@ -1896,7 +2026,10 @@ function CategoriesTypesCrud({
       toast.success("Sous-type supprimé");
       onChanged();
     } catch (err: any) {
-      toast.error(err.message || "Suppression impossible (des références en dépendent encore)");
+      toast.error(
+        err.message ||
+          "Suppression impossible (des références en dépendent encore)",
+      );
     }
   };
   const addType = async (categoryId: number) => {
@@ -1921,16 +2054,41 @@ function CategoriesTypesCrud({
             <div className="flex items-center gap-2 mb-2">
               {editingCatId === c.id ? (
                 <>
-                  <Input value={editingCatName} onChange={(e) => setEditingCatName(e.target.value)} className="h-8 flex-1 font-medium" autoFocus />
-                  <Button size="sm" onClick={saveEditCat}>OK</Button>
-                  <Button size="sm" variant="ghost" onClick={() => setEditingCatId(null)}>Annuler</Button>
+                  <Input
+                    value={editingCatName}
+                    onChange={(e) => setEditingCatName(e.target.value)}
+                    className="h-8 flex-1 font-medium"
+                    autoFocus
+                  />
+                  <Button size="sm" onClick={saveEditCat}>
+                    OK
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setEditingCatId(null)}
+                  >
+                    Annuler
+                  </Button>
                 </>
               ) : (
                 <>
                   <Tag className="h-4 w-4 text-muted-foreground" />
                   <span className="flex-1 text-sm font-semibold">{c.nom}</span>
-                  <Button size="icon" variant="ghost" onClick={() => startEditCat(c)}><Pencil className="h-4 w-4" /></Button>
-                  <Button size="icon" variant="ghost" onClick={() => removeCategory(c)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => startEditCat(c)}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => removeCategory(c)}
+                  >
+                    <Trash2 className="h-4 w-4 text-red-500" />
+                  </Button>
                 </>
               )}
             </div>
@@ -1939,37 +2097,85 @@ function CategoriesTypesCrud({
                 <div key={t.id} className="flex items-center gap-2">
                   {editingTypeId === t.id ? (
                     <>
-                      <Input value={editingTypeName} onChange={(e) => setEditingTypeName(e.target.value)} className="h-8 flex-1" autoFocus />
-                      <Button size="sm" onClick={saveEditType}>OK</Button>
-                      <Button size="sm" variant="ghost" onClick={() => setEditingTypeId(null)}>Annuler</Button>
+                      <Input
+                        value={editingTypeName}
+                        onChange={(e) => setEditingTypeName(e.target.value)}
+                        className="h-8 flex-1"
+                        autoFocus
+                      />
+                      <Button size="sm" onClick={saveEditType}>
+                        OK
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setEditingTypeId(null)}
+                      >
+                        Annuler
+                      </Button>
                     </>
                   ) : (
                     <>
-                      <span className="flex-1 text-sm text-muted-foreground">{t.nom}</span>
-                      <Button size="icon" variant="ghost" onClick={() => startEditType(t)}><Pencil className="h-3.5 w-3.5" /></Button>
-                      <Button size="icon" variant="ghost" onClick={() => removeType(t)}><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>
+                      <span className="flex-1 text-sm text-muted-foreground">
+                        {t.nom}
+                      </span>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => startEditType(t)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => removeType(t)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                      </Button>
                     </>
                   )}
                 </div>
               ))}
-              {typesForCat.length === 0 && <p className="text-xs text-muted-foreground">Aucun sous-type.</p>}
+              {typesForCat.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Aucun sous-type.
+                </p>
+              )}
               <div className="flex gap-2 pt-1">
                 <Input
                   placeholder="Nouveau sous-type (ex. Chargeur, Écouteur)"
                   value={newTypeNameByCategory[c.id] || ""}
-                  onChange={(e) => setNewTypeNameByCategory((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                  onChange={(e) =>
+                    setNewTypeNameByCategory((prev) => ({
+                      ...prev,
+                      [c.id]: e.target.value,
+                    }))
+                  }
                   className="h-8"
                 />
-                <Button size="sm" onClick={() => addType(c.id)}><Plus className="h-3.5 w-3.5 mr-1" /> Ajouter</Button>
+                <Button size="sm" onClick={() => addType(c.id)}>
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Ajouter
+                </Button>
               </div>
             </div>
           </div>
         );
       })}
-      {categories.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Aucune catégorie.</p>}
+      {categories.length === 0 && (
+        <p className="text-sm text-muted-foreground text-center py-4">
+          Aucune catégorie.
+        </p>
+      )}
       <div className="flex gap-2 border-t pt-4">
-        <Input placeholder="Nouvelle catégorie (ex. Accessoires)" value={newCatName} onChange={(e) => setNewCatName(e.target.value)} />
-        <Button onClick={addCategory}><FolderPlus className="h-4 w-4 mr-2" /> Ajouter</Button>
+        <Input
+          placeholder="Nouvelle catégorie (ex. Accessoires)"
+          value={newCatName}
+          onChange={(e) => setNewCatName(e.target.value)}
+        />
+        <Button onClick={addCategory}>
+          <FolderPlus className="h-4 w-4 mr-2" /> Ajouter
+        </Button>
       </div>
     </div>
   );
