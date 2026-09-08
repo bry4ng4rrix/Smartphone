@@ -98,7 +98,7 @@ extension OrderStatusX on OrderStatus {
       case OrderStatus.enLivraison:
         return 'En livraison';
       case OrderStatus.livre:
-        return 'Livrée';
+        return 'Livré';
       case OrderStatus.retour:
         return 'Retour';
       case OrderStatus.annulee:
@@ -148,6 +148,10 @@ extension DeliveryZoneX on DeliveryZone {
         return 'Récupération (0 Ar)';
     }
   }
+
+  /// Sans le montant des frais — pour les listes/cartes/résumés (web ne
+  /// montre le tarif complet que dans le détail commande, voir page.tsx).
+  String get shortLabel => label.split(' (').first;
 }
 
 enum StockMovementType { entree, sortie }

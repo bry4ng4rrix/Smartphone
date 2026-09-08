@@ -163,7 +163,15 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> {
       if (_typeFilter != null && r.typeId != _typeFilter) return false;
       if (_brandFilter != null && r.brandId != _brandFilter) return false;
       if (_search.isEmpty) return true;
-      return r.referenceName.toLowerCase().contains(_search) || r.brandName.toLowerCase().contains(_search);
+      // Chaque mot doit se retrouver quelque part (nom, marque OU une
+      // couleur de variante) — permet "samsung bleu", peu importe l'ordre.
+      final tokens = _search.split(RegExp(r'\s+')).where((t) => t.isNotEmpty);
+      final haystack = [
+        r.referenceName,
+        r.brandName,
+        for (final v in r.variants) v.couleur,
+      ].join(' ').toLowerCase();
+      return tokens.every((t) => haystack.contains(t));
     }).toList();
 
     if (filtered.isEmpty) {

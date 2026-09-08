@@ -82,7 +82,7 @@ class _OrderConfirmDialogState extends State<_OrderConfirmDialog> {
             const SizedBox(height: 10),
             row('Client', order.clientNom),
             if (order.telephone != null) row('Téléphone', order.telephone!),
-            row('Zone', order.livraisonZone.label),
+            row('Zone', order.livraisonZone.shortLabel),
             if (order.adresseLivraison != null && order.adresseLivraison!.isNotEmpty)
               row('Adresse', order.adresseLivraison!),
             const Divider(height: 20),

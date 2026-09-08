@@ -16,17 +16,19 @@ class AssignResult {
 Future<AssignResult?> showAssignStaffDialog(
   BuildContext context, {
   required String role,
+  required String orderNumero,
   required Future<List<StaffOption>> Function() loadStaff,
 }) {
   return showDialog<AssignResult>(
     context: context,
-    builder: (context) => _AssignStaffDialog(role: role, loadStaff: loadStaff),
+    builder: (context) => _AssignStaffDialog(role: role, orderNumero: orderNumero, loadStaff: loadStaff),
   );
 }
 
 class _AssignStaffDialog extends StatefulWidget {
-  const _AssignStaffDialog({required this.role, required this.loadStaff});
+  const _AssignStaffDialog({required this.role, required this.orderNumero, required this.loadStaff});
   final String role;
+  final String orderNumero;
   final Future<List<StaffOption>> Function() loadStaff;
 
   @override
@@ -117,7 +119,21 @@ class _AssignStaffDialogState extends State<_AssignStaffDialog> {
 
     return AlertDialog(
       title: Text('Assigner un $roleLabel'),
-      content: SizedBox(width: 340, child: content),
+      content: SizedBox(
+        width: 340,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Commande ${widget.orderNumero} — choisissez manuellement qui prend cette commande en charge.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            content,
+          ],
+        ),
+      ),
       actions: [
         TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
         FilledButton(

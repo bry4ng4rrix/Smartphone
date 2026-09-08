@@ -49,7 +49,8 @@ class OrdersListScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(ordersProvider);
     final filter = ref.watch(ordersFilterProvider);
-    final hasActiveFilter = filter.statut != null || filter.dateDebut != null || filter.preparateurId != null;
+    final hasActiveFilter =
+        filter.statut != null || filter.dateDebut != null || filter.preparateurId != null || filter.nonLivree;
 
     return Scaffold(
       appBar: AppBar(
@@ -68,11 +69,14 @@ class OrdersListScreen extends ConsumerWidget {
           PopupMenuButton<String?>(
             tooltip: 'Filtrer par statut',
             icon: const Icon(Icons.filter_list),
-            onSelected: (statut) => ref.read(ordersFilterProvider.notifier).set(
-                  filter.copyWith(statut: statut, clearStatut: statut == null),
-                ),
+            onSelected: (statut) => statut == 'NON_LIVREE'
+                ? ref.read(ordersFilterProvider.notifier).set(filter.copyWith(clearStatut: true, nonLivree: true))
+                : ref.read(ordersFilterProvider.notifier).set(
+                      filter.copyWith(statut: statut, clearStatut: statut == null, nonLivree: false),
+                    ),
             itemBuilder: (context) => [
               const PopupMenuItem(value: null, child: Text('Tous les statuts')),
+              const PopupMenuItem(value: 'NON_LIVREE', child: Text('Pas encore livrée')),
               for (final s in OrderStatus.values) PopupMenuItem(value: s.apiValue, child: Text(s.label)),
             ],
           ),
@@ -104,6 +108,11 @@ class OrdersListScreen extends ConsumerWidget {
                       label: const Text('Préparateur'),
                       onDeleted: () => ref.read(ordersFilterProvider.notifier).set(filter.copyWith(clearPreparateurId: true)),
                     ),
+                  if (filter.nonLivree)
+                    Chip(
+                      label: const Text('Pas encore livrée'),
+                      onDeleted: () => ref.read(ordersFilterProvider.notifier).set(filter.copyWith(nonLivree: false)),
+                    ),
                 ],
               ),
             ),
@@ -111,13 +120,18 @@ class OrdersListScreen extends ConsumerWidget {
             child: RefreshIndicator(
               onRefresh: () => ref.read(ordersProvider.notifier).refresh(),
               child: switch (async) {
-                AsyncData(:final value) => value.isEmpty
-                    ? const EmptyState(message: 'Aucune commande.', icon: Icons.receipt_long_outlined)
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(12),
-                        itemCount: value.length,
-                        itemBuilder: (context, i) => _OrderTile(order: value[i]),
-                      ),
+                AsyncData(value: final rawValue) => (() {
+                    final value = filter.nonLivree
+                        ? rawValue.where((o) => o.statutCourant != OrderStatus.livre).toList()
+                        : rawValue;
+                    return value.isEmpty
+                        ? const EmptyState(message: 'Aucune commande.', icon: Icons.receipt_long_outlined)
+                        : ListView.builder(
+                            padding: const EdgeInsets.all(12),
+                            itemCount: value.length,
+                            itemBuilder: (context, i) => _OrderTile(order: value[i]),
+                          );
+                  })(),
                 AsyncError(:final error) => ErrorState(
                     message: ApiClient.messageFromError(error),
                     onRetry: () => ref.read(ordersProvider.notifier).refresh(),
@@ -189,18 +203,48 @@ class _PreparateurPickerDialogState extends State<_PreparateurPickerDialog> {
   }
 }
 
+final _shortDateFmt = DateFormat('dd/MM HH:mm');
+
+DateTime? _historyAt(Order order, OrderStatus statut) {
+  for (final h in order.statusHistory) {
+    if (h.nouveauStatut == statut) return h.timestamp;
+  }
+  return null;
+}
+
 class _OrderTile extends StatelessWidget {
   const _OrderTile({required this.order});
   final Order order;
 
   @override
   Widget build(BuildContext context) {
+    final preparedAt = _historyAt(order, OrderStatus.enPreparation);
+    final livreurAt = order.statutCourant == OrderStatus.livre
+        ? _historyAt(order, OrderStatus.livre)
+        : _historyAt(order, OrderStatus.enLivraison);
+
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: ListTile(
         onTap: () => context.push('/orders/${order.id}'),
         title: Text(order.numero, style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Text('${order.clientNom} · ${order.livraisonZone.label}'),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('${order.clientNom} · ${order.livraisonZone.shortLabel}'),
+            if (order.preparateurName != null)
+              Text(
+                'Préparateur : ${order.preparateurName}${preparedAt != null ? ' · ${_shortDateFmt.format(preparedAt.toLocal())}' : ''}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            if (order.livreurName != null)
+              Text(
+                'Livreur : ${order.livreurName}'
+                '${livreurAt != null ? ' · ${order.statutCourant == OrderStatus.livre ? 'Livré le ' : ''}${_shortDateFmt.format(livreurAt.toLocal())}' : ''}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+          ],
+        ),
         trailing: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.end,

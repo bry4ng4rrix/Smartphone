@@ -15,6 +15,7 @@ class OrdersFilter {
     this.historique = false,
     this.dateFrom,
     this.dateTo,
+    this.nonLivree = false,
   });
   final String? statut;
   final DateTime? dateDebut;
@@ -23,6 +24,9 @@ class OrdersFilter {
   final bool historique;
   final DateTime? dateFrom;
   final DateTime? dateTo;
+  // "Pas encore livrée" (page.tsx statutFilter === 'NON_LIVREE') — pas une
+  // vraie valeur de statut serveur, filtré côté client (voir _fetch).
+  final bool nonLivree;
 
   OrdersFilter copyWith({
     String? statut,
@@ -34,6 +38,7 @@ class OrdersFilter {
     bool? historique,
     DateTime? dateFrom,
     DateTime? dateTo,
+    bool? nonLivree,
   }) {
     return OrdersFilter(
       statut: clearStatut ? null : (statut ?? this.statut),
@@ -43,6 +48,7 @@ class OrdersFilter {
       historique: historique ?? this.historique,
       dateFrom: dateFrom ?? this.dateFrom,
       dateTo: dateTo ?? this.dateTo,
+      nonLivree: nonLivree ?? this.nonLivree,
     );
   }
 }

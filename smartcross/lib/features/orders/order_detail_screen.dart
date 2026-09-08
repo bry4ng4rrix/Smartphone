@@ -15,24 +15,30 @@ final _moneyFmt = NumberFormat.decimalPattern('fr_FR');
 String _ar(num v) => '${_moneyFmt.format(v.round())} Ar';
 final _dateFmt = DateFormat('dd/MM/yyyy HH:mm');
 
-/// Statuts atteignables depuis le statut courant (miroir client de
-/// `orders/services.py::TRANSITIONS`, §5 README).
+/// Actions atteignables par le GÉRANT depuis le statut courant (miroir
+/// client de `page.tsx::nextAction` pour `isGerant`, §5 README) — le gérant
+/// ne fait que désigner un préparateur/livreur pour démarrer l'étape
+/// suivante ; il ne marque jamais lui-même "Prête", "Livré" ou "Retour" (ça,
+/// c'est le rôle concerné qui le fait, via Dépôt/Tournée).
 List<OrderStatus> _nextOptions(OrderStatus current) {
   switch (current) {
     case OrderStatus.nouvelle:
       return [OrderStatus.enPreparation];
-    case OrderStatus.enPreparation:
-      return [OrderStatus.prete];
     case OrderStatus.prete:
       return [OrderStatus.enLivraison];
+    case OrderStatus.enPreparation:
     case OrderStatus.enLivraison:
-      return [OrderStatus.livre, OrderStatus.retour];
     case OrderStatus.livre:
     case OrderStatus.retour:
     case OrderStatus.annulee:
       return [];
   }
 }
+
+/// Libellé du bouton gérant pour chaque transition (miroir de
+/// `page.tsx::nextAction` isGerant) — distinct de `OrderStatus.label`.
+String _gerantActionLabel(OrderStatus target) =>
+    target == OrderStatus.enPreparation ? 'Assigner un préparateur' : 'Assigner un livreur';
 
 class OrderDetailScreen extends ConsumerWidget {
   const OrderDetailScreen({super.key, required this.orderId});
@@ -70,41 +76,27 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
   Future<void> _changeStatus(OrderStatus target) async {
     // Nouvelle -> En préparation / Prête -> En livraison : le gérant désigne
     // manuellement qui prend la commande en charge (occupé ou non n'empêche
-    // plus la sélection, voir services.py::_resolve_assignee).
-    int? preparateurId;
-    int? livreurId;
-    DateTime? assignedAt;
-    if (target == OrderStatus.enPreparation || target == OrderStatus.enLivraison) {
-      final role = target == OrderStatus.enPreparation ? 'PREPARATEUR' : 'LIVREUR';
-      final result = await showAssignStaffDialog(
-        context,
-        role: role,
-        loadStaff: () => ref.read(ordersProvider.notifier).availableStaff(role),
-      );
-      if (result == null) return;
-      if (target == OrderStatus.enPreparation) {
-        preparateurId = result.staffId;
-      } else {
-        livreurId = result.staffId;
-      }
-      assignedAt = result.assignedAt;
-    }
+    // plus la sélection, voir services.py::_resolve_assignee) — pas de note
+    // ici, l'affectation en elle-même est la confirmation (miroir web :
+    // AssignStaffDialog n'a pas de champ note, voir page.tsx).
+    final role = target == OrderStatus.enPreparation ? 'PREPARATEUR' : 'LIVREUR';
+    final result = await showAssignStaffDialog(
+      context,
+      role: role,
+      orderNumero: widget.order.numero,
+      loadStaff: () => ref.read(ordersProvider.notifier).availableStaff(role),
+    );
+    if (result == null) return;
     if (!mounted) return;
 
-    final note = await showDialog<String>(
-      context: context,
-      builder: (context) => _NoteDialog(title: 'Confirmer : ${target.label}'),
-    );
-    if (note == null) return;
     setState(() => _changing = true);
     try {
       await ref.read(ordersProvider.notifier).changeStatus(
             widget.order.id,
             target.apiValue,
-            note: note,
-            preparateurId: preparateurId,
-            livreurId: livreurId,
-            assignedAt: assignedAt,
+            preparateurId: target == OrderStatus.enPreparation ? result.staffId : null,
+            livreurId: target == OrderStatus.enLivraison ? result.staffId : null,
+            assignedAt: result.assignedAt,
           );
       ref.invalidate(orderDetailProvider(widget.order.id));
     } catch (e) {
@@ -183,7 +175,7 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
                     value: order.telephone!,
                     onTap: () => launchUrl(Uri.parse('tel:${order.telephone}')),
                   ),
-                _InfoRow(icon: Icons.local_shipping_outlined, label: 'Livraison', value: order.livraisonZone.label),
+                _InfoRow(icon: Icons.local_shipping_outlined, label: 'Zone', value: order.livraisonZone.label),
                 if (order.adresseLivraison != null && order.adresseLivraison!.isNotEmpty)
                   _InfoRow(icon: Icons.place_outlined, label: 'Adresse', value: order.adresseLivraison!),
                 if (order.dateCommande != null)
@@ -245,9 +237,8 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
               for (final target in nextOptions)
                 FilledButton.icon(
                   onPressed: _changing ? null : () => _changeStatus(target),
-                  icon: Icon(target == OrderStatus.retour ? Icons.undo : Icons.check),
-                  label: Text(target.label),
-                  style: target == OrderStatus.retour ? FilledButton.styleFrom(backgroundColor: Colors.red) : null,
+                  icon: const Icon(Icons.person_add_alt_outlined),
+                  label: Text(_gerantActionLabel(target)),
                 ),
               if (canCancel)
                 OutlinedButton.icon(
@@ -273,7 +264,7 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
               leading: const Icon(Icons.history, size: 20),
               title: Text('${h.ancienStatut?.label ?? '—'} → ${h.nouveauStatut.label}'),
               subtitle: Text([
-                if (h.changedByName != null) h.changedByName!,
+                h.changedByName ?? 'Système',
                 if (h.timestamp != null) _dateFmt.format(h.timestamp!),
                 if (h.note != null && h.note!.isNotEmpty) h.note!,
               ].join(' · ')),
@@ -402,36 +393,3 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
-class _NoteDialog extends StatefulWidget {
-  const _NoteDialog({required this.title});
-  final String title;
-
-  @override
-  State<_NoteDialog> createState() => _NoteDialogState();
-}
-
-class _NoteDialogState extends State<_NoteDialog> {
-  final _controller = TextEditingController();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.title),
-      content: TextField(
-        controller: _controller,
-        decoration: const InputDecoration(labelText: 'Note (optionnel)', hintText: 'ex : client absent'),
-        maxLines: 2,
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
-        FilledButton(onPressed: () => Navigator.of(context).pop(_controller.text.trim()), child: const Text('Confirmer')),
-      ],
-    );
-  }
-}

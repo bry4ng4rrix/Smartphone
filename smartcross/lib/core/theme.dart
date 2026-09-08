@@ -79,9 +79,9 @@ Color statusColor(BuildContext context, String apiStatus) {
     case 'PRETE':
       return const Color(0xFF2563EB);
     case 'EN_LIVRAISON':
-      return const Color(0xFF8B5CF6);
+      return const Color(0xFFA855F7);
     case 'LIVRE':
-      return const Color(0xFF10B981);
+      return const Color(0xFF22C55E);
     case 'RETOUR':
       return const Color(0xFFEF4444);
     case 'ANNULEE':
