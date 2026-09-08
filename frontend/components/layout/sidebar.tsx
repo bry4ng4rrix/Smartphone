@@ -123,7 +123,7 @@ const navigationItems = [
     label: "Paramètres",
     href: "/settings",
     icon: Settings,
-    hideLivreur: true,
+    superAdminOnly: true,
   },
 ];
 
@@ -131,8 +131,15 @@ export function Sidebar() {
   const [open, setOpen] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
-  const { user, isAdmin, isSuperAdmin, isAdminOrSuperAdmin, isPreparateur, isLivreur, loading } =
-    useCurrentUser();
+  const {
+    user,
+    isAdmin,
+    isSuperAdmin,
+    isAdminOrSuperAdmin,
+    isPreparateur,
+    isLivreur,
+    loading,
+  } = useCurrentUser();
 
   const handleLogout = async () => {
     await djangoClient.auth.logout();
