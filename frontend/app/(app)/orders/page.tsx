@@ -1653,7 +1653,12 @@ function CreateOrderDialog({
   const [submitting, setSubmitting] = useState(false);
   const [preparateurId, setPreparateurId] = useState("");
   const [preparateurAssignedAt, setPreparateurAssignedAt] = useState("");
+  const [livreurId, setLivreurId] = useState("");
+  const [livreurAssignedAt, setLivreurAssignedAt] = useState("");
   const [preparateurs, setPreparateurs] = useState<
+    { id: number; full_name: string; available: boolean }[]
+  >([]);
+  const [livreurs, setLivreurs] = useState<
     { id: number; full_name: string; available: boolean }[]
   >([]);
 
@@ -1692,6 +1697,10 @@ function CreateOrderDialog({
         .availableStaff("PREPARATEUR")
         .then(setPreparateurs)
         .catch(() => setPreparateurs([]));
+      djangoClient.orders
+        .availableStaff("LIVREUR")
+        .then(setLivreurs)
+        .catch(() => setLivreurs([]));
     }
     setClientNom("");
     setTelephone("+261");
@@ -1705,6 +1714,8 @@ function CreateOrderDialog({
     setBrandId(null);
     setPreparateurId("");
     setPreparateurAssignedAt(toDatetimeLocalValue(new Date()));
+    setLivreurId("");
+    setLivreurAssignedAt(toDatetimeLocalValue(new Date()));
     setQuery("");
     setSuggestions([]);
     setSelectedRef(null);
@@ -2101,7 +2112,7 @@ function CreateOrderDialog({
           </div>
         )}
         {zone !== "RECUPERATION" && (
-          <div className="space-y-2 grid grid-cols-1 sm:grid-cols-2 gap-2 w-full">
+          <div className="space-y-2 grid grid-cols-1 sm:grid-cols-2z gap-2 w-full">
             <div className="space-y-2">
               <Label>Zone de livraison</Label>
               <Select value={zone} onValueChange={setZone}>
@@ -2128,36 +2139,70 @@ function CreateOrderDialog({
           </div>
         )}
         {!isPreparateur && (
-          <div className="space-y-2">
-            <Label>Préparateur</Label>
-            <Select value={preparateurId} onValueChange={setPreparateurId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Assigner plus tard" />
-              </SelectTrigger>
-              <SelectContent>
-                {preparateurs.map((p) => (
-                  <SelectItem key={p.id} value={String(p.id)}>
-                    {p.full_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              Optionnel — assigne et démarre la préparation dès la création de
-              la commande.
-            </p>
-            {preparateurId && (
-              <div className="space-y-1 pt-1">
-                <Label className="text-xs text-muted-foreground">
-                  Date et heure d'assignation
-                </Label>
-                <Input
-                  type="datetime-local"
-                  value={preparateurAssignedAt}
-                  onChange={(e) => setPreparateurAssignedAt(e.target.value)}
-                />
-              </div>
-            )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Préparateur</Label>
+              <Select value={preparateurId} onValueChange={setPreparateurId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Assigner plus tard" />
+                </SelectTrigger>
+                <SelectContent>
+                  {preparateurs.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>
+                      {p.full_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Optionnel — assigne et démarre la préparation dès la création de
+                la commande.
+              </p>
+              {preparateurId && (
+                <div className="space-y-1 pt-1">
+                  <Label className="text-xs text-muted-foreground">
+                    Date et heure d'assignation
+                  </Label>
+                  <Input
+                    type="datetime-local"
+                    value={preparateurAssignedAt}
+                    onChange={(e) => setPreparateurAssignedAt(e.target.value)}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Livreur</Label>
+              <Select value={livreurId} onValueChange={setLivreurId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Assigner plus tard" />
+                </SelectTrigger>
+                <SelectContent>
+                  {livreurs.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>
+                      {p.full_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Optionnel — affecte le livreur pour la livraison quand la
+                commande est prête.
+              </p>
+              {livreurId && (
+                <div className="space-y-1 pt-1">
+                  <Label className="text-xs text-muted-foreground">
+                    Date et heure d'assignation
+                  </Label>
+                  <Input
+                    type="datetime-local"
+                    value={livreurAssignedAt}
+                    onChange={(e) => setLivreurAssignedAt(e.target.value)}
+                  />
+                </div>
+              )}
+            </div>
           </div>
         )}
 
