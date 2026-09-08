@@ -7,7 +7,12 @@ Idempotent (get_or_create) : peut être relancée sans dupliquer les données.
 Fonctionne aussi bien en local (SQLite) qu'en production (Postgres, VPS) —
 voir roadmap.md à la racine du projet pour le déploiement complet.
 
-Usage : python manage.py seed_smartphone
+Usage :
+  python manage.py seed_smartphone            # crée/complète (sans rien supprimer)
+  python manage.py seed_smartphone --reset     # supprime d'abord tout le tenant
+                                                # Smartphone.Mg (commandes, stock,
+                                                # catalogue, comptes) puis reseed
+                                                # à neuf — voir Command.reset_tenant().
 """
 
 import re
@@ -28,9 +33,22 @@ SEED_FILE = Path(__file__).resolve().parent / "data" / "seed_catalogue.sql"
 GERANT_EMAIL = "gerant@smartphone.mg"
 # Plusieurs comptes par rôle pour pouvoir tester l'affectation nominative
 # (un préparateur/livreur à la fois par commande — voir orders/services.py).
-PREPARATEUR_EMAILS = ["preparateur@smartphone.mg", "preparateur2@smartphone.mg"]
-LIVREUR_EMAILS = ["livreur@smartphone.mg", "livreur2@smartphone.mg", "livreur3@smartphone.mg"]
+# Noms alignés sur ceux demandés pour les comptes de test (pas de vrais noms
+# d'employés dans le cahier des charges — voir roadmap.md).
+PREPARATEURS = [
+    ("preparateur@smartphone.mg", "Lili"),
+    ("preparateur2@smartphone.mg", "Miora"),
+    ("preparateur3@smartphone.mg", "Tiana"),
+]
+LIVREURS = [
+    ("livreur@smartphone.mg", "Livreko Express"),
+    ("livreur2@smartphone.mg", "Ambinintsoa"),
+    ("livreur3@smartphone.mg", "Onitiana"),
+    ("livreur4@smartphone.mg", "Fenosoa"),
+    ("livreur5@smartphone.mg", "Zetra Express"),
+]
 DEFAULT_PASSWORD = "smartphone2026"
+ALL_TENANT_EMAILS = [GERANT_EMAIL] + [e for e, _ in PREPARATEURS] + [e for e, _ in LIVREURS]
 
 INSERT_RE = re.compile(r"INSERT INTO (\w+) \([^)]*\) VALUES\s*(.*?);", re.DOTALL)
 
@@ -133,6 +151,19 @@ def parse_seed_sql(path):
 class Command(BaseCommand):
     help = "Charge le catalogue Smartphone.Mg réel (data/seed_catalogue.sql) + les comptes de test des 3 rôles."
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--reset",
+            action="store_true",
+            help=(
+                "Supprime d'abord toutes les données du tenant Smartphone.Mg "
+                "(commandes, mouvements de stock, catalogue, commandes "
+                "fournisseur, comptes gérant/préparateur/livreur) avant de "
+                "reseed à neuf. Ne touche à rien d'autre (autres tenants, "
+                "comptes plateforme Label Technology)."
+            ),
+        )
+
     def handle(self, *args, **options):
         if not SEED_FILE.exists():
             raise CommandError(f"Fichier introuvable : {SEED_FILE}")
@@ -143,6 +174,8 @@ class Command(BaseCommand):
                 raise CommandError(f"Aucune ligne trouvée pour {name} dans {SEED_FILE}")
 
         with transaction.atomic():
+            if options["reset"]:
+                self._reset_tenant()
             magasin = self._ensure_tenant()
             self._seed_catalog(magasin, tables)
 
@@ -151,12 +184,47 @@ class Command(BaseCommand):
             f"{ProductReference.objects.filter(type__category__magasin=magasin).count()} références, "
             f"{ProductVariant.objects.filter(product_reference__type__category__magasin=magasin).count()} variantes."
         ))
-        demo_emails = ", ".join([GERANT_EMAIL] + PREPARATEUR_EMAILS + LIVREUR_EMAILS)
+        demo_emails = ", ".join(ALL_TENANT_EMAILS)
         self.stdout.write(self.style.WARNING(
             "⚠ Comptes de démo (re)créés avec le mot de passe par défaut "
             f"'{DEFAULT_PASSWORD}' : {demo_emails}. "
             "En production, changez ces mots de passe avant d'ouvrir l'accès au public "
             "(voir roadmap.md § Sécurité)."
+        ))
+
+    def _reset_tenant(self):
+        """Supprime tout ce qui appartient au tenant Smartphone.Mg, dans le
+        bon ordre pour ne jamais heurter la contrainte PROTECT de
+        `OrderItem.product_variant` (orders/models.py) : les commandes
+        doivent disparaître avant les variantes qu'elles référencent — le
+        reste (stock, catalogue, profils) cascade proprement depuis
+        MagasinProfile/CustomUser (tous en on_delete=CASCADE)."""
+        from orders.models import Order
+        from suppliers.models import SupplierOrder
+
+        existing = CustomUser.objects.filter(email__in=ALL_TENANT_EMAILS)
+        if not existing.exists():
+            self.stdout.write("Rien à réinitialiser (aucun compte Smartphone.Mg existant).")
+            return
+
+        magasins = MagasinProfile.objects.filter(admin__in=existing)
+        orders_qs = Order.objects.filter(magasin__in=magasins)
+        n_orders = orders_qs.count()
+        orders_qs.delete()
+
+        try:
+            n_supplier_orders = SupplierOrder.objects.filter(magasin__in=magasins).count()
+            SupplierOrder.objects.filter(magasin__in=magasins).delete()
+        except Exception:
+            n_supplier_orders = 0
+
+        n_users = existing.count()
+        existing.delete()  # cascade: AdminProfile, MagasinProfile (-> catalogue/stock), EmployerProfile
+
+        self.stdout.write(self.style.WARNING(
+            f"Tenant Smartphone.Mg réinitialisé : {n_orders} commande(s), "
+            f"{n_supplier_orders} commande(s) fournisseur et {n_users} compte(s) "
+            "supprimés (catalogue et stock associés supprimés en cascade)."
         ))
 
     def _ensure_tenant(self):
@@ -186,11 +254,9 @@ class Command(BaseCommand):
         )
         magasin.admins.add(gerant_user)
 
-        for i, email in enumerate(PREPARATEUR_EMAILS, start=1):
-            full_name = "Préparateur Smartphone.Mg" if i == 1 else f"Préparateur {i} Smartphone.Mg"
+        for email, full_name in PREPARATEURS:
             self._ensure_employee(email, full_name, "PREPARATEUR", gerant_user, magasin)
-        for i, email in enumerate(LIVREUR_EMAILS, start=1):
-            full_name = "Livreur Smartphone.Mg" if i == 1 else f"Livreur {i} Smartphone.Mg"
+        for email, full_name in LIVREURS:
             self._ensure_employee(email, full_name, "LIVREUR", gerant_user, magasin)
 
         return magasin
