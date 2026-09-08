@@ -47,7 +47,7 @@ LIVREURS = [
     ("livreur4@smartphone.mg", "Fenosoa"),
     ("livreur5@smartphone.mg", "Zetra Express"),
 ]
-DEFAULT_PASSWORD = "smartphone2026"
+DEFAULT_PASSWORD = "fanandramana"
 ALL_TENANT_EMAILS = [GERANT_EMAIL] + [e for e, _ in PREPARATEURS] + [e for e, _ in LIVREURS]
 
 INSERT_RE = re.compile(r"INSERT INTO (\w+) \([^)]*\) VALUES\s*(.*?);", re.DOTALL)

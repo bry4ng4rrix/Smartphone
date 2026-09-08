@@ -153,22 +153,21 @@ curl -I http://localhost:8010/api/users/login/    # doit répondre (405 sur GET 
 
 ## 7. Sécurité — à faire avant d'ouvrir l'accès au public
 
-`seed_smartphone` crée/réinitialise systématiquement 3 comptes avec le mot
-de passe par défaut `smartphone2026` (`gerant@smartphone.mg`,
-`preparateur@smartphone.mg`, `livreur@smartphone.mg` — la commande affiche
-d'ailleurs un avertissement à chaque exécution). **Ne pas laisser ces
-identifiants actifs sur une instance publique.** Deux options :
+`seed_smartphone` crée/réinitialise systématiquement les 9 comptes de démo
+(gérant + 3 préparateurs + 5 livreurs) avec le mot de passe par défaut
+`fanandramana` — la commande affiche d'ailleurs un avertissement à chaque
+exécution. **Ne pas laisser ces identifiants actifs sur une instance
+publique.** Deux options :
 
 - Se connecter avec le compte gérant puis changer le mot de passe depuis
-  Paramètres → Sécurité (web ou mobile), pour les 3 comptes ; ou
+  Paramètres → Sécurité (web ou mobile), pour chaque compte ; ou
 - Changer directement en base :
 
   ```bash
   docker compose -f docker-compose.prod.yml exec backend python manage.py shell -c "
   from django.contrib.auth import get_user_model
   U = get_user_model()
-  for email in ['gerant@smartphone.mg','preparateur@smartphone.mg','livreur@smartphone.mg']:
-      u = U.objects.get(email=email)
+  for u in U.objects.filter(email__endswith='@smartphone.mg'):
       u.set_password('UN_MOT_DE_PASSE_FORT_DIFFERENT')
       u.save()
   "
