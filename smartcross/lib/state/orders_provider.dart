@@ -140,6 +140,33 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
     return order;
   }
 
+  Future<Order> updateOrder(
+    int id, {
+    String? clientNom,
+    String? telephone,
+    String? livraisonZone,
+    String? adresseLivraison,
+    DateTime? dateCommande,
+    String? note,
+  }) async {
+    final order = await _repo.update(
+      id,
+      clientNom: clientNom,
+      telephone: telephone,
+      livraisonZone: livraisonZone,
+      adresseLivraison: adresseLivraison,
+      dateCommande: dateCommande,
+      note: note,
+    );
+    await refresh();
+    return order;
+  }
+
+  Future<void> delete(int id) async {
+    await _repo.delete(id);
+    await refresh();
+  }
+
   Future<List<StaffOption>> availableStaff(String role) => _repo.availableStaff(role);
 }
 

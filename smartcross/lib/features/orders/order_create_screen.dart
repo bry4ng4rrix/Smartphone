@@ -9,6 +9,7 @@ import '../../core/api_client.dart';
 import '../../core/constants.dart';
 import '../../models/catalog.dart';
 import '../../models/order.dart';
+import '../../state/auth_provider.dart';
 import '../../state/catalog_provider.dart';
 import '../../state/orders_provider.dart';
 
@@ -46,6 +47,17 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
   final List<_CartLine> _lines = [];
   bool _submitting = false;
   String? _error;
+  bool _isPreparateur = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Le préparateur ne peut créer que des commandes "Récupération sur
+    // place" (§ demande), sans donnée financière (miroir web : isPreparateur
+    // -> zone forcée + showPrices = false, voir page.tsx).
+    _isPreparateur = ref.read(authProvider).user?.role == UserRole.preparateur;
+    if (_isPreparateur) _zone = DeliveryZone.recuperation;
+  }
 
   @override
   void dispose() {
@@ -85,7 +97,7 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
   }
 
   Future<void> _addLine() async {
-    final result = await showDialog<_CartLine>(context: context, builder: (_) => const _AddLineDialog());
+    final result = await showDialog<_CartLine>(context: context, builder: (_) => _AddLineDialog(hidePrices: _isPreparateur));
     if (result != null) setState(() => _lines.add(result));
   }
 
@@ -120,7 +132,7 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Nouvelle commande')),
+      appBar: AppBar(title: Text(_isPreparateur ? 'Nouvelle récupération' : 'Nouvelle commande')),
       body: Form(
         key: _formKey,
         child: ListView(
@@ -157,18 +169,22 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
                 child: Text(DateFormat('dd/MM/yyyy HH:mm').format(_dateCommande)),
               ),
             ),
-            const SizedBox(height: 14),
-            DropdownButtonFormField<DeliveryZone>(
-              initialValue: _zone,
-              decoration: const InputDecoration(labelText: 'Livraison', prefixIcon: Icon(Icons.local_shipping_outlined)),
-              items: [for (final z in DeliveryZone.values) DropdownMenuItem(value: z, child: Text(z.label))],
-              onChanged: (v) => setState(() => _zone = v ?? _zone),
-            ),
-            const SizedBox(height: 14),
-            TextFormField(
-              controller: _adresseController,
-              decoration: const InputDecoration(labelText: 'Adresse de livraison (optionnel)', prefixIcon: Icon(Icons.place_outlined)),
-            ),
+            if (!_isPreparateur) ...[
+              const SizedBox(height: 14),
+              DropdownButtonFormField<DeliveryZone>(
+                initialValue: _zone,
+                decoration: const InputDecoration(labelText: 'Livraison', prefixIcon: Icon(Icons.local_shipping_outlined)),
+                items: [for (final z in DeliveryZone.values) DropdownMenuItem(value: z, child: Text(z.label))],
+                onChanged: (v) => setState(() => _zone = v ?? _zone),
+              ),
+            ],
+            if (_zone != DeliveryZone.recuperation) ...[
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _adresseController,
+                decoration: const InputDecoration(labelText: 'Adresse de livraison (optionnel)', prefixIcon: Icon(Icons.place_outlined)),
+              ),
+            ],
             const SizedBox(height: 14),
             TextFormField(
               controller: _noteController,
@@ -195,7 +211,9 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
                     for (final l in _lines)
                       ListTile(
                         title: Text('${l.reference.brandName} ${l.reference.referenceName} — ${l.couleur}'),
-                        subtitle: Text('${l.quantite} × ${_ar(l.reference.prixVente)} = ${_ar(l.sousTotal)}'),
+                        subtitle: Text(
+                          _isPreparateur ? 'Quantité : ${l.quantite}' : '${l.quantite} × ${_ar(l.reference.prixVente)} = ${_ar(l.sousTotal)}',
+                        ),
                         trailing: IconButton(
                           icon: const Icon(Icons.delete_outline),
                           onPressed: () => setState(() => _lines.remove(l)),
@@ -204,26 +222,28 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
                   ],
                 ),
               ),
-            const SizedBox(height: 20),
-            Card(
-              color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  children: [
-                    Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Frais de livraison'), Text(_ar(_frais))]),
-                    const SizedBox(height: 6),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Total estimé', style: Theme.of(context).textTheme.titleMedium),
-                        Text(_ar(_totalEstime), style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-                      ],
-                    ),
-                  ],
+            if (!_isPreparateur) ...[
+              const SizedBox(height: 20),
+              Card(
+                color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    children: [
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Frais de livraison'), Text(_ar(_frais))]),
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('Total estimé', style: Theme.of(context).textTheme.titleMedium),
+                          Text(_ar(_totalEstime), style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
+            ],
             const SizedBox(height: 20),
             FilledButton(
               onPressed: _submitting ? null : _submit,
@@ -239,7 +259,8 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
 }
 
 class _AddLineDialog extends ConsumerStatefulWidget {
-  const _AddLineDialog();
+  const _AddLineDialog({this.hidePrices = false});
+  final bool hidePrices;
 
   @override
   ConsumerState<_AddLineDialog> createState() => _AddLineDialogState();
@@ -312,7 +333,7 @@ class _AddLineDialogState extends ConsumerState<_AddLineDialog> {
                           final r = _results[i];
                           return ListTile(
                             title: Text('${r.brandName} ${r.referenceName}'),
-                            subtitle: Text('${r.typeName} — ${_ar(r.prixVente)}'),
+                            subtitle: Text(widget.hidePrices ? r.typeName : '${r.typeName} — ${_ar(r.prixVente)}'),
                             onTap: () => setState(() => _selectedReference = r),
                           );
                         },
@@ -322,7 +343,7 @@ class _AddLineDialogState extends ConsumerState<_AddLineDialog> {
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 title: Text('${_selectedReference!.brandName} ${_selectedReference!.referenceName}'),
-                subtitle: Text(_ar(_selectedReference!.prixVente)),
+                subtitle: widget.hidePrices ? null : Text(_ar(_selectedReference!.prixVente)),
                 trailing: TextButton(onPressed: () => setState(() => _selectedReference = null), child: const Text('Changer')),
               ),
               const SizedBox(height: 8),

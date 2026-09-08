@@ -109,6 +109,31 @@ class OrdersRepository {
     return Order.fromJson(response.data as Map<String, dynamic>);
   }
 
+  /// Modification (gérant, uniquement tant que "Nouvelle") — les articles ne
+  /// sont pas modifiables ici, voir orders/serializers.py::OrderUpdateSerializer.
+  Future<Order> update(
+    int id, {
+    String? clientNom,
+    String? telephone,
+    String? livraisonZone,
+    String? adresseLivraison,
+    DateTime? dateCommande,
+    String? note,
+  }) async {
+    final response = await _dio.patch('orders/$id/', data: {
+      if (clientNom != null) 'client_nom': clientNom,
+      if (telephone != null) 'telephone': telephone,
+      if (livraisonZone != null) 'livraison_zone': livraisonZone,
+      if (adresseLivraison != null) 'adresse_livraison': adresseLivraison,
+      if (dateCommande != null) 'date_commande': dateCommande.toUtc().toIso8601String(),
+      if (note != null) 'note': note,
+    });
+    return Order.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  /// Suppression (gérant, uniquement tant que "Nouvelle").
+  Future<void> delete(int id) => _dio.delete('orders/$id/');
+
   /// Liste des préparateurs/livreurs du magasin pour le sélecteur
   /// d'affectation du gérant — voir orders/views.py::available_staff.
   Future<List<StaffOption>> availableStaff(String role) async {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
@@ -11,9 +12,13 @@ import '../../widgets/order_confirm_dialog.dart';
 import '../../widgets/order_historique_view.dart';
 import '../../widgets/status_badge.dart';
 
+enum _DepotView { aPreparer, recuperations, historique }
+
 /// Module Dépôt — Préparateur (§7.2 README) : UX mobile simplifiée, lecture
 /// seule sauf statut. Le serveur ne renvoie déjà que NOUVELLE/EN_PREPARATION
-/// pour ce rôle, sans aucune donnée financière (serializer restreint).
+/// pour ce rôle, sans aucune donnée financière (serializer restreint). Onglet
+/// "Récupérations" : commandes de retrait sur place que le préparateur peut
+/// créer lui-même (§ demande — bouton "Nouvelle récupération").
 class DepotScreen extends ConsumerStatefulWidget {
   const DepotScreen({super.key});
 
@@ -22,42 +27,83 @@ class DepotScreen extends ConsumerStatefulWidget {
 }
 
 class _DepotScreenState extends ConsumerState<DepotScreen> {
-  bool _historique = false;
+  _DepotView _view = _DepotView.aPreparer;
 
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(ordersProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_historique ? 'Dépôt — Historique' : 'Dépôt — Commandes à préparer'),
-        actions: [
-          IconButton(
-            tooltip: _historique ? 'Commandes actives' : 'Historique',
-            icon: Icon(_historique ? Icons.inventory_outlined : Icons.history),
-            onPressed: () => setState(() => _historique = !_historique),
+      appBar: AppBar(title: const Text('Dépôt')),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: ChoiceChip(
+                    label: const Text('À préparer'),
+                    selected: _view == _DepotView.aPreparer,
+                    onSelected: (_) => setState(() => _view = _DepotView.aPreparer),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ChoiceChip(
+                    label: const Text('Récupérations'),
+                    selected: _view == _DepotView.recuperations,
+                    onSelected: (_) => setState(() => _view = _DepotView.recuperations),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ChoiceChip(
+                    label: const Text('Historique'),
+                    selected: _view == _DepotView.historique,
+                    onSelected: (_) => setState(() => _view = _DepotView.historique),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _view == _DepotView.historique
+                ? OrderHistoriqueView(cardBuilder: (context, order) => _DepotHistoriqueCard(order: order))
+                : RefreshIndicator(
+                    onRefresh: () => ref.read(ordersProvider.notifier).refresh(),
+                    child: switch (async) {
+                      AsyncData(value: final all) => (() {
+                          final isRecup = _view == _DepotView.recuperations;
+                          final value = all
+                              .where((o) => (o.livraisonZone == DeliveryZone.recuperation) == isRecup)
+                              .toList();
+                          return value.isEmpty
+                              ? EmptyState(
+                                  message: isRecup ? 'Aucune récupération.' : 'Aucune commande à préparer.',
+                                  icon: Icons.inventory_outlined,
+                                )
+                              : ListView.builder(
+                                  padding: const EdgeInsets.all(12),
+                                  itemCount: value.length,
+                                  itemBuilder: (context, i) => _DepotCard(order: value[i]),
+                                );
+                        })(),
+                      AsyncError(:final error) => ErrorState(
+                          message: ApiClient.messageFromError(error),
+                          onRetry: () => ref.read(ordersProvider.notifier).refresh(),
+                        ),
+                      _ => const LoadingState(),
+                    },
+                  ),
           ),
         ],
       ),
-      body: _historique
-          ? OrderHistoriqueView(cardBuilder: (context, order) => _DepotHistoriqueCard(order: order))
-          : RefreshIndicator(
-              onRefresh: () => ref.read(ordersProvider.notifier).refresh(),
-              child: switch (async) {
-                AsyncData(:final value) => value.isEmpty
-                    ? const EmptyState(message: 'Aucune commande à préparer.', icon: Icons.inventory_outlined)
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(12),
-                        itemCount: value.length,
-                        itemBuilder: (context, i) => _DepotCard(order: value[i]),
-                      ),
-                AsyncError(:final error) => ErrorState(
-                    message: ApiClient.messageFromError(error),
-                    onRetry: () => ref.read(ordersProvider.notifier).refresh(),
-                  ),
-                _ => const LoadingState(),
-              },
-            ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => context.push('/orders/new'),
+        icon: const Icon(Icons.add),
+        label: const Text('Nouvelle récupération'),
+      ),
     );
   }
 }
