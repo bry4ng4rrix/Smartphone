@@ -1903,13 +1903,17 @@ class ChatUsersListView(APIView):
             Q(employer_profile__magasin__in=magasins)
         ).exclude(id=request.user.id).distinct()
 
+        now = timezone.now()
         data = []
         for u in users:
+            is_online = bool(u.last_seen_at and (now - u.last_seen_at).total_seconds() < 40)
             user_info = {
                 "id": u.id,
                 "full_name": u.full_name,
                 "email": u.email,
                 "role": u.role,
+                "is_online": is_online,
+                "last_seen_at": u.last_seen_at.isoformat() if u.last_seen_at else None,
             }
             if u.role == "magasin":
                 try:

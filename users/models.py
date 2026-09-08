@@ -63,6 +63,10 @@ class CustomUser(AbstractUser):
     is_confirmed = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True )
+    # Mis à jour à chaque connexion/activité WebSocket (chat) — sert à
+    # afficher "En ligne" / "Vu il y a ..." sans infra de présence dédiée
+    # (voir ChatConsumer.connect()/receive()).
+    last_seen_at = models.DateTimeField(null=True, blank=True)
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
     objects = CustomUserManager()
@@ -332,6 +336,10 @@ class ChatMessage(models.Model):
     edited_at = models.DateTimeField(null=True, blank=True)
     is_deleted = models.BooleanField(default=False)
     timestamp = models.DateTimeField(auto_now_add=True)
+    # Uniquement pertinent pour un message privé (recipient non nul) — un
+    # message "Général" a plusieurs destinataires, donc pas de statut "vu"
+    # unique possible ici.
+    read_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["timestamp"]

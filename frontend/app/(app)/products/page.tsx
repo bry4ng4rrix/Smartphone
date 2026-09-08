@@ -27,6 +27,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -50,6 +51,7 @@ import {
   Settings,
   Check,
   FolderPlus,
+  Palette,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -256,8 +258,8 @@ export default function ProductsPage() {
   };
 
   return (
-    <div className="p-4 sm:p-6 space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div className="p-4 sm:p-6 space-y-5">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Package className="h-6 w-6" /> Catalogue produits
@@ -267,15 +269,24 @@ export default function ProductsPage() {
             des charges).
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="icon" onClick={() => fetchAll()}>
+
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fetchAll()}
+            className="h-10 w-10 rounded-md p-0"
+          >
             <RefreshCw className="h-4 w-4" />
           </Button>
+
           {isGerant && (
             <Button
-              variant="outline"
+              variant="secondary"
+              size="sm"
               onClick={handleExportExcel}
               disabled={exporting}
+              className="h-10"
             >
               <Download className="h-4 w-4 mr-2" />
               {exporting ? "Export..." : "Exporter Excel"}
@@ -292,92 +303,113 @@ export default function ProductsPage() {
                 onChange={handleImportExcel}
               />
               <Button
-                variant="outline"
+                variant="secondary"
+                size="sm"
                 onClick={() => importInputRef.current?.click()}
                 disabled={importing}
+                className="h-10"
               >
                 <Upload className="h-4 w-4 mr-2" />
                 {importing ? "Import..." : "Importer Excel"}
               </Button>
             </>
           )}
+
           {isGerant && (
             <Button
               variant="outline"
+              size="sm"
               onClick={() => setCatalogSettingsOpen(true)}
+              className="h-10"
             >
               <Settings className="h-4 w-4 mr-2" /> Paramètres
             </Button>
           )}
+
           {isGerant && (
-            <Button variant="outline" onClick={() => setBulkPriceOpen(true)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setBulkPriceOpen(true)}
+              className="h-10"
+            >
               <DollarSign className="h-4 w-4 mr-2" /> Modifier prix par
               sous-type
             </Button>
           )}
+
           {isGerant && (
-            <Button onClick={() => setCreateOpen(true)}>
+            <Button
+              size="sm"
+              onClick={() => setCreateOpen(true)}
+              className="h-10 px-4 font-medium"
+            >
               <Plus className="h-4 w-4 mr-2" /> Nouvelle référence
             </Button>
           )}
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+        <div className="relative flex-1 xl:max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Marque, référence..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-10"
+            className="pl-10 h-11"
           />
         </div>
-        <Select
-          value={categoryFilter}
-          onValueChange={(v) => {
-            setCategoryFilter(v);
-            setTypeFilter("ALL");
-          }}
-        >
-          <SelectTrigger className="w-full sm:w-56">
-            <SelectValue placeholder="Toutes les catégories" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">Toutes les catégories</SelectItem>
-            {categories.map((c) => (
-              <SelectItem key={c.id} value={String(c.id)}>
-                {c.nom}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={typeFilter} onValueChange={setTypeFilter}>
-          <SelectTrigger className="w-full sm:w-56">
-            <SelectValue placeholder="Tous les sous-types" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">Tous les sous-types</SelectItem>
-            {typesForCategoryFilter.map((t) => (
-              <SelectItem key={t.id} value={String(t.id)}>
-                {t.nom}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={brandFilter} onValueChange={setBrandFilter}>
-          <SelectTrigger className="w-full sm:w-56">
-            <SelectValue placeholder="Toutes les marques" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">Toutes les marques</SelectItem>
-            {brands.map((b) => (
-              <SelectItem key={b.id} value={String(b.id)}>
-                {b.nom}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+
+        <div className="grid gap-3 md:grid-cols-3 xl:flex-1">
+          <Select
+            value={categoryFilter}
+            onValueChange={(v) => {
+              setCategoryFilter(v);
+              setTypeFilter("ALL");
+            }}
+          >
+            <SelectTrigger className="h-11 w-full">
+              <SelectValue placeholder="Toutes les catégories" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">Toutes les catégories</SelectItem>
+              {categories.map((c) => (
+                <SelectItem key={c.id} value={String(c.id)}>
+                  {c.nom}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <SelectTrigger className="h-11 w-full">
+              <SelectValue placeholder="Tous les sous-types" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">Tous les sous-types</SelectItem>
+              {typesForCategoryFilter.map((t) => (
+                <SelectItem key={t.id} value={String(t.id)}>
+                  {t.nom}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={brandFilter} onValueChange={setBrandFilter}>
+            <SelectTrigger className="h-11 w-full">
+              <SelectValue placeholder="Toutes les marques" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">Toutes les marques</SelectItem>
+              {brands.map((b) => (
+                <SelectItem key={b.id} value={String(b.id)}>
+                  {b.nom}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <Card>
@@ -1241,6 +1273,8 @@ function CreateReferenceDialog({
   const [variantCouleurId, setVariantCouleurId] = useState("");
   const [variantStock, setVariantStock] = useState("");
   const [variantSeuil, setVariantSeuil] = useState("");
+  const [simpleStock, setSimpleStock] = useState("");
+  const [simpleSeuil, setSimpleSeuil] = useState("1");
   const [submitting, setSubmitting] = useState(false);
   const [newTypeName, setNewTypeName] = useState("");
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -1258,10 +1292,19 @@ function CreateReferenceDialog({
     setVariantCouleurId("");
     setVariantStock("");
     setVariantSeuil("");
+    setSimpleStock("");
+    setSimpleSeuil("1");
     setNewTypeName("");
     setPhotoFile(null);
     setPhotoPreview(null);
   }, [open]);
+
+  // Certaines catégories (chargeur, écouteur…) n'ont pas de déclinaison
+  // couleur — la référence n'a alors qu'une seule variante "Standard" et le
+  // formulaire saisit directement une quantité (voir Paramètres du
+  // catalogue).
+  const selectedCategory = categories.find((c) => String(c.id) === categoryId);
+  const avecCouleurs = selectedCategory ? selectedCategory.avec_couleurs !== false : true;
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1337,7 +1380,16 @@ function CreateReferenceDialog({
         fd.append("photo", photoFile);
         await djangoClient.patchFormData(`/catalog/references/${ref.id}/`, fd);
       }
-      for (const v of variants) {
+      const variantsToCreate = avecCouleurs
+        ? variants
+        : [
+            {
+              couleur: "Standard",
+              stock: simpleStock ? Number(simpleStock) : 0,
+              seuil: simpleSeuil ? Number(simpleSeuil) : 1,
+            },
+          ];
+      for (const v of variantsToCreate) {
         await djangoClient.catalog.variants.create({
           product_reference: ref.id,
           couleur: v.couleur,
@@ -1366,26 +1418,53 @@ function CreateReferenceDialog({
         </DialogHeader>
 
         <div className="space-y-3">
-          <div className="space-y-1">
-            <Label>Catégorie</Label>
-            <Select
-              value={categoryId}
-              onValueChange={(v) => {
-                setCategoryId(v);
-                setTypeId("");
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Choisir une catégorie" />
-              </SelectTrigger>
-              <SelectContent>
-                {categories.map((c) => (
-                  <SelectItem key={c.id} value={String(c.id)}>
-                    {c.nom}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1">
+              <Label>Catégorie</Label>
+              <Select
+                value={categoryId}
+                onValueChange={(v) => {
+                  setCategoryId(v);
+                  setTypeId("");
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Choisir une catégorie" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)}>
+                      {c.nom}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Marque</Label>
+              <Select value={brandId} onValueChange={setBrandId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Choisir une marque" />
+                </SelectTrigger>
+                <SelectContent>
+                  {brands.map((b) => (
+                    <SelectItem key={b.id} value={String(b.id)}>
+                      {b.nom}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Référence (modèle)</Label>
+              <Input
+                placeholder="Ex: A16, S25 Ultra"
+                value={referenceName}
+                onChange={(e) => setReferenceName(e.target.value)}
+              />
+            </div>
           </div>
 
           {categoryId && (
@@ -1423,31 +1502,6 @@ function CreateReferenceDialog({
               </div>
             </div>
           )}
-
-          <div className="space-y-1">
-            <Label>Marque</Label>
-            <Select value={brandId} onValueChange={setBrandId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Choisir une marque" />
-              </SelectTrigger>
-              <SelectContent>
-                {brands.map((b) => (
-                  <SelectItem key={b.id} value={String(b.id)}>
-                    {b.nom}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1">
-            <Label>Référence (modèle)</Label>
-            <Input
-              placeholder="Ex: A16, S25 Ultra"
-              value={referenceName}
-              onChange={(e) => setReferenceName(e.target.value)}
-            />
-          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
@@ -1490,87 +1544,121 @@ function CreateReferenceDialog({
             )}
           </div>
 
-          <div className="border-t pt-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium">Variantes (couleurs)</p>
+          {avecCouleurs ? (
+            <div className="border-t pt-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium">Variantes (couleurs)</p>
+                {variants.length > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    {variants.length} couleur(s) ·{" "}
+                    {variants.reduce((s, v) => s + v.stock, 0)} unité(s)
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Couleur</Label>
+                  <Select
+                    value={variantCouleurId}
+                    onValueChange={setVariantCouleurId}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choisir" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {colors.map((c) => (
+                        <SelectItem key={c.id} value={String(c.id)}>
+                          {c.nom}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Nombre</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      placeholder="0"
+                      value={variantStock}
+                      onChange={(e) => setVariantStock(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Seuil d&apos;alerte</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      placeholder="1"
+                      value={variantSeuil}
+                      onChange={(e) => setVariantSeuil(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={addVariant}
+                  disabled={!variantCouleurId}
+                  className="w-full"
+                >
+                  <Plus className="h-4 w-4 mr-1" /> Ajouter
+                </Button>
+              </div>
               {variants.length > 0 && (
-                <span className="text-xs text-muted-foreground">
-                  {variants.length} couleur(s) ·{" "}
-                  {variants.reduce((s, v) => s + v.stock, 0)} unité(s)
-                </span>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {variants.map((v) => (
+                    <span
+                      key={v.couleur}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-slate-100 dark:bg-slate-800 dark:border-slate-600 px-2 py-1 text-xs font-medium text-slate-700 dark:text-slate-200"
+                    >
+                      {v.couleur} · {v.stock} (seuil {v.seuil})
+                      <button
+                        type="button"
+                        onClick={() => removeVariant(v.couleur)}
+                        className="text-slate-400 hover:text-red-500"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
               )}
             </div>
-
-            <div className="flex flex-wrap gap-2 items-end">
-              <div className="space-y-1 flex-[2] min-w-[130px]">
-                <Label className="text-xs">Couleur</Label>
-                <Select
-                  value={variantCouleurId}
-                  onValueChange={setVariantCouleurId}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Choisir" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {colors.map((c) => (
-                      <SelectItem key={c.id} value={String(c.id)}>
-                        {c.nom}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+          ) : (
+            <div className="border-t pt-3 space-y-2">
+              <p className="text-sm font-medium">Stock</p>
+              <p className="text-xs text-muted-foreground -mt-1">
+                Catégorie sans couleurs — une seule quantité pour cette
+                référence.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Quantité en stock</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    placeholder="0"
+                    value={simpleStock}
+                    onChange={(e) => setSimpleStock(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Seuil d&apos;alerte</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    placeholder="1"
+                    value={simpleSeuil}
+                    onChange={(e) => setSimpleSeuil(e.target.value)}
+                  />
+                </div>
               </div>
-              <div className="space-y-1 min-w-[80px]">
-                <Label className="text-xs">Nombre</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  placeholder="0"
-                  value={variantStock}
-                  onChange={(e) => setVariantStock(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1 min-w-[80px]">
-                <Label className="text-xs">Seuil d&apos;alerte</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  placeholder="1"
-                  value={variantSeuil}
-                  onChange={(e) => setVariantSeuil(e.target.value)}
-                />
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                onClick={addVariant}
-                disabled={!variantCouleurId}
-                className="shrink-0"
-              >
-                <Plus className="h-4 w-4 mr-1" /> Ajouter
-              </Button>
             </div>
-            {variants.length > 0 && (
-              <div className="flex flex-wrap gap-2 pt-1">
-                {variants.map((v) => (
-                  <span
-                    key={v.couleur}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-slate-100 dark:bg-slate-800 dark:border-slate-600 px-2 py-1 text-xs font-medium text-slate-700 dark:text-slate-200"
-                  >
-                    {v.couleur} · {v.stock} (seuil {v.seuil})
-                    <button
-                      type="button"
-                      onClick={() => removeVariant(v.couleur)}
-                      className="text-slate-400 hover:text-red-500"
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
+          )}
         </div>
 
         <DialogFooter>
@@ -1690,15 +1778,20 @@ function CatalogSettingsDialog({
         <DialogHeader>
           <DialogTitle>Paramètres du catalogue</DialogTitle>
           <DialogDescription>
-            Marques, sous-types et couleurs utilisés dans le catalogue produits
-            (§8 du cahier des charges).
+            Marques, catégories et couleurs utilisés dans le catalogue
+            produits (§8 du cahier des charges).
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6">
-          <div>
-            <h3 className="text-sm font-semibold mb-2">Marques</h3>
-            <div className="flex flex-wrap gap-2 mb-3">
+        <Tabs defaultValue="marques">
+          <TabsList className="grid grid-cols-3 w-full">
+            <TabsTrigger value="marques">Marques</TabsTrigger>
+            <TabsTrigger value="categories">Catégories</TabsTrigger>
+            <TabsTrigger value="couleurs">Couleurs</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="marques" className="space-y-3 pt-3">
+            <div className="flex flex-wrap gap-2">
               {SUGGESTED_BRANDS.map((nom) => {
                 const already = brands.some(
                   (b) => b.nom.toLowerCase() === nom.toLowerCase(),
@@ -1722,51 +1815,19 @@ function CatalogSettingsDialog({
                 );
               })}
             </div>
-            <div className="space-y-2 max-h-56 overflow-y-auto">
+            <div className="space-y-2 max-h-64 overflow-y-auto">
               {brands.map((b) => (
-                <div
+                <CrudRow
                   key={b.id}
-                  className="flex items-center gap-2 border rounded-md px-3 py-2"
-                >
-                  {editingId === b.id ? (
-                    <>
-                      <Input
-                        value={editingName}
-                        onChange={(e) => setEditingName(e.target.value)}
-                        className="h-8 flex-1"
-                        autoFocus
-                      />
-                      <Button size="sm" onClick={saveEdit}>
-                        OK
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setEditingId(null)}
-                      >
-                        Annuler
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <span className="flex-1 text-sm">{b.nom}</span>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => startEdit(b)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => removeBrand(b)}
-                      >
-                        <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
-                    </>
-                  )}
-                </div>
+                  label={b.nom}
+                  editing={editingId === b.id}
+                  editingValue={editingName}
+                  onEditingValueChange={setEditingName}
+                  onStartEdit={() => startEdit(b)}
+                  onSaveEdit={saveEdit}
+                  onCancelEdit={() => setEditingId(null)}
+                  onRemove={() => removeBrand(b)}
+                />
               ))}
               {brands.length === 0 && (
                 <p className="text-sm text-muted-foreground text-center py-4">
@@ -1774,7 +1835,7 @@ function CatalogSettingsDialog({
                 </p>
               )}
             </div>
-            <div className="flex gap-2 mt-3">
+            <div className="flex gap-2">
               <Input
                 placeholder="Nouvelle marque"
                 value={newName}
@@ -1784,31 +1845,30 @@ function CatalogSettingsDialog({
                 <Plus className="h-4 w-4 mr-2" /> Ajouter
               </Button>
             </div>
-          </div>
+          </TabsContent>
 
-          <div className="border-t pt-4">
-            <h3 className="text-sm font-semibold mb-1">
-              Sous-types (catégories produit)
-            </h3>
+          <TabsContent value="categories" className="pt-3">
             <p className="text-xs text-muted-foreground mb-3">
-              Le niveau entre la catégorie (ex. Housse, Cache écran) et la
-              marque — ex. Flip cover, Privacy, Chargeur, Écouteur.
+              Catégorie (ex. Housse, Cache écran, Chargeur) → sous-type (ex.
+              Flip cover, Privacy, Écouteur). « Sans couleurs » pour les
+              catégories sans déclinaison couleur (chargeur, écouteur…) — la
+              référence n&apos;a alors qu&apos;une quantité, sans gestion de
+              couleur.
             </p>
             <CategoriesTypesCrud
               categories={categories}
               types={types}
               onChanged={onChanged}
             />
-          </div>
+          </TabsContent>
 
-          <div className="border-t pt-4">
-            <h3 className="text-sm font-semibold mb-1">Couleurs</h3>
+          <TabsContent value="couleurs" className="pt-3">
             <p className="text-xs text-muted-foreground mb-3">
               Liste des couleurs proposées dans le sélecteur de variante.
             </p>
             <ColorsCrudList colors={colors} onChanged={onChanged} />
-          </div>
-        </div>
+          </TabsContent>
+        </Tabs>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -1817,6 +1877,62 @@ function CatalogSettingsDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// Ligne de liste éditable (nom + renommer/supprimer) — patron partagé par
+// les marques et les couleurs pour éviter de dupliquer le même bloc JSX.
+function CrudRow({
+  label,
+  editing,
+  editingValue,
+  onEditingValueChange,
+  onStartEdit,
+  onSaveEdit,
+  onCancelEdit,
+  onRemove,
+  trailing,
+}: {
+  label: string;
+  editing: boolean;
+  editingValue: string;
+  onEditingValueChange: (v: string) => void;
+  onStartEdit: () => void;
+  onSaveEdit: () => void;
+  onCancelEdit: () => void;
+  onRemove: () => void;
+  trailing?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-2 border rounded-md px-3 py-2">
+      {editing ? (
+        <>
+          <Input
+            value={editingValue}
+            onChange={(e) => onEditingValueChange(e.target.value)}
+            className="h-8 flex-1"
+            autoFocus
+          />
+          <Button size="sm" onClick={onSaveEdit}>
+            OK
+          </Button>
+          <Button size="sm" variant="ghost" onClick={onCancelEdit}>
+            Annuler
+          </Button>
+        </>
+      ) : (
+        <>
+          <span className="flex-1 text-sm">{label}</span>
+          {trailing}
+          <Button size="icon" variant="ghost" onClick={onStartEdit}>
+            <Pencil className="h-4 w-4" />
+          </Button>
+          <Button size="icon" variant="ghost" onClick={onRemove}>
+            <Trash2 className="h-4 w-4 text-red-500" />
+          </Button>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -1873,52 +1989,20 @@ function ColorsCrudList({
   };
 
   return (
-    <div>
-      <div className="space-y-2 max-h-56 overflow-y-auto">
+    <div className="space-y-3">
+      <div className="space-y-2 max-h-64 overflow-y-auto">
         {colors.map((c) => (
-          <div
+          <CrudRow
             key={c.id}
-            className="flex items-center gap-2 border rounded-md px-3 py-2"
-          >
-            {editingId === c.id ? (
-              <>
-                <Input
-                  value={editingName}
-                  onChange={(e) => setEditingName(e.target.value)}
-                  className="h-8 flex-1"
-                  autoFocus
-                />
-                <Button size="sm" onClick={saveEdit}>
-                  OK
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setEditingId(null)}
-                >
-                  Annuler
-                </Button>
-              </>
-            ) : (
-              <>
-                <span className="flex-1 text-sm">{c.nom}</span>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => startEdit(c)}
-                >
-                  <Pencil className="h-4 w-4" />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => removeColor(c)}
-                >
-                  <Trash2 className="h-4 w-4 text-red-500" />
-                </Button>
-              </>
-            )}
-          </div>
+            label={c.nom}
+            editing={editingId === c.id}
+            editingValue={editingName}
+            onEditingValueChange={setEditingName}
+            onStartEdit={() => startEdit(c)}
+            onSaveEdit={saveEdit}
+            onCancelEdit={() => setEditingId(null)}
+            onRemove={() => removeColor(c)}
+          />
         ))}
         {colors.length === 0 && (
           <p className="text-sm text-muted-foreground text-center py-4">
@@ -1926,7 +2010,7 @@ function ColorsCrudList({
           </p>
         )}
       </div>
-      <div className="flex gap-2 mt-3">
+      <div className="flex gap-2">
         <Input
           placeholder="Nouvelle couleur (ex: Bleu)"
           value={newName}
@@ -1952,6 +2036,7 @@ function CategoriesTypesCrud({
   const [editingCatId, setEditingCatId] = useState<number | null>(null);
   const [editingCatName, setEditingCatName] = useState("");
   const [newCatName, setNewCatName] = useState("");
+  const [newCatAvecCouleurs, setNewCatAvecCouleurs] = useState(true);
 
   const [editingTypeId, setEditingTypeId] = useState<number | null>(null);
   const [editingTypeName, setEditingTypeName] = useState("");
@@ -1994,9 +2079,22 @@ function CategoriesTypesCrud({
       await djangoClient.catalog.categories.create({
         nom: newCatName.trim(),
         ordre: categories.length,
+        avec_couleurs: newCatAvecCouleurs,
       });
       toast.success("Catégorie ajoutée");
       setNewCatName("");
+      setNewCatAvecCouleurs(true);
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || "Erreur");
+    }
+  };
+
+  const toggleAvecCouleurs = async (c: any) => {
+    try {
+      await djangoClient.catalog.categories.update(c.id, {
+        avec_couleurs: !(c.avec_couleurs !== false),
+      });
       onChanged();
     } catch (err: any) {
       toast.error(err.message || "Erreur");
@@ -2047,10 +2145,51 @@ function CategoriesTypesCrud({
 
   return (
     <div className="space-y-4">
+      <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+        <Label className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+          Nouvelle catégorie
+        </Label>
+        <div className="flex gap-2">
+          <Input
+            placeholder="Ex. Accessoires"
+            value={newCatName}
+            onChange={(e) => setNewCatName(e.target.value)}
+            className="h-9"
+          />
+          <Button onClick={addCategory} className="shrink-0">
+            <FolderPlus className="h-4 w-4 mr-2" /> Ajouter
+          </Button>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={newCatAvecCouleurs ? "default" : "outline"}
+            className="flex-1"
+            onClick={() => setNewCatAvecCouleurs(true)}
+          >
+            <Palette className="h-3.5 w-3.5 mr-1.5" /> Avec couleurs
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={!newCatAvecCouleurs ? "default" : "outline"}
+            className="flex-1"
+            onClick={() => setNewCatAvecCouleurs(false)}
+          >
+            Sans couleurs
+          </Button>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          « Avec couleurs » : housse, cache écran… « Sans couleurs » :
+          chargeur, écouteur… — une seule quantité par référence.
+        </p>
+      </div>
+
       {categories.map((c) => {
         const typesForCat = types.filter((t) => t.category === c.id);
         return (
-          <div key={c.id} className="border rounded-md p-3">
+          <div key={c.id} className="border rounded-md p-3 bg-muted/10">
             <div className="flex items-center gap-2 mb-2">
               {editingCatId === c.id ? (
                 <>
@@ -2075,6 +2214,19 @@ function CategoriesTypesCrud({
                 <>
                   <Tag className="h-4 w-4 text-muted-foreground" />
                   <span className="flex-1 text-sm font-semibold">{c.nom}</span>
+                  <Badge
+                    variant={c.avec_couleurs !== false ? "secondary" : "outline"}
+                    className="cursor-pointer gap-1 font-normal"
+                    onClick={() => toggleAvecCouleurs(c)}
+                  >
+                    {c.avec_couleurs !== false ? (
+                      <>
+                        <Palette className="h-3 w-3" /> Avec couleurs
+                      </>
+                    ) : (
+                      "Sans couleurs"
+                    )}
+                  </Badge>
                   <Button
                     size="icon"
                     variant="ghost"
@@ -2094,7 +2246,10 @@ function CategoriesTypesCrud({
             </div>
             <div className="space-y-1.5 pl-6">
               {typesForCat.map((t) => (
-                <div key={t.id} className="flex items-center gap-2">
+                <div
+                  key={t.id}
+                  className="flex items-center gap-2 rounded-sm px-2 py-1 hover:bg-muted/40"
+                >
                   {editingTypeId === t.id ? (
                     <>
                       <Input
@@ -2144,7 +2299,7 @@ function CategoriesTypesCrud({
               )}
               <div className="flex gap-2 pt-1">
                 <Input
-                  placeholder="Nouveau sous-type (ex. Chargeur, Écouteur)"
+                  placeholder="Nouveau sous-type"
                   value={newTypeNameByCategory[c.id] || ""}
                   onChange={(e) =>
                     setNewTypeNameByCategory((prev) => ({
@@ -2154,7 +2309,11 @@ function CategoriesTypesCrud({
                   }
                   className="h-8"
                 />
-                <Button size="sm" onClick={() => addType(c.id)}>
+                <Button
+                  size="sm"
+                  onClick={() => addType(c.id)}
+                  className="shrink-0"
+                >
                   <Plus className="h-3.5 w-3.5 mr-1" /> Ajouter
                 </Button>
               </div>
@@ -2167,16 +2326,6 @@ function CategoriesTypesCrud({
           Aucune catégorie.
         </p>
       )}
-      <div className="flex gap-2 border-t pt-4">
-        <Input
-          placeholder="Nouvelle catégorie (ex. Accessoires)"
-          value={newCatName}
-          onChange={(e) => setNewCatName(e.target.value)}
-        />
-        <Button onClick={addCategory}>
-          <FolderPlus className="h-4 w-4 mr-2" /> Ajouter
-        </Button>
-      </div>
     </div>
   );
 }

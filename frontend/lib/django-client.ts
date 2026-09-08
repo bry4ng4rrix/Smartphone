@@ -480,10 +480,10 @@ class DjangoAPIClient {
         const q = magasinId ? `?magasin_id=${magasinId}` : ''
         return this.get<any[]>(`/catalog/categories/${q}`)
       },
-      create: async (data: { nom: string; ordre?: number; magasin_id?: number }) => {
+      create: async (data: { nom: string; ordre?: number; magasin_id?: number; avec_couleurs?: boolean }) => {
         return this.post<any>('/catalog/categories/', data)
       },
-      update: async (id: number, data: { nom?: string; ordre?: number }) => {
+      update: async (id: number, data: { nom?: string; ordre?: number; avec_couleurs?: boolean }) => {
         return this.patch<any>(`/catalog/categories/${id}/`, data)
       },
       delete: async (id: number) => {

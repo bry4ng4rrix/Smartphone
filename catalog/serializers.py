@@ -6,7 +6,7 @@ from .models import Brand, Color, ProductCategory, ProductReference, ProductType
 class ProductCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductCategory
-        fields = ["id", "magasin", "nom", "ordre"]
+        fields = ["id", "magasin", "nom", "ordre", "avec_couleurs"]
         read_only_fields = ["magasin"]
 
 

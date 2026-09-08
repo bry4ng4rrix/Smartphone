@@ -11,6 +11,11 @@ class ProductCategory(models.Model):
     )
     nom = models.CharField(max_length=100)
     ordre = models.PositiveIntegerField(default=0)
+    # Certaines catégories (chargeur, écouteur…) n'ont pas de déclinaison
+    # couleur : la référence n'a alors qu'une seule variante ("Standard") et
+    # le formulaire de création saisit directement une quantité, sans passer
+    # par la gestion multi-couleurs (housse, cache écran…).
+    avec_couleurs = models.BooleanField(default=True)
 
     class Meta:
         verbose_name = "Catégorie de produit"

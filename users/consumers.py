@@ -65,14 +65,15 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 self.room_name = raw_room
 
         self.room_group_name = f"chat_{self.room_name}"
-        
+
         # 3. Join the room group
         await self.channel_layer.group_add(
             self.room_group_name,
             self.channel_name
         )
         await self.accept()
-        
+        await self.touch_last_seen()
+
     async def disconnect(self, close_code):
         if hasattr(self, 'room_group_name'):
             await self.channel_layer.group_discard(
@@ -86,7 +87,20 @@ class ChatConsumer(AsyncWebsocketConsumer):
         except json.JSONDecodeError:
             return
 
+        # Toute trame reçue (message, ping de présence, edit/delete/read...)
+        # vaut activité — alimente "En ligne" / "Vu il y a ..." côté client.
+        await self.touch_last_seen()
+
         action = data.get("action", "send")
+
+        if action == "read":
+            updated = await self.mark_read()
+            if updated:
+                await self.channel_layer.group_send(
+                    self.room_group_name,
+                    {"type": "chat_message_read", "message": updated}
+                )
+            return
 
         if action == "edit":
             message_id = data.get("message_id")
@@ -139,6 +153,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
     async def chat_message_deleted(self, event):
         await self.send(text_data=json.dumps({"type": "message_deleted", **event["message"]}))
 
+    async def chat_message_read(self, event):
+        await self.send(text_data=json.dumps({"type": "message_read", **event["message"]}))
+
     @database_sync_to_async
     def get_user_from_token(self, token_str):
         try:
@@ -187,8 +204,35 @@ class ChatConsumer(AsyncWebsocketConsumer):
             "content": content,
             "is_edited": False,
             "is_deleted": False,
-            "timestamp": msg.timestamp.isoformat()
+            "timestamp": msg.timestamp.isoformat(),
+            "read_at": None,
         }
+
+    @database_sync_to_async
+    def mark_read(self):
+        from django.utils import timezone
+        from users.models import ChatMessage
+        # Un message "Général" (recipient=None) a plusieurs destinataires —
+        # pas de statut "vu" unique possible, donc rien à marquer hors DM.
+        if not getattr(self, "recipient", None):
+            return None
+        qs = ChatMessage.objects.filter(
+            room_name=self.room_name,
+            recipient=self.user,
+            read_at__isnull=True,
+            is_deleted=False,
+        )
+        ids = list(qs.values_list("id", flat=True))
+        if not ids:
+            return None
+        now = timezone.now()
+        qs.update(read_at=now)
+        return {"ids": ids, "read_at": now.isoformat(), "room_name": self.room_name}
+
+    @database_sync_to_async
+    def touch_last_seen(self):
+        from django.utils import timezone
+        User.objects.filter(id=self.user.id).update(last_seen_at=timezone.now())
 
     @database_sync_to_async
     def edit_message(self, message_id, content):

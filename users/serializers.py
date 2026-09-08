@@ -267,5 +267,6 @@ class ChatMessageSerializer(serializers.ModelSerializer):
             "edited_at",
             "is_deleted",
             "timestamp",
+            "read_at",
         ]
-        read_only_fields = ["id", "timestamp"]
+        read_only_fields = ["id", "timestamp", "read_at"]

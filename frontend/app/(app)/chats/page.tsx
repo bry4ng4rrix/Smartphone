@@ -21,6 +21,7 @@ import {
   Pencil,
   Trash2,
   Check,
+  CheckCheck,
   X,
   Package,
 } from 'lucide-react';
@@ -46,6 +47,8 @@ interface ChatUser {
   email: string;
   role: 'admin' | 'magasin' | 'employer';
   shop_name?: string;
+  is_online?: boolean;
+  last_seen_at?: string | null;
 }
 
 interface ChatProductSnapshot {
@@ -72,6 +75,7 @@ interface ChatMessage {
   edited_at?: string | null;
   is_deleted?: boolean;
   timestamp: string;
+  read_at?: string | null;
 }
 
 export default function ChatsPage() {
@@ -106,28 +110,33 @@ export default function ChatsPage() {
   const [socketStatus, setSocketStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected');
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
+  const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
   // ScrollRef
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
-  // 1. Fetch chat users list
+  // 1. Fetch chat users list — reinterrogé périodiquement pour rafraîchir le
+  // statut "En ligne" de chacun (calculé côté serveur à partir de
+  // last_seen_at, voir ChatUsersListView).
   useEffect(() => {
     if (!currentUser) return;
-    
-    const fetchUsers = async () => {
+
+    const fetchUsers = async (silent = false) => {
       try {
-        setLoadingUsers(true);
+        if (!silent) setLoadingUsers(true);
         const data = await djangoClient.chat.users();
         setUsers(data);
       } catch (err) {
         console.error('Error fetching chat users:', err);
-        toast.error('Impossible de charger la liste des collaborateurs.');
+        if (!silent) toast.error('Impossible de charger la liste des collaborateurs.');
       } finally {
-        setLoadingUsers(false);
+        if (!silent) setLoadingUsers(false);
       }
     };
-    
+
     fetchUsers();
+    const interval = setInterval(() => fetchUsers(true), 20000);
+    return () => clearInterval(interval);
   }, [currentUser]);
 
   // 2. Fetch message history & connect WebSocket when active recipient or room tab changes
@@ -200,6 +209,22 @@ export default function ChatsPage() {
       ws.onopen = () => {
         setSocketStatus('connected');
         console.log('WebSocket Connected to', wsUrl);
+
+        // Ouvrir une conversation directe = la consulter -> marquer les
+        // messages reçus non lus comme "vu" côté serveur.
+        if (activeTab === 'direct' && activeRecipient) {
+          ws.send(JSON.stringify({ action: 'read' }));
+        }
+
+        // Heartbeat de présence — toute trame reçue par le serveur met à
+        // jour last_seen_at (voir ChatConsumer.receive()) ; un simple ping
+        // sans contenu suffit et n'est jamais traité comme un message.
+        if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+        pingIntervalRef.current = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ action: 'ping' }));
+          }
+        }, 20000);
       };
 
       ws.onmessage = (event) => {
@@ -224,12 +249,32 @@ export default function ChatsPage() {
             return;
           }
 
+          if (data.type === 'message_read') {
+            const ids: number[] = data.ids || [];
+            setMessages((prev) =>
+              prev.map((m) => (ids.includes(m.id) ? { ...m, read_at: data.read_at } : m))
+            );
+            return;
+          }
+
           const receivedData: ChatMessage = data;
           setMessages((prev) => {
             // Avoid duplicates
             if (prev.some((m) => m.id === receivedData.id)) return prev;
             return [...prev, receivedData];
           });
+
+          // Message reçu (pas le nôtre) pendant que la conversation est
+          // ouverte -> le marquer "vu" immédiatement.
+          if (
+            activeTab === 'direct' &&
+            activeRecipient &&
+            currentUser &&
+            receivedData.sender !== currentUser.id &&
+            ws.readyState === WebSocket.OPEN
+          ) {
+            ws.send(JSON.stringify({ action: 'read' }));
+          }
         } catch (e) {
           console.error('Error parsing incoming WS message:', e);
         }
@@ -238,7 +283,12 @@ export default function ChatsPage() {
       ws.onclose = (event) => {
         setSocketStatus('disconnected');
         console.log('WebSocket Disconnected', event.reason);
-        
+
+        if (pingIntervalRef.current) {
+          clearInterval(pingIntervalRef.current);
+          pingIntervalRef.current = null;
+        }
+
         // Auto-reconnect if not explicitly disconnected by us
         if (socketRef.current === ws) {
           reconnectTimeoutRef.current = setTimeout(() => {
@@ -263,6 +313,10 @@ export default function ChatsPage() {
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
+    }
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = null;
     }
 
     if (socketRef.current) {
@@ -375,6 +429,19 @@ export default function ChatsPage() {
     }
   };
 
+  const formatLastSeen = (isoString?: string | null) => {
+    if (!isoString) return null;
+    try {
+      const d = new Date(isoString);
+      const diffMin = (Date.now() - d.getTime()) / 60000;
+      if (diffMin < 1) return "à l'instant";
+      if (diffMin < 60) return `il y a ${Math.floor(diffMin)} min`;
+      return `à ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+    } catch (e) {
+      return null;
+    }
+  };
+
   const getRoleLabel = (role: string) => {
     switch (role) {
       case 'admin':
@@ -421,6 +488,12 @@ export default function ChatsPage() {
       (u.shop_name && u.shop_name.toLowerCase().includes(term))
     );
   });
+
+  // Statut de présence toujours à jour (le polling rafraîchit `users`, pas
+  // l'objet figé au moment du clic dans `activeRecipient`).
+  const liveActiveRecipient = activeRecipient
+    ? users.find((u) => u.id === activeRecipient.id) || activeRecipient
+    : null;
 
   const openChatView = () => setMobileShowChat(true);
 
@@ -587,16 +660,25 @@ export default function ChatsPage() {
                             : 'hover:bg-accent/60'
                         }`}
                       >
-                        <Avatar className="h-10 w-10 border">
-                          <AvatarFallback className={`font-semibold text-xs ${
-                            activeRecipient?.id === u.id 
-                              ? 'bg-primary-foreground/20 text-primary-foreground'
-                              : 'bg-muted text-muted-foreground'
-                          }`}>
-                            {getInitials(u.full_name)}
-                          </AvatarFallback>
-                        </Avatar>
-                        
+                        <div className="relative shrink-0">
+                          <Avatar className="h-10 w-10 border">
+                            <AvatarFallback className={`font-semibold text-xs ${
+                              activeRecipient?.id === u.id
+                                ? 'bg-primary-foreground/20 text-primary-foreground'
+                                : 'bg-muted text-muted-foreground'
+                            }`}>
+                              {getInitials(u.full_name)}
+                            </AvatarFallback>
+                          </Avatar>
+                          {u.is_online && (
+                            <span
+                              className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 ${
+                                activeRecipient?.id === u.id ? 'ring-2 ring-primary' : 'ring-2 ring-background'
+                              }`}
+                            />
+                          )}
+                        </div>
+
                         <div className="flex-1 min-w-0">
                           <div className="flex justify-between items-center">
                             <h4 className="font-semibold text-xs truncate max-w-[120px]">{u.full_name}</h4>
@@ -624,6 +706,11 @@ export default function ChatsPage() {
                                 Administration
                               </div>
                             )}
+                          </div>
+                          <div className={`text-[10px] mt-0.5 truncate ${
+                            activeRecipient?.id === u.id ? 'text-primary-foreground/70' : u.is_online ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground/70'
+                          }`}>
+                            {u.is_online ? 'En ligne' : formatLastSeen(u.last_seen_at) ? `Vu ${formatLastSeen(u.last_seen_at)}` : 'Hors ligne'}
                           </div>
                         </div>
                       </button>
@@ -660,22 +747,31 @@ export default function ChatsPage() {
                     <p className="text-[10px] text-muted-foreground">Tout le personnel de l'entreprise</p>
                   </div>
                 </>
-              ) : activeRecipient ? (
+              ) : liveActiveRecipient ? (
                 <>
-                  <Avatar className="h-10 w-10 shrink-0 border">
-                    <AvatarFallback className="bg-primary/15 text-primary text-xs font-bold">
-                      {getInitials(activeRecipient.full_name)}
-                    </AvatarFallback>
-                  </Avatar>
+                  <div className="relative shrink-0">
+                    <Avatar className="h-10 w-10 border">
+                      <AvatarFallback className="bg-primary/15 text-primary text-xs font-bold">
+                        {getInitials(liveActiveRecipient.full_name)}
+                      </AvatarFallback>
+                    </Avatar>
+                    {liveActiveRecipient.is_online && (
+                      <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-card" />
+                    )}
+                  </div>
                   <div className="min-w-0">
-                    <h3 className="font-bold text-sm truncate">{activeRecipient.full_name}</h3>
+                    <h3 className="font-bold text-sm truncate">{liveActiveRecipient.full_name}</h3>
                     <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-[10px] text-muted-foreground max-w-[150px] truncate">
-                        {activeRecipient.email}
+                      <span className={`text-[10px] ${liveActiveRecipient.is_online ? 'text-emerald-600 dark:text-emerald-400 font-medium' : 'text-muted-foreground'}`}>
+                        {liveActiveRecipient.is_online
+                          ? 'En ligne'
+                          : formatLastSeen(liveActiveRecipient.last_seen_at)
+                            ? `Vu ${formatLastSeen(liveActiveRecipient.last_seen_at)}`
+                            : 'Hors ligne'}
                       </span>
                       <span className="text-muted-foreground/30">•</span>
                       <span className="text-[10px] font-semibold text-primary">
-                        {getRoleLabel(activeRecipient.role)}
+                        {getRoleLabel(liveActiveRecipient.role)}
                       </span>
                     </div>
                   </div>
@@ -848,11 +944,18 @@ export default function ChatsPage() {
 
                           {/* Timestamp */}
                           {!isEditing && (
-                            <span className={`text-[9px] text-muted-foreground/70 mt-1 select-none px-1 ${
-                              isOwnMessage ? 'text-right' : 'text-left'
+                            <span className={`flex items-center gap-1 text-[9px] text-muted-foreground/70 mt-1 select-none px-1 ${
+                              isOwnMessage ? 'justify-end text-right' : 'text-left'
                             }`}>
                               {formatTime(msg.timestamp)}
                               {msg.is_edited && !msg.is_deleted ? ' · modifié' : ''}
+                              {isOwnMessage && !msg.is_deleted && activeTab === 'direct' && (
+                                msg.read_at ? (
+                                  <CheckCheck className="h-3 w-3 text-primary" />
+                                ) : (
+                                  <Check className="h-3 w-3" />
+                                )
+                              )}
                             </span>
                           )}
                         </div>
