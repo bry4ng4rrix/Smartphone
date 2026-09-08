@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     BrandViewSet,
     ColorViewSet,
+    ImportBatchViewSet,
     ProductCategoryViewSet,
     ProductReferenceViewSet,
     ProductTypeViewSet,
@@ -18,5 +19,6 @@ router.register(r"colors", ColorViewSet, basename="color")
 router.register(r"references", ProductReferenceViewSet, basename="product-reference")
 router.register(r"variants", ProductVariantViewSet, basename="product-variant")
 router.register(r"movements", StockMovementViewSet, basename="stock-movement")
+router.register(r"import-batches", ImportBatchViewSet, basename="import-batch")
 
 urlpatterns = router.urls

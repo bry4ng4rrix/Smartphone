@@ -90,6 +90,26 @@ export default function ProductsPage() {
   const [importing, setImporting] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Revue post-import : résumé de ce qui a été créé/mis à jour par le
+  // dernier import Excel (déjà enregistré en base à ce stade) + vérification
+  // IA optionnelle des quasi-doublons, avec la possibilité d'annuler l'import
+  // (voir handleImportExcel / handleConfirmImport / handleCancelImport).
+  type ImportReview = {
+    batchId: string | null;
+    created_references: number;
+    updated_references: number;
+    created_variants: number;
+    updated_variants: number;
+    errors_count: number;
+    skipped_count: number;
+    new_reference_names: string[];
+    updated_reference_names: string[];
+    aiStatus: "loading" | "done" | "skipped";
+    aiWarnings: { nouvelle: string; ressemble_a: string; raison: string }[];
+  };
+  const [importReview, setImportReview] = useState<ImportReview | null>(null);
+  const [cancellingImport, setCancellingImport] = useState(false);
+
   const fetchAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
@@ -250,12 +270,6 @@ export default function ProductsPage() {
       a.remove();
       URL.revokeObjectURL(url);
 
-      toast.success(
-        `${res.created_references} référence(s) créée(s), ${res.updated_references} mise(s) à jour, ` +
-          `${res.created_variants} couleur(s) créée(s), ${res.updated_variants} mise(s) à jour` +
-          (res.skipped_count > 0 ? `, ${res.skipped_count} ligne(s) déjà traitée(s) ignorée(s)` : "") +
-          `. Fichier annoté téléchargé (${res.filename}).`,
-      );
       if (res.errors_count > 0) {
         toast.error(
           `${res.errors_count} ligne(s) en erreur — voir la colonne "Statut" du fichier téléchargé.`,
@@ -264,14 +278,36 @@ export default function ProductsPage() {
       }
       fetchAll();
 
+      // L'import est déjà enregistré en base à ce stade (voir
+      // catalog/views.py::import_excel) — la boîte de dialogue ci-dessous
+      // n'est qu'une revue a posteriori : "Enregistrer"/"Modifier" ne font
+      // rien de plus côté serveur, seul "Annuler" déclenche un appel réseau
+      // (import-batches/<id>/cancel/) pour défaire ce qui vient d'être écrit.
+      const existingNames = references.map(
+        (r: any) => `${r.brand_name} ${r.reference_name}`,
+      );
+      setImportReview({
+        batchId: res.batch_id,
+        created_references: res.created_references,
+        updated_references: res.updated_references,
+        created_variants: res.created_variants,
+        updated_variants: res.updated_variants,
+        errors_count: res.errors_count,
+        skipped_count: res.skipped_count,
+        new_reference_names: res.new_reference_names,
+        updated_reference_names: res.updated_reference_names,
+        aiStatus: res.new_reference_names.length > 0 ? "loading" : "skipped",
+        aiWarnings: [],
+      });
+
       // Revue optionnelle par IA locale (Ollama) des références nouvellement
       // créées, pour repérer un quasi-doublon qu'une simple comparaison de
       // texte ne peut pas voir (ex: faute de frappe) — best-effort, ne
       // bloque jamais l'import (déjà fait au-dessus) si Ollama ne répond pas.
+      // Le résultat est affiché dans la boîte de dialogue de revue plutôt
+      // qu'en toast séparé, pour que l'utilisateur voie tout au même endroit
+      // avant de décider Enregistrer/Modifier/Annuler.
       if (res.new_reference_names.length > 0) {
-        const existingNames = references.map(
-          (r: any) => `${r.brand_name} ${r.reference_name}`,
-        );
         fetch("/api/ai/check-duplicates", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -282,26 +318,67 @@ export default function ProductsPage() {
         })
           .then((r) => r.json())
           .then((data) => {
-            if (data.warnings?.length > 0) {
-              toast.warning(
-                `Vérification IA : ${data.warnings.length} nouvelle(s) référence(s) ressemble(nt) à une existante — ` +
-                  data.warnings
-                    .slice(0, 3)
-                    .map((w: any) => `"${w.nouvelle}" ≈ "${w.ressemble_a}"`)
-                    .join(" · "),
-                { duration: 15000 },
-              );
-            }
+            setImportReview((prev) =>
+              prev && prev.batchId === res.batch_id
+                ? { ...prev, aiStatus: "done", aiWarnings: data.warnings || [] }
+                : prev,
+            );
           })
           .catch(() => {
             // Ollama indisponible/hors service — l'import reste valide, on
-            // ignore silencieusement cette vérification supplémentaire.
+            // marque juste la vérification comme non concluante.
+            setImportReview((prev) =>
+              prev && prev.batchId === res.batch_id ? { ...prev, aiStatus: "done" } : prev,
+            );
           });
       }
     } catch (err: any) {
       toast.error(err.message || "Erreur lors de l'import");
     } finally {
       setImporting(false);
+    }
+  };
+
+  const handleConfirmImport = () => {
+    // Rien à écrire : l'import est déjà enregistré. On referme juste la revue.
+    toast.success("Import conservé.");
+    setImportReview(null);
+  };
+
+  const handleEditImport = () => {
+    // Idem "Enregistrer" côté base (déjà écrit) — en plus, on filtre le
+    // tableau sur les références touchées par cet import pour que
+    // l'utilisateur puisse directement les corriger.
+    if (importReview) {
+      const touched = new Set([
+        ...importReview.new_reference_names,
+        ...importReview.updated_reference_names,
+      ]);
+      if (touched.size > 0) {
+        setSearch(Array.from(touched)[0]);
+        toast.info(
+          "Import conservé — recherche préremplie sur les références touchées, ajustez-la pour voir les autres.",
+        );
+      }
+    }
+    setImportReview(null);
+  };
+
+  const handleCancelImport = async () => {
+    if (!importReview?.batchId) {
+      setImportReview(null);
+      return;
+    }
+    setCancellingImport(true);
+    try {
+      await djangoClient.catalog.importBatches.cancel(importReview.batchId);
+      toast.success("Import annulé — les données ajoutées/modifiées ont été retirées de la base.");
+      setImportReview(null);
+      fetchAll();
+    } catch (err: any) {
+      toast.error(err.message || "Erreur lors de l'annulation de l'import");
+    } finally {
+      setCancellingImport(false);
     }
   };
 
@@ -669,6 +746,101 @@ export default function ProductsPage() {
             </Button>
             <Button variant="destructive" onClick={handleDelete}>
               Supprimer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!importReview}
+        onOpenChange={(o) => !o && setImportReview(null)}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Résumé de l'import</DialogTitle>
+            <DialogDescription>
+              Déjà enregistré en base. Vérifiez, puis confirmez, modifiez ou
+              annulez (l'annulation retire ces changements de la base).
+            </DialogDescription>
+          </DialogHeader>
+
+          {importReview && (
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-md border p-3">
+                  <p className="font-medium text-green-700 dark:text-green-500">Ajouté</p>
+                  <p>{importReview.created_references} référence(s)</p>
+                  <p>{importReview.created_variants} couleur(s)</p>
+                </div>
+                <div className="rounded-md border p-3">
+                  <p className="font-medium text-blue-700 dark:text-blue-500">Mis à jour</p>
+                  <p>{importReview.updated_references} référence(s)</p>
+                  <p>{importReview.updated_variants} couleur(s)</p>
+                </div>
+              </div>
+
+              {importReview.new_reference_names.length > 0 && (
+                <div>
+                  <p className="text-muted-foreground">Nouvelles références :</p>
+                  <p className="line-clamp-3">{importReview.new_reference_names.join(", ")}</p>
+                </div>
+              )}
+              {importReview.updated_reference_names.length > 0 && (
+                <div>
+                  <p className="text-muted-foreground">Références mises à jour :</p>
+                  <p className="line-clamp-3">{importReview.updated_reference_names.join(", ")}</p>
+                </div>
+              )}
+              {importReview.skipped_count > 0 && (
+                <p className="text-muted-foreground">
+                  {importReview.skipped_count} ligne(s) déjà traitée(s) ignorée(s).
+                </p>
+              )}
+              {importReview.errors_count > 0 && (
+                <p className="text-red-600 dark:text-red-500">
+                  {importReview.errors_count} ligne(s) en erreur — voir le fichier téléchargé.
+                </p>
+              )}
+
+              <div className="rounded-md border p-3">
+                <p className="font-medium mb-1">Analyse IA (quasi-doublons)</p>
+                {importReview.aiStatus === "loading" && (
+                  <p className="text-muted-foreground">Analyse en cours…</p>
+                )}
+                {importReview.aiStatus === "skipped" && (
+                  <p className="text-muted-foreground">Aucune nouvelle référence à vérifier.</p>
+                )}
+                {importReview.aiStatus === "done" && importReview.aiWarnings.length === 0 && (
+                  <p className="text-muted-foreground">Aucun doublon suspect détecté.</p>
+                )}
+                {importReview.aiStatus === "done" && importReview.aiWarnings.length > 0 && (
+                  <ul className="space-y-1">
+                    {importReview.aiWarnings.map((w, i) => (
+                      <li key={i}>
+                        <span className="font-medium">"{w.nouvelle}"</span> ressemble à{" "}
+                        <span className="font-medium">"{w.ressemble_a}"</span>
+                        {w.raison ? ` — ${w.raison}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              variant="destructive"
+              onClick={handleCancelImport}
+              disabled={cancellingImport}
+            >
+              {cancellingImport ? "Annulation..." : "Annuler l'import"}
+            </Button>
+            <Button variant="outline" onClick={handleEditImport} disabled={cancellingImport}>
+              Modifier
+            </Button>
+            <Button onClick={handleConfirmImport} disabled={cancellingImport}>
+              Enregistrer
             </Button>
           </DialogFooter>
         </DialogContent>

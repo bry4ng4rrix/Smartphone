@@ -186,6 +186,7 @@ CORS_ALLOW_ALL_ORIGINS = False
 # fichier annoté qu'il télécharge (voir handleImportExcel côté products/page.tsx).
 CORS_EXPOSE_HEADERS = [
     "Content-Disposition",
+    "X-Import-Batch-Id",
     "X-Import-Created-References",
     "X-Import-Updated-References",
     "X-Import-Created-Variants",
@@ -193,6 +194,7 @@ CORS_EXPOSE_HEADERS = [
     "X-Import-Errors-Count",
     "X-Import-Skipped-Count",
     "X-Import-New-Reference-Names",
+    "X-Import-Updated-Reference-Names",
 ]
 
 _cors_env = os.environ.get("CORS_ALLOWED_ORIGINS", "")

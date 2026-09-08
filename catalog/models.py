@@ -183,3 +183,31 @@ class StockMovement(models.Model):
 
     def __str__(self):
         return f"{self.get_type_display()} {self.quantite} - {self.product_variant} ({self.origine})"
+
+
+class ImportBatch(models.Model):
+    """Trace les objets créés/modifiés par un import Excel (voir
+    ProductReferenceViewSet.import_excel) pour permettre à l'utilisateur
+    d'annuler l'import après avoir vu le résumé côté frontend —
+    catalog/services.py::revert_import_batch défait exactement chaque entrée
+    de `items`, dans l'ordre inverse de leur création."""
+
+    magasin = models.ForeignKey(
+        "users.MagasinProfile", on_delete=models.CASCADE, related_name="import_batches"
+    )
+    created_by = models.ForeignKey(
+        "users.CustomUser", on_delete=models.SET_NULL, null=True, blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    # Liste de dicts {action, id, label, previous?, movement_id?, reference_id?}
+    # dans l'ordre de traitement des lignes du fichier importé.
+    items = models.JSONField(default=list)
+
+    class Meta:
+        verbose_name = "Import de catalogue"
+        verbose_name_plural = "Imports de catalogue"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Import #{self.pk} ({self.created_at:%d/%m/%Y %H:%M})"

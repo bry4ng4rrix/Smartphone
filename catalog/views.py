@@ -16,7 +16,16 @@ from rest_framework.response import Response
 from users.permissions import IsGerantOrReadOnly, get_accessible_magasins, resolve_magasin_for_request
 
 from . import services
-from .models import Brand, Color, ProductCategory, ProductReference, ProductType, ProductVariant, StockMovement
+from .models import (
+    Brand,
+    Color,
+    ImportBatch,
+    ProductCategory,
+    ProductReference,
+    ProductType,
+    ProductVariant,
+    StockMovement,
+)
 from .serializers import (
     BrandSerializer,
     BulkPriceUpdateSerializer,
@@ -258,6 +267,7 @@ class ProductReferenceViewSet(viewsets.ModelViewSet):
                 category = self._match_ci(ProductCategory.objects.filter(magasin=magasin), nom=categorie)
                 if category is None:
                     category = ProductCategory.objects.create(magasin=magasin, nom=categorie)
+                    stats["items"].append({"action": "created_category", "id": category.id, "label": categorie})
                 category_cache[cat_key] = category
 
             type_key = (cat_key, sous_type.lower())
@@ -266,6 +276,9 @@ class ProductReferenceViewSet(viewsets.ModelViewSet):
                 type_obj = self._match_ci(ProductType.objects.filter(category=category), nom=sous_type)
                 if type_obj is None:
                     type_obj = ProductType.objects.create(category=category, nom=sous_type)
+                    stats["items"].append({
+                        "action": "created_type", "id": type_obj.id, "label": f"{categorie} / {sous_type}",
+                    })
                 type_cache[type_key] = type_obj
 
             brand_key = marque.lower()
@@ -274,6 +287,7 @@ class ProductReferenceViewSet(viewsets.ModelViewSet):
                 brand = self._match_ci(Brand.objects.filter(magasin=magasin), nom=marque)
                 if brand is None:
                     brand = Brand.objects.create(magasin=magasin, nom=marque)
+                    stats["items"].append({"action": "created_brand", "id": brand.id, "label": marque})
                 brand_cache[brand_key] = brand
 
             try:
@@ -288,19 +302,28 @@ class ProductReferenceViewSet(viewsets.ModelViewSet):
                 reference_name=reference_name,
             )
             ref_created = ref is None
+            ref_label = f"{brand.nom} {reference_name}"
             if ref_created:
                 ref = ProductReference.objects.create(
                     type=type_obj, brand=brand, reference_name=reference_name,
                     prix_achat=prix_achat_val, prix_vente=prix_vente_val, actif=actif_val,
                 )
                 stats["created_refs"] += 1
-                stats["new_reference_names"].append(f"{brand.nom} {reference_name}")
+                stats["new_reference_names"].append(ref_label)
+                stats["items"].append({"action": "created_reference", "id": ref.id, "label": ref_label})
             else:
+                previous_ref = {
+                    "prix_achat": float(ref.prix_achat), "prix_vente": float(ref.prix_vente), "actif": ref.actif,
+                }
                 ref.prix_achat = prix_achat_val
                 ref.prix_vente = prix_vente_val
                 ref.actif = actif_val
                 ref.save(update_fields=["prix_achat", "prix_vente", "actif"])
                 stats["updated_refs"] += 1
+                stats["updated_reference_names"].append(ref_label)
+                stats["items"].append({
+                    "action": "updated_reference", "id": ref.id, "label": ref_label, "previous": previous_ref,
+                })
 
             if not couleur:
                 return f"Référence {'créée' if ref_created else 'mise à jour'} (sans couleur)", None
@@ -313,32 +336,47 @@ class ProductReferenceViewSet(viewsets.ModelViewSet):
 
             variant = self._match_ci(ProductVariant.objects.filter(product_reference=ref), couleur=couleur)
             variant_created = variant is None
+            variant_label = f"{ref_label} — {couleur}"
             if variant_created:
                 variant = ProductVariant.objects.create(
                     product_reference=ref, couleur=couleur, seuil_alerte=seuil_val,
                 )
                 stats["created_variants"] += 1
+                movement_id = None
                 if stock_val > 0:
-                    services.apply_stock_movement(
+                    movement = services.apply_stock_movement(
                         product_variant=variant, movement_type="ENTREE", quantite=stock_val,
                         origine="AJUSTEMENT", user=user, note="Import Excel",
                     )
+                    movement_id = movement.id
+                stats["items"].append({
+                    "action": "created_variant", "id": variant.id, "reference_id": ref.id,
+                    "label": variant_label, "movement_id": movement_id,
+                })
             else:
+                previous_variant = {"seuil_alerte": variant.seuil_alerte, "stock_actuel": variant.stock_actuel}
                 if variant.seuil_alerte != seuil_val:
                     variant.seuil_alerte = seuil_val
                     variant.save(update_fields=["seuil_alerte"])
                 diff = stock_val - variant.stock_actuel
+                movement_id = None
                 if diff > 0:
-                    services.apply_stock_movement(
+                    movement = services.apply_stock_movement(
                         product_variant=variant, movement_type="ENTREE", quantite=diff,
                         origine="AJUSTEMENT", user=user, note="Import Excel",
                     )
+                    movement_id = movement.id
                 elif diff < 0:
-                    services.apply_stock_movement(
+                    movement = services.apply_stock_movement(
                         product_variant=variant, movement_type="SORTIE", quantite=-diff,
                         origine="AJUSTEMENT", user=user, note="Import Excel",
                     )
+                    movement_id = movement.id
                 stats["updated_variants"] += 1
+                stats["items"].append({
+                    "action": "updated_variant", "id": variant.id, "reference_id": ref.id,
+                    "label": variant_label, "previous": previous_variant, "movement_id": movement_id,
+                })
 
             return (
                 f"Référence {'créée' if ref_created else 'mise à jour'} ; "
@@ -375,6 +413,7 @@ class ProductReferenceViewSet(viewsets.ModelViewSet):
         ws.cell(row=1, column=self.DATE_COL, value="Date de traitement")
 
         magasin = resolve_magasin_for_request(request)
+        batch = ImportBatch.objects.create(magasin=magasin, created_by=request.user)
         created_refs = 0
         updated_refs = 0
         created_variants = 0
@@ -392,7 +431,8 @@ class ProductReferenceViewSet(viewsets.ModelViewSet):
         stats = {
             "created_refs": 0, "updated_refs": 0,
             "created_variants": 0, "updated_variants": 0,
-            "new_reference_names": [],
+            "new_reference_names": [], "updated_reference_names": [],
+            "items": [],
         }
 
         for row_index, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
@@ -448,18 +488,48 @@ class ProductReferenceViewSet(viewsets.ModelViewSet):
             buffer.getvalue(),
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
+        batch.items = stats["items"]
+        batch.save(update_fields=["items"])
+
         filename = f"catalogue_import_{timezone.localdate().isoformat()}.xlsx"
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        response["X-Import-Batch-Id"] = str(batch.id)
         response["X-Import-Created-References"] = str(stats["created_refs"])
         response["X-Import-Updated-References"] = str(stats["updated_refs"])
         response["X-Import-Created-Variants"] = str(stats["created_variants"])
         response["X-Import-Updated-Variants"] = str(stats["updated_variants"])
         response["X-Import-Errors-Count"] = str(len(errors))
         response["X-Import-Skipped-Count"] = str(skipped)
-        # Bornée : sert uniquement à la revue IA optionnelle des doublons
-        # probables côté frontend (voir handleImportExcel) — pas un journal complet.
+        # Bornées : servent à la revue utilisateur post-import (résumé +
+        # confirmation d'annulation, voir ImportBatchViewSet.cancel) et à la
+        # revue IA optionnelle des doublons probables (handleImportExcel) —
+        # pas un journal complet.
         response["X-Import-New-Reference-Names"] = json.dumps(stats["new_reference_names"][:50])
+        response["X-Import-Updated-Reference-Names"] = json.dumps(stats["updated_reference_names"][:50])
         return response
+
+
+class ImportBatchViewSet(viewsets.GenericViewSet):
+    """Permet d'annuler un import Excel après coup, une fois le résumé et
+    l'analyse IA de doublons présentés à l'utilisateur côté frontend (bouton
+    "Annuler" de la boîte de dialogue de revue post-import) — voir
+    services.py::revert_import_batch pour le détail de ce qui est défait."""
+
+    queryset = ImportBatch.objects.all()
+    permission_classes = [IsGerantOrReadOnly]
+
+    def get_queryset(self):
+        return ImportBatch.objects.filter(magasin__in=get_accessible_magasins(self.request.user))
+
+    @action(detail=True, methods=["post"])
+    def cancel(self, request, pk=None):
+        batch = self.get_object()
+        if batch.cancelled_at:
+            return Response({"error": "Cet import a déjà été annulé."}, status=400)
+        services.revert_import_batch(batch)
+        batch.cancelled_at = timezone.now()
+        batch.save(update_fields=["cancelled_at"])
+        return Response({"status": "cancelled"})
 
 
 class ProductVariantViewSet(viewsets.ModelViewSet):

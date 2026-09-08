@@ -613,21 +613,34 @@ class DjangoAPIClient {
           fd,
         )
         const num = (h: string) => Number(headers.get(h) || 0)
-        let newReferenceNames: string[] = []
-        try {
-          newReferenceNames = JSON.parse(headers.get('X-Import-New-Reference-Names') || '[]')
-        } catch {}
+        const names = (h: string): string[] => {
+          try {
+            return JSON.parse(headers.get(h) || '[]')
+          } catch {
+            return []
+          }
+        }
         return {
           blob,
           filename,
+          batch_id: headers.get('X-Import-Batch-Id') || null,
           created_references: num('X-Import-Created-References'),
           updated_references: num('X-Import-Updated-References'),
           created_variants: num('X-Import-Created-Variants'),
           updated_variants: num('X-Import-Updated-Variants'),
           errors_count: num('X-Import-Errors-Count'),
           skipped_count: num('X-Import-Skipped-Count'),
-          new_reference_names: newReferenceNames,
+          new_reference_names: names('X-Import-New-Reference-Names'),
+          updated_reference_names: names('X-Import-Updated-Reference-Names'),
         }
+      },
+    },
+    importBatches: {
+      // Annule un import Excel après coup (voir products/page.tsx —
+      // dialogue de revue post-import) : supprime ce qui a été créé et
+      // restaure les valeurs précédentes de ce qui a été mis à jour.
+      cancel: async (batchId: string | number) => {
+        return this.post<{ status: string }>(`/catalog/import-batches/${batchId}/cancel/`, {})
       },
     },
     variants: {
