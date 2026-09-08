@@ -1,48 +1,95 @@
-'use client';
+"use client";
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { djangoClient } from '@/lib/django-client';
-import { useCurrentUser } from '@/lib/auth/useCurrentUser';
-import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { djangoClient } from "@/lib/django-client";
+import { useCurrentUser } from "@/lib/auth/useCurrentUser";
+import { useRealtimeRefresh } from "@/lib/hooks/useRealtimeRefresh";
+import { Button } from "@/components/ui/button";
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '@/components/ui/table';
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
-} from '@/components/ui/dialog';
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
-import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { Plus, Trash2, Truck, Package, RefreshCw, Phone, ShoppingCart, Wrench, Boxes, CheckCircle2, Undo2, UserCheck, Pencil, UserRound, Ban, History } from 'lucide-react';
-import { toast } from 'sonner';
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
+import {
+  Plus,
+  Trash2,
+  Truck,
+  Package,
+  RefreshCw,
+  Phone,
+  ShoppingCart,
+  Wrench,
+  Boxes,
+  CheckCircle2,
+  Undo2,
+  UserCheck,
+  Pencil,
+  UserRound,
+  Ban,
+  History,
+} from "lucide-react";
+import { toast } from "sonner";
 
 function IconAction({
   label,
   onClick,
   icon: Icon,
-  variant = 'default',
-  className = '',
+  variant = "default",
+  className = "",
   disabled = false,
 }: {
   label: string;
   onClick: (e: React.MouseEvent) => void;
   icon: any;
-  variant?: 'default' | 'outline' | 'ghost' | 'destructive';
+  variant?: "default" | "outline" | "ghost" | "destructive";
   className?: string;
   disabled?: boolean;
 }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button size="icon" variant={variant} className={className} onClick={onClick} disabled={disabled}>
+        <Button
+          size="icon"
+          variant={variant}
+          className={className}
+          onClick={onClick}
+          disabled={disabled}
+        >
           <Icon className="h-4 w-4" />
         </Button>
       </TooltipTrigger>
@@ -52,24 +99,45 @@ function IconAction({
 }
 
 const fmt = (n: number | string | null | undefined) =>
-  new Intl.NumberFormat('fr-MG').format(Math.round(Number(n || 0))) + ' Ar';
+  new Intl.NumberFormat("fr-MG").format(Math.round(Number(n || 0))) + " Ar";
 
 const fmtDT = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : null;
+  iso
+    ? new Date(iso).toLocaleString("fr-FR", {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
 
 const historyAt = (order: any, statut: string) =>
-  (order.status_history || []).find((h: any) => h.nouveau_statut === statut)?.timestamp;
+  (order.status_history || []).find((h: any) => h.nouveau_statut === statut)
+    ?.timestamp;
 
 const STATUTS = [
-  { value: 'NOUVELLE', label: 'Nouvelle', color: 'bg-slate-100 text-slate-800' },
-  { value: 'EN_PREPARATION', label: 'En préparation', color: 'bg-amber-100 text-amber-800' },
-  { value: 'PRETE', label: 'Prête', color: 'bg-blue-100 text-blue-800' },
-  { value: 'EN_LIVRAISON', label: 'En livraison', color: 'bg-purple-100 text-purple-800' },
-  { value: 'LIVRE', label: 'Livré', color: 'bg-green-100 text-green-800' },
-  { value: 'RETOUR', label: 'Retour', color: 'bg-red-100 text-red-800' },
-  { value: 'ANNULEE', label: 'Annulée', color: 'bg-zinc-200 text-zinc-800' },
+  {
+    value: "NOUVELLE",
+    label: "Nouvelle",
+    color: "bg-slate-100 text-slate-800",
+  },
+  {
+    value: "EN_PREPARATION",
+    label: "En préparation",
+    color: "bg-amber-100 text-amber-800",
+  },
+  { value: "PRETE", label: "Prête", color: "bg-blue-100 text-blue-800" },
+  {
+    value: "EN_LIVRAISON",
+    label: "En livraison",
+    color: "bg-purple-100 text-purple-800",
+  },
+  { value: "LIVRE", label: "Livré", color: "bg-green-100 text-green-800" },
+  { value: "RETOUR", label: "Retour", color: "bg-red-100 text-red-800" },
+  { value: "ANNULEE", label: "Annulée", color: "bg-zinc-200 text-zinc-800" },
 ];
-const statutInfo = (s: string) => STATUTS.find((x) => x.value === s) || STATUTS[0];
+const statutInfo = (s: string) =>
+  STATUTS.find((x) => x.value === s) || STATUTS[0];
 
 // "Jour J" = jour du champ date_commande (planning) — le préparateur/livreur
 // voit toutes ses commandes à venir mais ne peut agir dessus qu'à partir de
@@ -84,10 +152,10 @@ const isJourJ = (dateStr?: string | null) => {
 };
 
 const ZONES = [
-  { value: 'ZONE1', label: 'Zone 1 (3 000 Ar)', frais: 3000 },
-  { value: 'ZONE2', label: 'Zone 2 (4 000 Ar)', frais: 4000 },
-  { value: 'ZONE3', label: 'Zone 3 (5 000 Ar)', frais: 5000 },
-  { value: 'RECUPERATION', label: 'Récupération (0 Ar)', frais: 0 },
+  { value: "ZONE1", label: "Zone 1 (3 000 Ar)", frais: 3000 },
+  { value: "ZONE2", label: "Zone 2 (4 000 Ar)", frais: 4000 },
+  { value: "ZONE3", label: "Zone 3 (5 000 Ar)", frais: 5000 },
+  { value: "RECUPERATION", label: "Récupération (0 Ar)", frais: 0 },
 ];
 
 interface CartItem {
@@ -104,14 +172,27 @@ interface CartItem {
 }
 
 export default function OrdersPage() {
-  const { user, isGerant, isPreparateur, isLivreur, loading: userLoading } = useCurrentUser();
+  const {
+    user,
+    isGerant,
+    isPreparateur,
+    isLivreur,
+    loading: userLoading,
+  } = useCurrentUser();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statutFilter, setStatutFilter] = useState<string>('ALL');
+  const [statutFilter, setStatutFilter] = useState<string>("ALL");
   const [detail, setDetail] = useState<any | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [actionNote, setActionNote] = useState<{ order: any; target: string; label: string } | null>(null);
-  const [assignTarget, setAssignTarget] = useState<{ order: any; role: 'PREPARATEUR' | 'LIVREUR' } | null>(null);
+  const [actionNote, setActionNote] = useState<{
+    order: any;
+    target: string;
+    label: string;
+  } | null>(null);
+  const [assignTarget, setAssignTarget] = useState<{
+    order: any;
+    role: "PREPARATEUR" | "LIVREUR";
+  } | null>(null);
   const [editTarget, setEditTarget] = useState<any | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -119,94 +200,168 @@ export default function OrdersPage() {
   const [cancelling, setCancelling] = useState(false);
   // Le préparateur suit séparément sa file "à préparer" (livraison) et ses
   // commandes "Récupération sur place" (qu'il peut créer lui-même).
-  const [preparateurTab, setPreparateurTab] = useState<'A_PREPARER' | 'RECUPERATIONS'>('A_PREPARER');
+  const [preparateurTab, setPreparateurTab] = useState<
+    "A_PREPARER" | "RECUPERATIONS"
+  >("A_PREPARER");
   // Onglet "Historique" (préparateur/livreur) — journal de leurs commandes
   // déjà traitées, tous statuts, filtrable par date/heure.
-  const [viewMode, setViewMode] = useState<'ACTIF' | 'HISTORIQUE'>('ACTIF');
-  const [historiqueFrom, setHistoriqueFrom] = useState('');
-  const [historiqueTo, setHistoriqueTo] = useState('');
+  const [viewMode, setViewMode] = useState<"ACTIF" | "HISTORIQUE">("ACTIF");
+  const [historiqueFrom, setHistoriqueFrom] = useState("");
+  const [historiqueTo, setHistoriqueTo] = useState("");
   // Filtres gérant : date (période) + préparateur assigné.
-  const [dateDebut, setDateDebut] = useState('');
-  const [dateFin, setDateFin] = useState('');
-  const [preparateurFilterId, setPreparateurFilterId] = useState('');
-  const [preparateurFilterList, setPreparateurFilterList] = useState<{ id: number; full_name: string }[]>([]);
+  const [dateDebut, setDateDebut] = useState("");
+  const [dateFin, setDateFin] = useState("");
+  const [preparateurFilterId, setPreparateurFilterId] = useState("");
+  const [preparateurFilterList, setPreparateurFilterList] = useState<
+    { id: number; full_name: string }[]
+  >([]);
   // Filtres livreur (vue "Ma tournée") : statut + date.
-  const [livreurStatutFilter, setLivreurStatutFilter] = useState('ALL');
-  const [livreurDateDebut, setLivreurDateDebut] = useState('');
-  const [livreurDateFin, setLivreurDateFin] = useState('');
+  const [livreurStatutFilter, setLivreurStatutFilter] = useState("ALL");
+  const [livreurDateDebut, setLivreurDateDebut] = useState("");
+  const [livreurDateFin, setLivreurDateFin] = useState("");
 
   useEffect(() => {
     if (!isGerant) return;
-    djangoClient.orders.availableStaff('PREPARATEUR').then(setPreparateurFilterList).catch(() => {});
+    djangoClient.orders
+      .availableStaff("PREPARATEUR")
+      .then(setPreparateurFilterList)
+      .catch(() => {});
   }, [isGerant]);
 
-  const fetchOrders = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    try {
-      const filters: any = {};
-      if (isGerant) {
-        if (statutFilter !== 'ALL' && statutFilter !== 'NON_LIVREE') filters.statut = statutFilter;
-        if (dateDebut) filters.date_debut = dateDebut;
-        if (dateFin) filters.date_fin = dateFin;
-        if (preparateurFilterId) filters.preparateur_id = Number(preparateurFilterId);
+  const fetchOrders = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true);
+      try {
+        const filters: any = {};
+        if (isGerant) {
+          if (statutFilter !== "ALL" && statutFilter !== "NON_LIVREE")
+            filters.statut = statutFilter;
+          if (dateDebut) filters.date_debut = dateDebut;
+          if (dateFin) filters.date_fin = dateFin;
+          if (preparateurFilterId)
+            filters.preparateur_id = Number(preparateurFilterId);
+        }
+        if ((isPreparateur || isLivreur) && viewMode === "HISTORIQUE") {
+          filters.historique = true;
+          if (historiqueFrom)
+            filters.date_from = new Date(historiqueFrom).toISOString();
+          if (historiqueTo)
+            filters.date_to = new Date(historiqueTo).toISOString();
+        }
+        if (isLivreur && viewMode === "ACTIF") {
+          if (livreurStatutFilter !== "ALL")
+            filters.statut = livreurStatutFilter;
+          if (livreurDateDebut) filters.date_debut = livreurDateDebut;
+          if (livreurDateFin) filters.date_fin = livreurDateFin;
+        }
+        const data = await djangoClient.orders.list(filters);
+        setOrders(data);
+      } catch (err: any) {
+        toast.error(err.message || "Erreur de chargement des commandes");
+      } finally {
+        if (!silent) setLoading(false);
       }
-      if ((isPreparateur || isLivreur) && viewMode === 'HISTORIQUE') {
-        filters.historique = true;
-        if (historiqueFrom) filters.date_from = new Date(historiqueFrom).toISOString();
-        if (historiqueTo) filters.date_to = new Date(historiqueTo).toISOString();
-      }
-      if (isLivreur && viewMode === 'ACTIF') {
-        if (livreurStatutFilter !== 'ALL') filters.statut = livreurStatutFilter;
-        if (livreurDateDebut) filters.date_debut = livreurDateDebut;
-        if (livreurDateFin) filters.date_fin = livreurDateFin;
-      }
-      const data = await djangoClient.orders.list(filters);
-      setOrders(data);
-    } catch (err: any) {
-      toast.error(err.message || 'Erreur de chargement des commandes');
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }, [isGerant, statutFilter, dateDebut, dateFin, preparateurFilterId, isPreparateur, isLivreur, viewMode, historiqueFrom, historiqueTo, livreurStatutFilter, livreurDateDebut, livreurDateFin]);
+    },
+    [
+      isGerant,
+      statutFilter,
+      dateDebut,
+      dateFin,
+      preparateurFilterId,
+      isPreparateur,
+      isLivreur,
+      viewMode,
+      historiqueFrom,
+      historiqueTo,
+      livreurStatutFilter,
+      livreurDateDebut,
+      livreurDateFin,
+    ],
+  );
 
-  useRealtimeRefresh(['order', 'order_status_history'], () => fetchOrders(true));
-  useEffect(() => { if (!userLoading) fetchOrders(); }, [userLoading, fetchOrders]);
+  useRealtimeRefresh(["order", "order_status_history"], () =>
+    fetchOrders(true),
+  );
+  useEffect(() => {
+    if (!userLoading) fetchOrders();
+  }, [userLoading, fetchOrders]);
 
-  const title = viewMode === 'HISTORIQUE'
-    ? 'Historique'
-    : isPreparateur ? 'Dépôt — Commandes à préparer' : isLivreur ? 'Ma tournée' : 'Commandes';
-  const description = viewMode === 'HISTORIQUE'
-    ? 'Vos commandes déjà traitées, tous statuts — filtrables par date et heure.'
-    : isPreparateur
-    ? 'Commandes reçues à préparer, puis à marquer "Prête" pour le livreur.'
-    : isLivreur
-    ? 'Commandes prêtes à récupérer, puis "Livré" ou "Retour" une fois la tournée faite.'
-    : 'Suivi complet des commandes clients (§5-§7.1 du cahier des charges).';
+  const title =
+    viewMode === "HISTORIQUE"
+      ? "Historique"
+      : isPreparateur
+        ? "Dépôt — Commandes à préparer"
+        : isLivreur
+          ? "Ma tournée"
+          : "Commandes";
+  const description =
+    viewMode === "HISTORIQUE"
+      ? "Vos commandes déjà traitées, tous statuts — filtrables par date et heure."
+      : isPreparateur
+        ? 'Commandes reçues à préparer, puis à marquer "Prête" pour le livreur.'
+        : isLivreur
+          ? 'Commandes prêtes à récupérer, puis "Livré" ou "Retour" une fois la tournée faite.'
+          : "Suivi complet des commandes clients (§5-§7.1 du cahier des charges).";
 
-  const nextAction = (order: any): { label: string; target: string; icon: any } | null => {
+  const nextAction = (
+    order: any,
+  ): { label: string; target: string; icon: any } | null => {
     if (isPreparateur) {
-      if (order.statut_courant === 'NOUVELLE') return { label: 'Commencer la préparation', target: 'EN_PREPARATION', icon: Package };
-      if (order.statut_courant === 'EN_PREPARATION') return { label: 'Commande prête', target: 'PRETE', icon: Package };
+      if (order.statut_courant === "NOUVELLE")
+        return {
+          label: "Commencer la préparation",
+          target: "EN_PREPARATION",
+          icon: Package,
+        };
+      if (order.statut_courant === "EN_PREPARATION")
+        return { label: "Commande prête", target: "PRETE", icon: Package };
       return null;
     }
     if (isLivreur) {
-      if (order.statut_courant === 'PRETE') return { label: 'Récupérer (en livraison)', target: 'EN_LIVRAISON', icon: Truck };
-      if (order.statut_courant === 'EN_LIVRAISON') return { label: 'Livré', target: 'LIVRE', icon: Truck };
+      if (order.statut_courant === "PRETE")
+        return {
+          label: "Récupérer (en livraison)",
+          target: "EN_LIVRAISON",
+          icon: Truck,
+        };
+      if (order.statut_courant === "EN_LIVRAISON")
+        return { label: "Livré", target: "LIVRE", icon: Truck };
       return null;
     }
     // Gérant : désigne un préparateur/livreur libre pour faire avancer la
     // commande (les retraits sur place se gèrent sur la page Récupération).
     if (isGerant) {
-      if (order.statut_courant === 'NOUVELLE') return { label: 'Assigner un préparateur', target: 'EN_PREPARATION', icon: UserCheck };
-      if (order.statut_courant === 'PRETE' && order.livraison_zone !== 'RECUPERATION') {
-        return { label: 'Assigner un livreur', target: 'EN_LIVRAISON', icon: UserCheck };
+      if (order.statut_courant === "NOUVELLE")
+        return {
+          label: "Assigner un préparateur",
+          target: "EN_PREPARATION",
+          icon: UserCheck,
+        };
+      if (
+        order.statut_courant === "PRETE" &&
+        order.livraison_zone !== "RECUPERATION"
+      ) {
+        return {
+          label: "Assigner un livreur",
+          target: "EN_LIVRAISON",
+          icon: UserCheck,
+        };
       }
       return null;
     }
     return null;
   };
 
-  const doChangeStatus = async (order: any, target: string, note?: string, assignee?: { preparateur_id?: number; livreur_id?: number; assigned_at?: string }) => {
+  const doChangeStatus = async (
+    order: any,
+    target: string,
+    note?: string,
+    assignee?: {
+      preparateur_id?: number;
+      livreur_id?: number;
+      assigned_at?: string;
+    },
+  ) => {
     try {
       await djangoClient.orders.changeStatus(order.id, target, note, assignee);
       toast.success(`Commande ${order.numero} → ${statutInfo(target).label}`);
@@ -214,7 +369,7 @@ export default function OrdersPage() {
       setActionNote(null);
       setAssignTarget(null);
     } catch (err: any) {
-      toast.error(err.message || 'Action impossible');
+      toast.error(err.message || "Action impossible");
     }
   };
 
@@ -227,7 +382,7 @@ export default function OrdersPage() {
       setDeleteTarget(null);
       fetchOrders(true);
     } catch (err: any) {
-      toast.error(err.message || 'Suppression impossible');
+      toast.error(err.message || "Suppression impossible");
     } finally {
       setDeleting(false);
     }
@@ -242,19 +397,24 @@ export default function OrdersPage() {
       setCancelTarget(null);
       fetchOrders(true);
     } catch (err: any) {
-      toast.error(err.message || 'Annulation impossible');
+      toast.error(err.message || "Annulation impossible");
     } finally {
       setCancelling(false);
     }
   };
 
-  const visibleOrders = viewMode === 'HISTORIQUE'
-    ? orders
-    : isPreparateur
-    ? orders.filter((o) => (preparateurTab === 'RECUPERATIONS' ? o.livraison_zone === 'RECUPERATION' : o.livraison_zone !== 'RECUPERATION'))
-    : isGerant && statutFilter === 'NON_LIVREE'
-    ? orders.filter((o) => o.statut_courant !== 'LIVRE')
-    : orders;
+  const visibleOrders =
+    viewMode === "HISTORIQUE"
+      ? orders
+      : isPreparateur
+        ? orders.filter((o) =>
+            preparateurTab === "RECUPERATIONS"
+              ? o.livraison_zone === "RECUPERATION"
+              : o.livraison_zone !== "RECUPERATION",
+          )
+        : isGerant && statutFilter === "NON_LIVREE"
+          ? orders.filter((o) => o.statut_courant !== "LIVRE")
+          : orders;
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
@@ -269,7 +429,8 @@ export default function OrdersPage() {
           </Button>
           {(isGerant || isPreparateur) && (
             <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" /> {isGerant ? 'Nouvelle commande' : 'Nouvelle récupération'}
+              <Plus className="h-4 w-4 mr-2" />{" "}
+              {isGerant ? "Nouvelle commande" : "Nouvelle récupération"}
             </Button>
           )}
         </div>
@@ -278,23 +439,37 @@ export default function OrdersPage() {
       {isPreparateur && (
         <div className="flex flex-wrap gap-2">
           <Button
-            variant={viewMode === 'ACTIF' && preparateurTab === 'A_PREPARER' ? 'default' : 'outline'}
+            variant={
+              viewMode === "ACTIF" && preparateurTab === "A_PREPARER"
+                ? "default"
+                : "outline"
+            }
             size="sm"
-            onClick={() => { setViewMode('ACTIF'); setPreparateurTab('A_PREPARER'); }}
+            onClick={() => {
+              setViewMode("ACTIF");
+              setPreparateurTab("A_PREPARER");
+            }}
           >
             <Truck className="h-4 w-4 mr-2" /> À préparer
           </Button>
           <Button
-            variant={viewMode === 'ACTIF' && preparateurTab === 'RECUPERATIONS' ? 'default' : 'outline'}
+            variant={
+              viewMode === "ACTIF" && preparateurTab === "RECUPERATIONS"
+                ? "default"
+                : "outline"
+            }
             size="sm"
-            onClick={() => { setViewMode('ACTIF'); setPreparateurTab('RECUPERATIONS'); }}
+            onClick={() => {
+              setViewMode("ACTIF");
+              setPreparateurTab("RECUPERATIONS");
+            }}
           >
             <Package className="h-4 w-4 mr-2" /> Récupérations
           </Button>
           <Button
-            variant={viewMode === 'HISTORIQUE' ? 'default' : 'outline'}
+            variant={viewMode === "HISTORIQUE" ? "default" : "outline"}
             size="sm"
-            onClick={() => setViewMode('HISTORIQUE')}
+            onClick={() => setViewMode("HISTORIQUE")}
           >
             <History className="h-4 w-4 mr-2" /> Historique
           </Button>
@@ -304,28 +479,33 @@ export default function OrdersPage() {
       {isLivreur && (
         <div className="flex flex-wrap gap-2">
           <Button
-            variant={viewMode === 'ACTIF' ? 'default' : 'outline'}
+            variant={viewMode === "ACTIF" ? "default" : "outline"}
             size="sm"
-            onClick={() => setViewMode('ACTIF')}
+            onClick={() => setViewMode("ACTIF")}
           >
             <Truck className="h-4 w-4 mr-2" /> Ma tournée
           </Button>
           <Button
-            variant={viewMode === 'HISTORIQUE' ? 'default' : 'outline'}
+            variant={viewMode === "HISTORIQUE" ? "default" : "outline"}
             size="sm"
-            onClick={() => setViewMode('HISTORIQUE')}
+            onClick={() => setViewMode("HISTORIQUE")}
           >
             <History className="h-4 w-4 mr-2" /> Historique
           </Button>
         </div>
       )}
 
-      {isLivreur && viewMode === 'ACTIF' && (
+      {isLivreur && viewMode === "ACTIF" && (
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Statut</Label>
-            <Select value={livreurStatutFilter} onValueChange={setLivreurStatutFilter}>
-              <SelectTrigger className="w-45"><SelectValue /></SelectTrigger>
+            <Select
+              value={livreurStatutFilter}
+              onValueChange={setLivreurStatutFilter}
+            >
+              <SelectTrigger className="w-45">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">Tous</SelectItem>
                 <SelectItem value="EN_PREPARATION">En préparation</SelectItem>
@@ -336,17 +516,33 @@ export default function OrdersPage() {
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Du</Label>
-            <Input type="date" value={livreurDateDebut} onChange={(e) => setLivreurDateDebut(e.target.value)} className="w-auto" />
+            <Input
+              type="date"
+              value={livreurDateDebut}
+              onChange={(e) => setLivreurDateDebut(e.target.value)}
+              className="w-auto"
+            />
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Au</Label>
-            <Input type="date" value={livreurDateFin} onChange={(e) => setLivreurDateFin(e.target.value)} className="w-auto" />
+            <Input
+              type="date"
+              value={livreurDateFin}
+              onChange={(e) => setLivreurDateFin(e.target.value)}
+              className="w-auto"
+            />
           </div>
-          {(livreurStatutFilter !== 'ALL' || livreurDateDebut || livreurDateFin) && (
+          {(livreurStatutFilter !== "ALL" ||
+            livreurDateDebut ||
+            livreurDateFin) && (
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => { setLivreurStatutFilter('ALL'); setLivreurDateDebut(''); setLivreurDateFin(''); }}
+              onClick={() => {
+                setLivreurStatutFilter("ALL");
+                setLivreurDateDebut("");
+                setLivreurDateFin("");
+              }}
             >
               Réinitialiser
             </Button>
@@ -354,18 +550,35 @@ export default function OrdersPage() {
         </div>
       )}
 
-      {(isPreparateur || isLivreur) && viewMode === 'HISTORIQUE' && (
+      {(isPreparateur || isLivreur) && viewMode === "HISTORIQUE" && (
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Du</Label>
-            <Input type="datetime-local" value={historiqueFrom} onChange={(e) => setHistoriqueFrom(e.target.value)} className="w-auto" />
+            <Input
+              type="datetime-local"
+              value={historiqueFrom}
+              onChange={(e) => setHistoriqueFrom(e.target.value)}
+              className="w-auto"
+            />
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Au</Label>
-            <Input type="datetime-local" value={historiqueTo} onChange={(e) => setHistoriqueTo(e.target.value)} className="w-auto" />
+            <Input
+              type="datetime-local"
+              value={historiqueTo}
+              onChange={(e) => setHistoriqueTo(e.target.value)}
+              className="w-auto"
+            />
           </div>
           {(historiqueFrom || historiqueTo) && (
-            <Button variant="ghost" size="sm" onClick={() => { setHistoriqueFrom(''); setHistoriqueTo(''); }}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setHistoriqueFrom("");
+                setHistoriqueTo("");
+              }}
+            >
               Réinitialiser
             </Button>
           )}
@@ -375,23 +588,23 @@ export default function OrdersPage() {
       {isGerant && (
         <div className="flex flex-wrap gap-2">
           <Button
-            variant={statutFilter === 'ALL' ? 'default' : 'outline'}
+            variant={statutFilter === "ALL" ? "default" : "outline"}
             size="sm"
-            onClick={() => setStatutFilter('ALL')}
+            onClick={() => setStatutFilter("ALL")}
           >
             Toutes
           </Button>
           <Button
-            variant={statutFilter === 'NON_LIVREE' ? 'default' : 'outline'}
+            variant={statutFilter === "NON_LIVREE" ? "default" : "outline"}
             size="sm"
-            onClick={() => setStatutFilter('NON_LIVREE')}
+            onClick={() => setStatutFilter("NON_LIVREE")}
           >
             Pas encore livrée
           </Button>
           {STATUTS.map((s) => (
             <Button
               key={s.value}
-              variant={statutFilter === s.value ? 'default' : 'outline'}
+              variant={statutFilter === s.value ? "default" : "outline"}
               size="sm"
               onClick={() => setStatutFilter(s.value)}
             >
@@ -405,41 +618,70 @@ export default function OrdersPage() {
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Du</Label>
-            <Input type="date" value={dateDebut} onChange={(e) => setDateDebut(e.target.value)} className="w-auto" />
+            <Input
+              type="date"
+              value={dateDebut}
+              onChange={(e) => setDateDebut(e.target.value)}
+              className="w-auto"
+            />
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Au</Label>
-            <Input type="date" value={dateFin} onChange={(e) => setDateFin(e.target.value)} className="w-auto" />
+            <Input
+              type="date"
+              value={dateFin}
+              onChange={(e) => setDateFin(e.target.value)}
+              className="w-auto"
+            />
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Statut</Label>
             <Select value={statutFilter} onValueChange={setStatutFilter}>
-              <SelectTrigger className="w-45"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-45">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">Tous</SelectItem>
                 <SelectItem value="NON_LIVREE">Pas encore livrée</SelectItem>
                 {STATUTS.map((s) => (
-                  <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Préparateur</Label>
-            <Select value={preparateurFilterId} onValueChange={setPreparateurFilterId}>
-              <SelectTrigger className="w-45"><SelectValue placeholder="Tous" /></SelectTrigger>
+            <Select
+              value={preparateurFilterId}
+              onValueChange={setPreparateurFilterId}
+            >
+              <SelectTrigger className="w-45">
+                <SelectValue placeholder="Tous" />
+              </SelectTrigger>
               <SelectContent>
                 {preparateurFilterList.map((p) => (
-                  <SelectItem key={p.id} value={String(p.id)}>{p.full_name}</SelectItem>
+                  <SelectItem key={p.id} value={String(p.id)}>
+                    {p.full_name}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
-          {(dateDebut || dateFin || preparateurFilterId || statutFilter !== 'ALL') && (
+          {(dateDebut ||
+            dateFin ||
+            preparateurFilterId ||
+            statutFilter !== "ALL") && (
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => { setDateDebut(''); setDateFin(''); setPreparateurFilterId(''); setStatutFilter('ALL'); }}
+              onClick={() => {
+                setDateDebut("");
+                setDateFin("");
+                setPreparateurFilterId("");
+                setStatutFilter("ALL");
+              }}
             >
               Réinitialiser
             </Button>
@@ -450,9 +692,13 @@ export default function OrdersPage() {
       <Card>
         <CardContent className="p-0">
           {loading ? (
-            <div className="p-6"><Skeleton className="h-64 w-full" /></div>
+            <div className="p-6">
+              <Skeleton className="h-64 w-full" />
+            </div>
           ) : visibleOrders.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-12">Aucune commande.</p>
+            <p className="text-sm text-muted-foreground text-center py-12">
+              Aucune commande.
+            </p>
           ) : (
             <div className="overflow-x-auto">
               <Table>
@@ -474,26 +720,57 @@ export default function OrdersPage() {
                 <TableBody>
                   {visibleOrders.map((order) => {
                     const action = nextAction(order);
-                    const preparedAt = historyAt(order, 'EN_PREPARATION');
+                    const preparedAt = historyAt(order, "EN_PREPARATION");
                     // Une fois livrée, on affiche l'heure de livraison réelle (LIVRE) plutôt
                     // que celle de la simple prise en charge (EN_LIVRAISON).
-                    const livreurAt = order.statut_courant === 'LIVRE'
-                      ? historyAt(order, 'LIVRE')
-                      : historyAt(order, 'EN_LIVRAISON');
-                    const canEditOrDelete = isGerant && order.statut_courant === 'NOUVELLE';
-                    const canCancel = isGerant && !['LIVRE', 'RETOUR', 'ANNULEE'].includes(order.statut_courant);
-                    const notYetDue = (isPreparateur || isLivreur) && !isJourJ(order.date_commande);
+                    const livreurAt =
+                      order.statut_courant === "LIVRE"
+                        ? historyAt(order, "LIVRE")
+                        : historyAt(order, "EN_LIVRAISON");
+                    const canEditOrDelete =
+                      isGerant && order.statut_courant === "NOUVELLE";
+                    const canCancel =
+                      isGerant &&
+                      !["LIVRE", "RETOUR", "ANNULEE"].includes(
+                        order.statut_courant,
+                      );
+                    const notYetDue =
+                      (isPreparateur || isLivreur) &&
+                      !isJourJ(order.date_commande);
                     const dueDateLabel = order.date_commande
-                      ? new Date(order.date_commande).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
-                      : '';
+                      ? new Date(order.date_commande).toLocaleDateString(
+                          "fr-FR",
+                          { day: "2-digit", month: "2-digit", year: "numeric" },
+                        )
+                      : "";
                     return (
-                      <TableRow key={order.id} className="cursor-pointer" onClick={() => setDetail(order)}>
-                        <TableCell className="font-medium">{order.numero}</TableCell>
+                      <TableRow
+                        key={order.id}
+                        className="cursor-pointer"
+                        onClick={() => setDetail(order)}
+                      >
+                        <TableCell className="font-medium">
+                          {order.numero}
+                        </TableCell>
                         <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                          {order.date_commande ? new Date(order.date_commande).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'}
+                          {order.date_commande
+                            ? new Date(order.date_commande).toLocaleString(
+                                "fr-FR",
+                                {
+                                  day: "2-digit",
+                                  month: "2-digit",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                },
+                              )
+                            : "-"}
                         </TableCell>
                         <TableCell>{order.client_nom}</TableCell>
-                        {isLivreur && <TableCell className="max-w-[180px] truncate">{order.adresse_livraison || '-'}</TableCell>}
+                        {isLivreur && (
+                          <TableCell className="max-w-[180px] truncate">
+                            {order.adresse_livraison || "-"}
+                          </TableCell>
+                        )}
                         {isLivreur && (
                           <TableCell>
                             <a
@@ -506,12 +783,27 @@ export default function OrdersPage() {
                           </TableCell>
                         )}
                         <TableCell className="max-w-[220px] truncate">
-                          {(order.items || []).map((it: any) => `${it.reference_name} (${it.couleur}) x${it.quantite}`).join(', ')}
+                          {(order.items || [])
+                            .map(
+                              (it: any) =>
+                                `${it.reference_name} (${it.couleur}) x${it.quantite}`,
+                            )
+                            .join(", ")}
                         </TableCell>
-                        <TableCell>{ZONES.find((z) => z.value === order.livraison_zone)?.label.split(' (')[0] || order.livraison_zone}</TableCell>
-                        {!isPreparateur && <TableCell>{fmt(order.total_a_payer)}</TableCell>}
                         <TableCell>
-                          <Badge className={statutInfo(order.statut_courant).color}>{statutInfo(order.statut_courant).label}</Badge>
+                          {ZONES.find(
+                            (z) => z.value === order.livraison_zone,
+                          )?.label.split(" (")[0] || order.livraison_zone}
+                        </TableCell>
+                        {!isPreparateur && (
+                          <TableCell>{fmt(order.total_a_payer)}</TableCell>
+                        )}
+                        <TableCell>
+                          <Badge
+                            className={statutInfo(order.statut_courant).color}
+                          >
+                            {statutInfo(order.statut_courant).label}
+                          </Badge>
                         </TableCell>
                         {isGerant && (
                           <TableCell className="text-xs">
@@ -523,8 +815,12 @@ export default function OrdersPage() {
                                   <div className="flex items-center gap-1.5 text-muted-foreground">
                                     <UserRound className="h-3.5 w-3.5 shrink-0" />
                                     <div>
-                                      <div className="text-foreground">{order.preparateur_name}</div>
-                                      {fmtDT(preparedAt) && <div>{fmtDT(preparedAt)}</div>}
+                                      <div className="text-foreground">
+                                        {order.preparateur_name}
+                                      </div>
+                                      {fmtDT(preparedAt) && (
+                                        <div>{fmtDT(preparedAt)}</div>
+                                      )}
                                     </div>
                                   </div>
                                 )}
@@ -532,10 +828,14 @@ export default function OrdersPage() {
                                   <div className="flex items-center gap-1.5 text-muted-foreground">
                                     <Truck className="h-3.5 w-3.5 shrink-0" />
                                     <div>
-                                      <div className="text-foreground">{order.livreur_name}</div>
+                                      <div className="text-foreground">
+                                        {order.livreur_name}
+                                      </div>
                                       {fmtDT(livreurAt) && (
                                         <div>
-                                          {order.statut_courant === 'LIVRE' ? 'Livré le ' : ''}
+                                          {order.statut_courant === "LIVRE"
+                                            ? "Livré le "
+                                            : ""}
                                           {fmtDT(livreurAt)}
                                         </div>
                                       )}
@@ -550,35 +850,64 @@ export default function OrdersPage() {
                           <div className="flex items-center justify-end gap-1">
                             {action && (
                               <IconAction
-                                label={notYetDue ? `Disponible le ${dueDateLabel}` : action.label}
+                                label={
+                                  notYetDue
+                                    ? `Disponible le ${dueDateLabel}`
+                                    : action.label
+                                }
                                 icon={action.icon}
                                 disabled={notYetDue}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (isGerant) {
-                                    setAssignTarget({ order, role: action.target === 'EN_PREPARATION' ? 'PREPARATEUR' : 'LIVREUR' });
+                                    setAssignTarget({
+                                      order,
+                                      role:
+                                        action.target === "EN_PREPARATION"
+                                          ? "PREPARATEUR"
+                                          : "LIVREUR",
+                                    });
                                   } else {
-                                    setActionNote({ order, target: action.target, label: action.label });
+                                    setActionNote({
+                                      order,
+                                      target: action.target,
+                                      label: action.label,
+                                    });
                                   }
                                 }}
                               />
                             )}
-                            {isLivreur && order.statut_courant === 'EN_LIVRAISON' && (
-                              <IconAction
-                                label={notYetDue ? `Disponible le ${dueDateLabel}` : 'Retour'}
-                                icon={Undo2}
-                                variant="outline"
-                                className="text-red-600"
-                                disabled={notYetDue}
-                                onClick={(e) => { e.stopPropagation(); setActionNote({ order, target: 'RETOUR', label: 'Retour' }); }}
-                              />
-                            )}
+                            {isLivreur &&
+                              order.statut_courant === "EN_LIVRAISON" && (
+                                <IconAction
+                                  label={
+                                    notYetDue
+                                      ? `Disponible le ${dueDateLabel}`
+                                      : "Retour"
+                                  }
+                                  icon={Undo2}
+                                  variant="outline"
+                                  className="text-red-600"
+                                  disabled={notYetDue}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setActionNote({
+                                      order,
+                                      target: "RETOUR",
+                                      label: "Retour",
+                                    });
+                                  }}
+                                />
+                              )}
                             {canEditOrDelete && (
                               <IconAction
                                 label="Modifier"
                                 icon={Pencil}
                                 variant="outline"
-                                onClick={(e) => { e.stopPropagation(); setEditTarget(order); }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditTarget(order);
+                                }}
                               />
                             )}
                             {canCancel && (
@@ -587,7 +916,10 @@ export default function OrdersPage() {
                                 icon={Ban}
                                 variant="outline"
                                 className="text-red-600"
-                                onClick={(e) => { e.stopPropagation(); setCancelTarget(order); }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCancelTarget(order);
+                                }}
                               />
                             )}
                             {canEditOrDelete && (
@@ -596,7 +928,10 @@ export default function OrdersPage() {
                                 icon={Trash2}
                                 variant="outline"
                                 className="text-red-600"
-                                onClick={(e) => { e.stopPropagation(); setDeleteTarget(order); }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteTarget(order);
+                                }}
                               />
                             )}
                           </div>
@@ -618,34 +953,83 @@ export default function OrdersPage() {
             <>
               <DialogHeader>
                 <DialogTitle>Commande {detail.numero}</DialogTitle>
-                <DialogDescription>{detail.client_nom} — {detail.telephone}</DialogDescription>
+                <DialogDescription>
+                  {detail.client_nom} — {detail.telephone}
+                </DialogDescription>
               </DialogHeader>
               <div className="space-y-3 text-sm">
-                <div className="flex justify-between"><span className="text-muted-foreground">Statut</span><Badge className={statutInfo(detail.statut_courant).color}>{statutInfo(detail.statut_courant).label}</Badge></div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Statut</span>
+                  <Badge className={statutInfo(detail.statut_courant).color}>
+                    {statutInfo(detail.statut_courant).label}
+                  </Badge>
+                </div>
                 {detail.date_commande && (
-                  <div className="flex justify-between"><span className="text-muted-foreground">Date commande</span><span>{new Date(detail.date_commande).toLocaleString('fr-FR')}</span></div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Date commande</span>
+                    <span>
+                      {new Date(detail.date_commande).toLocaleString("fr-FR")}
+                    </span>
+                  </div>
                 )}
-                <div className="flex justify-between"><span className="text-muted-foreground">Zone</span><span>{ZONES.find((z) => z.value === detail.livraison_zone)?.label}</span></div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Zone</span>
+                  <span>
+                    {
+                      ZONES.find((z) => z.value === detail.livraison_zone)
+                        ?.label
+                    }
+                  </span>
+                </div>
                 {detail.adresse_livraison && (
-                  <div className="flex justify-between gap-4"><span className="text-muted-foreground shrink-0">Adresse</span><span className="text-right">{detail.adresse_livraison}</span></div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground shrink-0">
+                      Adresse
+                    </span>
+                    <span className="text-right">
+                      {detail.adresse_livraison}
+                    </span>
+                  </div>
                 )}
                 {detail.total_a_payer != null && (
-                  <div className="flex justify-between"><span className="text-muted-foreground">Total à payer</span><span className="font-semibold">{fmt(detail.total_a_payer)}</span></div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total à payer</span>
+                    <span className="font-semibold">
+                      {fmt(detail.total_a_payer)}
+                    </span>
+                  </div>
                 )}
                 {detail.preparateur_name && (
-                  <div className="flex justify-between"><span className="text-muted-foreground">Préparateur</span><span>{detail.preparateur_name}</span></div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Préparateur</span>
+                    <span>{detail.preparateur_name}</span>
+                  </div>
                 )}
                 {detail.livreur_name && (
-                  <div className="flex justify-between"><span className="text-muted-foreground">Livreur</span><span>{detail.livreur_name}</span></div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Livreur</span>
+                    <span>{detail.livreur_name}</span>
+                  </div>
                 )}
-                {detail.note && <div><span className="text-muted-foreground">Note</span><p>{detail.note}</p></div>}
+                {detail.note && (
+                  <div>
+                    <span className="text-muted-foreground">Note</span>
+                    <p>{detail.note}</p>
+                  </div>
+                )}
                 <div>
                   <p className="text-muted-foreground mb-1">Articles</p>
                   <ul className="space-y-1">
                     {(detail.items || []).map((it: any) => (
                       <li key={it.id} className="flex justify-between">
-                        <span>{it.reference_name} ({it.couleur}) x{it.quantite}</span>
-                        {it.prix_unitaire != null && <span>{fmt(Number(it.prix_unitaire) * it.quantite)}</span>}
+                        <span>
+                          {it.reference_name} ({it.couleur}) x{it.quantite}
+                        </span>
+                        {it.prix_unitaire != null && (
+                          <span>
+                            {fmt(Number(it.prix_unitaire) * it.quantite)}
+                          </span>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -657,11 +1041,18 @@ export default function OrdersPage() {
                       <OrderTimeline order={detail} />
                     </div>
                     <div>
-                      <p className="text-muted-foreground mb-1">Historique détaillé</p>
+                      <p className="text-muted-foreground mb-1">
+                        Historique détaillé
+                      </p>
                       <ul className="space-y-1">
                         {detail.status_history.map((h: any) => (
-                          <li key={h.id} className="text-xs text-muted-foreground">
-                            {statutInfo(h.nouveau_statut).label} — {h.changed_by_name || 'Système'} — {new Date(h.timestamp).toLocaleString('fr-FR')}
+                          <li
+                            key={h.id}
+                            className="text-xs text-muted-foreground"
+                          >
+                            {statutInfo(h.nouveau_statut).label} —{" "}
+                            {h.changed_by_name || "Système"} —{" "}
+                            {new Date(h.timestamp).toLocaleString("fr-FR")}
                             {h.note && ` (${h.note})`}
                           </li>
                         ))}
@@ -676,17 +1067,25 @@ export default function OrdersPage() {
       </Dialog>
 
       {/* Confirmation avant toute action de statut (préparateur/livreur) */}
-      <Dialog open={!!actionNote} onOpenChange={(o) => !o && setActionNote(null)}>
+      <Dialog
+        open={!!actionNote}
+        onOpenChange={(o) => !o && setActionNote(null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Confirmer : {actionNote?.label}</DialogTitle>
-            <DialogDescription>Commande {actionNote?.order?.numero} — vérifiez le résumé avant de confirmer.</DialogDescription>
+            <DialogDescription>
+              Commande {actionNote?.order?.numero} — vérifiez le résumé avant de
+              confirmer.
+            </DialogDescription>
           </DialogHeader>
           {actionNote?.order && (
             <div className="rounded-md border bg-muted/30 p-3 space-y-1.5 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Client</span>
-                <span className="font-medium">{actionNote.order.client_nom}</span>
+                <span className="font-medium">
+                  {actionNote.order.client_nom}
+                </span>
               </div>
               {actionNote.order.telephone && (
                 <div className="flex justify-between">
@@ -696,12 +1095,20 @@ export default function OrdersPage() {
               )}
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Zone</span>
-                <span>{ZONES.find((z) => z.value === actionNote.order.livraison_zone)?.label.split(' (')[0] || actionNote.order.livraison_zone}</span>
+                <span>
+                  {ZONES.find(
+                    (z) => z.value === actionNote.order.livraison_zone,
+                  )?.label.split(" (")[0] || actionNote.order.livraison_zone}
+                </span>
               </div>
               {actionNote.order.adresse_livraison && (
                 <div className="flex justify-between gap-4">
-                  <span className="text-muted-foreground shrink-0">Adresse</span>
-                  <span className="text-right">{actionNote.order.adresse_livraison}</span>
+                  <span className="text-muted-foreground shrink-0">
+                    Adresse
+                  </span>
+                  <span className="text-right">
+                    {actionNote.order.adresse_livraison}
+                  </span>
                 </div>
               )}
               <div className="border-t pt-1.5">
@@ -709,7 +1116,9 @@ export default function OrdersPage() {
                 <ul className="mt-1 space-y-0.5">
                   {(actionNote.order.items || []).map((it: any, i: number) => (
                     <li key={i} className="flex justify-between">
-                      <span>{it.reference_name} ({it.couleur})</span>
+                      <span>
+                        {it.reference_name} ({it.couleur})
+                      </span>
                       <span>x{it.quantite}</span>
                     </li>
                   ))}
@@ -717,18 +1126,28 @@ export default function OrdersPage() {
               </div>
               {actionNote.order.total_a_payer != null && (
                 <div className="border-t pt-1.5 space-y-0.5">
-                  {actionNote.order.livraison_zone !== 'RECUPERATION' && actionNote.order.frais_livraison != null && (
-                    <>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Prix de vente</span>
-                        <span>{fmt(Number(actionNote.order.total_a_payer) - Number(actionNote.order.frais_livraison))}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Frais de livraison</span>
-                        <span>{fmt(actionNote.order.frais_livraison)}</span>
-                      </div>
-                    </>
-                  )}
+                  {actionNote.order.livraison_zone !== "RECUPERATION" &&
+                    actionNote.order.frais_livraison != null && (
+                      <>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">
+                            Prix de vente
+                          </span>
+                          <span>
+                            {fmt(
+                              Number(actionNote.order.total_a_payer) -
+                                Number(actionNote.order.frais_livraison),
+                            )}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">
+                            Frais de livraison
+                          </span>
+                          <span>{fmt(actionNote.order.frais_livraison)}</span>
+                        </div>
+                      </>
+                    )}
                   <div className="flex justify-between font-medium">
                     <span>Total</span>
                     <span>{fmt(actionNote.order.total_a_payer)}</span>
@@ -739,27 +1158,48 @@ export default function OrdersPage() {
           )}
           <NoteForm
             onCancel={() => setActionNote(null)}
-            onSubmit={(note) => actionNote && doChangeStatus(actionNote.order, actionNote.target, note)}
+            onSubmit={(note) =>
+              actionNote &&
+              doChangeStatus(actionNote.order, actionNote.target, note)
+            }
           />
         </DialogContent>
       </Dialog>
 
       {/* Annulation commande (gérant) — restitue le stock si déjà déduit */}
-      <Dialog open={!!cancelTarget} onOpenChange={(o) => !o && setCancelTarget(null)}>
+      <Dialog
+        open={!!cancelTarget}
+        onOpenChange={(o) => !o && setCancelTarget(null)}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Annuler la commande {cancelTarget?.numero} ?</DialogTitle>
+            <DialogTitle>
+              Annuler la commande {cancelTarget?.numero} ?
+            </DialogTitle>
             <DialogDescription>
               La commande de {cancelTarget?.client_nom} sera annulée.
-              {cancelTarget && ['EN_PREPARATION', 'PRETE', 'EN_LIVRAISON'].includes(cancelTarget.statut_courant) && (
-                <> Le stock déjà déduit pour cette commande sera automatiquement restitué.</>
-              )}
+              {cancelTarget &&
+                ["EN_PREPARATION", "PRETE", "EN_LIVRAISON"].includes(
+                  cancelTarget.statut_courant,
+                ) && (
+                  <>
+                    {" "}
+                    Le stock déjà déduit pour cette commande sera
+                    automatiquement restitué.
+                  </>
+                )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCancelTarget(null)}>Retour</Button>
-            <Button variant="destructive" onClick={handleCancelOrder} disabled={cancelling}>
-              {cancelling ? 'Annulation...' : 'Annuler la commande'}
+            <Button variant="outline" onClick={() => setCancelTarget(null)}>
+              Retour
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleCancelOrder}
+              disabled={cancelling}
+            >
+              {cancelling ? "Annulation..." : "Annuler la commande"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -769,7 +1209,10 @@ export default function OrdersPage() {
         <CreateOrderDialog
           open={createOpen}
           onOpenChange={setCreateOpen}
-          onCreated={() => { setCreateOpen(false); fetchOrders(); }}
+          onCreated={() => {
+            setCreateOpen(false);
+            fetchOrders();
+          }}
         />
       )}
 
@@ -781,10 +1224,14 @@ export default function OrdersPage() {
             assignTarget &&
             doChangeStatus(
               assignTarget.order,
-              assignTarget.role === 'PREPARATEUR' ? 'EN_PREPARATION' : 'EN_LIVRAISON',
+              assignTarget.role === "PREPARATEUR"
+                ? "EN_PREPARATION"
+                : "EN_LIVRAISON",
               undefined,
               {
-                ...(assignTarget.role === 'PREPARATEUR' ? { preparateur_id: userId } : { livreur_id: userId }),
+                ...(assignTarget.role === "PREPARATEUR"
+                  ? { preparateur_id: userId }
+                  : { livreur_id: userId }),
                 assigned_at: assignedAt,
               },
             )
@@ -796,22 +1243,37 @@ export default function OrdersPage() {
         <EditOrderDialog
           order={editTarget}
           onOpenChange={(o) => !o && setEditTarget(null)}
-          onSaved={() => { setEditTarget(null); fetchOrders(true); }}
+          onSaved={() => {
+            setEditTarget(null);
+            fetchOrders(true);
+          }}
         />
       )}
 
-      <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+      <Dialog
+        open={!!deleteTarget}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Supprimer la commande {deleteTarget?.numero} ?</DialogTitle>
+            <DialogTitle>
+              Supprimer la commande {deleteTarget?.numero} ?
+            </DialogTitle>
             <DialogDescription>
-              Cette action est définitive — la commande de {deleteTarget?.client_nom} sera supprimée.
+              Cette action est définitive — la commande de{" "}
+              {deleteTarget?.client_nom} sera supprimée.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Annuler</Button>
-            <Button variant="destructive" onClick={handleDeleteOrder} disabled={deleting}>
-              {deleting ? 'Suppression...' : 'Supprimer'}
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Annuler
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteOrder}
+              disabled={deleting}
+            >
+              {deleting ? "Suppression..." : "Supprimer"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -824,21 +1286,27 @@ export default function OrdersPage() {
 // statut effectivement atteint, dérivée de l'historique complet, pour une
 // lecture immédiate sans avoir à parcourir la liste détaillée en dessous.
 const TIMELINE_MILESTONES: { status: string; icon: any; label: string }[] = [
-  { status: 'EN_PREPARATION', icon: Wrench, label: 'Préparation commencée le' },
-  { status: 'PRETE', icon: Boxes, label: 'Prête le' },
-  { status: 'EN_LIVRAISON', icon: Truck, label: 'En livraison depuis le' },
-  { status: 'LIVRE', icon: CheckCircle2, label: 'Livrée le' },
-  { status: 'RETOUR', icon: Undo2, label: 'Retour le' },
+  { status: "EN_PREPARATION", icon: Wrench, label: "Préparation commencée le" },
+  { status: "PRETE", icon: Boxes, label: "Prête le" },
+  { status: "EN_LIVRAISON", icon: Truck, label: "En livraison depuis le" },
+  { status: "LIVRE", icon: CheckCircle2, label: "Livrée le" },
+  { status: "RETOUR", icon: Undo2, label: "Retour le" },
 ];
 
 function OrderTimeline({ order }: { order: any }) {
   const timestamps = new Map<string, string>();
   for (const h of order.status_history || []) {
-    if (!timestamps.has(h.nouveau_statut)) timestamps.set(h.nouveau_statut, h.timestamp);
+    if (!timestamps.has(h.nouveau_statut))
+      timestamps.set(h.nouveau_statut, h.timestamp);
   }
 
   const rows = [
-    { icon: ShoppingCart, label: 'Commande créée le', date: order.date_commande, reached: true },
+    {
+      icon: ShoppingCart,
+      label: "Commande créée le",
+      date: order.date_commande,
+      reached: true,
+    },
     ...TIMELINE_MILESTONES.map((m) => ({
       icon: m.icon,
       label: m.label,
@@ -853,20 +1321,36 @@ function OrderTimeline({ order }: { order: any }) {
         <li key={r.label} className="flex items-center gap-2 text-sm">
           <r.icon className="h-4 w-4 text-primary shrink-0" />
           <span className="text-muted-foreground">{r.label}</span>
-          <span className="font-semibold">{r.date ? new Date(r.date).toLocaleString('fr-FR') : '—'}</span>
+          <span className="font-semibold">
+            {r.date ? new Date(r.date).toLocaleString("fr-FR") : "—"}
+          </span>
         </li>
       ))}
     </ul>
   );
 }
 
-function NoteForm({ onSubmit, onCancel }: { onSubmit: (note: string) => void; onCancel?: () => void }) {
-  const [note, setNote] = useState('');
+function NoteForm({
+  onSubmit,
+  onCancel,
+}: {
+  onSubmit: (note: string) => void;
+  onCancel?: () => void;
+}) {
+  const [note, setNote] = useState("");
   return (
     <div className="space-y-4">
-      <Textarea placeholder="Note (optionnel)" value={note} onChange={(e) => setNote(e.target.value)} />
+      <Textarea
+        placeholder="Note (optionnel)"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+      />
       <DialogFooter>
-        {onCancel && <Button variant="outline" onClick={onCancel}>Annuler</Button>}
+        {onCancel && (
+          <Button variant="outline" onClick={onCancel}>
+            Annuler
+          </Button>
+        )}
         <Button onClick={() => onSubmit(note)}>Confirmer</Button>
       </DialogFooter>
     </div>
@@ -880,18 +1364,20 @@ function AssignStaffDialog({
   onOpenChange,
   onAssign,
 }: {
-  target: { order: any; role: 'PREPARATEUR' | 'LIVREUR' } | null;
+  target: { order: any; role: "PREPARATEUR" | "LIVREUR" } | null;
   onOpenChange: (o: boolean) => void;
   onAssign: (userId: number, assignedAt?: string) => void;
 }) {
-  const [staff, setStaff] = useState<{ id: number; full_name: string; available: boolean }[]>([]);
+  const [staff, setStaff] = useState<
+    { id: number; full_name: string; available: boolean }[]
+  >([]);
   const [loading, setLoading] = useState(false);
-  const [selected, setSelected] = useState<string>('');
-  const [assignedAt, setAssignedAt] = useState('');
+  const [selected, setSelected] = useState<string>("");
+  const [assignedAt, setAssignedAt] = useState("");
 
   useEffect(() => {
     if (!target) return;
-    setSelected('');
+    setSelected("");
     setAssignedAt(toDatetimeLocalValue(new Date()));
     setLoading(true);
     djangoClient.orders
@@ -901,7 +1387,7 @@ function AssignStaffDialog({
       .finally(() => setLoading(false));
   }, [target]);
 
-  const roleLabel = target?.role === 'PREPARATEUR' ? 'préparateur' : 'livreur';
+  const roleLabel = target?.role === "PREPARATEUR" ? "préparateur" : "livreur";
 
   return (
     <Dialog open={!!target} onOpenChange={onOpenChange}>
@@ -909,7 +1395,8 @@ function AssignStaffDialog({
         <DialogHeader>
           <DialogTitle>Assigner un {roleLabel}</DialogTitle>
           <DialogDescription>
-            Commande {target?.order?.numero} — choisissez manuellement qui prend cette commande en charge.
+            Commande {target?.order?.numero} — choisissez manuellement qui prend
+            cette commande en charge.
           </DialogDescription>
         </DialogHeader>
         {loading ? (
@@ -926,7 +1413,9 @@ function AssignStaffDialog({
               </SelectTrigger>
               <SelectContent>
                 {staff.map((s) => (
-                  <SelectItem key={s.id} value={String(s.id)}>{s.full_name}</SelectItem>
+                  <SelectItem key={s.id} value={String(s.id)}>
+                    {s.full_name}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -937,18 +1426,24 @@ function AssignStaffDialog({
                 value={assignedAt}
                 onChange={(e) => setAssignedAt(e.target.value)}
               />
-              <p className="text-xs text-muted-foreground">Vide = maintenant.</p>
+              <p className="text-xs text-muted-foreground">
+                Vide = maintenant.
+              </p>
             </div>
           </div>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Annuler</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Annuler
+          </Button>
           <Button
             disabled={!selected}
-            onClick={() => onAssign(
-              Number(selected),
-              assignedAt ? new Date(assignedAt).toISOString() : undefined,
-            )}
+            onClick={() =>
+              onAssign(
+                Number(selected),
+                assignedAt ? new Date(assignedAt).toISOString() : undefined,
+              )
+            }
           >
             Assigner
           </Button>
@@ -970,42 +1465,55 @@ function EditOrderDialog({
   onOpenChange: (o: boolean) => void;
   onSaved: () => void;
 }) {
-  const [clientNom, setClientNom] = useState('');
-  const [telephone, setTelephone] = useState('');
-  const [zone, setZone] = useState('ZONE1');
-  const [adresseLivraison, setAdresseLivraison] = useState('');
-  const [dateCommande, setDateCommande] = useState('');
-  const [note, setNote] = useState('');
+  const [clientNom, setClientNom] = useState("");
+  const [telephone, setTelephone] = useState("");
+  const [zone, setZone] = useState("ZONE1");
+  const [adresseLivraison, setAdresseLivraison] = useState("");
+  const [dateCommande, setDateCommande] = useState("");
+  const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!order) return;
-    setClientNom(order.client_nom || '');
-    setTelephone(order.telephone || '');
-    setZone(order.livraison_zone || 'ZONE1');
-    setAdresseLivraison(order.adresse_livraison || '');
-    setDateCommande(order.date_commande ? toDatetimeLocalValue(new Date(order.date_commande)) : '');
-    setNote(order.note || '');
+    setClientNom(order.client_nom || "");
+    setTelephone(order.telephone || "");
+    setZone(order.livraison_zone || "ZONE1");
+    setAdresseLivraison(order.adresse_livraison || "");
+    setDateCommande(
+      order.date_commande
+        ? toDatetimeLocalValue(new Date(order.date_commande))
+        : "",
+    );
+    setNote(order.note || "");
   }, [order]);
 
   const submit = async () => {
     if (!order) return;
-    if (!clientNom.trim()) { toast.error('Nom du client requis'); return; }
-    if (!/^\+261\d{9}$/.test(telephone)) { toast.error('Téléphone au format +261XXXXXXXXX'); return; }
+    if (!clientNom.trim()) {
+      toast.error("Nom du client requis");
+      return;
+    }
+    if (!/^\+261\d{9}$/.test(telephone)) {
+      toast.error("Téléphone au format +261XXXXXXXXX");
+      return;
+    }
     setSubmitting(true);
     try {
       await djangoClient.orders.update(order.id, {
         client_nom: clientNom.trim(),
         telephone,
         livraison_zone: zone as any,
-        adresse_livraison: zone === 'RECUPERATION' ? '' : adresseLivraison.trim(),
-        ...(dateCommande ? { date_commande: new Date(dateCommande).toISOString() } : {}),
+        adresse_livraison:
+          zone === "RECUPERATION" ? "" : adresseLivraison.trim(),
+        ...(dateCommande
+          ? { date_commande: new Date(dateCommande).toISOString() }
+          : {}),
         note,
       });
-      toast.success('Commande mise à jour');
+      toast.success("Commande mise à jour");
       onSaved();
     } catch (err: any) {
-      toast.error(err.message || 'Erreur lors de la modification');
+      toast.error(err.message || "Erreur lors de la modification");
     } finally {
       setSubmitting(false);
     }
@@ -1016,221 +1524,25 @@ function EditOrderDialog({
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Modifier la commande {order?.numero}</DialogTitle>
-          <DialogDescription>Uniquement possible tant que la commande est "Nouvelle".</DialogDescription>
+          <DialogDescription>
+            Uniquement possible tant que la commande est "Nouvelle".
+          </DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>Nom client</Label>
-            <Input value={clientNom} onChange={(e) => setClientNom(e.target.value)} />
+            <Input
+              value={clientNom}
+              onChange={(e) => setClientNom(e.target.value)}
+            />
           </div>
           <div className="space-y-2">
             <Label>Téléphone</Label>
-            <Input value={telephone} onChange={(e) => setTelephone(e.target.value)} />
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label>Date et heure de la commande</Label>
-          <Input type="datetime-local" value={dateCommande} onChange={(e) => setDateCommande(e.target.value)} />
-        </div>
-
-        <div className="space-y-2">
-          <Label>Type de commande</Label>
-          <div className="flex gap-2">
-            <Button type="button" variant={zone !== 'RECUPERATION' ? 'default' : 'outline'} className="flex-1" onClick={() => setZone('ZONE1')}>
-              <Truck className="h-4 w-4 mr-2" /> À livrer
-            </Button>
-            <Button type="button" variant={zone === 'RECUPERATION' ? 'default' : 'outline'} className="flex-1" onClick={() => setZone('RECUPERATION')}>
-              <Package className="h-4 w-4 mr-2" /> Récupération sur place
-            </Button>
-          </div>
-        </div>
-
-        {zone !== 'RECUPERATION' && (
-          <div className="space-y-2">
-            <Label>Zone de livraison</Label>
-            <Select value={zone} onValueChange={setZone}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {ZONES.filter((z) => z.value !== 'RECUPERATION').map((z) => (
-                  <SelectItem key={z.value} value={z.value}>{z.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        {zone !== 'RECUPERATION' && (
-          <div className="space-y-2">
-            <Label>Adresse de livraison</Label>
-            <Input value={adresseLivraison} onChange={(e) => setAdresseLivraison(e.target.value)} />
-          </div>
-        )}
-
-        <div className="space-y-2">
-          <Label>Note (optionnel)</Label>
-          <Textarea value={note} onChange={(e) => setNote(e.target.value)} />
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Annuler</Button>
-          <Button onClick={submit} disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer'}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// Format un Date en valeur locale pour <input type="datetime-local"> (pas d'UTC).
-function toDatetimeLocalValue(d: Date) {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; onOpenChange: (o: boolean) => void; onCreated: () => void }) {
-  const { isPreparateur } = useCurrentUser();
-  // Le préparateur ne crée que des retraits sur place, et ne voit aucune
-  // donnée financière (§4/§7.2 du cahier des charges — même règle que pour
-  // la consultation des commandes).
-  const showPrices = !isPreparateur;
-  const [clientNom, setClientNom] = useState('');
-  const [telephone, setTelephone] = useState('+261');
-  const [zone, setZone] = useState('ZONE1');
-  const [adresseLivraison, setAdresseLivraison] = useState('');
-  const [dateCommande, setDateCommande] = useState('');
-  const [note, setNote] = useState('');
-  const [items, setItems] = useState<CartItem[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [preparateurId, setPreparateurId] = useState('');
-  const [preparateurAssignedAt, setPreparateurAssignedAt] = useState('');
-  const [preparateurs, setPreparateurs] = useState<{ id: number; full_name: string; available: boolean }[]>([]);
-
-  // Sélecteur en cours d'ajout — filtres Catégorie → Sous-type + Marque,
-  // combinés à la recherche texte (§6 du cahier des charges : "Type produit"
-  // filtre "Marque", recherche autocomplete dans le catalogue).
-  const [categories, setCategories] = useState<any[]>([]);
-  const [types, setTypes] = useState<any[]>([]);
-  const [brands, setBrands] = useState<any[]>([]);
-  const [categoryId, setCategoryId] = useState<number | null>(null);
-  const [typeId, setTypeId] = useState<number | null>(null);
-  const [brandId, setBrandId] = useState<number | null>(null);
-  const [query, setQuery] = useState('');
-  const [suggestions, setSuggestions] = useState<any[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [selectedRef, setSelectedRef] = useState<any | null>(null);
-  const [variantId, setVariantId] = useState<number | null>(null);
-  const [quantite, setQuantite] = useState('');
-
-  useEffect(() => {
-    if (!open) return;
-    djangoClient.catalog.categories.list().then(setCategories).catch(() => {});
-    djangoClient.catalog.types.list().then(setTypes).catch(() => {});
-    djangoClient.catalog.brands.list().then(setBrands).catch(() => {});
-    if (!isPreparateur) {
-      djangoClient.orders.availableStaff('PREPARATEUR').then(setPreparateurs).catch(() => setPreparateurs([]));
-    }
-    setClientNom(''); setTelephone('+261'); setZone(isPreparateur ? 'RECUPERATION' : 'ZONE1'); setAdresseLivraison('');
-    setDateCommande(toDatetimeLocalValue(new Date())); setNote(''); setItems([]);
-    setCategoryId(null); setTypeId(null); setBrandId(null); setPreparateurId('');
-    setPreparateurAssignedAt(toDatetimeLocalValue(new Date()));
-    setQuery(''); setSuggestions([]); setSelectedRef(null); setVariantId(null); setQuantite('');
-  }, [open, isPreparateur]);
-
-  const typesForCategory = categoryId ? types.filter((t) => t.category === categoryId) : types;
-
-  // La recherche se déclenche dès qu'un filtre est choisi (même sans texte),
-  // pour afficher directement les éléments correspondant à la sélection.
-  useEffect(() => {
-    if (!query && !typeId && !brandId && !categoryId) { setSuggestions([]); return; }
-    setSearching(true);
-    const t = setTimeout(() => {
-      djangoClient.catalog.references
-        .autocomplete(query, { type: typeId ?? undefined, brand: brandId ?? undefined, category: categoryId ?? undefined })
-        .then(setSuggestions)
-        .catch(() => setSuggestions([]))
-        .finally(() => setSearching(false));
-    }, 250);
-    return () => clearTimeout(t);
-  }, [query, typeId, brandId, categoryId]);
-
-  const zoneInfo = ZONES.find((z) => z.value === zone)!;
-  const itemsTotal = items.reduce((s, it) => s + it.prix_vente * it.quantite, 0);
-  const total = itemsTotal + zoneInfo.frais;
-
-  const addItem = () => {
-    if (!selectedRef || !variantId) { toast.error('Sélectionnez une référence et une couleur'); return; }
-    const variant = selectedRef.couleurs.find((c: any) => c.variant_id === variantId);
-    if (!variant) return;
-    const qty = Number(quantite);
-    if (!qty || qty < 1) { toast.error('Quantité invalide'); return; }
-    if (qty > variant.stock_actuel) { toast.error(`Stock insuffisant (disponible: ${variant.stock_actuel})`); return; }
-    setItems((prev) => [...prev, {
-      key: `${variantId}-${Date.now()}`,
-      type_id: selectedRef.type, type_name: selectedRef.type_name,
-      reference_id: selectedRef.id, reference_label: `${selectedRef.brand_name} ${selectedRef.reference_name}`,
-      prix_vente: Number(selectedRef.prix_vente),
-      variant_id: variantId, couleur: variant.couleur, stock_actuel: variant.stock_actuel, quantite: qty,
-    }]);
-    setQuery(''); setSuggestions([]); setSelectedRef(null); setVariantId(null); setQuantite('');
-  };
-
-  const submit = async () => {
-    if (!clientNom.trim()) { toast.error('Nom du client requis'); return; }
-    if (!/^\+261\d{9}$/.test(telephone)) { toast.error('Téléphone au format +261XXXXXXXXX'); return; }
-    if (items.length === 0) { toast.error('Ajoutez au moins un article'); return; }
-    setSubmitting(true);
-    try {
-      const order = await djangoClient.orders.create({
-        client_nom: clientNom.trim(),
-        telephone,
-        livraison_zone: zone as any,
-        adresse_livraison: adresseLivraison.trim(),
-        // Champ vidé par l'utilisateur -> pas envoyé -> le serveur prend "maintenant" (heure précise).
-        ...(dateCommande ? { date_commande: new Date(dateCommande).toISOString() } : {}),
-        note,
-        items: items.map((it) => ({ product_variant: it.variant_id, quantite: it.quantite })),
-      });
-      if (preparateurId) {
-        try {
-          await djangoClient.orders.changeStatus(order.id, 'EN_PREPARATION', undefined, {
-            preparateur_id: Number(preparateurId),
-            assigned_at: preparateurAssignedAt ? new Date(preparateurAssignedAt).toISOString() : undefined,
-          });
-          toast.success('Commande créée et assignée');
-        } catch (assignErr: any) {
-          toast.error(
-            `Commande créée, mais l'assignation a échoué : ${assignErr.message || 'erreur inconnue'} ` +
-              '(à assigner depuis le tableau).',
-          );
-        }
-      } else {
-        toast.success('Commande créée');
-      }
-      onCreated();
-    } catch (err: any) {
-      toast.error(err.message || 'Erreur lors de la création');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Nouvelle commande</DialogTitle>
-          <DialogDescription>Vente Facebook ou sur place — §6 du cahier des charges.</DialogDescription>
-        </DialogHeader>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label>Nom client</Label>
-            <Input value={clientNom} onChange={(e) => setClientNom(e.target.value)} placeholder="Rakoto Jean" />
-          </div>
-          <div className="space-y-2">
-            <Label>Téléphone</Label>
-            <Input value={telephone} onChange={(e) => setTelephone(e.target.value)} placeholder="+261340000000" />
+            <Input
+              value={telephone}
+              onChange={(e) => setTelephone(e.target.value)}
+            />
           </div>
         </div>
 
@@ -1241,118 +1553,360 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
             value={dateCommande}
             onChange={(e) => setDateCommande(e.target.value)}
           />
-          <p className="text-xs text-muted-foreground">Vide = maintenant.</p>
         </div>
 
-        {isPreparateur ? (
-          <p className="text-xs text-muted-foreground -mt-2">
-            Retrait sur place uniquement — la commande apparaîtra dans "Récupérations"
-            une fois prête, à valider comme livrée au comptoir par le gérant.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            <Label>Type de commande</Label>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant={zone !== 'RECUPERATION' ? 'default' : 'outline'}
-                className="flex-1"
-                onClick={() => setZone('ZONE1')}
-              >
-                <Truck className="h-4 w-4 mr-2" /> À livrer
-              </Button>
-              <Button
-                type="button"
-                variant={zone === 'RECUPERATION' ? 'default' : 'outline'}
-                className="flex-1"
-                onClick={() => setZone('RECUPERATION')}
-              >
-                <Package className="h-4 w-4 mr-2" /> Récupération sur place
-              </Button>
-            </div>
-            {zone === 'RECUPERATION' && (
-              <p className="text-xs text-muted-foreground">
-                Pas de frais ni de livreur — la commande apparaîtra dans "Récupération" une
-                fois prête, à valider comme livrée au comptoir quand le client vient la chercher.
-              </p>
-            )}
+        <div className="space-y-2">
+          <Label>Type de commande</Label>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant={zone !== "RECUPERATION" ? "default" : "outline"}
+              className="flex-1"
+              onClick={() => setZone("ZONE1")}
+            >
+              <Truck className="h-4 w-4 mr-2" /> À livrer
+            </Button>
+            <Button
+              type="button"
+              variant={zone === "RECUPERATION" ? "default" : "outline"}
+              className="flex-1"
+              onClick={() => setZone("RECUPERATION")}
+            >
+              <Package className="h-4 w-4 mr-2" /> Récupération sur place
+            </Button>
           </div>
-        )}
+        </div>
 
-        {zone !== 'RECUPERATION' && (
+        {zone !== "RECUPERATION" && (
           <div className="space-y-2">
             <Label>Zone de livraison</Label>
             <Select value={zone} onValueChange={setZone}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                {ZONES.filter((z) => z.value !== 'RECUPERATION').map((z) => (
-                  <SelectItem key={z.value} value={z.value}>{z.label}</SelectItem>
+                {ZONES.filter((z) => z.value !== "RECUPERATION").map((z) => (
+                  <SelectItem key={z.value} value={z.value}>
+                    {z.label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
         )}
 
-        {zone !== 'RECUPERATION' && (
+        {zone !== "RECUPERATION" && (
           <div className="space-y-2">
             <Label>Adresse de livraison</Label>
             <Input
               value={adresseLivraison}
               onChange={(e) => setAdresseLivraison(e.target.value)}
-              placeholder="Ex: Lot II M 45 Antanimena, Antananarivo"
             />
           </div>
         )}
 
-        {!isPreparateur && (
-          <div className="space-y-2">
-            <Label>Préparateur</Label>
-            <Select value={preparateurId} onValueChange={setPreparateurId}>
-              <SelectTrigger><SelectValue placeholder="Assigner plus tard" /></SelectTrigger>
-              <SelectContent>
-                {preparateurs.map((p) => (
-                  <SelectItem key={p.id} value={String(p.id)}>{p.full_name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              Optionnel — assigne et démarre la préparation dès la création de la commande.
-            </p>
-            {preparateurId && (
-              <div className="space-y-1 pt-1">
-                <Label className="text-xs text-muted-foreground">Date et heure d'assignation</Label>
-                <Input
-                  type="datetime-local"
-                  value={preparateurAssignedAt}
-                  onChange={(e) => setPreparateurAssignedAt(e.target.value)}
-                />
-              </div>
-            )}
-          </div>
-        )}
+        <div className="space-y-2">
+          <Label>Note (optionnel)</Label>
+          <Textarea value={note} onChange={(e) => setNote(e.target.value)} />
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Annuler
+          </Button>
+          <Button onClick={submit} disabled={submitting}>
+            {submitting ? "Enregistrement..." : "Enregistrer"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Format un Date en valeur locale pour <input type="datetime-local"> (pas d'UTC).
+function toDatetimeLocalValue(d: Date) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function CreateOrderDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  onCreated: () => void;
+}) {
+  const { isPreparateur } = useCurrentUser();
+  // Le préparateur ne crée que des retraits sur place, et ne voit aucune
+  // donnée financière (§4/§7.2 du cahier des charges — même règle que pour
+  // la consultation des commandes).
+  const showPrices = !isPreparateur;
+  const [clientNom, setClientNom] = useState("");
+  const [telephone, setTelephone] = useState("+261");
+  const [zone, setZone] = useState("ZONE1");
+  const [adresseLivraison, setAdresseLivraison] = useState("");
+  const [dateCommande, setDateCommande] = useState("");
+  const [note, setNote] = useState("");
+  const [items, setItems] = useState<CartItem[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [preparateurId, setPreparateurId] = useState("");
+  const [preparateurAssignedAt, setPreparateurAssignedAt] = useState("");
+  const [preparateurs, setPreparateurs] = useState<
+    { id: number; full_name: string; available: boolean }[]
+  >([]);
+
+  // Sélecteur en cours d'ajout — filtres Catégorie → Sous-type + Marque,
+  // combinés à la recherche texte (§6 du cahier des charges : "Type produit"
+  // filtre "Marque", recherche autocomplete dans le catalogue).
+  const [categories, setCategories] = useState<any[]>([]);
+  const [types, setTypes] = useState<any[]>([]);
+  const [brands, setBrands] = useState<any[]>([]);
+  const [categoryId, setCategoryId] = useState<number | null>(null);
+  const [typeId, setTypeId] = useState<number | null>(null);
+  const [brandId, setBrandId] = useState<number | null>(null);
+  const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [selectedRef, setSelectedRef] = useState<any | null>(null);
+  const [variantId, setVariantId] = useState<number | null>(null);
+  const [quantite, setQuantite] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    djangoClient.catalog.categories
+      .list()
+      .then(setCategories)
+      .catch(() => {});
+    djangoClient.catalog.types
+      .list()
+      .then(setTypes)
+      .catch(() => {});
+    djangoClient.catalog.brands
+      .list()
+      .then(setBrands)
+      .catch(() => {});
+    if (!isPreparateur) {
+      djangoClient.orders
+        .availableStaff("PREPARATEUR")
+        .then(setPreparateurs)
+        .catch(() => setPreparateurs([]));
+    }
+    setClientNom("");
+    setTelephone("+261");
+    setZone(isPreparateur ? "RECUPERATION" : "ZONE1");
+    setAdresseLivraison("");
+    setDateCommande(toDatetimeLocalValue(new Date()));
+    setNote("");
+    setItems([]);
+    setCategoryId(null);
+    setTypeId(null);
+    setBrandId(null);
+    setPreparateurId("");
+    setPreparateurAssignedAt(toDatetimeLocalValue(new Date()));
+    setQuery("");
+    setSuggestions([]);
+    setSelectedRef(null);
+    setVariantId(null);
+    setQuantite("");
+  }, [open, isPreparateur]);
+
+  const typesForCategory = categoryId
+    ? types.filter((t) => t.category === categoryId)
+    : types;
+
+  // La recherche se déclenche dès qu'un filtre est choisi (même sans texte),
+  // pour afficher directement les éléments correspondant à la sélection.
+  useEffect(() => {
+    if (!query && !typeId && !brandId && !categoryId) {
+      setSuggestions([]);
+      return;
+    }
+    setSearching(true);
+    const t = setTimeout(() => {
+      djangoClient.catalog.references
+        .autocomplete(query, {
+          type: typeId ?? undefined,
+          brand: brandId ?? undefined,
+          category: categoryId ?? undefined,
+        })
+        .then(setSuggestions)
+        .catch(() => setSuggestions([]))
+        .finally(() => setSearching(false));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [query, typeId, brandId, categoryId]);
+
+  const zoneInfo = ZONES.find((z) => z.value === zone)!;
+  const itemsTotal = items.reduce(
+    (s, it) => s + it.prix_vente * it.quantite,
+    0,
+  );
+  const total = itemsTotal + zoneInfo.frais;
+
+  const addItem = () => {
+    if (!selectedRef || !variantId) {
+      toast.error("Sélectionnez une référence et une couleur");
+      return;
+    }
+    const variant = selectedRef.couleurs.find(
+      (c: any) => c.variant_id === variantId,
+    );
+    if (!variant) return;
+    const qty = Number(quantite);
+    if (!qty || qty < 1) {
+      toast.error("Quantité invalide");
+      return;
+    }
+    if (qty > variant.stock_actuel) {
+      toast.error(`Stock insuffisant (disponible: ${variant.stock_actuel})`);
+      return;
+    }
+    setItems((prev) => [
+      ...prev,
+      {
+        key: `${variantId}-${Date.now()}`,
+        type_id: selectedRef.type,
+        type_name: selectedRef.type_name,
+        reference_id: selectedRef.id,
+        reference_label: `${selectedRef.brand_name} ${selectedRef.reference_name}`,
+        prix_vente: Number(selectedRef.prix_vente),
+        variant_id: variantId,
+        couleur: variant.couleur,
+        stock_actuel: variant.stock_actuel,
+        quantite: qty,
+      },
+    ]);
+    setQuery("");
+    setSuggestions([]);
+    setSelectedRef(null);
+    setVariantId(null);
+    setQuantite("");
+  };
+
+  const submit = async () => {
+    if (!clientNom.trim()) {
+      toast.error("Nom du client requis");
+      return;
+    }
+    if (!/^\+261\d{9}$/.test(telephone)) {
+      toast.error("Téléphone au format +261XXXXXXXXX");
+      return;
+    }
+    if (items.length === 0) {
+      toast.error("Ajoutez au moins un article");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const order = await djangoClient.orders.create({
+        client_nom: clientNom.trim(),
+        telephone,
+        livraison_zone: zone as any,
+        adresse_livraison: adresseLivraison.trim(),
+        // Champ vidé par l'utilisateur -> pas envoyé -> le serveur prend "maintenant" (heure précise).
+        ...(dateCommande
+          ? { date_commande: new Date(dateCommande).toISOString() }
+          : {}),
+        note,
+        items: items.map((it) => ({
+          product_variant: it.variant_id,
+          quantite: it.quantite,
+        })),
+      });
+      if (preparateurId) {
+        try {
+          await djangoClient.orders.changeStatus(
+            order.id,
+            "EN_PREPARATION",
+            undefined,
+            {
+              preparateur_id: Number(preparateurId),
+              assigned_at: preparateurAssignedAt
+                ? new Date(preparateurAssignedAt).toISOString()
+                : undefined,
+            },
+          );
+          toast.success("Commande créée et assignée");
+        } catch (assignErr: any) {
+          toast.error(
+            `Commande créée, mais l'assignation a échoué : ${assignErr.message || "erreur inconnue"} ` +
+              "(à assigner depuis le tableau).",
+          );
+        }
+      } else {
+        toast.success("Commande créée");
+      }
+      onCreated();
+    } catch (err: any) {
+      toast.error(err.message || "Erreur lors de la création");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Nouvelle commande</DialogTitle>
+          <DialogDescription>
+            Vente Facebook ou sur place — §6 du cahier des charges.
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* ajout de l'article  */}
 
         <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
           <p className="text-sm font-medium">Ajouter un article</p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Select
-              value={categoryId ? String(categoryId) : ''}
-              onValueChange={(v) => { setCategoryId(Number(v)); setTypeId(null); }}
+              value={categoryId ? String(categoryId) : ""}
+              onValueChange={(v) => {
+                setCategoryId(Number(v));
+                setTypeId(null);
+              }}
             >
-              <SelectTrigger><SelectValue placeholder="Catégorie" /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue placeholder="Catégorie" />
+              </SelectTrigger>
               <SelectContent>
-                {categories.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.nom}</SelectItem>)}
+                {categories.map((c) => (
+                  <SelectItem key={c.id} value={String(c.id)}>
+                    {c.nom}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-            <Select value={typeId ? String(typeId) : ''} onValueChange={(v) => setTypeId(Number(v))}>
-              <SelectTrigger><SelectValue placeholder="Sous-type" /></SelectTrigger>
+            <Select
+              value={typeId ? String(typeId) : ""}
+              onValueChange={(v) => setTypeId(Number(v))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Sous-type" />
+              </SelectTrigger>
               <SelectContent>
-                {typesForCategory.map((t) => <SelectItem key={t.id} value={String(t.id)}>{t.nom}</SelectItem>)}
+                {typesForCategory.map((t) => (
+                  <SelectItem key={t.id} value={String(t.id)}>
+                    {t.nom}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-            <Select value={brandId ? String(brandId) : ''} onValueChange={(v) => setBrandId(Number(v))}>
-              <SelectTrigger><SelectValue placeholder="Marque" /></SelectTrigger>
+            <Select
+              value={brandId ? String(brandId) : ""}
+              onValueChange={(v) => setBrandId(Number(v))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Marque" />
+              </SelectTrigger>
               <SelectContent>
-                {brands.map((b) => <SelectItem key={b.id} value={String(b.id)}>{b.nom}</SelectItem>)}
+                {brands.map((b) => (
+                  <SelectItem key={b.id} value={String(b.id)}>
+                    {b.nom}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -1363,19 +1917,31 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
               {categoryId && (
                 <Badge variant="secondary" className="gap-1">
                   {categories.find((c) => c.id === categoryId)?.nom}
-                  <button type="button" onClick={() => { setCategoryId(null); setTypeId(null); }}>×</button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCategoryId(null);
+                      setTypeId(null);
+                    }}
+                  >
+                    ×
+                  </button>
                 </Badge>
               )}
               {typeId && (
                 <Badge variant="secondary" className="gap-1">
                   {types.find((t) => t.id === typeId)?.nom}
-                  <button type="button" onClick={() => setTypeId(null)}>×</button>
+                  <button type="button" onClick={() => setTypeId(null)}>
+                    ×
+                  </button>
                 </Badge>
               )}
               {brandId && (
                 <Badge variant="secondary" className="gap-1">
                   {brands.find((b) => b.id === brandId)?.nom}
-                  <button type="button" onClick={() => setBrandId(null)}>×</button>
+                  <button type="button" onClick={() => setBrandId(null)}>
+                    ×
+                  </button>
                 </Badge>
               )}
             </div>
@@ -1384,24 +1950,45 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
           <div className="relative">
             <Input
               placeholder="Rechercher une référence (ex: A15)"
-              value={selectedRef ? `${selectedRef.brand_name} ${selectedRef.reference_name}` : query}
-              onChange={(e) => { setQuery(e.target.value); setSelectedRef(null); setVariantId(null); }}
+              value={
+                selectedRef
+                  ? `${selectedRef.brand_name} ${selectedRef.reference_name}`
+                  : query
+              }
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setSelectedRef(null);
+                setVariantId(null);
+              }}
             />
             {!selectedRef && (query || typeId || brandId || categoryId) && (
               <div className="absolute z-10 mt-1 w-full bg-background border rounded-md shadow-md max-h-56 overflow-y-auto">
                 {searching ? (
-                  <p className="px-3 py-2 text-sm text-muted-foreground">Recherche…</p>
+                  <p className="px-3 py-2 text-sm text-muted-foreground">
+                    Recherche…
+                  </p>
                 ) : suggestions.length === 0 ? (
-                  <p className="px-3 py-2 text-sm text-muted-foreground">Aucun résultat pour cette sélection.</p>
+                  <p className="px-3 py-2 text-sm text-muted-foreground">
+                    Aucun résultat pour cette sélection.
+                  </p>
                 ) : (
                   suggestions.map((s) => (
                     <button
                       type="button"
                       key={s.id}
                       className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex justify-between"
-                      onClick={() => { setSelectedRef(s); setQuery(''); setSuggestions([]); }}
+                      onClick={() => {
+                        setSelectedRef(s);
+                        setQuery("");
+                        setSuggestions([]);
+                      }}
                     >
-                      <span>{s.brand_name} {s.reference_name} <span className="text-muted-foreground">({s.type_name})</span></span>
+                      <span>
+                        {s.brand_name} {s.reference_name}{" "}
+                        <span className="text-muted-foreground">
+                          ({s.type_name})
+                        </span>
+                      </span>
                       {showPrices && <span>{fmt(s.prix_vente)}</span>}
                     </button>
                   ))
@@ -1414,11 +2001,20 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
               <div className="space-y-1">
                 <Label>Couleur</Label>
-                <Select value={variantId ? String(variantId) : ''} onValueChange={(v) => setVariantId(Number(v))}>
-                  <SelectTrigger><SelectValue placeholder="Couleur" /></SelectTrigger>
+                <Select
+                  value={variantId ? String(variantId) : ""}
+                  onValueChange={(v) => setVariantId(Number(v))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Couleur" />
+                  </SelectTrigger>
                   <SelectContent>
                     {selectedRef.couleurs.map((c: any) => (
-                      <SelectItem key={c.variant_id} value={String(c.variant_id)} disabled={c.stock_actuel <= 0}>
+                      <SelectItem
+                        key={c.variant_id}
+                        value={String(c.variant_id)}
+                        disabled={c.stock_actuel <= 0}
+                      >
                         {c.couleur} (stock: {c.stock_actuel})
                       </SelectItem>
                     ))}
@@ -1427,29 +2023,165 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
               </div>
               <div className="space-y-1">
                 <Label>Quantité</Label>
-                <Input type="number" min={1} placeholder="Ex: 1" value={quantite} onChange={(e) => setQuantite(e.target.value)} />
+                <Input
+                  type="number"
+                  min={1}
+                  placeholder="Ex: 1"
+                  value={quantite}
+                  onChange={(e) => setQuantite(e.target.value)}
+                />
               </div>
               {showPrices && (
                 <div className="space-y-1">
                   <Label>Prix (Ar)</Label>
-                  <Input value={fmt(selectedRef.prix_vente)} readOnly disabled />
+                  <Input
+                    value={fmt(selectedRef.prix_vente)}
+                    readOnly
+                    disabled
+                  />
                 </div>
               )}
-              <Button type="button" className="sm:col-span-3" variant="secondary" onClick={addItem}>
+              <Button
+                type="button"
+                className="sm:col-span-3"
+                variant="secondary"
+                onClick={addItem}
+              >
                 <Plus className="h-4 w-4 mr-2" /> Ajouter à la commande
               </Button>
             </div>
           )}
         </div>
 
+        {/* informations du client  */}
+
+        <div className="space-y-2">
+          <Label>Date et heure de la commande</Label>
+          <Input
+            type="datetime-local"
+            value={dateCommande}
+            onChange={(e) => setDateCommande(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">Vide = maintenant.</p>
+        </div>
+        {isPreparateur ? (
+          <p className="text-xs text-muted-foreground -mt-2">
+            Retrait sur place uniquement — la commande apparaîtra dans
+            "Récupérations" une fois prête, à valider comme livrée au comptoir
+            par le gérant.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            <Label>Type de commande</Label>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={zone !== "RECUPERATION" ? "default" : "outline"}
+                className="flex-1"
+                onClick={() => setZone("ZONE1")}
+              >
+                <Truck className="h-4 w-4 mr-2" /> À livrer
+              </Button>
+              <Button
+                type="button"
+                variant={zone === "RECUPERATION" ? "default" : "outline"}
+                className="flex-1"
+                onClick={() => setZone("RECUPERATION")}
+              >
+                <Package className="h-4 w-4 mr-2" /> Récupération sur place
+              </Button>
+            </div>
+            {zone === "RECUPERATION" && (
+              <p className="text-xs text-muted-foreground">
+                Pas de frais ni de livreur — la commande apparaîtra dans
+                "Récupération" une fois prête, à valider comme livrée au
+                comptoir quand le client vient la chercher.
+              </p>
+            )}
+          </div>
+        )}
+        {zone !== "RECUPERATION" && (
+          <div className="space-y-2">
+            <Label>Zone de livraison</Label>
+            <Select value={zone} onValueChange={setZone}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ZONES.filter((z) => z.value !== "RECUPERATION").map((z) => (
+                  <SelectItem key={z.value} value={z.value}>
+                    {z.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        {zone !== "RECUPERATION" && (
+          <div className="space-y-2">
+            <Label>Adresse de livraison</Label>
+            <Input
+              value={adresseLivraison}
+              onChange={(e) => setAdresseLivraison(e.target.value)}
+              placeholder="Ex: Lot II M 45 Antanimena, Antananarivo"
+            />
+          </div>
+        )}
+        {!isPreparateur && (
+          <div className="space-y-2">
+            <Label>Préparateur</Label>
+            <Select value={preparateurId} onValueChange={setPreparateurId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Assigner plus tard" />
+              </SelectTrigger>
+              <SelectContent>
+                {preparateurs.map((p) => (
+                  <SelectItem key={p.id} value={String(p.id)}>
+                    {p.full_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Optionnel — assigne et démarre la préparation dès la création de
+              la commande.
+            </p>
+            {preparateurId && (
+              <div className="space-y-1 pt-1">
+                <Label className="text-xs text-muted-foreground">
+                  Date et heure d'assignation
+                </Label>
+                <Input
+                  type="datetime-local"
+                  value={preparateurAssignedAt}
+                  onChange={(e) => setPreparateurAssignedAt(e.target.value)}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
         {items.length > 0 && (
           <div className="space-y-2">
             {items.map((it, idx) => (
-              <div key={it.key} className="flex items-center justify-between text-sm border rounded-md px-3 py-2">
-                <span>{it.reference_label} ({it.couleur}) x{it.quantite}</span>
+              <div
+                key={it.key}
+                className="flex items-center justify-between text-sm border rounded-md px-3 py-2"
+              >
+                <span>
+                  {it.reference_label} ({it.couleur}) x{it.quantite}
+                </span>
                 <div className="flex items-center gap-3">
-                  {showPrices && <span>{fmt(it.prix_vente * it.quantite)}</span>}
-                  <Button size="icon" variant="ghost" onClick={() => setItems((prev) => prev.filter((_, i) => i !== idx))}>
+                  {showPrices && (
+                    <span>{fmt(it.prix_vente * it.quantite)}</span>
+                  )}
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() =>
+                      setItems((prev) => prev.filter((_, i) => i !== idx))
+                    }
+                  >
                     <Trash2 className="h-4 w-4 text-red-500" />
                   </Button>
                 </div>
@@ -1457,12 +2189,28 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
             ))}
           </div>
         )}
-
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Nom client</Label>
+            <Input
+              value={clientNom}
+              onChange={(e) => setClientNom(e.target.value)}
+              placeholder="Rakoto Jean"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Téléphone</Label>
+            <Input
+              value={telephone}
+              onChange={(e) => setTelephone(e.target.value)}
+              placeholder="+261340000000"
+            />
+          </div>
+        </div>
         <div className="space-y-2">
           <Label>Note (optionnel)</Label>
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} />
         </div>
-
         {showPrices && (
           <>
             <div className="flex justify-between items-center border-t pt-3 text-sm">
@@ -1475,10 +2223,13 @@ function CreateOrderDialog({ open, onOpenChange, onCreated }: { open: boolean; o
             </div>
           </>
         )}
-
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Annuler</Button>
-          <Button onClick={submit} disabled={submitting}>{submitting ? 'Création…' : 'Créer la commande'}</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Annuler
+          </Button>
+          <Button onClick={submit} disabled={submitting}>
+            {submitting ? "Création…" : "Créer la commande"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
