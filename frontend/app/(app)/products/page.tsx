@@ -237,19 +237,67 @@ export default function ProductsPage() {
     setImporting(true);
     try {
       const res = await djangoClient.catalog.references.importExcel(file);
+
+      // Le fichier renvoyé porte une colonne Statut + Date sur chaque ligne
+      // traitée — le retélécharger permet de reprendre plus tard sans
+      // revenir au début (les lignes déjà marquées seront sautées).
+      const url = URL.createObjectURL(res.blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = res.filename || "catalogue_import.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+
       toast.success(
         `${res.created_references} référence(s) créée(s), ${res.updated_references} mise(s) à jour, ` +
-          `${res.created_variants} couleur(s) créée(s), ${res.updated_variants} mise(s) à jour.`,
+          `${res.created_variants} couleur(s) créée(s), ${res.updated_variants} mise(s) à jour` +
+          (res.skipped_count > 0 ? `, ${res.skipped_count} ligne(s) déjà traitée(s) ignorée(s)` : "") +
+          `. Fichier annoté téléchargé (${res.filename}).`,
       );
-      if (res.errors.length > 0) {
+      if (res.errors_count > 0) {
         toast.error(
-          `${res.errors.length} ligne(s) ignorée(s) : ${res.errors.slice(0, 3).join(" · ")}`,
-          {
-            duration: 10000,
-          },
+          `${res.errors_count} ligne(s) en erreur — voir la colonne "Statut" du fichier téléchargé.`,
+          { duration: 10000 },
         );
       }
       fetchAll();
+
+      // Revue optionnelle par IA locale (Ollama) des références nouvellement
+      // créées, pour repérer un quasi-doublon qu'une simple comparaison de
+      // texte ne peut pas voir (ex: faute de frappe) — best-effort, ne
+      // bloque jamais l'import (déjà fait au-dessus) si Ollama ne répond pas.
+      if (res.new_reference_names.length > 0) {
+        const existingNames = references.map(
+          (r: any) => `${r.brand_name} ${r.reference_name}`,
+        );
+        fetch("/api/ai/check-duplicates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            newNames: res.new_reference_names,
+            existingNames,
+          }),
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.warnings?.length > 0) {
+              toast.warning(
+                `Vérification IA : ${data.warnings.length} nouvelle(s) référence(s) ressemble(nt) à une existante — ` +
+                  data.warnings
+                    .slice(0, 3)
+                    .map((w: any) => `"${w.nouvelle}" ≈ "${w.ressemble_a}"`)
+                    .join(" · "),
+                { duration: 15000 },
+              );
+            }
+          })
+          .catch(() => {
+            // Ollama indisponible/hors service — l'import reste valide, on
+            // ignore silencieusement cette vérification supplémentaire.
+          });
+      }
     } catch (err: any) {
       toast.error(err.message || "Erreur lors de l'import");
     } finally {

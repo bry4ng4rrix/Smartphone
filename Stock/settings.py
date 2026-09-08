@@ -181,7 +181,19 @@ CORS_ALLOW_ALL_ORIGINS = False
 # cross-origin (frontend :3010 / backend :8010) — le nom de fichier proposé
 # par fetch() pour un téléchargement (export Excel, backup...) retombe alors
 # silencieusement sur un nom générique côté client (voir lib/django-client.ts::requestBlob).
-CORS_EXPOSE_HEADERS = ["Content-Disposition"]
+# Les X-Import-* sont le résumé de catalog/views.py::import_excel (compteurs
+# + noms des références créées), lus par le frontend en même temps que le
+# fichier annoté qu'il télécharge (voir handleImportExcel côté products/page.tsx).
+CORS_EXPOSE_HEADERS = [
+    "Content-Disposition",
+    "X-Import-Created-References",
+    "X-Import-Updated-References",
+    "X-Import-Created-Variants",
+    "X-Import-Updated-Variants",
+    "X-Import-Errors-Count",
+    "X-Import-Skipped-Count",
+    "X-Import-New-Reference-Names",
+]
 
 _cors_env = os.environ.get("CORS_ALLOWED_ORIGINS", "")
 CORS_ALLOWED_ORIGINS = _cors_env.split() if _cors_env else [

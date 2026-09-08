@@ -217,6 +217,13 @@ Le bouton "Générer l'analyse" de la page Rapports (`frontend/components/ai-ana
 appelle `frontend/app/api/ai/analyze/route.ts`, qui interroge un modèle
 **Ollama local** — pas d'API cloud, pas de clé à gérer/exposer.
 
+Même modèle, deuxième usage : après un import Excel du catalogue (page
+Produits), `frontend/app/api/ai/check-duplicates/route.ts` compare les
+références nouvellement créées à celles déjà existantes pour repérer un
+quasi-doublon (faute de frappe, variante d'écriture) que la correspondance
+exacte/insensible à la casse de `catalog/views.py::import_excel` ne peut pas
+détecter — best-effort, n'empêche jamais l'import si Ollama est indisponible.
+
 **Installation sur le VPS** (une fois, en dehors de ce docker-compose — Ollama
 tourne directement sur l'hôte) :
 

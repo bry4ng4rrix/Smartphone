@@ -322,6 +322,44 @@ class DjangoAPIClient {
     return { blob, filename }
   }
 
+  // Upload multipart -> réponse fichier (pas JSON), avec un résumé porté par
+  // des en-têtes personnalisées (voir catalog/views.py::import_excel et
+  // CORS_EXPOSE_HEADERS côté Stock/settings.py).
+  private async requestFormDataForBlob(
+    endpoint: string,
+    data: FormData,
+  ): Promise<{ blob: Blob; filename: string; headers: Headers }> {
+    const url = `${API_BASE_URL}${endpoint}`
+    const headers: Record<string, string> = {}
+    if (this.tokens?.access) {
+      headers['Authorization'] = `Bearer ${this.tokens.access}`
+    }
+
+    let response = await fetch(url, { method: 'POST', headers, body: data })
+
+    if (response.status === 401) {
+      const newToken = await this.refreshAccessToken()
+      if (!newToken) throw new Error('Authentication failed')
+      headers['Authorization'] = `Bearer ${newToken}`
+      response = await fetch(url, { method: 'POST', headers, body: data })
+    }
+
+    if (!response.ok) {
+      let errorMsg = `API Error: ${response.status}`
+      try {
+        const error = await response.json()
+        errorMsg = error.error || error.detail || errorMsg
+      } catch {}
+      throw new Error(errorMsg)
+    }
+
+    const disposition = response.headers.get('content-disposition') || ''
+    const match = disposition.match(/filename="?([^"]+)"?/)
+    const filename = match ? match[1] : 'export.xlsx'
+    const blob = await response.blob()
+    return { blob, filename, headers: response.headers }
+  }
+
   // ==================== Authentication Service ====================
   auth = {
     register: async (
@@ -570,13 +608,26 @@ class DjangoAPIClient {
       importExcel: async (file: File) => {
         const fd = new FormData()
         fd.append('file', file)
-        return this.postFormData<{
-          created_references: number
-          updated_references: number
-          created_variants: number
-          updated_variants: number
-          errors: string[]
-        }>('/catalog/references/import-excel/', fd)
+        const { blob, filename, headers } = await this.requestFormDataForBlob(
+          '/catalog/references/import-excel/',
+          fd,
+        )
+        const num = (h: string) => Number(headers.get(h) || 0)
+        let newReferenceNames: string[] = []
+        try {
+          newReferenceNames = JSON.parse(headers.get('X-Import-New-Reference-Names') || '[]')
+        } catch {}
+        return {
+          blob,
+          filename,
+          created_references: num('X-Import-Created-References'),
+          updated_references: num('X-Import-Updated-References'),
+          created_variants: num('X-Import-Created-Variants'),
+          updated_variants: num('X-Import-Updated-Variants'),
+          errors_count: num('X-Import-Errors-Count'),
+          skipped_count: num('X-Import-Skipped-Count'),
+          new_reference_names: newReferenceNames,
+        }
       },
     },
     variants: {
