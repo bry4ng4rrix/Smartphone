@@ -2101,30 +2101,30 @@ function CreateOrderDialog({
           </div>
         )}
         {zone !== "RECUPERATION" && (
-          <div className="space-y-2">
-            <Label>Zone de livraison</Label>
-            <Select value={zone} onValueChange={setZone}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {ZONES.filter((z) => z.value !== "RECUPERATION").map((z) => (
-                  <SelectItem key={z.value} value={z.value}>
-                    {z.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-        {zone !== "RECUPERATION" && (
-          <div className="space-y-2">
-            <Label>Adresse de livraison</Label>
-            <Input
-              value={adresseLivraison}
-              onChange={(e) => setAdresseLivraison(e.target.value)}
-              placeholder="Ex: Lot II M 45 Antanimena, Antananarivo"
-            />
+          <div className="space-y-2 grid grid-cols-1 sm:grid-cols-2 gap-2 w-full">
+            <div className="space-y-2">
+              <Label>Zone de livraison</Label>
+              <Select value={zone} onValueChange={setZone}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ZONES.filter((z) => z.value !== "RECUPERATION").map((z) => (
+                    <SelectItem key={z.value} value={z.value}>
+                      {z.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Adresse de livraison</Label>
+              <Input
+                value={adresseLivraison}
+                onChange={(e) => setAdresseLivraison(e.target.value)}
+                placeholder="Ex: Lot II M 45 Antanimena, Antananarivo"
+              />
+            </div>
           </div>
         )}
         {!isPreparateur && (
