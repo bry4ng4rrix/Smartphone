@@ -6,6 +6,7 @@ import { useCurrentUser } from '@/lib/auth/useCurrentUser';
 import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { DateTimeInput } from '@/components/ui/datetime-input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
@@ -573,7 +574,7 @@ export default function CaissePage() {
             </div>
             <div className="space-y-2">
               <Label>Heure d'ouverture</Label>
-              <Input type="datetime-local" value={openedAt} onChange={(e) => setOpenedAt(e.target.value)} max={toDatetimeLocalValue(new Date())} />
+              <DateTimeInput value={openedAt} onChange={setOpenedAt} max={toDatetimeLocalValue(new Date())} />
               <p className="text-xs text-muted-foreground">Modifiable si la caisse a été ouverte plus tôt dans la journée.</p>
             </div>
             <div className="space-y-2">
@@ -615,10 +616,9 @@ export default function CaissePage() {
             </div>
             <div className="space-y-2">
               <Label>Heure de fermeture</Label>
-              <Input
-                type="datetime-local"
+              <DateTimeInput
                 value={closedAt}
-                onChange={(e) => setClosedAt(e.target.value)}
+                onChange={setClosedAt}
                 min={session ? toDatetimeLocalValue(new Date(session.opened_at)) : undefined}
                 max={toDatetimeLocalValue(new Date())}
               />

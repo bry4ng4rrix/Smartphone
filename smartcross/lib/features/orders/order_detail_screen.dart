@@ -42,17 +42,37 @@ List<_GerantAction> _nextActions(Order order) {
           icon: Icons.person_add_alt_outlined,
           assign: true,
         ),
+        _GerantAction(
+          target: OrderStatus.enPreparation,
+          label: 'Commencer la préparation',
+          icon: Icons.inventory_2_outlined,
+        ),
       ];
     case OrderStatus.enPreparation:
       return const [_GerantAction(target: OrderStatus.prete, label: 'Commande prête', icon: Icons.check)];
     case OrderStatus.prete:
-      if (order.livraisonZone == kRecuperationCode) return const [];
+      // Retrait sur place : pas de livreur, le gérant clôture directement au
+      // comptoir (voir services.py::change_order_status).
+      if (order.livraisonZone == kRecuperationCode) {
+        return const [
+          _GerantAction(
+            target: OrderStatus.livre,
+            label: 'Récupérée par le client',
+            icon: Icons.inventory_2_outlined,
+          ),
+        ];
+      }
       return const [
         _GerantAction(
           target: OrderStatus.enLivraison,
           label: 'Assigner un livreur',
           icon: Icons.person_add_alt_outlined,
           assign: true,
+        ),
+        _GerantAction(
+          target: OrderStatus.enLivraison,
+          label: 'Récupérer / En livraison',
+          icon: Icons.local_shipping_outlined,
         ),
       ];
     case OrderStatus.enLivraison:
@@ -347,7 +367,10 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [const Text('Frais de livraison'), Text(_ar(order.fraisLivraison!))],
                     ),
-                  if (order.totalAPayer != null) ...[
+                  // Rien ne reste à encaisser quand le client a déjà payé
+                  // d'avance : afficher un "Total à payer" ferait croire au
+                  // livreur qu'il doit encore réclamer la somme (§ demande).
+                  if (order.totalAPayer != null && order.modePaiement != PaymentMode.avant) ...[
                     const SizedBox(height: 6),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,

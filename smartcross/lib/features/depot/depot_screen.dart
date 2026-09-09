@@ -17,6 +17,7 @@ import '../../widgets/status_badge.dart';
 enum _DepotView { aPreparer, recuperations, historique }
 
 final _depotDateFmt = DateFormat('dd/MM/yyyy');
+final _depotDateTimeFmt = DateFormat('dd/MM/yyyy HH:mm');
 
 /// Module Dépôt — Préparateur (§7.2 README) : UX mobile simplifiée, lecture
 /// seule sauf statut. Le serveur ne renvoie déjà que NOUVELLE/EN_PREPARATION
@@ -291,6 +292,30 @@ class _DepotCardState extends ConsumerState<_DepotCard> {
                 Text(DeliveryZoneCatalog.shortLabelFor(order.livraisonZone)),
               ],
             ),
+            // Qui livrera, et quand : le préparateur doit remettre le colis à
+            // la bonne personne, au bon moment (§ demande).
+            if (order.livreurName != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.moped_outlined, size: 16),
+                    const SizedBox(width: 6),
+                    Text('Livreur : ${order.livreurName}'),
+                  ],
+                ),
+              ),
+            if (order.dateCommande != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.event_outlined, size: 16),
+                    const SizedBox(width: 6),
+                    Text('Livraison prévue le ${_depotDateTimeFmt.format(order.dateCommande!.toLocal())}'),
+                  ],
+                ),
+              ),
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,

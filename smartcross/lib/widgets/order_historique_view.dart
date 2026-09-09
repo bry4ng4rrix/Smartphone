@@ -5,7 +5,7 @@ import '../data/repositories/orders_repository.dart';
 import '../models/order.dart';
 import 'async_state_widgets.dart';
 
-final _dateFmt = DateFormat('dd/MM/yyyy');
+final _dateTimeFmt = DateFormat('dd/MM/yyyy HH:mm');
 
 /// Vue "Historique" (préparateur/livreur) : toutes les commandes déjà
 /// désignées à l'utilisateur, tous statuts confondus, filtrables par date —
@@ -32,17 +32,46 @@ class _OrderHistoriqueViewState extends State<OrderHistoriqueView> {
 
   Future<List<Order>> _load() => _repo.list(historique: true, dateFrom: _from, dateTo: _to);
 
-  Future<void> _pickRange() async {
-    final range = await showDateRangePicker(
+  /// Date ET heure, comme les champs "Du"/"Au" du web (§ demande) : le
+  /// sélecteur de date est suivi d'un sélecteur d'heure, l'heure est
+  /// facultative (annuler garde le début/la fin de journée par défaut).
+  Future<DateTime?> _pickDateTime({required DateTime? current, required bool finDeJournee}) async {
+    final date = await showDatePicker(
       context: context,
+      initialDate: current ?? DateTime.now(),
       firstDate: DateTime.now().subtract(const Duration(days: 365)),
       lastDate: DateTime.now().add(const Duration(days: 365)),
-      initialDateRange: _from != null && _to != null ? DateTimeRange(start: _from!, end: _to!) : null,
     );
-    if (range == null) return;
+    if (date == null || !mounted) return null;
+
+    final time = await showTimePicker(
+      context: context,
+      initialTime: current != null
+          ? TimeOfDay.fromDateTime(current)
+          : (finDeJournee ? const TimeOfDay(hour: 23, minute: 59) : const TimeOfDay(hour: 0, minute: 0)),
+    );
+    if (time == null) {
+      return finDeJournee
+          ? DateTime(date.year, date.month, date.day, 23, 59, 59)
+          : DateTime(date.year, date.month, date.day);
+    }
+    return DateTime(date.year, date.month, date.day, time.hour, time.minute);
+  }
+
+  Future<void> _pickFrom() async {
+    final picked = await _pickDateTime(current: _from, finDeJournee: false);
+    if (picked == null) return;
     setState(() {
-      _from = range.start;
-      _to = DateTime(range.end.year, range.end.month, range.end.day, 23, 59, 59);
+      _from = picked;
+      _future = _load();
+    });
+  }
+
+  Future<void> _pickTo() async {
+    final picked = await _pickDateTime(current: _to, finDeJournee: true);
+    if (picked == null) return;
+    setState(() {
+      _to = picked;
       _future = _load();
     });
   }
@@ -65,16 +94,27 @@ class _OrderHistoriqueViewState extends State<OrderHistoriqueView> {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: _pickRange,
-                  icon: const Icon(Icons.date_range_outlined),
+                  onPressed: _pickFrom,
+                  icon: const Icon(Icons.event_outlined),
                   label: Text(
-                    _from != null && _to != null
-                        ? '${_dateFmt.format(_from!)} → ${_dateFmt.format(_to!)}'
-                        : 'Filtrer par date',
+                    _from != null ? 'Du ${_dateTimeFmt.format(_from!)}' : 'Du…',
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ),
-              if (_from != null) IconButton(onPressed: _reset, icon: const Icon(Icons.clear)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _pickTo,
+                  icon: const Icon(Icons.event_outlined),
+                  label: Text(
+                    _to != null ? 'Au ${_dateTimeFmt.format(_to!)}' : 'Au…',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+              if (_from != null || _to != null)
+                IconButton(onPressed: _reset, icon: const Icon(Icons.clear)),
             ],
           ),
         ),

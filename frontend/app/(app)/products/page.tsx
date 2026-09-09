@@ -8,6 +8,7 @@ import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { DateTimeInput } from "@/components/ui/datetime-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -2482,11 +2483,7 @@ function ProductCreateOrderDialog({
 
         <div className="space-y-2">
           <Label>Date et heure de la commande</Label>
-          <Input
-            type="datetime-local"
-            value={dateCommande}
-            onChange={(e) => setDateCommande(e.target.value)}
-          />
+          <DateTimeInput value={dateCommande} onChange={setDateCommande} />
           <p className="text-xs text-muted-foreground">Vide = maintenant.</p>
         </div>
 

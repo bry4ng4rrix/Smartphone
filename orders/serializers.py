@@ -105,13 +105,16 @@ class OrderPreparateurSerializer(serializers.ModelSerializer):
 
     items = OrderItemPublicSerializer(many=True, read_only=True)
     preparateur_name = serializers.CharField(source="preparateur.full_name", read_only=True)
+    # Qui livrera cette commande : le préparateur a besoin de le savoir pour
+    # préparer/remettre le colis à la bonne personne (§ demande).
+    livreur_name = serializers.CharField(source="livreur.full_name", read_only=True)
 
     class Meta:
         model = Order
         fields = [
             "id", "numero", "date_commande", "client_nom", "telephone", "livraison_zone", "adresse_livraison",
             "mode_paiement", "frais_livraison", "total_a_payer", "statut_courant", "note_preparateur",
-            "preparateur", "preparateur_name", "items", "created_at",
+            "preparateur", "preparateur_name", "livreur", "livreur_name", "items", "created_at",
         ]
         read_only_fields = fields
 

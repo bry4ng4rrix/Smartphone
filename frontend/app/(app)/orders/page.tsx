@@ -5,6 +5,7 @@ import { djangoClient } from "@/lib/django-client";
 import { useCurrentUser } from "@/lib/auth/useCurrentUser";
 import { useRealtimeRefresh } from "@/lib/hooks/useRealtimeRefresh";
 import { useDeliveryZones } from "@/lib/hooks/useDeliveryZones";
+import { DateTimeInput } from "@/components/ui/datetime-input";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -183,7 +184,7 @@ function buildZoneOptions(
 }
 
 const MODE_PAIEMENT = [
-  { value: "AVANT", label: "Paye" },
+  { value: "AVANT", label: "Payé" },
   { value: "LIVRAISON", label: "Paiement à la livraison" },
 ];
 
@@ -342,85 +343,103 @@ export default function OrdersPage() {
           ? 'Commandes prêtes à récupérer, puis "Livré" ou "Retour" une fois la tournée faite.'
           : "Suivi complet des commandes clients.";
 
-  const gerantActionOptions = (order: any) => {
-    const options: {
-      value: string;
-      label: string;
-      target: string;
-      kind: "status" | "assign";
-      role?: "PREPARATEUR" | "LIVREUR";
-      icon?: any;
-    }[] = [
-      {
-        value: "assign-preparateur",
-        label: "Assigner un préparateur",
-        target: "EN_PREPARATION",
-        kind: "assign",
-        role: "PREPARATEUR",
-        icon: UserCheck,
-      },
-      {
-        value: "commencer-preparation",
-        label: "Commencer la préparation",
-        target: "EN_PREPARATION",
-        kind: "status",
-        icon: Package,
-      },
-      {
-        value: "commande-prete",
-        label: "Commande prête",
-        target: "PRETE",
-        kind: "status",
-        icon: Package,
-      },
-      {
-        value: "assign-livreur",
-        label: "Assigner un livreur",
-        target: "EN_LIVRAISON",
-        kind: "assign",
-        role: "LIVREUR",
-        icon: UserCheck,
-      },
-      {
-        value: "rendre-en-livraison",
-        label: "Récupérer / En livraison",
-        target: "EN_LIVRAISON",
-        kind: "status",
-        icon: Truck,
-      },
-      {
-        value: "livre",
-        label: "Livrée",
-        target: "LIVRE",
-        kind: "status",
-        icon: Truck,
-      },
-      {
-        value: "retour",
-        label: "Retour",
-        target: "RETOUR",
-        kind: "status",
-        icon: Undo2,
-      },
-      {
-        value: "retour-apres-livraison",
-        label: "Retour après livraison",
-        target: "RETOUR",
-        kind: "status",
-        icon: Undo2,
-      },
-    ];
+  // Actions proposées au gérant : uniquement les transitions réellement
+  // possibles depuis le statut courant — le workflow ne revient jamais en
+  // arrière (§ demande : une commande Prête ne peut pas repasser par
+  // "Assigner un préparateur"), et une commande terminée (Livrée / Retour /
+  // Annulée) n'en propose aucune. Mêmes règles que orders/services.py::
+  // TRANSITIONS, qui refuserait de toute façon un saut ou un retour arrière.
+  const gerantActionOptions = (
+    order: any,
+  ): {
+    value: string;
+    label: string;
+    target: string;
+    kind: "status" | "assign";
+    role?: "PREPARATEUR" | "LIVREUR";
+    icon?: any;
+  }[] => {
+    const isRecuperation = order?.livraison_zone === "RECUPERATION";
 
-    if (order?.livraison_zone === "RECUPERATION") {
-      return options.filter(
-        (option) =>
-          !["assign-livreur", "rendre-en-livraison", "livre"].includes(
-            option.value,
-          ),
-      );
+    switch (order?.statut_courant) {
+      case "NOUVELLE":
+        return [
+          {
+            value: "assign-preparateur",
+            label: "Assigner un préparateur",
+            target: "EN_PREPARATION",
+            kind: "assign",
+            role: "PREPARATEUR",
+            icon: UserCheck,
+          },
+          {
+            value: "commencer-preparation",
+            label: "Commencer la préparation",
+            target: "EN_PREPARATION",
+            kind: "status",
+            icon: Package,
+          },
+        ];
+      case "EN_PREPARATION":
+        return [
+          {
+            value: "commande-prete",
+            label: "Commande prête",
+            target: "PRETE",
+            kind: "status",
+            icon: Package,
+          },
+        ];
+      case "PRETE":
+        // Retrait sur place : pas de livreur, le gérant clôture directement
+        // au comptoir (voir services.py::change_order_status).
+        return isRecuperation
+          ? [
+              {
+                value: "livre",
+                label: "Récupérée par le client",
+                target: "LIVRE",
+                kind: "status",
+                icon: Package,
+              },
+            ]
+          : [
+              {
+                value: "assign-livreur",
+                label: "Assigner un livreur",
+                target: "EN_LIVRAISON",
+                kind: "assign",
+                role: "LIVREUR",
+                icon: UserCheck,
+              },
+              {
+                value: "rendre-en-livraison",
+                label: "Récupérer / En livraison",
+                target: "EN_LIVRAISON",
+                kind: "status",
+                icon: Truck,
+              },
+            ];
+      case "EN_LIVRAISON":
+        return [
+          {
+            value: "livre",
+            label: "Livrée",
+            target: "LIVRE",
+            kind: "status",
+            icon: Truck,
+          },
+          {
+            value: "retour",
+            label: "Retour",
+            target: "RETOUR",
+            kind: "status",
+            icon: Undo2,
+          },
+        ];
+      default:
+        return [];
     }
-
-    return options;
   };
 
   const nextAction = (
@@ -747,21 +766,14 @@ export default function OrdersPage() {
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Du</Label>
-            <Input
-              type="datetime-local"
+            <DateTimeInput
               value={historiqueFrom}
-              onChange={(e) => setHistoriqueFrom(e.target.value)}
-              className="w-auto"
+              onChange={setHistoriqueFrom}
             />
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Au</Label>
-            <Input
-              type="datetime-local"
-              value={historiqueTo}
-              onChange={(e) => setHistoriqueTo(e.target.value)}
-              className="w-auto"
-            />
+            <DateTimeInput value={historiqueTo} onChange={setHistoriqueTo} />
           </div>
           {(historiqueFrom || historiqueTo) && (
             <Button
@@ -1097,44 +1109,47 @@ export default function OrdersPage() {
                         )}
                         <TableCell className="align-top text-right">
                           <div className="flex items-center justify-end gap-1">
-                            {isGerant && (
-                              <Select
-                                onValueChange={(value) => {
-                                  const option = gerantActionOptions(
-                                    order,
-                                  ).find((item) => item.value === value);
-                                  if (!option) return;
-
-                                  if (option.kind === "assign") {
-                                    setAssignTarget({
+                            {isGerant &&
+                              gerantActionOptions(order).length > 0 && (
+                                <Select
+                                  onValueChange={(value) => {
+                                    const option = gerantActionOptions(
                                       order,
-                                      role: option.role || "PREPARATEUR",
-                                    });
-                                    return;
-                                  }
+                                    ).find((item) => item.value === value);
+                                    if (!option) return;
 
-                                  setActionNote({
-                                    order,
-                                    target: option.target,
-                                    label: option.label,
-                                  });
-                                }}
-                              >
-                                <SelectTrigger className="h-8 w-[170px] text-xs">
-                                  <SelectValue placeholder="Action" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {gerantActionOptions(order).map((option) => (
-                                    <SelectItem
-                                      key={option.value}
-                                      value={option.value}
-                                    >
-                                      {option.label}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            )}
+                                    if (option.kind === "assign") {
+                                      setAssignTarget({
+                                        order,
+                                        role: option.role || "PREPARATEUR",
+                                      });
+                                      return;
+                                    }
+
+                                    setActionNote({
+                                      order,
+                                      target: option.target,
+                                      label: option.label,
+                                    });
+                                  }}
+                                >
+                                  <SelectTrigger className="h-8 w-[170px] text-xs">
+                                    <SelectValue placeholder="Action" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {gerantActionOptions(order).map(
+                                      (option) => (
+                                        <SelectItem
+                                          key={option.value}
+                                          value={option.value}
+                                        >
+                                          {option.label}
+                                        </SelectItem>
+                                      ),
+                                    )}
+                                  </SelectContent>
+                                </Select>
+                              )}
                             {!isGerant && action && (
                               <IconAction
                                 label={
@@ -1325,14 +1340,21 @@ export default function OrdersPage() {
                         "-"}
                     </span>
                   </div>
-                  <div className="flex justify-between gap-4">
-                    <span className="text-muted-foreground">Total à payer</span>
-                    <span className="font-semibold">
-                      {detail.total_a_payer != null
-                        ? fmt(detail.total_a_payer)
-                        : "-"}
-                    </span>
-                  </div>
+                  {/* Rien ne reste à encaisser quand le client a déjà payé
+                      d'avance : afficher un "Total à payer" ferait croire au
+                      livreur qu'il doit encore réclamer la somme (§ demande). */}
+                  {detail.mode_paiement !== "AVANT" && (
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">
+                        Total à payer
+                      </span>
+                      <span className="font-semibold">
+                        {detail.total_a_payer != null
+                          ? fmt(detail.total_a_payer)
+                          : "-"}
+                      </span>
+                    </div>
+                  )}
                   {detail.preparateur_name && (
                     <div className="flex justify-between gap-4">
                       <span className="text-muted-foreground">Préparateur</span>
@@ -1345,7 +1367,50 @@ export default function OrdersPage() {
                       <span>{detail.livreur_name}</span>
                     </div>
                   )}
+                  {detail.statut_courant === "LIVRE" &&
+                    historyAt(detail, "LIVRE") && (
+                      <div className="flex justify-between gap-4">
+                        <span className="text-muted-foreground">Livrée le</span>
+                        <span>
+                          {new Date(historyAt(detail, "LIVRE")).toLocaleString(
+                            "fr-FR",
+                          )}
+                        </span>
+                      </div>
+                    )}
                 </div>
+
+                {/* Même action que dans le tableau (Commencer la préparation /
+                    Commande prête / Livré...), accessible sans refermer le
+                    détail (§ demande). Le gérant, lui, garde son sélecteur
+                    d'actions dans la ligne du tableau. */}
+                {!isGerant &&
+                  (() => {
+                    const action = nextAction(detail);
+                    if (!action) return null;
+                    const notYetDue = !isJourJ(detail.date_commande);
+                    return (
+                      <Button
+                        className="w-full"
+                        disabled={notYetDue}
+                        onClick={() => {
+                          setActionNote({
+                            order: detail,
+                            target: action.target,
+                            label: action.label,
+                          });
+                          setDetail(null);
+                        }}
+                      >
+                        <action.icon className="h-4 w-4 mr-2" />
+                        {notYetDue
+                          ? `Disponible le ${new Date(
+                              detail.date_commande,
+                            ).toLocaleDateString("fr-FR")}`
+                          : action.label}
+                      </Button>
+                    );
+                  })()}
 
                 {detail.note_preparateur && (
                   <div>
@@ -1670,7 +1735,7 @@ function OrderTimeline({ order }: { order: any }) {
     // livraison planifiée pour demain s'affichait "avant" la préparation.
     {
       icon: ShoppingCart,
-      label: "Commande créée le",
+      label: "Commande crée le",
       date: order.created_at,
       reached: !!order.created_at,
     },
@@ -1824,11 +1889,7 @@ function AssignStaffDialog({
             </Select>
             <div className="space-y-1">
               <Label>Date et heure</Label>
-              <Input
-                type="datetime-local"
-                value={assignedAt}
-                onChange={(e) => setAssignedAt(e.target.value)}
-              />
+              <DateTimeInput value={assignedAt} onChange={setAssignedAt} />
               <p className="text-xs text-muted-foreground">
                 Vide = maintenant.
               </p>
@@ -2046,11 +2107,7 @@ function EditOrderDialog({
 
         <div className="space-y-2">
           <Label>Date et heure de livraison</Label>
-          <Input
-            type="datetime-local"
-            value={dateCommande}
-            onChange={(e) => setDateCommande(e.target.value)}
-          />
+          <DateTimeInput value={dateCommande} onChange={setDateCommande} />
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -2739,11 +2796,7 @@ function CreateOrderDialog({
         )}
         <div className="space-y-2">
           <Label>Date et heure de livraison</Label>
-          <Input
-            type="datetime-local"
-            value={dateCommande}
-            onChange={(e) => setDateCommande(e.target.value)}
-          />
+          <DateTimeInput value={dateCommande} onChange={setDateCommande} />
           <p className="text-xs text-muted-foreground">Vide = maintenant.</p>
         </div>
         {!isPreparateur && (

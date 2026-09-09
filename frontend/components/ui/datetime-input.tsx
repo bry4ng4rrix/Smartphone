@@ -20,11 +20,18 @@ export function DateTimeInput({
   onChange,
   className,
   disabled,
+  min,
+  max,
 }: {
   value: string;
   onChange: (value: string) => void;
   className?: string;
   disabled?: boolean;
+  /** Bornes au format `datetime-local` — seule la partie date est appliquée
+   *  ici (deux champs séparés ne peuvent pas exprimer "ce jour-là, pas avant
+   *  telle heure") ; le serveur reste l'autorité sur la borne exacte. */
+  min?: string;
+  max?: string;
 }) {
   const [datePart = "", timePart = ""] = value ? value.split("T") : [];
 
@@ -46,6 +53,8 @@ export function DateTimeInput({
         type="date"
         value={datePart}
         disabled={disabled}
+        min={min ? min.split("T")[0] : undefined}
+        max={max ? max.split("T")[0] : undefined}
         onChange={(e) => emit(e.target.value, timePart)}
         className="flex-1"
       />
