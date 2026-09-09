@@ -107,52 +107,10 @@ extension OrderStatusX on OrderStatus {
   }
 }
 
-enum DeliveryZone { zone1, zone2, zone3, recuperation }
-
-extension DeliveryZoneX on DeliveryZone {
-  static DeliveryZone fromApi(String? value) {
-    switch (value) {
-      case 'ZONE1':
-        return DeliveryZone.zone1;
-      case 'ZONE2':
-        return DeliveryZone.zone2;
-      case 'ZONE3':
-        return DeliveryZone.zone3;
-      default:
-        return DeliveryZone.recuperation;
-    }
-  }
-
-  String get apiValue {
-    switch (this) {
-      case DeliveryZone.zone1:
-        return 'ZONE1';
-      case DeliveryZone.zone2:
-        return 'ZONE2';
-      case DeliveryZone.zone3:
-        return 'ZONE3';
-      case DeliveryZone.recuperation:
-        return 'RECUPERATION';
-    }
-  }
-
-  String get label {
-    switch (this) {
-      case DeliveryZone.zone1:
-        return 'Zone 1 (3 000 Ar)';
-      case DeliveryZone.zone2:
-        return 'Zone 2 (4 000 Ar)';
-      case DeliveryZone.zone3:
-        return 'Zone 3 (5 000 Ar)';
-      case DeliveryZone.recuperation:
-        return 'Récupération (0 Ar)';
-    }
-  }
-
-  /// Sans le montant des frais — pour les listes/cartes/résumés (web ne
-  /// montre le tarif complet que dans le détail commande, voir page.tsx).
-  String get shortLabel => label.split(' (').first;
-}
+// Les zones de livraison ne sont plus une énumération figée : elles sont
+// configurables (nom + prix) dans les Paramètres — voir
+// models/delivery_zone.dart (DeliveryZoneOption/DeliveryZoneCatalog) et
+// orders/models.py::DeliveryZoneOption côté serveur.
 
 /// Le client paie avant (à la commande) ou à la livraison (contre
 /// remboursement) — sans effet sur le stock/statut, juste indicatif pour le

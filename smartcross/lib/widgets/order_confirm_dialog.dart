@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../core/constants.dart';
+import '../models/delivery_zone.dart';
 import '../models/order.dart';
 
 final _moneyFmt = NumberFormat.decimalPattern('fr_FR');
@@ -78,7 +79,7 @@ class _OrderConfirmDialogState extends State<_OrderConfirmDialog> {
   @override
   Widget build(BuildContext context) {
     final order = widget.order;
-    final isRecuperation = order.livraisonZone == DeliveryZone.recuperation;
+    final isRecuperation = order.livraisonZone == kRecuperationCode;
     final muted = TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant);
 
     Widget row(String label, String value, {bool bold = false}) => Padding(
@@ -103,7 +104,7 @@ class _OrderConfirmDialogState extends State<_OrderConfirmDialog> {
             const SizedBox(height: 10),
             row('Client', order.clientNom),
             if (order.telephone != null) row('Téléphone', order.telephone!),
-            row('Zone', order.livraisonZone.shortLabel),
+            row('Zone', DeliveryZoneCatalog.shortLabelFor(order.livraisonZone)),
             if (order.adresseLivraison != null && order.adresseLivraison!.isNotEmpty)
               row('Adresse', order.adresseLivraison!),
             if (!isRecuperation) row('Paiement', order.modePaiement.label),

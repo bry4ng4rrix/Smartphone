@@ -7,6 +7,7 @@ import '../../core/api_client.dart';
 import '../../core/constants.dart';
 import '../../data/repositories/orders_repository.dart';
 import '../../models/catalog.dart';
+import '../../models/delivery_zone.dart';
 import '../../models/order.dart';
 import '../../state/orders_provider.dart';
 import '../../widgets/async_state_widgets.dart';
@@ -42,14 +43,18 @@ class OrdersListScreen extends ConsumerWidget {
       ),
     );
     if (selected == null && filter.preparateurId == null) return;
-    ref.read(ordersFilterProvider.notifier).set(
-          filter.copyWith(preparateurId: selected, clearPreparateurId: selected == null),
-        );
+    ref
+        .read(ordersFilterProvider.notifier)
+        .set(filter.copyWith(preparateurId: selected, clearPreparateurId: selected == null));
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(ordersProvider);
+    // Charge les zones configurables : alimente le cache utilisé pour
+    // afficher un nom de zone à partir du code (DeliveryZoneCatalog).
+    ref.watch(deliveryZonesProvider);
+
     final filter = ref.watch(ordersFilterProvider);
     final hasActiveFilter =
         filter.statut != null || filter.dateDebut != null || filter.preparateurId != null || filter.nonLivree;
@@ -72,10 +77,12 @@ class OrdersListScreen extends ConsumerWidget {
             tooltip: 'Filtrer par statut',
             icon: const Icon(Icons.filter_list),
             onSelected: (statut) => statut == 'NON_LIVREE'
-                ? ref.read(ordersFilterProvider.notifier).set(filter.copyWith(clearStatut: true, nonLivree: true))
-                : ref.read(ordersFilterProvider.notifier).set(
-                      filter.copyWith(statut: statut, clearStatut: statut == null, nonLivree: false),
-                    ),
+                ? ref
+                      .read(ordersFilterProvider.notifier)
+                      .set(filter.copyWith(clearStatut: true, nonLivree: true))
+                : ref
+                      .read(ordersFilterProvider.notifier)
+                      .set(filter.copyWith(statut: statut, clearStatut: statut == null, nonLivree: false)),
             itemBuilder: (context) => [
               const PopupMenuItem(value: null, child: Text('Tous les statuts')),
               const PopupMenuItem(value: 'NON_LIVREE', child: Text('Pas encore livrée')),
@@ -96,24 +103,28 @@ class OrdersListScreen extends ConsumerWidget {
                   if (filter.statut != null)
                     Chip(
                       label: Text(OrderStatusX.fromApi(filter.statut).label),
-                      onDeleted: () => ref.read(ordersFilterProvider.notifier).set(filter.copyWith(clearStatut: true)),
+                      onDeleted: () =>
+                          ref.read(ordersFilterProvider.notifier).set(filter.copyWith(clearStatut: true)),
                     ),
                   if (filter.dateDebut != null)
                     Chip(
                       label: Text(_dateFmt.format(filter.dateDebut!)),
-                      onDeleted: () => ref.read(ordersFilterProvider.notifier).set(
-                            OrdersFilter(statut: filter.statut, preparateurId: filter.preparateurId),
-                          ),
+                      onDeleted: () => ref
+                          .read(ordersFilterProvider.notifier)
+                          .set(OrdersFilter(statut: filter.statut, preparateurId: filter.preparateurId)),
                     ),
                   if (filter.preparateurId != null)
                     Chip(
                       label: const Text('Préparateur'),
-                      onDeleted: () => ref.read(ordersFilterProvider.notifier).set(filter.copyWith(clearPreparateurId: true)),
+                      onDeleted: () => ref
+                          .read(ordersFilterProvider.notifier)
+                          .set(filter.copyWith(clearPreparateurId: true)),
                     ),
                   if (filter.nonLivree)
                     Chip(
                       label: const Text('Pas encore livrée'),
-                      onDeleted: () => ref.read(ordersFilterProvider.notifier).set(filter.copyWith(nonLivree: false)),
+                      onDeleted: () =>
+                          ref.read(ordersFilterProvider.notifier).set(filter.copyWith(nonLivree: false)),
                     ),
                 ],
               ),
@@ -123,21 +134,21 @@ class OrdersListScreen extends ConsumerWidget {
               onRefresh: () => ref.read(ordersProvider.notifier).refresh(),
               child: switch (async) {
                 AsyncData(value: final rawValue) => (() {
-                    final value = filter.nonLivree
-                        ? rawValue.where((o) => o.statutCourant != OrderStatus.livre).toList()
-                        : rawValue;
-                    return value.isEmpty
-                        ? const EmptyState(message: 'Aucune commande.', icon: Icons.receipt_long_outlined)
-                        : ListView.builder(
-                            padding: const EdgeInsets.all(12),
-                            itemCount: value.length,
-                            itemBuilder: (context, i) => _OrderTile(order: value[i]),
-                          );
-                  })(),
+                  final value = filter.nonLivree
+                      ? rawValue.where((o) => o.statutCourant != OrderStatus.livre).toList()
+                      : rawValue;
+                  return value.isEmpty
+                      ? const EmptyState(message: 'Aucune commande.', icon: Icons.receipt_long_outlined)
+                      : ListView.builder(
+                          padding: const EdgeInsets.all(12),
+                          itemCount: value.length,
+                          itemBuilder: (context, i) => _OrderTile(order: value[i]),
+                        );
+                })(),
                 AsyncError(:final error) => ErrorState(
-                    message: ApiClient.messageFromError(error),
-                    onRetry: () => ref.read(ordersProvider.notifier).refresh(),
-                  ),
+                  message: ApiClient.messageFromError(error),
+                  onRetry: () => ref.read(ordersProvider.notifier).refresh(),
+                ),
                 _ => const LoadingState(),
               },
             ),
@@ -168,11 +179,18 @@ class _PreparateurPickerDialogState extends State<_PreparateurPickerDialog> {
   @override
   void initState() {
     super.initState();
-    widget.loadStaff().then((staff) {
-      if (mounted) setState(() { _staff = staff; _loading = false; });
-    }).catchError((_) {
-      if (mounted) setState(() => _loading = false);
-    });
+    widget
+        .loadStaff()
+        .then((staff) {
+          if (mounted)
+            setState(() {
+              _staff = staff;
+              _loading = false;
+            });
+        })
+        .catchError((_) {
+          if (mounted) setState(() => _loading = false);
+        });
   }
 
   @override
@@ -186,21 +204,13 @@ class _PreparateurPickerDialogState extends State<_PreparateurPickerDialog> {
             : Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  ListTile(
-                    title: const Text('Tous'),
-                    onTap: () => Navigator.of(context).pop(null),
-                  ),
+                  ListTile(title: const Text('Tous'), onTap: () => Navigator.of(context).pop(null)),
                   for (final s in _staff ?? [])
-                    ListTile(
-                      title: Text(s.fullName),
-                      onTap: () => Navigator.of(context).pop(s.id),
-                    ),
+                    ListTile(title: Text(s.fullName), onTap: () => Navigator.of(context).pop(s.id)),
                 ],
               ),
       ),
-      actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Fermer')),
-      ],
+      actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Fermer'))],
     );
   }
 }
@@ -219,7 +229,10 @@ class _OrderTile extends ConsumerWidget {
   final Order order;
 
   Future<void> _edit(BuildContext context, WidgetRef ref) async {
-    await showDialog<void>(context: context, builder: (_) => EditOrderDialog(order: order));
+    await showDialog<void>(
+      context: context,
+      builder: (_) => EditOrderDialog(order: order),
+    );
   }
 
   Future<void> _delete(BuildContext context, WidgetRef ref) async {
@@ -274,7 +287,7 @@ class _OrderTile extends ConsumerWidget {
             subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('${order.clientNom} · ${order.livraisonZone.shortLabel}'),
+                Text('${order.clientNom} · ${DeliveryZoneCatalog.shortLabelFor(order.livraisonZone)}'),
                 if (order.preparateurName != null)
                   Text(
                     'Préparateur : ${order.preparateurName}${preparedAt != null ? ' · ${_shortDateFmt.format(preparedAt.toLocal())}' : ''}',
@@ -347,7 +360,7 @@ class _EditOrderDialogState extends ConsumerState<EditOrderDialog> {
   late final _adresseController = TextEditingController(text: widget.order.adresseLivraison ?? '');
   late final _notePreparateurController = TextEditingController(text: widget.order.notePreparateur ?? '');
   late final _noteLivreurController = TextEditingController(text: widget.order.noteLivreur ?? '');
-  late DeliveryZone _zone = widget.order.livraisonZone;
+  late String _zone = widget.order.livraisonZone;
   late PaymentMode _modePaiement = widget.order.modePaiement;
   late DateTime _dateCommande = widget.order.dateCommande?.toLocal() ?? DateTime.now();
   late int? _preparateurId = widget.order.preparateurId;
@@ -366,7 +379,9 @@ class _EditOrderDialogState extends ConsumerState<EditOrderDialog> {
             brandName: '',
             referenceName: it.referenceName,
             prixVente: it.prixUnitaire ?? 0,
-            couleurs: [ColorOption(variantId: it.productVariantId!, couleur: it.couleur, stockActuel: 1 << 30)],
+            couleurs: [
+              ColorOption(variantId: it.productVariantId!, couleur: it.couleur, stockActuel: 1 << 30),
+            ],
           ),
           couleur: it.couleur,
           variantId: it.productVariantId!,
@@ -379,12 +394,20 @@ class _EditOrderDialogState extends ConsumerState<EditOrderDialog> {
   @override
   void initState() {
     super.initState();
-    ref.read(ordersProvider.notifier).availableStaff('PREPARATEUR').then((staff) {
-      if (mounted) setState(() => _preparateurs = staff);
-    }).catchError((_) {});
-    ref.read(ordersProvider.notifier).availableStaff('LIVREUR').then((staff) {
-      if (mounted) setState(() => _livreurs = staff);
-    }).catchError((_) {});
+    ref
+        .read(ordersProvider.notifier)
+        .availableStaff('PREPARATEUR')
+        .then((staff) {
+          if (mounted) setState(() => _preparateurs = staff);
+        })
+        .catchError((_) {});
+    ref
+        .read(ordersProvider.notifier)
+        .availableStaff('LIVREUR')
+        .then((staff) {
+          if (mounted) setState(() => _livreurs = staff);
+        })
+        .catchError((_) {});
   }
 
   @override
@@ -433,16 +456,18 @@ class _EditOrderDialogState extends ConsumerState<EditOrderDialog> {
       _error = null;
     });
     try {
-      await ref.read(ordersProvider.notifier).updateOrder(
+      await ref
+          .read(ordersProvider.notifier)
+          .updateOrder(
             widget.order.id,
             clientNom: _clientController.text.trim(),
             telephone: _phoneController.text.trim(),
-            livraisonZone: _zone.apiValue,
-            adresseLivraison: _zone == DeliveryZone.recuperation ? '' : _adresseController.text.trim(),
+            livraisonZone: _zone,
+            adresseLivraison: _zone == kRecuperationCode ? '' : _adresseController.text.trim(),
             modePaiement: _modePaiement.apiValue,
             dateCommande: _dateCommande,
             notePreparateur: _notePreparateurController.text.trim(),
-            noteLivreur: _zone == DeliveryZone.recuperation ? '' : _noteLivreurController.text.trim(),
+            noteLivreur: _zone == kRecuperationCode ? '' : _noteLivreurController.text.trim(),
             items: [
               for (final l in _lines) OrderItemDraft(productVariant: l.variantId, quantite: l.quantite),
             ],
@@ -465,9 +490,7 @@ class _EditOrderDialogState extends ConsumerState<EditOrderDialog> {
           }
         }
       }
-      if (_zone != DeliveryZone.recuperation &&
-          _livreurId != null &&
-          _livreurId != widget.order.livreurId) {
+      if (_zone != kRecuperationCode && _livreurId != null && _livreurId != widget.order.livreurId) {
         try {
           await ref.read(ordersProvider.notifier).assignLivreur(widget.order.id, _livreurId!);
         } catch (e) {
@@ -505,7 +528,10 @@ class _EditOrderDialogState extends ConsumerState<EditOrderDialog> {
                 Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
                 const SizedBox(height: 10),
               ],
-              Text('Articles', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+              Text(
+                'Articles',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+              ),
               const SizedBox(height: 6),
               if (_lines.isNotEmpty)
                 Card(
@@ -551,20 +577,29 @@ class _EditOrderDialogState extends ConsumerState<EditOrderDialog> {
                 ),
               ),
               const SizedBox(height: 12),
-              DropdownButtonFormField<DeliveryZone>(
+              // Zones configurables (CRUD Paramètres, § demande) + le retrait
+              // sur place, toujours proposé (structurellement à part).
+              DropdownButtonFormField<String>(
                 initialValue: _zone,
                 decoration: const InputDecoration(labelText: 'Livraison'),
-                items: [for (final z in DeliveryZone.values) DropdownMenuItem(value: z, child: Text(z.label))],
+                items: [
+                  for (final z
+                      in ref.watch(deliveryZonesProvider).asData?.value ?? const <DeliveryZoneOption>[])
+                    if (z.actif || z.code == _zone) DropdownMenuItem(value: z.code, child: Text(z.label)),
+                  const DropdownMenuItem(value: kRecuperationCode, child: Text('Récupération (0 Ar)')),
+                ],
                 onChanged: (v) => setState(() => _zone = v ?? _zone),
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<int>(
                 initialValue: _preparateurId,
                 decoration: const InputDecoration(labelText: 'Préparateur', hintText: 'Non assigné'),
-                items: [for (final p in _preparateurs) DropdownMenuItem(value: p.id, child: Text(p.fullName))],
+                items: [
+                  for (final p in _preparateurs) DropdownMenuItem(value: p.id, child: Text(p.fullName)),
+                ],
                 onChanged: (v) => setState(() => _preparateurId = v),
               ),
-              if (_zone != DeliveryZone.recuperation) ...[
+              if (_zone != kRecuperationCode) ...[
                 const SizedBox(height: 12),
                 TextField(
                   controller: _adresseController,
@@ -574,7 +609,9 @@ class _EditOrderDialogState extends ConsumerState<EditOrderDialog> {
                 DropdownButtonFormField<PaymentMode>(
                   initialValue: _modePaiement,
                   decoration: const InputDecoration(labelText: 'Paiement'),
-                  items: [for (final m in PaymentMode.values) DropdownMenuItem(value: m, child: Text(m.label))],
+                  items: [
+                    for (final m in PaymentMode.values) DropdownMenuItem(value: m, child: Text(m.label)),
+                  ],
                   onChanged: (v) => setState(() => _modePaiement = v ?? _modePaiement),
                 ),
                 const SizedBox(height: 12),
@@ -591,7 +628,7 @@ class _EditOrderDialogState extends ConsumerState<EditOrderDialog> {
                 decoration: const InputDecoration(labelText: 'Note pour le préparateur'),
                 maxLines: 2,
               ),
-              if (_zone != DeliveryZone.recuperation) ...[
+              if (_zone != kRecuperationCode) ...[
                 const SizedBox(height: 12),
                 TextField(
                   controller: _noteLivreurController,

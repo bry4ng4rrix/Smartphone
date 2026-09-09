@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
 import '../../core/constants.dart';
+import '../../models/delivery_zone.dart';
 import '../../models/order.dart';
 import '../../state/orders_provider.dart';
 import '../../widgets/async_state_widgets.dart';
@@ -51,6 +52,10 @@ class _DepotScreenState extends ConsumerState<DepotScreen> {
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(ordersProvider);
+    // Charge les zones configurables : alimente le cache utilisé pour
+    // afficher un nom de zone à partir du code (DeliveryZoneCatalog).
+    ref.watch(deliveryZonesProvider);
+
     final filter = ref.watch(ordersFilterProvider);
 
     return Scaffold(
@@ -97,7 +102,9 @@ class _DepotScreenState extends ConsumerState<DepotScreen> {
                       onPressed: () => _pickDate(filter),
                       icon: const Icon(Icons.event_outlined),
                       label: Text(
-                        filter.dateDebut != null ? _depotDateFmt.format(filter.dateDebut!) : 'Filtrer par date',
+                        filter.dateDebut != null
+                            ? _depotDateFmt.format(filter.dateDebut!)
+                            : 'Filtrer par date',
                       ),
                     ),
                   ),
@@ -113,25 +120,25 @@ class _DepotScreenState extends ConsumerState<DepotScreen> {
                     onRefresh: () => ref.read(ordersProvider.notifier).refresh(),
                     child: switch (async) {
                       AsyncData(value: final all) => (() {
-                          final isRecup = _view == _DepotView.recuperations;
-                          final value = all
-                              .where((o) => (o.livraisonZone == DeliveryZone.recuperation) == isRecup)
-                              .toList();
-                          return value.isEmpty
-                              ? EmptyState(
-                                  message: isRecup ? 'Aucune récupération.' : 'Aucune commande à préparer.',
-                                  icon: Icons.inventory_outlined,
-                                )
-                              : ListView.builder(
-                                  padding: const EdgeInsets.all(12),
-                                  itemCount: value.length,
-                                  itemBuilder: (context, i) => _DepotCard(order: value[i]),
-                                );
-                        })(),
+                        final isRecup = _view == _DepotView.recuperations;
+                        final value = all
+                            .where((o) => (o.livraisonZone == kRecuperationCode) == isRecup)
+                            .toList();
+                        return value.isEmpty
+                            ? EmptyState(
+                                message: isRecup ? 'Aucune récupération.' : 'Aucune commande à préparer.',
+                                icon: Icons.inventory_outlined,
+                              )
+                            : ListView.builder(
+                                padding: const EdgeInsets.all(12),
+                                itemCount: value.length,
+                                itemBuilder: (context, i) => _DepotCard(order: value[i]),
+                              );
+                      })(),
                       AsyncError(:final error) => ErrorState(
-                          message: ApiClient.messageFromError(error),
-                          onRetry: () => ref.read(ordersProvider.notifier).refresh(),
-                        ),
+                        message: ApiClient.messageFromError(error),
+                        onRetry: () => ref.read(ordersProvider.notifier).refresh(),
+                      ),
                       _ => const LoadingState(),
                     },
                   ),
@@ -163,20 +170,24 @@ class _DepotHistoriqueCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(order.numero, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                Text(
+                  order.numero,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                ),
                 OrderStatusBadge(status: order.statutCourant),
               ],
             ),
             const SizedBox(height: 6),
             Text(order.clientNom, style: const TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 4),
-            for (final item in order.items) Text('• ${item.referenceName} — ${item.couleur} (x${item.quantite})'),
+            for (final item in order.items)
+              Text('• ${item.referenceName} — ${item.couleur} (x${item.quantite})'),
             const SizedBox(height: 6),
             Row(
               children: [
                 const Icon(Icons.local_shipping_outlined, size: 16),
                 const SizedBox(width: 6),
-                Text(order.livraisonZone.shortLabel),
+                Text(DeliveryZoneCatalog.shortLabelFor(order.livraisonZone)),
               ],
             ),
           ],
@@ -199,8 +210,12 @@ class _DepotCardState extends ConsumerState<_DepotCard> {
 
   Future<void> _advance() async {
     final order = widget.order;
-    final target = order.statutCourant == OrderStatus.nouvelle ? OrderStatus.enPreparation : OrderStatus.prete;
-    final actionLabel = order.statutCourant == OrderStatus.nouvelle ? 'Commencer la préparation' : 'Commande prête';
+    final target = order.statutCourant == OrderStatus.nouvelle
+        ? OrderStatus.enPreparation
+        : OrderStatus.prete;
+    final actionLabel = order.statutCourant == OrderStatus.nouvelle
+        ? 'Commencer la préparation'
+        : 'Commande prête';
     // Preuve que la préparation est faite — proposée uniquement au passage
     // "Prête" (§ demande), visible ensuite par le livreur et dans l'historique.
     final result = await showOrderConfirmDialog(
@@ -212,14 +227,12 @@ class _DepotCardState extends ConsumerState<_DepotCard> {
     if (result == null) return;
     setState(() => _loading = true);
     try {
-      await ref.read(ordersProvider.notifier).changeStatus(
-            order.id,
-            target.apiValue,
-            note: result.note,
-            photoPath: result.photoPath,
-          );
+      await ref
+          .read(ordersProvider.notifier)
+          .changeStatus(order.id, target.apiValue, note: result.note, photoPath: result.photoPath);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -241,7 +254,10 @@ class _DepotCardState extends ConsumerState<_DepotCard> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(order.numero, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                Text(
+                  order.numero,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                ),
                 OrderStatusBadge(status: order.statutCourant),
               ],
             ),
@@ -254,18 +270,25 @@ class _DepotCardState extends ConsumerState<_DepotCard> {
                   children: [
                     Icon(Icons.phone_outlined, size: 16, color: Theme.of(context).colorScheme.primary),
                     const SizedBox(width: 6),
-                    Text(order.telephone!, style: TextStyle(color: Theme.of(context).colorScheme.primary, decoration: TextDecoration.underline)),
+                    Text(
+                      order.telephone!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.primary,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
                   ],
                 ),
               ),
             const SizedBox(height: 4),
-            for (final item in order.items) Text('• ${item.referenceName} — ${item.couleur} (x${item.quantite})'),
+            for (final item in order.items)
+              Text('• ${item.referenceName} — ${item.couleur} (x${item.quantite})'),
             const SizedBox(height: 6),
             Row(
               children: [
                 const Icon(Icons.local_shipping_outlined, size: 16),
                 const SizedBox(width: 6),
-                Text(order.livraisonZone.shortLabel),
+                Text(DeliveryZoneCatalog.shortLabelFor(order.livraisonZone)),
               ],
             ),
             const SizedBox(height: 12),

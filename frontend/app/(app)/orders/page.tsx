@@ -64,6 +64,7 @@ import {
   Ban,
   History,
   Camera,
+  CalendarClock,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -1344,42 +1345,6 @@ export default function OrdersPage() {
                       <span>{detail.livreur_name}</span>
                     </div>
                   )}
-                  {detail.created_at && (
-                    <div className="flex justify-between gap-4">
-                      <span className="text-muted-foreground">
-                        Commande créée le
-                      </span>
-                      <span>
-                        {new Date(detail.created_at).toLocaleString("fr-FR")}
-                      </span>
-                    </div>
-                  )}
-                  {detail.date_commande && (
-                    <div className="flex justify-between gap-4">
-                      <span className="text-muted-foreground">
-                        Livraison prévue le
-                      </span>
-                      <span>
-                        {new Date(detail.date_commande).toLocaleString("fr-FR")}
-                      </span>
-                    </div>
-                  )}
-                  {detail.status_history && (
-                    <div className="flex justify-between gap-4">
-                      <span className="text-muted-foreground">Livrée le</span>
-                      <span>
-                        {historyAt(detail, "LIVRE")
-                          ? new Date(historyAt(detail, "LIVRE")).toLocaleString(
-                              "fr-FR",
-                            )
-                          : historyAt(detail, "EN_LIVRAISON")
-                            ? new Date(
-                                historyAt(detail, "EN_LIVRAISON"),
-                              ).toLocaleString("fr-FR")
-                            : "-"}
-                      </span>
-                    </div>
-                  )}
                 </div>
 
                 {detail.note_preparateur && (
@@ -1700,11 +1665,20 @@ function OrderTimeline({ order }: { order: any }) {
   }
 
   const rows = [
+    // La création vient de created_at (horodatage automatique), pas de
+    // date_commande qui porte désormais la livraison prévue — sinon une
+    // livraison planifiée pour demain s'affichait "avant" la préparation.
     {
       icon: ShoppingCart,
       label: "Commande créée le",
+      date: order.created_at,
+      reached: !!order.created_at,
+    },
+    {
+      icon: CalendarClock,
+      label: "Livraison prévue le",
       date: order.date_commande,
-      reached: true,
+      reached: !!order.date_commande,
     },
     ...TIMELINE_MILESTONES.map((m) => ({
       icon: m.icon,

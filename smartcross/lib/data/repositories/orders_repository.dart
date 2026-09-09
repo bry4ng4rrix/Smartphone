@@ -192,5 +192,15 @@ class OrdersRepository {
     return Order.fromJson(response.data as Map<String, dynamic>);
   }
 
+  /// Zones de livraison configurables (nom + prix) — CRUD côté Paramètres
+  /// web, lecture seule ici pour peupler le sélecteur de zone (voir
+  /// orders/views.py::DeliveryZoneOptionViewSet).
+  Future<List<DeliveryZoneOption>> deliveryZones() async {
+    final response = await _dio.get('orders/delivery-zones/');
+    return (response.data as List)
+        .map((e) => DeliveryZoneOption.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
   String _fmt(DateTime d) => '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 }

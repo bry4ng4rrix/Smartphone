@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
 import '../../core/constants.dart';
+import '../../models/delivery_zone.dart';
 import '../../models/order.dart';
 import '../../state/orders_provider.dart';
 import '../../widgets/async_state_widgets.dart';
@@ -48,6 +49,10 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(ordersProvider);
+    // Charge les zones configurables : alimente le cache utilisé pour
+    // afficher un nom de zone à partir du code (DeliveryZoneCatalog).
+    ref.watch(deliveryZonesProvider);
+
     final filter = ref.watch(ordersFilterProvider);
 
     return Scaffold(
@@ -74,7 +79,9 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
                           onPressed: () => _pickDate(filter),
                           icon: const Icon(Icons.event_outlined),
                           label: Text(
-                            filter.dateDebut != null ? _tourneeDateFmt.format(filter.dateDebut!) : 'Filtrer par date',
+                            filter.dateDebut != null
+                                ? _tourneeDateFmt.format(filter.dateDebut!)
+                                : 'Filtrer par date',
                           ),
                         ),
                       ),
@@ -87,17 +94,21 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
                   child: RefreshIndicator(
                     onRefresh: () => ref.read(ordersProvider.notifier).refresh(),
                     child: switch (async) {
-                      AsyncData(:final value) => value.isEmpty
-                          ? const EmptyState(message: 'Aucune commande en tournée.', icon: Icons.local_shipping_outlined)
-                          : ListView.builder(
-                              padding: const EdgeInsets.all(12),
-                              itemCount: value.length,
-                              itemBuilder: (context, i) => _TourneeCard(order: value[i]),
-                            ),
+                      AsyncData(:final value) =>
+                        value.isEmpty
+                            ? const EmptyState(
+                                message: 'Aucune commande en tournée.',
+                                icon: Icons.local_shipping_outlined,
+                              )
+                            : ListView.builder(
+                                padding: const EdgeInsets.all(12),
+                                itemCount: value.length,
+                                itemBuilder: (context, i) => _TourneeCard(order: value[i]),
+                              ),
                       AsyncError(:final error) => ErrorState(
-                          message: ApiClient.messageFromError(error),
-                          onRetry: () => ref.read(ordersProvider.notifier).refresh(),
-                        ),
+                        message: ApiClient.messageFromError(error),
+                        onRetry: () => ref.read(ordersProvider.notifier).refresh(),
+                      ),
                       _ => const LoadingState(),
                     },
                   ),
@@ -124,7 +135,8 @@ class _TourneeCardState extends ConsumerState<_TourneeCard> {
     try {
       await ref.read(ordersProvider.notifier).changeStatus(widget.order.id, target.apiValue, note: note);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -134,7 +146,11 @@ class _TourneeCardState extends ConsumerState<_TourneeCard> {
       target == OrderStatus.enLivraison ? 'Récupérer le colis' : target.label;
 
   Future<void> _confirm(OrderStatus target) async {
-    final result = await showOrderConfirmDialog(context, title: 'Confirmer : ${_actionLabel(target)}', order: widget.order);
+    final result = await showOrderConfirmDialog(
+      context,
+      title: 'Confirmer : ${_actionLabel(target)}',
+      order: widget.order,
+    );
     if (result != null) _changeStatus(target, note: result.note);
   }
 
@@ -155,7 +171,10 @@ class _TourneeCardState extends ConsumerState<_TourneeCard> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(order.numero, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                Text(
+                  order.numero,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                ),
                 OrderStatusBadge(status: order.statutCourant),
               ],
             ),
@@ -168,18 +187,25 @@ class _TourneeCardState extends ConsumerState<_TourneeCard> {
                   children: [
                     Icon(Icons.phone_outlined, size: 16, color: Theme.of(context).colorScheme.primary),
                     const SizedBox(width: 6),
-                    Text(order.telephone!, style: TextStyle(color: Theme.of(context).colorScheme.primary, decoration: TextDecoration.underline)),
+                    Text(
+                      order.telephone!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.primary,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
                   ],
                 ),
               ),
             const SizedBox(height: 4),
-            for (final item in order.items) Text('• ${item.referenceName} — ${item.couleur} (x${item.quantite})'),
+            for (final item in order.items)
+              Text('• ${item.referenceName} — ${item.couleur} (x${item.quantite})'),
             const SizedBox(height: 6),
             Row(
               children: [
                 const Icon(Icons.local_shipping_outlined, size: 16),
                 const SizedBox(width: 6),
-                Text(order.livraisonZone.shortLabel),
+                Text(DeliveryZoneCatalog.shortLabelFor(order.livraisonZone)),
               ],
             ),
             if (order.adresseLivraison != null && order.adresseLivraison!.isNotEmpty)
@@ -196,7 +222,10 @@ class _TourneeCardState extends ConsumerState<_TourneeCard> {
               ),
             if (order.totalAPayer != null) ...[
               const SizedBox(height: 4),
-              Text('Total à encaisser : ${_ar(order.totalAPayer!)}', style: const TextStyle(fontWeight: FontWeight.w700)),
+              Text(
+                'Total à encaisser : ${_ar(order.totalAPayer!)}',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
             ],
             const SizedBox(height: 12),
             if (_loading)
@@ -208,7 +237,10 @@ class _TourneeCardState extends ConsumerState<_TourneeCard> {
                 children: [
                   Icon(Icons.hourglass_empty, size: 16, color: Theme.of(context).colorScheme.outline),
                   const SizedBox(width: 6),
-                  Text('En cours de préparation', style: TextStyle(color: Theme.of(context).colorScheme.outline)),
+                  Text(
+                    'En cours de préparation',
+                    style: TextStyle(color: Theme.of(context).colorScheme.outline),
+                  ),
                 ],
               )
             else if (isPrete)
@@ -277,7 +309,10 @@ class _TourneeHistoriqueCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(order.numero, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                Text(
+                  order.numero,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                ),
                 OrderStatusBadge(status: order.statutCourant),
               ],
             ),
@@ -292,13 +327,14 @@ class _TourneeHistoriqueCard extends StatelessWidget {
                 ],
               ),
             const SizedBox(height: 4),
-            for (final item in order.items) Text('• ${item.referenceName} — ${item.couleur} (x${item.quantite})'),
+            for (final item in order.items)
+              Text('• ${item.referenceName} — ${item.couleur} (x${item.quantite})'),
             const SizedBox(height: 6),
             Row(
               children: [
                 const Icon(Icons.local_shipping_outlined, size: 16),
                 const SizedBox(width: 6),
-                Text(order.livraisonZone.shortLabel),
+                Text(DeliveryZoneCatalog.shortLabelFor(order.livraisonZone)),
               ],
             ),
             if (order.totalAPayer != null) ...[

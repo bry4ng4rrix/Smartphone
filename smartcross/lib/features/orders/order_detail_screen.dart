@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
 import '../../core/constants.dart';
+import '../../models/delivery_zone.dart';
 import '../../models/order.dart';
 import '../../state/orders_provider.dart';
 import '../../widgets/assign_staff_dialog.dart';
@@ -45,7 +46,7 @@ List<_GerantAction> _nextActions(Order order) {
     case OrderStatus.enPreparation:
       return const [_GerantAction(target: OrderStatus.prete, label: 'Commande prête', icon: Icons.check)];
     case OrderStatus.prete:
-      if (order.livraisonZone == DeliveryZone.recuperation) return const [];
+      if (order.livraisonZone == kRecuperationCode) return const [];
       return const [
         _GerantAction(
           target: OrderStatus.enLivraison,
@@ -73,6 +74,9 @@ class OrderDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(orderDetailProvider(orderId));
+    // Charge les zones configurables : alimente le cache utilisé pour
+    // afficher un nom de zone à partir du code (DeliveryZoneCatalog).
+    ref.watch(deliveryZonesProvider);
 
     // Bouton "Modifier" directement depuis le détail (§ demande) — même
     // fenêtre d'édition que la liste, et mêmes statuts autorisés que côté
@@ -102,9 +106,9 @@ class OrderDetailScreen extends ConsumerWidget {
       body: switch (async) {
         AsyncData(:final value) => _OrderDetailBody(order: value),
         AsyncError(:final error) => ErrorState(
-            message: ApiClient.messageFromError(error),
-            onRetry: () => ref.invalidate(orderDetailProvider(orderId)),
-          ),
+          message: ApiClient.messageFromError(error),
+          onRetry: () => ref.invalidate(orderDetailProvider(orderId)),
+        ),
         _ => const LoadingState(),
       },
     );
@@ -141,7 +145,9 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
 
       setState(() => _changing = true);
       try {
-        await ref.read(ordersProvider.notifier).changeStatus(
+        await ref
+            .read(ordersProvider.notifier)
+            .changeStatus(
               widget.order.id,
               action.target.apiValue,
               preparateurId: action.target == OrderStatus.enPreparation ? result.staffId : null,
@@ -174,7 +180,9 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
 
     setState(() => _changing = true);
     try {
-      await ref.read(ordersProvider.notifier).changeStatus(
+      await ref
+          .read(ordersProvider.notifier)
+          .changeStatus(
             widget.order.id,
             action.target.apiValue,
             note: result.note,
@@ -192,7 +200,11 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
 
   Future<void> _cancel() async {
     final order = widget.order;
-    final restocks = [OrderStatus.enPreparation, OrderStatus.prete, OrderStatus.enLivraison].contains(order.statutCourant);
+    final restocks = [
+      OrderStatus.enPreparation,
+      OrderStatus.prete,
+      OrderStatus.enLivraison,
+    ].contains(order.statutCourant);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -230,7 +242,11 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
   Widget build(BuildContext context) {
     final order = widget.order;
     final nextActions = _nextActions(order);
-    final canCancel = ![OrderStatus.livre, OrderStatus.retour, OrderStatus.annulee].contains(order.statutCourant);
+    final canCancel = ![
+      OrderStatus.livre,
+      OrderStatus.retour,
+      OrderStatus.annulee,
+    ].contains(order.statutCourant);
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -257,7 +273,11 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
                     value: order.telephone!,
                     onTap: () => launchUrl(Uri.parse('tel:${order.telephone}')),
                   ),
-                _InfoRow(icon: Icons.local_shipping_outlined, label: 'Zone', value: order.livraisonZone.label),
+                _InfoRow(
+                  icon: Icons.local_shipping_outlined,
+                  label: 'Zone',
+                  value: DeliveryZoneCatalog.labelFor(order.livraisonZone),
+                ),
                 if (order.adresseLivraison != null && order.adresseLivraison!.isNotEmpty)
                   _InfoRow(icon: Icons.place_outlined, label: 'Adresse', value: order.adresseLivraison!),
                 // La date de création est automatique et immuable ; la date
@@ -275,14 +295,22 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
                     label: 'Livraison prévue le',
                     value: DateFormat('dd/MM/yyyy HH:mm').format(order.dateCommande!.toLocal()),
                   ),
-                if (order.livraisonZone != DeliveryZone.recuperation)
+                if (order.livraisonZone != kRecuperationCode)
                   _InfoRow(icon: Icons.payments_outlined, label: 'Paiement', value: order.modePaiement.label),
                 if (order.preparateurName != null)
-                  _InfoRow(icon: Icons.inventory_2_outlined, label: 'Préparateur', value: order.preparateurName!),
+                  _InfoRow(
+                    icon: Icons.inventory_2_outlined,
+                    label: 'Préparateur',
+                    value: order.preparateurName!,
+                  ),
                 if (order.livreurName != null)
                   _InfoRow(icon: Icons.moped_outlined, label: 'Livreur', value: order.livreurName!),
                 if (order.notePreparateur != null && order.notePreparateur!.isNotEmpty)
-                  _InfoRow(icon: Icons.notes_outlined, label: 'Note préparateur', value: order.notePreparateur!),
+                  _InfoRow(
+                    icon: Icons.notes_outlined,
+                    label: 'Note préparateur',
+                    value: order.notePreparateur!,
+                  ),
                 if (order.noteLivreur != null && order.noteLivreur!.isNotEmpty)
                   _InfoRow(icon: Icons.notes_outlined, label: 'Note livreur', value: order.noteLivreur!),
               ],
@@ -298,7 +326,9 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
               for (final item in order.items)
                 ListTile(
                   title: Text('${item.referenceName} — ${item.couleur}'),
-                  subtitle: item.prixUnitaire != null ? Text('${item.quantite} × ${_ar(item.prixUnitaire!)}') : Text('Quantité : ${item.quantite}'),
+                  subtitle: item.prixUnitaire != null
+                      ? Text('${item.quantite} × ${_ar(item.prixUnitaire!)}')
+                      : Text('Quantité : ${item.quantite}'),
                   trailing: item.prixUnitaire != null ? Text(_ar(item.prixUnitaire! * item.quantite)) : null,
                 ),
             ],
@@ -313,14 +343,22 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
               child: Column(
                 children: [
                   if (order.fraisLivraison != null)
-                    Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Frais de livraison'), Text(_ar(order.fraisLivraison!))]),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [const Text('Frais de livraison'), Text(_ar(order.fraisLivraison!))],
+                    ),
                   if (order.totalAPayer != null) ...[
                     const SizedBox(height: 6),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text('Total à payer', style: Theme.of(context).textTheme.titleMedium),
-                        Text(_ar(order.totalAPayer!), style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                        Text(
+                          _ar(order.totalAPayer!),
+                          style: Theme.of(
+                            context,
+                          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                        ),
                       ],
                     ),
                   ],
@@ -370,11 +408,13 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.history, size: 20),
               title: Text('${h.ancienStatut?.label ?? '—'} → ${h.nouveauStatut.label}'),
-              subtitle: Text([
-                h.changedByName ?? 'Système',
-                if (h.timestamp != null) _dateFmt.format(h.timestamp!),
-                if (h.note != null && h.note!.isNotEmpty) h.note!,
-              ].join(' · ')),
+              subtitle: Text(
+                [
+                  h.changedByName ?? 'Système',
+                  if (h.timestamp != null) _dateFmt.format(h.timestamp!),
+                  if (h.note != null && h.note!.isNotEmpty) h.note!,
+                ].join(' · '),
+              ),
               // Preuve que la préparation est faite — jointe au passage
               // "Prête" (§ demande), aussi visible et téléchargeable ici.
               trailing: h.photo == null
@@ -421,11 +461,20 @@ class _OrderTimelineCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // La création vient de createdAt (horodatage automatique), pas de
+            // dateCommande qui porte désormais la livraison prévue — sinon une
+            // livraison planifiée pour demain s'affichait "avant" la préparation.
             _TimelineRow(
               icon: Icons.add_shopping_cart_outlined,
               label: 'Commande créée le',
-              date: order.dateCommande ?? order.createdAt,
-              reached: true,
+              date: order.createdAt,
+              reached: order.createdAt != null,
+            ),
+            _TimelineRow(
+              icon: Icons.event_outlined,
+              label: 'Livraison prévue le',
+              date: order.dateCommande,
+              reached: order.dateCommande != null,
             ),
             for (final (status, icon, label) in _milestones)
               _TimelineRow(
@@ -510,4 +559,3 @@ class _InfoRow extends StatelessWidget {
     );
   }
 }
-

@@ -20,6 +20,7 @@ import '../features/suppliers/supplier_order_create_screen.dart';
 import '../features/suppliers/supplier_order_detail_screen.dart';
 import '../features/suppliers/suppliers_screen.dart';
 import '../features/stores/stores_screen.dart';
+import '../features/tournee/bilan_screen.dart';
 import '../features/tournee/tournee_screen.dart';
 import '../features/transfers/transfers_screen.dart';
 import '../features/users/users_screen.dart';
@@ -94,6 +95,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(path: '/depot', builder: (context, state) => const DepotScreen()),
           GoRoute(path: '/tournee', builder: (context, state) => const TourneeScreen()),
+          GoRoute(path: '/bilan', builder: (context, state) => const BilanScreen()),
           GoRoute(path: '/catalog', builder: (context, state) => const CatalogScreen()),
           GoRoute(
             path: '/suppliers',

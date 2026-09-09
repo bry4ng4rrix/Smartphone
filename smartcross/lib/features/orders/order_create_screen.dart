@@ -9,6 +9,7 @@ import '../../core/api_client.dart';
 import '../../core/constants.dart';
 import '../../data/repositories/orders_repository.dart' show StaffOption;
 import '../../models/catalog.dart';
+import '../../models/delivery_zone.dart';
 import '../../models/order.dart';
 import '../../state/auth_provider.dart';
 import '../../state/catalog_provider.dart';
@@ -18,12 +19,7 @@ final _moneyFmt = NumberFormat.decimalPattern('fr_FR');
 String _ar(num v) => '${_moneyFmt.format(v.round())} Ar';
 
 class CartLine {
-  CartLine({
-    required this.reference,
-    required this.couleur,
-    required this.variantId,
-    required this.quantite,
-  });
+  CartLine({required this.reference, required this.couleur, required this.variantId, required this.quantite});
   final ReferenceOption reference;
   final String couleur;
   final int variantId;
@@ -50,7 +46,9 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
   // Deux notes distinctes, chacune destinée à un seul rôle (§ demande).
   final _notePreparateurController = TextEditingController();
   final _noteLivreurController = TextEditingController();
-  DeliveryZone _zone = DeliveryZone.zone1;
+  // Code de zone (voir models/delivery_zone.dart) — vide tant que les zones
+  // configurables ne sont pas chargées, puis la première zone active.
+  String _zone = '';
   PaymentMode _modePaiement = PaymentMode.livraison;
   DateTime _dateCommande = DateTime.now();
   final List<CartLine> _lines = [];
@@ -77,7 +75,7 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
     // place" (§ demande), sans donnée financière (miroir web : isPreparateur
     // -> zone forcée + showPrices = false, voir page.tsx).
     _isPreparateur = ref.read(authProvider).user?.role == UserRole.preparateur;
-    if (_isPreparateur) _zone = DeliveryZone.recuperation;
+    if (_isPreparateur) _zone = kRecuperationCode;
     if (!_isPreparateur) _loadStaff();
   }
 
@@ -108,21 +106,21 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
     super.dispose();
   }
 
-  double get _frais {
-    switch (_zone) {
-      case DeliveryZone.zone1:
-        return 3000;
-      case DeliveryZone.zone2:
-        return 4000;
-      case DeliveryZone.zone3:
-        return 5000;
-      case DeliveryZone.recuperation:
-        return 0;
-    }
-  }
+  /// Zones payantes actives (CRUD Paramètres, § demande) — le retrait sur
+  /// place reste à part (kRecuperationCode, jamais dans cette liste).
+  /// `ref.read` et non `watch` : ce getter est aussi appelé depuis des
+  /// callbacks (hors build), le rafraîchissement passe par le `watch` fait
+  /// dans build().
+  List<DeliveryZoneOption> get _zonesPayantes =>
+      (ref.read(deliveryZonesProvider).asData?.value ?? const <DeliveryZoneOption>[])
+          .where((z) => z.actif)
+          .toList();
 
-  double get _totalEstime =>
-      _lines.fold<double>(0, (sum, l) => sum + l.sousTotal) + _frais;
+  // Estimation seulement — les frais réels sont recalculés côté serveur à
+  // partir du code de zone (voir orders/models.py::Order.save).
+  double get _frais => _zone == kRecuperationCode ? 0 : DeliveryZoneCatalog.fraisFor(_zone);
+
+  double get _totalEstime => _lines.fold<double>(0, (sum, l) => sum + l.sousTotal) + _frais;
 
   Future<void> _pickDateCommande() async {
     final date = await showDatePicker(
@@ -132,20 +130,9 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
     if (date == null || !mounted) return;
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(_dateCommande),
-    );
+    final time = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(_dateCommande));
     if (time == null) return;
-    setState(
-      () => _dateCommande = DateTime(
-        date.year,
-        date.month,
-        date.day,
-        time.hour,
-        time.minute,
-      ),
-    );
+    setState(() => _dateCommande = DateTime(date.year, date.month, date.day, time.hour, time.minute));
     // Rafraîchit la disponibilité livreur pour ce nouveau créneau (voir
     // orders/views.py::available_staff — conflit d'horaire indicatif).
     if (!_isPreparateur) _loadStaff();
@@ -175,17 +162,12 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
           .create(
             clientNom: _clientController.text.trim(),
             telephone: _phoneController.text.trim(),
-            livraisonZone: _zone.apiValue,
+            livraisonZone: _zone,
             items: [
-              for (final l in _lines)
-                OrderItemDraft(
-                  productVariant: l.variantId,
-                  quantite: l.quantite,
-                ),
+              for (final l in _lines) OrderItemDraft(productVariant: l.variantId, quantite: l.quantite),
             ],
             notePreparateur: _notePreparateurController.text.trim(),
-            noteLivreur:
-                _zone == DeliveryZone.recuperation ? '' : _noteLivreurController.text.trim(),
+            noteLivreur: _zone == kRecuperationCode ? '' : _noteLivreurController.text.trim(),
             adresseLivraison: _adresseController.text.trim(),
             modePaiement: _modePaiement.apiValue,
             dateCommande: _dateCommande,
@@ -210,9 +192,7 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
       // (voir orders/services.py::assign_livreur_early).
       if (_livreurId != null) {
         try {
-          await ref
-              .read(ordersProvider.notifier)
-              .assignLivreur(order.id, _livreurId!);
+          await ref.read(ordersProvider.notifier).assignLivreur(order.id, _livreurId!);
         } catch (e) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -235,18 +215,28 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isPickup = _zone == DeliveryZone.recuperation;
+    // Les zones arrivent de façon asynchrone : dès qu'elles sont là, on
+    // sélectionne la première zone payante (sauf préparateur, toujours en
+    // retrait sur place). Le `watch` ici est ce qui reconstruit l'écran au
+    // chargement des zones (les autres accès passent par `_zonesPayantes`).
+    final zonesDisponibles = (ref.watch(deliveryZonesProvider).asData?.value ?? const <DeliveryZoneOption>[])
+        .where((z) => z.actif)
+        .toList();
+    if (!_isPreparateur && _zone.isEmpty && zonesDisponibles.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _zone.isEmpty) {
+          setState(() => _zone = zonesDisponibles.first.code);
+        }
+      });
+    }
+
+    final isPickup = _zone == kRecuperationCode;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          _isPreparateur ? 'Nouvelle récupération' : 'Nouvelle commande',
-        ),
+        title: Text(_isPreparateur ? 'Nouvelle récupération' : 'Nouvelle commande'),
         actions: [
-          IconButton(
-            onPressed: () => Navigator.of(context).maybePop(),
-            icon: const Icon(Icons.close),
-          ),
+          IconButton(onPressed: () => Navigator.of(context).maybePop(), icon: const Icon(Icons.close)),
         ],
       ),
       body: Form(
@@ -261,20 +251,13 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
                   color: Theme.of(context).colorScheme.errorContainer,
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Text(
-                  _error!,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onErrorContainer,
-                  ),
-                ),
+                child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer)),
               ),
               const SizedBox(height: 16),
             ],
             Text(
               'Ajouter un article',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 10),
             SizedBox(
@@ -292,9 +275,7 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
                   children: [
                     for (final l in _lines)
                       ListTile(
-                        title: Text(
-                          '${l.reference.brandName} ${l.reference.referenceName} — ${l.couleur}',
-                        ),
+                        title: Text('${l.reference.brandName} ${l.reference.referenceName} — ${l.couleur}'),
                         subtitle: Text(
                           _isPreparateur
                               ? 'Quantité : ${l.quantite}'
@@ -312,36 +293,38 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
             const SizedBox(height: 20),
             Text(
               'Type de commande',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 10),
-            SegmentedButton<DeliveryZone>(
+            // Livraison ou retrait sur place — le retrait est un cas à part
+            // (pas de livreur, pas de frais), les zones payantes viennent du
+            // CRUD Paramètres (§ demande).
+            SegmentedButton<bool>(
               segments: const [
-                ButtonSegment<DeliveryZone>(
-                  value: DeliveryZone.zone1,
+                ButtonSegment<bool>(
+                  value: false,
                   icon: Icon(Icons.local_shipping_outlined, size: 18),
                   label: Text('À livrer'),
                 ),
-                ButtonSegment<DeliveryZone>(
-                  value: DeliveryZone.recuperation,
+                ButtonSegment<bool>(
+                  value: true,
                   icon: Icon(Icons.storefront_outlined, size: 18),
                   label: Text('Récupération sur place'),
                 ),
               ],
-              selected: {_zone},
+              selected: {_zone == kRecuperationCode},
               onSelectionChanged: _isPreparateur
                   ? null
-                  : (values) => setState(() => _zone = values.first),
+                  : (values) => setState(() {
+                      final zones = _zonesPayantes;
+                      _zone = values.first ? kRecuperationCode : (zones.isNotEmpty ? zones.first.code : '');
+                    }),
               multiSelectionEnabled: false,
             ),
             const SizedBox(height: 18),
             Text(
               'Date et heure de livraison',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
             InkWell(
@@ -351,21 +334,17 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
                   hintText: 'Choisir la date',
                   prefixIcon: const Icon(Icons.event_outlined),
                   suffixIcon: const Icon(Icons.calendar_today_outlined),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                child: Text(
-                  DateFormat('dd/MM/yyyy HH:mm').format(_dateCommande),
-                ),
+                child: Text(DateFormat('dd/MM/yyyy HH:mm').format(_dateCommande)),
               ),
             ),
             const SizedBox(height: 8),
             Text(
               'Vide = maintenant.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.outline,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline),
             ),
             if (!_isPreparateur) ...[
               const SizedBox(height: 20),
@@ -374,18 +353,14 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
                   Expanded(
                     child: Text(
                       'Préparateur',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       'Livreur',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                     ),
                   ),
                 ],
@@ -401,11 +376,7 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
                         prefixIcon: Icon(Icons.inventory_2_outlined),
                       ),
                       items: [
-                        for (final p in _preparateurs)
-                          DropdownMenuItem(
-                            value: p.id,
-                            child: Text(p.fullName),
-                          ),
+                        for (final p in _preparateurs) DropdownMenuItem(value: p.id, child: Text(p.fullName)),
                       ],
                       onChanged: (v) => setState(() => _preparateurId = v),
                     ),
@@ -419,11 +390,7 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
                         prefixIcon: Icon(Icons.moped_outlined),
                       ),
                       items: [
-                        for (final l in _livreurs)
-                          DropdownMenuItem(
-                            value: l.id,
-                            child: Text(l.fullName),
-                          ),
+                        for (final l in _livreurs) DropdownMenuItem(value: l.id, child: Text(l.fullName)),
                       ],
                       onChanged: (v) => setState(() => _livreurId = v),
                     ),
@@ -438,18 +405,14 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
                   Expanded(
                     child: Text(
                       'Zone de livraison',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       'Adresse de livraison',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                     ),
                   ),
                 ],
@@ -458,16 +421,14 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
               Row(
                 children: [
                   Expanded(
-                    child: DropdownButtonFormField<DeliveryZone>(
-                      value: _zone,
+                    child: DropdownButtonFormField<String>(
+                      value: _zonesPayantes.any((z) => z.code == _zone) ? _zone : null,
                       decoration: const InputDecoration(
                         prefixIcon: Icon(Icons.local_shipping_outlined),
+                        hintText: 'Zone de livraison',
                       ),
                       items: [
-                        for (final z in DeliveryZone.values.where(
-                          (z) => z != DeliveryZone.recuperation,
-                        ))
-                          DropdownMenuItem(value: z, child: Text(z.label)),
+                        for (final z in _zonesPayantes) DropdownMenuItem(value: z.code, child: Text(z.label)),
                       ],
                       onChanged: (v) => setState(() => _zone = v ?? _zone),
                     ),
@@ -476,9 +437,7 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
                   Expanded(
                     child: TextFormField(
                       controller: _adresseController,
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.place_outlined),
-                      ),
+                      decoration: const InputDecoration(prefixIcon: Icon(Icons.place_outlined)),
                     ),
                   ),
                 ],
@@ -486,22 +445,14 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
               const SizedBox(height: 20),
               Text(
                 'Paiement',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 8),
               DropdownButtonFormField<PaymentMode>(
                 value: _modePaiement,
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.payments_outlined),
-                ),
-                items: [
-                  for (final m in PaymentMode.values)
-                    DropdownMenuItem(value: m, child: Text(m.label)),
-                ],
-                onChanged: (v) =>
-                    setState(() => _modePaiement = v ?? _modePaiement),
+                decoration: const InputDecoration(prefixIcon: Icon(Icons.payments_outlined)),
+                items: [for (final m in PaymentMode.values) DropdownMenuItem(value: m, child: Text(m.label))],
+                onChanged: (v) => setState(() => _modePaiement = v ?? _modePaiement),
               ),
             ],
             const SizedBox(height: 20),
@@ -510,18 +461,14 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
                 Expanded(
                   child: Text(
                     'Nom client',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     'Téléphone',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),
               ],
@@ -532,24 +479,17 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
                 Expanded(
                   child: TextFormField(
                     controller: _clientController,
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.person_outline),
-                    ),
-                    validator: (v) =>
-                        (v == null || v.trim().isEmpty) ? 'Requis' : null,
+                    decoration: const InputDecoration(prefixIcon: Icon(Icons.person_outline)),
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Requis' : null,
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: TextFormField(
                     controller: _phoneController,
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.phone_outlined),
-                    ),
+                    decoration: const InputDecoration(prefixIcon: Icon(Icons.phone_outlined)),
                     keyboardType: TextInputType.phone,
-                    validator: (v) =>
-                        (v == null ||
-                            !RegExp(r'^\+261\d{9}$').hasMatch(v.trim()))
+                    validator: (v) => (v == null || !RegExp(r'^\+261\d{9}$').hasMatch(v.trim()))
                         ? 'Format : +261XXXXXXXXX'
                         : null,
                   ),
@@ -558,67 +498,50 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
             ),
             const SizedBox(height: 20),
             Text(
-              _isPreparateur
-                  ? 'Note (optionnel)'
-                  : 'Note pour le préparateur (optionnel)',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              _isPreparateur ? 'Note (optionnel)' : 'Note pour le préparateur (optionnel)',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
             TextFormField(
               controller: _notePreparateurController,
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.notes_outlined),
-              ),
+              decoration: const InputDecoration(prefixIcon: Icon(Icons.notes_outlined)),
               maxLines: 3,
             ),
             if (!_isPreparateur && !isPickup) ...[
               const SizedBox(height: 20),
               Text(
                 'Note pour le livreur (optionnel)',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _noteLivreurController,
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.moped_outlined),
-                ),
+                decoration: const InputDecoration(prefixIcon: Icon(Icons.moped_outlined)),
                 maxLines: 3,
               ),
             ],
             if (!_isPreparateur) ...[
               const SizedBox(height: 20),
               Card(
-                color: Theme.of(
-                  context,
-                ).colorScheme.primaryContainer.withValues(alpha: 0.3),
+                color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
                 child: Padding(
                   padding: const EdgeInsets.all(14),
                   child: Column(
                     children: [
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Frais de livraison'),
-                          Text(_ar(_frais)),
-                        ],
+                        children: [const Text('Frais de livraison'), Text(_ar(_frais))],
                       ),
                       const SizedBox(height: 6),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            'Total estimé',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
+                          Text('Total estimé', style: Theme.of(context).textTheme.titleMedium),
                           Text(
                             _ar(_totalEstime),
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w700),
+                            style: Theme.of(
+                              context,
+                            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                           ),
                         ],
                       ),
@@ -631,11 +554,7 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
             FilledButton(
               onPressed: _submitting ? null : _submit,
               child: _submitting
-                  ? const SizedBox(
-                      height: 18,
-                      width: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
+                  ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
                   : const Text('Créer la commande'),
             ),
           ],
@@ -678,11 +597,7 @@ class _AddLineDialogState extends ConsumerState<AddOrderLineDialog> {
   Future<void> _loadFilterOptions() async {
     try {
       final repo = ref.read(catalogRepositoryProvider);
-      final results = await Future.wait([
-        repo.categories(),
-        repo.types(),
-        repo.brands(),
-      ]);
+      final results = await Future.wait([repo.categories(), repo.types(), repo.brands()]);
       if (!mounted) return;
       setState(() {
         _categories = results[0] as List<ProductCategory>;
@@ -733,10 +648,7 @@ class _AddLineDialogState extends ConsumerState<AddOrderLineDialog> {
       DropdownButtonFormField<int>(
         value: _categoryId,
         decoration: const InputDecoration(hintText: 'Catégorie'),
-        items: [
-          for (final c in _categories)
-            DropdownMenuItem(value: c.id, child: Text(c.nom)),
-        ],
+        items: [for (final c in _categories) DropdownMenuItem(value: c.id, child: Text(c.nom))],
         onChanged: (value) {
           setState(() {
             _categoryId = value;
@@ -750,9 +662,7 @@ class _AddLineDialogState extends ConsumerState<AddOrderLineDialog> {
         decoration: const InputDecoration(hintText: 'Sous-type'),
         items: [
           for (final t
-              in _categoryId == null
-                  ? _types
-                  : _types.where((item) => item.categoryId == _categoryId))
+              in _categoryId == null ? _types : _types.where((item) => item.categoryId == _categoryId))
             DropdownMenuItem(value: t.id, child: Text(t.nom)),
         ],
         onChanged: (value) {
@@ -763,10 +673,7 @@ class _AddLineDialogState extends ConsumerState<AddOrderLineDialog> {
       DropdownButtonFormField<int>(
         value: _brandId,
         decoration: const InputDecoration(hintText: 'Marque'),
-        items: [
-          for (final b in _brands)
-            DropdownMenuItem(value: b.id, child: Text(b.nom)),
-        ],
+        items: [for (final b in _brands) DropdownMenuItem(value: b.id, child: Text(b.nom))],
         onChanged: (value) {
           setState(() => _brandId = value);
           _onQueryChanged(_searchController.text);
@@ -785,16 +692,11 @@ class _AddLineDialogState extends ConsumerState<AddOrderLineDialog> {
             children: [
               Text(
                 'Ajouter un article',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 12),
               if (isCompact) ...[
-                for (final field in filterFields) ...[
-                  field,
-                  const SizedBox(height: 8),
-                ],
+                for (final field in filterFields) ...[field, const SizedBox(height: 8)],
               ] else
                 Row(
                   children: [
@@ -829,10 +731,7 @@ class _AddLineDialogState extends ConsumerState<AddOrderLineDialog> {
                           itemCount: _results.length,
                           itemBuilder: (context, i) {
                             final r = _results[i];
-                            final colors = r.couleurs
-                                .map((c) => c.couleur)
-                                .take(4)
-                                .join(', ');
+                            final colors = r.couleurs.map((c) => c.couleur).take(4).join(', ');
                             final more = r.couleurs.length > 4 ? '…' : '';
                             return ListTile(
                               title: Text('${r.brandName} ${r.referenceName}'),
@@ -841,21 +740,16 @@ class _AddLineDialogState extends ConsumerState<AddOrderLineDialog> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Text(
-                                    widget.hidePrices
-                                        ? r.typeName
-                                        : '${r.typeName} — ${_ar(r.prixVente)}',
+                                    widget.hidePrices ? r.typeName : '${r.typeName} — ${_ar(r.prixVente)}',
                                   ),
                                   if (colors.isNotEmpty)
                                     Text(
                                       'Couleurs: $colors$more',
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.bodySmall,
+                                      style: Theme.of(context).textTheme.bodySmall,
                                     ),
                                 ],
                               ),
-                              onTap: () =>
-                                  setState(() => _selectedReference = r),
+                              onTap: () => setState(() => _selectedReference = r),
                             );
                           },
                         ),
@@ -863,12 +757,8 @@ class _AddLineDialogState extends ConsumerState<AddOrderLineDialog> {
               else ...[
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: Text(
-                    '${_selectedReference!.brandName} ${_selectedReference!.referenceName}',
-                  ),
-                  subtitle: widget.hidePrices
-                      ? null
-                      : Text(_ar(_selectedReference!.prixVente)),
+                  title: Text('${_selectedReference!.brandName} ${_selectedReference!.referenceName}'),
+                  subtitle: widget.hidePrices ? null : Text(_ar(_selectedReference!.prixVente)),
                   trailing: TextButton(
                     onPressed: () => setState(() => _selectedReference = null),
                     child: const Text('Changer'),
@@ -880,9 +770,7 @@ class _AddLineDialogState extends ConsumerState<AddOrderLineDialog> {
                   RadioListTile<int>(
                     value: c.variantId,
                     groupValue: _selectedColor?.variantId ?? -1,
-                    onChanged: c.stockActuel > 0
-                        ? (value) => setState(() => _selectedColor = c)
-                        : null,
+                    onChanged: c.stockActuel > 0 ? (value) => setState(() => _selectedColor = c) : null,
                     title: Text('${c.couleur} (${c.stockActuel})'),
                     contentPadding: EdgeInsets.zero,
                   ),
@@ -894,15 +782,10 @@ class _AddLineDialogState extends ConsumerState<AddOrderLineDialog> {
                     Row(
                       children: [
                         IconButton(
-                          onPressed: _quantite > 1
-                              ? () => setState(() => _quantite--)
-                              : null,
+                          onPressed: _quantite > 1 ? () => setState(() => _quantite--) : null,
                           icon: const Icon(Icons.remove_circle_outline),
                         ),
-                        Text(
-                          '$_quantite',
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
+                        Text('$_quantite', style: const TextStyle(fontWeight: FontWeight.w600)),
                         IconButton(
                           onPressed: () => setState(() => _quantite++),
                           icon: const Icon(Icons.add_circle_outline),
@@ -917,10 +800,7 @@ class _AddLineDialogState extends ConsumerState<AddOrderLineDialog> {
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Annuler'),
-        ),
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
         FilledButton(
           onPressed: _selectedReference != null && _selectedColor != null
               ? () => Navigator.of(context).pop(

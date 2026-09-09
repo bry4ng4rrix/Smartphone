@@ -25,6 +25,7 @@ const List<NavItem> kPrimaryNavItems = [
   NavItem(path: '/caisse', label: 'Caisse', icon: Icons.point_of_sale_outlined, roles: {UserRole.gerant}),
   NavItem(path: '/depot', label: 'Dépôt', icon: Icons.inventory_outlined, roles: {UserRole.preparateur}),
   NavItem(path: '/tournee', label: 'Tournée', icon: Icons.local_shipping_outlined, roles: {UserRole.livreur}),
+  NavItem(path: '/bilan', label: 'Bilan du jour', icon: Icons.receipt_long_outlined, roles: {UserRole.livreur}),
   NavItem(path: '/catalog', label: 'Produits', icon: Icons.style_outlined, roles: {UserRole.gerant}),
   NavItem(path: '/suppliers', label: 'Fournisseurs', icon: Icons.local_shipping_outlined, roles: {UserRole.gerant}),
   NavItem(path: '/stores', label: 'Magasins', icon: Icons.storefront_outlined, roles: {UserRole.gerant}),

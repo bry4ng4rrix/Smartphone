@@ -1,4 +1,5 @@
 import '../core/constants.dart';
+import 'delivery_zone.dart';
 import 'json_utils.dart';
 
 /// Article d'une commande. `prixUnitaire` est `null` pour le
@@ -111,7 +112,9 @@ class Order {
   final DateTime? dateCommande;
   final String clientNom;
   final String? telephone;
-  final DeliveryZone livraisonZone;
+  // Code de zone : soit le `code` d'une DeliveryZoneOption (CRUD Paramètres),
+  // soit le littéral kRecuperationCode — voir models/delivery_zone.dart.
+  final String livraisonZone;
   final String? adresseLivraison;
   final PaymentMode modePaiement;
   final double? fraisLivraison;
@@ -138,7 +141,7 @@ class Order {
       dateCommande: asDateOrNull(json['date_commande']),
       clientNom: asString(json['client_nom']),
       telephone: asStringOrNull(json['telephone']),
-      livraisonZone: DeliveryZoneX.fromApi(asStringOrNull(json['livraison_zone'])),
+      livraisonZone: asString(json['livraison_zone'], kRecuperationCode),
       adresseLivraison: asStringOrNull(json['adresse_livraison']),
       modePaiement: PaymentModeX.fromApi(asStringOrNull(json['mode_paiement'])),
       fraisLivraison: asDoubleOrNull(json['frais_livraison']),

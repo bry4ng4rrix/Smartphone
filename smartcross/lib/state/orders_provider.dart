@@ -1,10 +1,20 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/repositories/orders_repository.dart';
+import '../models/delivery_zone.dart';
 import '../models/order.dart';
 import 'realtime_provider.dart';
 
 final ordersRepositoryProvider = Provider((ref) => OrdersRepository());
+
+/// Zones de livraison configurables (nom + prix) — § demande. Remplit aussi
+/// le cache mémoire utilisé pour afficher un libellé à partir du code stocké
+/// sur la commande (voir DeliveryZoneCatalog).
+final deliveryZonesProvider = FutureProvider<List<DeliveryZoneOption>>((ref) async {
+  final zones = await ref.read(ordersRepositoryProvider).deliveryZones();
+  DeliveryZoneCatalog.zones = zones;
+  return zones;
+});
 
 class OrdersFilter {
   const OrdersFilter({
