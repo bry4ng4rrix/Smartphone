@@ -212,6 +212,24 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         return Response(self.get_serializer(order).data)
 
+    @action(detail=True, methods=["post"], url_path="assign-livreur")
+    def assign_livreur(self, request, pk=None):
+        """POST /api/orders/{id}/assign-livreur/ {livreur_id} — pré-assigne
+        un livreur avant que la commande soit Prête (gérant uniquement), sans
+        changer son statut. Voir services.assign_livreur_early."""
+        order = self.get_object()
+        livreur_id = request.data.get("livreur_id")
+        if not livreur_id:
+            raise DRFValidationError("livreur_id requis.")
+        try:
+            order = services.assign_livreur_early(order=order, livreur_id=livreur_id, user=request.user)
+        except PermissionDenied as exc:
+            raise DRFPermissionDenied(str(exc))
+        except ValidationError as exc:
+            raise DRFValidationError(str(exc))
+
+        return Response(self.get_serializer(order).data)
+
     @action(detail=True, methods=["post"], url_path="cancel")
     def cancel(self, request, pk=None):
         """POST /api/orders/{id}/cancel/ — annulation gérant (restitue le
@@ -230,10 +248,14 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="available-staff")
     def available_staff(self, request):
-        """GET /api/orders/available-staff/?role=PREPARATEUR|LIVREUR&magasin_id=
+        """GET /api/orders/available-staff/?role=PREPARATEUR|LIVREUR&magasin_id=&date_commande=
         Liste les préparateurs/livreurs du magasin avec leur disponibilité,
         pour le sélecteur d'affectation du gérant (occupé = déjà en charge
-        d'une commande En préparation / En livraison)."""
+        d'une commande En préparation / En livraison). Pour LIVREUR, un
+        `date_commande` (ISO datetime) optionnel signale aussi un conflit
+        d'horaire avec une autre commande déjà (pré-)assignée à ce livreur le
+        même jour, à la même heure — voir services.livreur_has_time_conflict.
+        Purement indicatif : `available=False` n'empêche pas la sélection."""
         requested_role = request.query_params.get("role")
         if requested_role not in ("PREPARATEUR", "LIVREUR"):
             raise DRFValidationError("Paramètre 'role' requis : PREPARATEUR ou LIVREUR.")
@@ -248,12 +270,19 @@ class OrderViewSet(viewsets.ModelViewSet):
             magasin__in=magasins, commande_role=requested_role
         ).select_related("user")
 
+        date_commande = None
+        if requested_role == "LIVREUR":
+            date_commande = parse_datetime(request.query_params.get("date_commande") or "")
+
         return Response([
             {
                 "id": ep.user_id,
                 "full_name": ep.user.full_name,
                 "magasin_id": ep.magasin_id,
-                "available": not busy_check(ep.user),
+                "available": not (
+                    busy_check(ep.user)
+                    or (date_commande and services.livreur_has_time_conflict(ep.user, date_commande))
+                ),
             }
             for ep in employers
         ])

@@ -167,7 +167,14 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
     await refresh();
   }
 
-  Future<List<StaffOption>> availableStaff(String role) => _repo.availableStaff(role);
+  Future<List<StaffOption>> availableStaff(String role, {DateTime? dateCommande}) =>
+      _repo.availableStaff(role, dateCommande: dateCommande);
+
+  Future<Order> assignLivreur(int id, int livreurId) async {
+    final order = await _repo.assignLivreur(id, livreurId);
+    await refresh();
+    return order;
+  }
 }
 
 final ordersProvider = AsyncNotifierProvider<OrdersNotifier, List<Order>>(OrdersNotifier.new);

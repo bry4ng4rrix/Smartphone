@@ -38,6 +38,51 @@ def is_livreur_busy(user, exclude_order=None):
     return qs.exists()
 
 
+def livreur_has_time_conflict(user, date_commande, exclude_order=None):
+    """Un livreur a-t-il déjà une autre commande (pré-assignée ou en cours)
+    prévue le même jour, à la même heure — signal indicatif pour le
+    sélecteur du gérant à la création (voir assign_livreur_early), sur le
+    même principe que is_livreur_busy : n'empêche jamais la sélection, le
+    gérant reste juge."""
+    if not date_commande:
+        return False
+    qs = Order.objects.filter(
+        livreur=user,
+        date_commande__date=date_commande.date(),
+        date_commande__hour=date_commande.hour,
+    ).exclude(statut_courant__in=["LIVRE", "ANNULEE", "RETOUR"])
+    if exclude_order:
+        qs = qs.exclude(pk=exclude_order.pk)
+    return qs.exists()
+
+
+def assign_livreur_early(*, order, livreur_id, user):
+    """Pré-assigne un livreur à une commande AVANT qu'elle soit Prête —
+    indépendant du statut (contrairement à la désignation faite au moment de
+    passer "En livraison", voir change_order_status/_resolve_assignee). Ne
+    fait PAS progresser le statut de la commande : le passage "En livraison"
+    reste une action manuelle distincte une fois Prête — _resolve_assignee
+    réutilise alors ce livreur sans le redemander. Réservé au gérant."""
+    role = user_commande_role(user)
+    if role != "GERANT":
+        raise PermissionDenied("Seul le gérant peut assigner un livreur à l'avance.")
+
+    from users.models import CustomUser
+
+    try:
+        livreur = CustomUser.objects.get(id=livreur_id, employer_profile__commande_role="LIVREUR")
+    except CustomUser.DoesNotExist:
+        raise ValidationError("Livreur introuvable.")
+    if livreur.employer_profile.magasin_id != order.magasin_id:
+        raise ValidationError("Cette personne n'appartient pas à ce magasin.")
+    if order.statut_courant in ("LIVRE", "ANNULEE"):
+        raise ValidationError("Cette commande est déjà terminée.")
+
+    order.livreur = livreur
+    order.save(update_fields=["livreur", "updated_at"])
+    return order
+
+
 def _notify_commande_role(*, magasin, commande_role, notif_type, message, order):
     """Notifie tous les employers du magasin ayant ce commande_role
     (Préparateur ou Livreur) — §9 Smartreadme.md. Un mouvement par
@@ -107,7 +152,9 @@ def _resolve_assignee(*, order, role, requesting_user, requested_role, assignee_
     au gérant d'en juger, voir is_preparateur_busy/is_livreur_busy qui
     restent utilisées côté "available-staff" comme simple indication).
 
-    - Gérant : doit désigner explicitement quelqu'un (`assignee_id` requis).
+    - Gérant : doit désigner explicitement quelqu'un (`assignee_id` requis),
+      sauf si un livreur a déjà été pré-assigné plus tôt (voir
+      assign_livreur_early) — dans ce cas il n'a pas besoin d'être reprécisé.
     - Le rôle concerné (Préparateur/Livreur) lui-même : auto-affectation si
       `assignee_id` absent, sinon doit correspondre à lui-même.
     """
@@ -115,6 +162,10 @@ def _resolve_assignee(*, order, role, requesting_user, requested_role, assignee_
 
     if role == "GERANT":
         if not assignee_id:
+            already_assigned = getattr(order, field_name)
+            if already_assigned:
+                setattr(order, field_name, already_assigned)
+                return already_assigned
             raise ValidationError(f"Choisissez un {requested_role.lower()} pour cette commande.")
         try:
             user = CustomUser.objects.get(id=assignee_id, employer_profile__commande_role=requested_role)

@@ -1,0 +1,166 @@
+GUIDE DE PORTAGE — modifications web (frontend/) à répercuter dans
+smartcross/ (app Flutter mobile : Gérant/Préparateur/Livreur)
+=============================================================================
+
+Contexte : le port complet du workflow Commandes (Dépôt/Tournée/Commandes,
+statuts, Récupérations, Modifier/Supprimer Nouvelle) a déjà été fait et
+vérifié dans une session précédente. Ce guide couvre UNIQUEMENT ce qui a
+changé côté web APRÈS ce port, dans cette session-ci.
+
+Piège d'environnement connu (smartcross) : le hook de diagnostics IDE qui
+s'affiche juste après un Edit/Write sur ce projet Flutter donne régulièrement
+de faux positifs ("Undefined name 'Icons'", imports introuvables, etc.).
+Ignorer ces diagnostics — la seule vérification fiable est `flutter analyze
+<fichier>` sur les fichiers touchés, puis un `flutter analyze` complet à la
+fin. Base "propre" attendue : 0 erreur, ~18-26 infos `use_null_aware_elements`
+préexistants dans lib/data/repositories/*.dart (ce chiffre peut légèrement
+augmenter si vous ajoutez des `if (x != null) 'key': x,` dans un payload —
+normal, conforme au style du projet).
+
+-----------------------------------------------------------------------------
+1. À PORTER — Chat : présence en ligne + accusés de lecture
+-----------------------------------------------------------------------------
+Fichiers Flutter concernés (déjà existants, édit/suppression de message déjà
+portés, ne pas y retoucher) :
+  smartcross/lib/features/chats/chat_list_screen.dart
+  smartcross/lib/features/chats/chat_conversation_screen.dart
+  (+ leur repository/provider/service socket associés — chercher
+  chatRepositoryProvider / chatUsersProvider et le client WebSocket utilisé,
+  probablement lib/data/repositories/chat_repository.dart ou équivalent)
+
+Référence web : frontend/app/(app)/chats/page.tsx (entièrement réécrit cette
+session pour ces deux features), backend users/consumers.py::ChatConsumer,
+users/views.py::ChatUsersListView, users/models.py (CustomUser.last_seen_at,
+ChatMessage.read_at) — déjà en place côté serveur, rien à changer côté API.
+
+a) Présence en ligne ("En ligne" / "Vu il y a ...")
+   - Le endpoint GET /api/users/chat/users/ renvoie maintenant, par
+     utilisateur : `is_online` (bool) et `last_seen_at` (ISO datetime ou
+     null). `is_online` = activité WS il y a moins de 40s.
+   - Le serveur ne pousse PAS de présence en push — c'est calculé à chaque
+     appel de cet endpoint. Donc : re-fetcher la liste des utilisateurs
+     périodiquement (le web le fait toutes les 20s) pour rafraîchir le
+     statut, ET envoyer un "ping" de présence pendant qu'une conversation
+     est ouverte pour que CE device compte comme en ligne pour les autres :
+     envoyer sur le WebSocket `{"action": "ping"}` (payload sans "content",
+     le serveur l'ignore comme message mais met à jour last_seen_at) toutes
+     les ~20s tant que le socket est connecté.
+   - UI : petit point vert sur l'avatar (chat_list_screen) + libellé
+     "En ligne" / "Vu il y a Xmin" / "Hors ligne" sous chaque utilisateur, et
+     dans l'en-tête de chat_conversation_screen pour le contact actif.
+   - Voir web : handleImportExcel n'est PAS lié à ça, ignorer ; le code
+     pertinent est connectWebSocket() (ping toutes les 20s, onopen) et le
+     nouveau state ChatUser.is_online/last_seen_at + formatLastSeen() dans
+     frontend/app/(app)/chats/page.tsx.
+
+b) Accusés de lecture ("vu")
+   - Nouvelle action WebSocket côté client -> serveur : envoyer
+     `{"action": "read"}` sur le socket d'une conversation DIRECTE (pas
+     "Général" — un message général a plusieurs destinataires, pas de statut
+     "vu" unique côté serveur pour ce cas, le serveur ignore l'action pour
+     ce salon). À envoyer : (1) juste après connexion à une conversation DM,
+     (2) à chaque réception d'un nouveau message de l'autre personne pendant
+     que la conversation est affichée.
+   - Le serveur répond en broadcastant sur le salon un événement
+     `{"type": "message_read", "ids": [...], "read_at": "...", "room_name": ...}`
+     — mettre à jour les messages locaux dont l'id est dans `ids` avec ce
+     `read_at`.
+   - Chaque ChatMessage a maintenant un champ `read_at` (déjà exposé par
+     l'historique REST ET par les messages WS entrants).
+   - UI, uniquement sur SES PROPRES messages dans une conversation DIRECTE
+     (pas "Général") : une seule coche grise si `read_at` est null (envoyé),
+     une double coche colorée si `read_at` est renseigné (lu) — juste à côté
+     de l'horodatage du message, façon WhatsApp.
+
+-----------------------------------------------------------------------------
+2. À PORTER (si présent côté Flutter) — Dashboard : retirer 2 KPI
+-----------------------------------------------------------------------------
+Web : frontend/app/(app)/dashboard/page.tsx et frontend/app/(app)/reports/page.tsx
+— les cartes KPI "Ventes impayées / 0 / Transactions avec paiement en
+attente" et "Montant impayé / 0 Ar / Somme due sur ventes impayées" ont été
+supprimées (les champs backend `unpaid_sales_count`/`unpaid_sales_value`
+existent toujours côté API, seul l'affichage a été retiré).
+
+Vérifier si smartcross/lib/features/dashboard/ (écran Gérant) affiche des
+KPI équivalents (chercher "impayé"/"unpaid" dans ce dossier). Si oui, les
+retirer de la même façon. Ne PAS toucher à un éventuel écran "Ventes à
+crédit" séparé s'il existe (différent des KPI ci-dessus — laissé tel quel
+côté web aussi, cf. reports/page.tsx qui garde ce tableau).
+
+-----------------------------------------------------------------------------
+3. À ÉVALUER — Commande : assignation Livreur dès la création
+-----------------------------------------------------------------------------
+Web : le formulaire "Nouvelle commande" (CreateOrderDialog dans
+frontend/app/(app)/orders/page.tsx) permet maintenant d'assigner un
+Préparateur ET un Livreur au moment de la création (deux Select côte à
+côte, "Assigner plus tard" par défaut) — auparavant seul le Préparateur
+était assignable à la création. L'API `djangoClient.orders.create()` reste
+inchangée ; l'assignation se fait par un appel séparé à changeStatus juste
+après la création (EN_PREPARATION avec preparateur_id, ou action équivalente
+pour le livreur si le statut le permet déjà — voir orders/services.py côté
+règles).
+
+Vérifier dans smartcross/lib/features/orders/order_create_screen.dart si un
+assignation Livreur existe déjà à la création (peu probable d'après le
+dernier audit) et l'ajouter si pertinent pour le rôle Gérant (PAS pour le
+Préparateur qui ne crée que des Récupérations — _isPreparateur reste
+inchangé, voir order_create_screen.dart existant). Le champ n'a de sens que
+si le Gérant utilise cet écran de création sur mobile — évaluer l'usage
+réel avant d'investir du temps ici ; ce n'est pas un correctif de bug, juste
+une parité de fonctionnalité optionnelle.
+
+Le simple RÉORDONNANCEMENT visuel des champs du formulaire web (Article en
+haut, etc.) n'a PAS d'équivalent significatif à porter : un formulaire
+mobile est déjà en colonne unique, l'ordre logique des champs Flutter
+(client → date → type → zone/adresse → assignation → article) reste
+pertinent tel quel. Ne pas réorganiser l'écran Flutter juste pour "matcher"
+l'ordre web.
+
+-----------------------------------------------------------------------------
+4. NON APPLICABLE À FLUTTER — ne pas porter
+-----------------------------------------------------------------------------
+Ces changements web sont spécifiques à l'admin catalogue (desktop, rôle
+Gérant uniquement, pas d'écran équivalent dans smartcross qui est centré sur
+le workflow Commandes/Dépôt/Tournée) :
+
+  - Page Produits (frontend/app/(app)/products/page.tsx) : réorganisation du
+    formulaire "Nouvelle référence produit" (Catégorie/Marque/Référence sur
+    une ligne, Nombre/Seuil groupés), suppression création inline
+    marque/couleur, correctif `w-fit` -> `w-full` sur les Select.
+  - Catégories "Avec couleurs" / "Sans couleurs" (catalog/models.py::
+    ProductCategory.avec_couleurs, nouveau champ + migration) et son UI
+    dans CreateReferenceDialog / Paramètres du catalogue.
+  - Refonte de "Paramètres du catalogue" en onglets (Marques/Catégories/
+    Couleurs) + composant CrudRow partagé.
+  - Export/Import Excel du catalogue (catalog/views.py::export_excel /
+    import_excel) : correction de la casse insensible lors du matching,
+    colonnes "Statut"/"Date de traitement" écrites dans le fichier retourné
+    (reprise sans redoublonner), revue optionnelle par IA (Ollama) des
+    quasi-doublons via frontend/app/api/ai/check-duplicates/route.ts, et
+    (ajout externe, en cours en parallèle de cette session) un système
+    d'annulation d'import (catalog/models.py::ImportBatch +
+    catalog/services.py::revert_import_batch). Aucun de ces éléments n'a de
+    sens sur mobile.
+  - Comptes de démo seed_smartphone.py (noms Lili/Miora/Tiana/Livreko
+    Express/etc., mot de passe par défaut "fanandramana") : c'est une
+    commande d'administration serveur, pas du code applicatif — rien à
+    porter, les comptes sont juste des données.
+  - scripts/seed_colors.sql, scripts/vps_reset_and_seed.sh : scripts
+    d'exploitation VPS, sans rapport avec le code applicatif.
+
+-----------------------------------------------------------------------------
+Méthode de travail suggérée
+-----------------------------------------------------------------------------
+1. Section 1 (chat) : le plus gros morceau, à faire en premier — modifier le
+   repository/service chat pour exposer is_online/last_seen_at/read_at,
+   ajouter le ping périodique et l'action "read", puis l'UI des deux écrans.
+2. Section 2 (dashboard) : rapide, vérifier puis retirer si présent.
+3. Section 3 (livreur à la création) : évaluer d'abord si ça vaut le coup
+   avant de coder — ce n'est pas un bug, juste une parité optionnelle.
+4. Après CHAQUE fichier modifié : `flutter analyze <fichier>` (ignorer le
+   hook IDE, cf. avertissement en haut de ce guide). À la fin :
+   `flutter analyze` complet, comparer au chiffre de base "propre" ci-dessus.
+5. Si un point de ce guide s'avère faux en le vérifiant dans le code actuel
+   de smartcross/ (ex: le KPI impayé n'existe pas côté Flutter), le signaler
+   dans le rapport final plutôt que de forcer un changement qui n'a pas lieu
+   d'être.

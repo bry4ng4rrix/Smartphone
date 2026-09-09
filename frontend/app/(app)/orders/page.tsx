@@ -1654,7 +1654,6 @@ function CreateOrderDialog({
   const [preparateurId, setPreparateurId] = useState("");
   const [preparateurAssignedAt, setPreparateurAssignedAt] = useState("");
   const [livreurId, setLivreurId] = useState("");
-  const [livreurAssignedAt, setLivreurAssignedAt] = useState("");
   const [preparateurs, setPreparateurs] = useState<
     { id: number; full_name: string; available: boolean }[]
   >([]);
@@ -1697,10 +1696,6 @@ function CreateOrderDialog({
         .availableStaff("PREPARATEUR")
         .then(setPreparateurs)
         .catch(() => setPreparateurs([]));
-      djangoClient.orders
-        .availableStaff("LIVREUR")
-        .then(setLivreurs)
-        .catch(() => setLivreurs([]));
     }
     setClientNom("");
     setTelephone("+261");
@@ -1715,13 +1710,26 @@ function CreateOrderDialog({
     setPreparateurId("");
     setPreparateurAssignedAt(toDatetimeLocalValue(new Date()));
     setLivreurId("");
-    setLivreurAssignedAt(toDatetimeLocalValue(new Date()));
     setQuery("");
     setSuggestions([]);
     setSelectedRef(null);
     setVariantId(null);
     setQuantite("");
   }, [open, isPreparateur]);
+
+  // Reinterrogé à chaque changement de date/heure : le livreur peut être
+  // pré-assigné dès la création (voir submit()), donc "disponible" reflète
+  // aussi un éventuel conflit d'horaire avec une autre commande déjà
+  // (pré-)assignée à ce livreur le même jour/heure — purement indicatif,
+  // n'empêche pas la sélection (voir orders/views.py::available_staff).
+  useEffect(() => {
+    if (!open || isPreparateur) return;
+    const iso = dateCommande ? new Date(dateCommande).toISOString() : undefined;
+    djangoClient.orders
+      .availableStaff("LIVREUR", undefined, iso)
+      .then(setLivreurs)
+      .catch(() => setLivreurs([]));
+  }, [open, isPreparateur, dateCommande]);
 
   const typesForCategory = categoryId
     ? types.filter((t) => t.category === categoryId)
@@ -1826,6 +1834,7 @@ function CreateOrderDialog({
           quantite: it.quantite,
         })),
       });
+      let assignmentFailed = false;
       if (preparateurId) {
         try {
           await djangoClient.orders.changeStatus(
@@ -1839,15 +1848,32 @@ function CreateOrderDialog({
                 : undefined,
             },
           );
-          toast.success("Commande créée et assignée");
         } catch (assignErr: any) {
+          assignmentFailed = true;
           toast.error(
-            `Commande créée, mais l'assignation a échoué : ${assignErr.message || "erreur inconnue"} ` +
+            `Commande créée, mais l'assignation du préparateur a échoué : ${assignErr.message || "erreur inconnue"} ` +
               "(à assigner depuis le tableau).",
           );
         }
-      } else {
-        toast.success("Commande créée");
+      }
+      // Pré-assignation du livreur — indépendante du statut, réutilisée
+      // automatiquement au passage "En livraison" une fois la commande
+      // Prête (voir orders/services.py::assign_livreur_early).
+      if (livreurId) {
+        try {
+          await djangoClient.orders.assignLivreur(order.id, Number(livreurId));
+        } catch (assignErr: any) {
+          assignmentFailed = true;
+          toast.error(
+            `Commande créée, mais l'assignation du livreur a échoué : ${assignErr.message || "erreur inconnue"} ` +
+              "(à assigner depuis le tableau).",
+          );
+        }
+      }
+      if (!assignmentFailed) {
+        toast.success(
+          preparateurId || livreurId ? "Commande créée et assignée" : "Commande créée",
+        );
       }
       onCreated();
     } catch (err: any) {
@@ -2186,21 +2212,11 @@ function CreateOrderDialog({
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Optionnel — affecte le livreur pour la livraison quand la
-                commande est prête.
+                Optionnel — pré-assigné dès maintenant, sans attendre que la
+                commande soit prête. Le passage "En livraison" reste une
+                action manuelle, mais n'aura pas besoin de choisir à nouveau
+                le livreur.
               </p>
-              {livreurId && (
-                <div className="space-y-1 pt-1">
-                  <Label className="text-xs text-muted-foreground">
-                    Date et heure d'assignation
-                  </Label>
-                  <Input
-                    type="datetime-local"
-                    value={livreurAssignedAt}
-                    onChange={(e) => setLivreurAssignedAt(e.target.value)}
-                  />
-                </div>
-              )}
             </div>
           </div>
         )}

@@ -712,9 +712,18 @@ class DjangoAPIClient {
     cancel: async (id: number, note?: string) => {
       return this.post<any>(`/orders/${id}/cancel/`, { note })
     },
-    availableStaff: async (role: 'PREPARATEUR' | 'LIVREUR', magasinId?: number) => {
+    // Pré-assigne un livreur avant que la commande soit Prête, sans changer
+    // son statut — réutilisé automatiquement au passage "En livraison"
+    // (voir orders/services.py::assign_livreur_early/_resolve_assignee).
+    assignLivreur: async (id: number, livreurId: number) => {
+      return this.post<any>(`/orders/${id}/assign-livreur/`, { livreur_id: livreurId })
+    },
+    availableStaff: async (role: 'PREPARATEUR' | 'LIVREUR', magasinId?: number, dateCommande?: string) => {
       const params = new URLSearchParams({ role })
       if (magasinId) params.append('magasin_id', String(magasinId))
+      // Pour LIVREUR : signale (sans bloquer) un conflit d'horaire avec une
+      // autre commande déjà (pré-)assignée à ce livreur le même jour/heure.
+      if (dateCommande) params.append('date_commande', dateCommande)
       return this.get<{ id: number; full_name: string; magasin_id: number; available: boolean }[]>(
         `/orders/available-staff/?${params.toString()}`
       )

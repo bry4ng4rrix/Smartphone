@@ -136,9 +136,23 @@ class OrdersRepository {
 
   /// Liste des préparateurs/livreurs du magasin pour le sélecteur
   /// d'affectation du gérant — voir orders/views.py::available_staff.
-  Future<List<StaffOption>> availableStaff(String role) async {
-    final response = await _dio.get('orders/available-staff/', queryParameters: {'role': role});
+  /// [dateCommande] (LIVREUR uniquement) : signale (sans bloquer) un conflit
+  /// d'horaire avec une autre commande déjà (pré-)assignée à ce livreur le
+  /// même jour/heure.
+  Future<List<StaffOption>> availableStaff(String role, {DateTime? dateCommande}) async {
+    final response = await _dio.get('orders/available-staff/', queryParameters: {
+      'role': role,
+      if (dateCommande != null) 'date_commande': dateCommande.toUtc().toIso8601String(),
+    });
     return (response.data as List).map((e) => StaffOption.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  /// Pré-assigne un livreur avant que la commande soit Prête, sans changer
+  /// son statut — réutilisé automatiquement au passage "En livraison" (voir
+  /// orders/services.py::assign_livreur_early/_resolve_assignee).
+  Future<Order> assignLivreur(int id, int livreurId) async {
+    final response = await _dio.post('orders/$id/assign-livreur/', data: {'livreur_id': livreurId});
+    return Order.fromJson(response.data as Map<String, dynamic>);
   }
 
   String _fmt(DateTime d) => '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';

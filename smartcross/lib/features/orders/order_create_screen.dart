@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 
 import '../../core/api_client.dart';
 import '../../core/constants.dart';
+import '../../data/repositories/orders_repository.dart' show StaffOption;
 import '../../models/catalog.dart';
 import '../../models/order.dart';
 import '../../state/auth_provider.dart';
@@ -49,6 +50,20 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
   String? _error;
   bool _isPreparateur = false;
 
+  // Assignation à la création (gérant uniquement, miroir web : CreateOrderDialog
+  // affiche Préparateur + Livreur côte à côte — voir page.tsx). Le
+  // préparateur est assigné juste après la création (transition NOUVELLE ->
+  // EN_PREPARATION). Le livreur, lui, ne peut pas déclencher EN_LIVRAISON
+  // depuis NOUVELLE (orders/services.py n'autorise cette transition que
+  // depuis PRETE) — mais il peut être PRÉ-assigné dès maintenant (endpoint
+  // dédié assign-livreur, indépendant du statut) : orders/services.py::
+  // _resolve_assignee réutilise alors ce livreur sans le redemander une fois
+  // la commande Prête et passée manuellement à "En livraison".
+  List<StaffOption> _preparateurs = [];
+  List<StaffOption> _livreurs = [];
+  int? _preparateurId;
+  int? _livreurId;
+
   @override
   void initState() {
     super.initState();
@@ -57,6 +72,24 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
     // -> zone forcée + showPrices = false, voir page.tsx).
     _isPreparateur = ref.read(authProvider).user?.role == UserRole.preparateur;
     if (_isPreparateur) _zone = DeliveryZone.recuperation;
+    if (!_isPreparateur) _loadStaff();
+  }
+
+  Future<void> _loadStaff() async {
+    final notifier = ref.read(ordersProvider.notifier);
+    try {
+      final results = await Future.wait([
+        notifier.availableStaff('PREPARATEUR'),
+        notifier.availableStaff('LIVREUR', dateCommande: _dateCommande),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _preparateurs = results[0];
+        _livreurs = results[1];
+      });
+    } catch (_) {
+      // Non bloquant — l'assignation reste possible plus tard depuis le détail.
+    }
   }
 
   @override
@@ -94,6 +127,9 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
     final time = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(_dateCommande));
     if (time == null) return;
     setState(() => _dateCommande = DateTime(date.year, date.month, date.day, time.hour, time.minute));
+    // Rafraîchit la disponibilité livreur pour ce nouveau créneau (voir
+    // orders/views.py::available_staff — conflit d'horaire indicatif).
+    if (!_isPreparateur) _loadStaff();
   }
 
   Future<void> _addLine() async {
@@ -121,6 +157,36 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
             adresseLivraison: _adresseController.text.trim(),
             dateCommande: _dateCommande,
           );
+      if (_preparateurId != null) {
+        try {
+          await ref.read(ordersProvider.notifier).changeStatus(
+                order.id,
+                'EN_PREPARATION',
+                preparateurId: _preparateurId,
+                assignedAt: DateTime.now(),
+              );
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text("Commande créée, mais l'assignation du préparateur a échoué : ${ApiClient.messageFromError(e)}"),
+            ));
+          }
+        }
+      }
+      // Pré-assignation du livreur — indépendante du statut, réutilisée
+      // automatiquement au passage "En livraison" une fois la commande prête
+      // (voir orders/services.py::assign_livreur_early).
+      if (_livreurId != null) {
+        try {
+          await ref.read(ordersProvider.notifier).assignLivreur(order.id, _livreurId!);
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text("Commande créée, mais l'assignation du livreur a échoué : ${ApiClient.messageFromError(e)}"),
+            ));
+          }
+        }
+      }
       if (mounted) context.go('/orders/${order.id}');
     } catch (e) {
       setState(() => _error = ApiClient.messageFromError(e));
@@ -176,6 +242,29 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
                 decoration: const InputDecoration(labelText: 'Livraison', prefixIcon: Icon(Icons.local_shipping_outlined)),
                 items: [for (final z in DeliveryZone.values) DropdownMenuItem(value: z, child: Text(z.label))],
                 onChanged: (v) => setState(() => _zone = v ?? _zone),
+              ),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<int>(
+                initialValue: _preparateurId,
+                decoration: const InputDecoration(labelText: 'Préparateur (optionnel)', prefixIcon: Icon(Icons.inventory_2_outlined)),
+                hint: const Text('Assigner plus tard'),
+                items: [for (final p in _preparateurs) DropdownMenuItem(value: p.id, child: Text(p.fullName))],
+                onChanged: (v) => setState(() => _preparateurId = v),
+              ),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<int>(
+                initialValue: _livreurId,
+                decoration: const InputDecoration(labelText: 'Livreur (optionnel)', prefixIcon: Icon(Icons.moped_outlined)),
+                hint: const Text('Assigner plus tard'),
+                items: [for (final l in _livreurs) DropdownMenuItem(value: l.id, child: Text(l.fullName))],
+                onChanged: (v) => setState(() => _livreurId = v),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: 4, left: 4),
+                child: Text(
+                  'Pré-assigné dès maintenant, sans attendre que la commande soit prête. Le passage "En livraison" reste une action manuelle, mais n\'aura pas besoin de choisir à nouveau le livreur.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline),
+                ),
               ),
             ],
             if (_zone != DeliveryZone.recuperation) ...[

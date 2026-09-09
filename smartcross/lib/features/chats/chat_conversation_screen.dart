@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -5,6 +8,7 @@ import 'package:intl/intl.dart';
 import '../../core/api_client.dart';
 import '../../core/chat_socket_service.dart';
 import '../../models/chat.dart';
+import '../../models/json_utils.dart';
 import '../../state/auth_provider.dart';
 import 'chat_list_screen.dart';
 
@@ -30,6 +34,7 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
   bool _loading = true;
   String? _error;
   int? _editingId;
+  StreamSubscription<bool>? _statusSub;
 
   @override
   void initState() {
@@ -37,10 +42,17 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
     _loadHistory();
     _socket.connectToConversation(recipientId: widget.recipientId);
     _socket.incoming.listen(_handleIncoming);
+    // (1) Juste après connexion (et toute reconnexion) à une conversation
+    // DIRECTE : marquer "vu" les messages déjà reçus non lus (no-op serveur
+    // pour "Général", voir ChatConsumer.mark_read()).
+    _statusSub = _socket.connectionStatus.listen((connected) {
+      if (connected && widget.recipientId != null) _socket.markRead();
+    });
   }
 
   @override
   void dispose() {
+    _statusSub?.cancel();
     _socket.disposeService();
     _messageController.dispose();
     _scrollController.dispose();
@@ -80,9 +92,25 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
           final id = (data['id'] as num?)?.toInt();
           final index = _messages.indexWhere((m) => m.id == id);
           if (index != -1) _messages[index] = _messages[index].copyWith(isDeleted: true, content: '');
+        case 'message_read':
+          // Broadcast serveur suite à une action "read" (la nôtre ou celle
+          // de l'autre partie) : {"ids": [...], "read_at": ...}.
+          final ids = (data['ids'] as List?)?.map((e) => (e as num).toInt()).toSet() ?? const <int>{};
+          final readAt = asDateOrNull(data['read_at']);
+          for (var i = 0; i < _messages.length; i++) {
+            if (ids.contains(_messages[i].id)) _messages[i] = _messages[i].copyWith(readAt: readAt);
+          }
       }
     });
-    if (type == 'message') _scrollToBottom();
+    if (type == 'message') {
+      _scrollToBottom();
+      // (2) Message reçu (pas le mien) pendant que la conversation DIRECTE
+      // est affichée -> le marquer "vu" tout de suite (miroir web :
+      // ws.onmessage). "Général" n'a pas de statut "vu" : rien à envoyer.
+      final senderId = (data['sender'] as num?)?.toInt();
+      final myId = ref.read(authProvider).user?.id;
+      if (widget.recipientId != null && senderId != myId) _socket.markRead();
+    }
   }
 
   void _scrollToBottom() {
@@ -132,9 +160,29 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
   @override
   Widget build(BuildContext context) {
     final myId = ref.watch(authProvider).user?.id;
+    // Présence du contact actif (DM uniquement) — dérivée de la même liste
+    // périodiquement rafraîchie que chat_list_screen.dart (pas de push
+    // serveur), voir chatUsersProvider.
+    final activeUser = widget.recipientId == null
+        ? null
+        : ref.watch(chatUsersProvider).value?.where((u) => u.id == widget.recipientId).firstOrNull;
 
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
+      appBar: AppBar(
+        title: activeUser == null
+            ? Text(widget.title)
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(activeUser.fullName.isNotEmpty ? activeUser.fullName : widget.title),
+                  Text(
+                    presenceLabel(activeUser),
+                    style: TextStyle(fontSize: 12, color: activeUser.isOnline ? Colors.greenAccent.shade400 : null),
+                  ),
+                ],
+              ),
+      ),
       body: Column(
         children: [
           Expanded(
@@ -153,6 +201,7 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
                             message: m,
                             isMine: isMine,
                             showSender: widget.recipientId == null && !isMine,
+                            showReadReceipt: isMine && widget.recipientId != null,
                             onLongPress: isMine && !m.isDeleted ? () => _showActions(m) : null,
                           );
                         },
@@ -186,11 +235,21 @@ class _ChatConversationScreenState extends ConsumerState<ChatConversationScreen>
 }
 
 class _MessageBubble extends StatelessWidget {
-  const _MessageBubble({required this.message, required this.isMine, required this.showSender, this.onLongPress});
+  const _MessageBubble({
+    required this.message,
+    required this.isMine,
+    required this.showSender,
+    this.showReadReceipt = false,
+    this.onLongPress,
+  });
 
   final ChatMessage message;
   final bool isMine;
   final bool showSender;
+  // Coche(s) façon WhatsApp — uniquement sur SES PROPRES messages dans une
+  // conversation DIRECTE (le salon "Général" n'a pas de "vu" unique par
+  // message, voir ChatConsumer.mark_read()).
+  final bool showReadReceipt;
   final VoidCallback? onLongPress;
 
   @override
@@ -222,6 +281,14 @@ class _MessageBubble extends StatelessWidget {
                 children: [
                   if (message.timestamp != null) Text(_timeFmt.format(message.timestamp!.toLocal()), style: Theme.of(context).textTheme.labelSmall),
                   if (message.isEdited && !message.isDeleted) Text('  (modifié)', style: Theme.of(context).textTheme.labelSmall),
+                  if (showReadReceipt && !message.isDeleted) ...[
+                    const SizedBox(width: 4),
+                    Icon(
+                      message.readAt != null ? Icons.done_all : Icons.done,
+                      size: 14,
+                      color: message.readAt != null ? scheme.primary : scheme.onSurfaceVariant,
+                    ),
+                  ],
                 ],
               ),
             ],
