@@ -149,7 +149,14 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+# Fuseau métier de l'application : Madagascar (Indian/Antananarivo, UTC+3,
+# sans heure d'été). C'est LUI qui définit la date "du jour" partout côté
+# serveur — en particulier la règle du "jour J" (orders/services.py
+# ::change_order_status), la numérotation des commandes (Order.generate_numero)
+# et les KPI "aujourd'hui" du dashboard. Avec USE_TZ = True, les datetimes
+# restent stockés en UTC en base : ce réglage ne modifie AUCUNE donnée
+# existante, il ne change que l'interprétation/l'affichage.
+TIME_ZONE = 'Indian/Antananarivo'
 
 USE_I18N = True
 
