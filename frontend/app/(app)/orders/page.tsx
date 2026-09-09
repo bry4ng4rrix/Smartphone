@@ -339,7 +339,7 @@ export default function OrdersPage() {
         ? 'Commandes reçues à préparer, puis à marquer "Prête" pour le livreur.'
         : isLivreur
           ? 'Commandes prêtes à récupérer, puis "Livré" ou "Retour" une fois la tournée faite.'
-          : "Suivi complet des commandes clients (§5-§7.1 du cahier des charges).";
+          : "Suivi complet des commandes clients.";
 
   const gerantActionOptions = (order: any) => {
     const options: {
@@ -915,12 +915,13 @@ export default function OrdersPage() {
                   {searchableOrders.map((order) => {
                     const action = nextAction(order);
                     const preparedAt = historyAt(order, "EN_PREPARATION");
-                    // Une fois livrée, on affiche l'heure de livraison réelle (LIVRE) plutôt
-                    // que celle de la simple prise en charge (EN_LIVRAISON).
+                    // Tant que la commande n'est pas Livrée, on affiche la date de
+                    // livraison prévue (date_commande) — une fois Livrée, l'heure
+                    // réellement atteinte (§ demande).
                     const livreurAt =
                       order.statut_courant === "LIVRE"
                         ? historyAt(order, "LIVRE")
-                        : historyAt(order, "EN_LIVRAISON");
+                        : order.date_commande;
                     // Une commande assignée à un préparateur dès sa création
                     // part directement en "En préparation" — restreindre la
                     // modification à "Nouvelle" ne laissait presque aucune
@@ -1082,7 +1083,7 @@ export default function OrdersPage() {
                                         <div>
                                           {order.statut_courant === "LIVRE"
                                             ? "Livré le "
-                                            : ""}
+                                            : "Prévu le "}
                                           {fmtDT(livreurAt)}
                                         </div>
                                       )}

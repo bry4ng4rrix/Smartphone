@@ -11,6 +11,9 @@ class OrderItem {
     required this.couleur,
     this.prixUnitaire,
     required this.quantite,
+    this.brandName,
+    this.typeName,
+    this.categoryName,
   });
 
   final int id;
@@ -19,6 +22,12 @@ class OrderItem {
   final String couleur;
   final double? prixUnitaire;
   final int quantite;
+  // Marque, sous-type (ProductType) et type (ProductCategory) — exposés par
+  // les deux serializers (gérant/préparateur-livreur), voir
+  // orders/serializers.py::OrderItemSerializer/OrderItemPublicSerializer.
+  final String? brandName;
+  final String? typeName;
+  final String? categoryName;
 
   factory OrderItem.fromJson(Map<String, dynamic> json) {
     return OrderItem(
@@ -28,6 +37,9 @@ class OrderItem {
       couleur: asString(json['couleur']),
       prixUnitaire: asDoubleOrNull(json['prix_unitaire']),
       quantite: asInt(json['quantite'], 1),
+      brandName: asStringOrNull(json['brand_name']),
+      typeName: asStringOrNull(json['type_name']),
+      categoryName: asStringOrNull(json['category_name']),
     );
   }
 }

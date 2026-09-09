@@ -251,9 +251,12 @@ class _OrderTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final preparedAt = _historyAt(order, OrderStatus.enPreparation);
+    // Tant que la commande n'est pas Livrée, on affiche la date de livraison
+    // prévue (dateCommande) — une fois Livrée, l'heure réellement atteinte
+    // (§ demande).
     final livreurAt = order.statutCourant == OrderStatus.livre
         ? _historyAt(order, OrderStatus.livre)
-        : _historyAt(order, OrderStatus.enLivraison);
+        : order.dateCommande;
     // Une commande assignée à un préparateur dès sa création part
     // directement en "En préparation" — restreindre la modification à
     // "Nouvelle" ne laissait presque aucune fenêtre pour la corriger
@@ -280,7 +283,7 @@ class _OrderTile extends ConsumerWidget {
                 if (order.livreurName != null)
                   Text(
                     'Livreur : ${order.livreurName}'
-                    '${livreurAt != null ? ' · ${order.statutCourant == OrderStatus.livre ? 'Livré le ' : ''}${_shortDateFmt.format(livreurAt.toLocal())}' : ''}',
+                    '${livreurAt != null ? ' · ${order.statutCourant == OrderStatus.livre ? 'Livré le ' : 'Prévu le '}${_shortDateFmt.format(livreurAt.toLocal())}' : ''}',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
               ],
@@ -543,7 +546,7 @@ class _EditOrderDialogState extends ConsumerState<_EditOrderDialog> {
               InkWell(
                 onTap: _pickDateCommande,
                 child: InputDecorator(
-                  decoration: const InputDecoration(labelText: 'Date et heure de la commande'),
+                  decoration: const InputDecoration(labelText: 'Date et heure de livraison'),
                   child: Text(DateFormat('dd/MM/yyyy HH:mm').format(_dateCommande)),
                 ),
               ),
