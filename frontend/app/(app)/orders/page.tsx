@@ -660,13 +660,23 @@ export default function OrdersPage() {
               className="w-auto"
             />
           </div>
-          {(livreurStatutFilter !== "ALL" || livreurDate) && (
+          <div className="space-y-1 min-w-[220px] flex-1 max-w-[360px]">
+            <Label className="text-xs text-muted-foreground">Recherche</Label>
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Code, client, produit, adresse, livreur, préparateur, date..."
+              className="w-full"
+            />
+          </div>
+          {(livreurStatutFilter !== "ALL" || livreurDate || searchQuery) && (
             <Button
               variant="ghost"
               size="sm"
               onClick={() => {
                 setLivreurStatutFilter("ALL");
                 setLivreurDate("");
+                setSearchQuery("");
               }}
             >
               Réinitialiser
@@ -686,11 +696,23 @@ export default function OrdersPage() {
               className="w-auto"
             />
           </div>
-          {preparateurDate && (
+          <div className="space-y-1 min-w-[220px] flex-1 max-w-[360px]">
+            <Label className="text-xs text-muted-foreground">Recherche</Label>
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Code, client, produit, adresse, date..."
+              className="w-full"
+            />
+          </div>
+          {(preparateurDate || searchQuery) && (
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setPreparateurDate("")}
+              onClick={() => {
+                setPreparateurDate("");
+                setSearchQuery("");
+              }}
             >
               Réinitialiser
             </Button>
@@ -940,13 +962,61 @@ export default function OrdersPage() {
                             </a>
                           </TableCell>
                         )}
-                        <TableCell className="max-w-[220px] truncate">
-                          {(order.items || [])
-                            .map(
-                              (it: any) =>
-                                `${it.reference_name} (${it.couleur}) x${it.quantite}`,
-                            )
-                            .join(", ")}
+                        <TableCell className="max-w-[320px] align-top">
+                          <div className="space-y-2">
+                            {(order.items || []).map((it: any) => (
+                              <div
+                                key={it.id}
+                                className="rounded-md border border-border/80 bg-muted/10 p-2"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="font-medium text-foreground text-sm leading-tight">
+                                    {it.reference_name || "Article"}
+                                  </div>
+                                  {it.quantite ? (
+                                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                      x{it.quantite}
+                                    </span>
+                                  ) : null}
+                                </div>
+
+                                <div className="mt-2 space-y-1 text-[11px] leading-snug">
+                                  <div>
+                                    <span className="text-muted-foreground">
+                                      Sous-type:{" "}
+                                    </span>
+                                    <span className="font-semibold text-foreground">
+                                      {it.type_name || "-"}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-muted-foreground">
+                                      Type:{" "}
+                                    </span>
+                                    <span className="font-medium text-foreground">
+                                      {it.category_name || "-"}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-muted-foreground">
+                                      Marque:{" "}
+                                    </span>
+                                    <span className="font-medium text-foreground">
+                                      {it.brand_name || "-"}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-muted-foreground">
+                                      Couleur:{" "}
+                                    </span>
+                                    <span className="inline-flex items-center rounded-full border border-border bg-background px-1.5 py-0.5 text-[10px] text-foreground">
+                                      {it.couleur || "-"}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </TableCell>
                         <TableCell
                           className={
@@ -1165,69 +1235,124 @@ export default function OrdersPage() {
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Statut</span>
-                  <Badge className={statutInfo(detail.statut_courant).color}>
-                    {statutInfo(detail.statut_courant).label}
-                  </Badge>
-                </div>
-                {detail.date_commande && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Date commande</span>
-                    <span>
-                      {new Date(detail.date_commande).toLocaleString("fr-FR")}
+                <div className="mb-2">
+                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                    Information
+                  </p>
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <span className="font-semibold text-base">
+                      Commande {detail.numero}
                     </span>
+                    <Badge className={statutInfo(detail.statut_courant).color}>
+                      {statutInfo(detail.statut_courant).label}
+                    </Badge>
+                  </div>
+                </div>
+
+                {detail.items && detail.items.length > 0 && (
+                  <div className="space-y-2 rounded-md border bg-muted/10 p-3">
+                    <p className="text-muted-foreground text-xs uppercase tracking-[0.2em]">
+                      Sous type
+                    </p>
+                    {(detail.items || []).map((it: any) => (
+                      <div key={it.id} className="space-y-1">
+                        <div className="font-medium text-foreground">
+                          {it.reference_name || "Article"}
+                          {it.couleur ? ` (${it.couleur})` : ""}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {[it.type_name, it.category_name, it.brand_name]
+                            .filter(Boolean)
+                            .join(" • ") || "Sans métadonnées"}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Zone</span>
-                  <span>
-                    {
-                      ZONES.find((z) => z.value === detail.livraison_zone)
-                        ?.label
-                    }
-                  </span>
-                </div>
-                {detail.adresse_livraison && (
+
+                <div className="grid gap-2">
                   <div className="flex justify-between gap-4">
-                    <span className="text-muted-foreground shrink-0">
-                      Adresse
-                    </span>
+                    <span className="text-muted-foreground">Nom client</span>
                     <span className="text-right">
-                      {detail.adresse_livraison}
+                      {detail.client_nom || "-"}
                     </span>
                   </div>
-                )}
-                {detail.livraison_zone !== "RECUPERATION" && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Paiement</span>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Numéro client</span>
+                    <span className="text-right">
+                      {detail.telephone || "-"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">
+                      Adresse client
+                    </span>
+                    <span className="text-right max-w-[55%] break-words">
+                      {detail.adresse_livraison || "-"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">
+                      Mode de payment
+                    </span>
                     <span>
                       {MODE_PAIEMENT.find(
                         (m) => m.value === detail.mode_paiement,
-                      )?.label || detail.mode_paiement}
+                      )?.label ||
+                        detail.mode_paiement ||
+                        "-"}
                     </span>
                   </div>
-                )}
-                {detail.total_a_payer != null && (
-                  <div className="flex justify-between">
+                  <div className="flex justify-between gap-4">
                     <span className="text-muted-foreground">Total à payer</span>
                     <span className="font-semibold">
-                      {fmt(detail.total_a_payer)}
+                      {detail.total_a_payer != null
+                        ? fmt(detail.total_a_payer)
+                        : "-"}
                     </span>
                   </div>
-                )}
-                {detail.preparateur_name && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Préparateur</span>
-                    <span>{detail.preparateur_name}</span>
-                  </div>
-                )}
-                {detail.livreur_name && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Livreur</span>
-                    <span>{detail.livreur_name}</span>
-                  </div>
-                )}
+                  {detail.preparateur_name && (
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">Préparateur</span>
+                      <span>{detail.preparateur_name}</span>
+                    </div>
+                  )}
+                  {detail.livreur_name && (
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">Livreur</span>
+                      <span>{detail.livreur_name}</span>
+                    </div>
+                  )}
+                  {detail.date_commande && (
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">
+                        Date de commande
+                      </span>
+                      <span>
+                        {new Date(detail.date_commande).toLocaleString("fr-FR")}
+                      </span>
+                    </div>
+                  )}
+                  {detail.status_history && (
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">
+                        Date de livraison
+                      </span>
+                      <span>
+                        {historyAt(detail, "LIVRE")
+                          ? new Date(historyAt(detail, "LIVRE")).toLocaleString(
+                              "fr-FR",
+                            )
+                          : historyAt(detail, "EN_LIVRAISON")
+                            ? new Date(
+                                historyAt(detail, "EN_LIVRAISON"),
+                              ).toLocaleString("fr-FR")
+                            : "-"}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
                 {detail.note_preparateur && (
                   <div>
                     <span className="text-muted-foreground">
@@ -1248,9 +1373,10 @@ export default function OrdersPage() {
                   <p className="text-muted-foreground mb-1">Articles</p>
                   <ul className="space-y-1">
                     {(detail.items || []).map((it: any) => (
-                      <li key={it.id} className="flex justify-between">
+                      <li key={it.id} className="flex justify-between gap-3">
                         <span>
-                          {it.reference_name} ({it.couleur}) x{it.quantite}
+                          {it.reference_name || "Article"} ({it.couleur || "-"})
+                          x{it.quantite}
                         </span>
                         {it.prix_unitaire != null && (
                           <span>

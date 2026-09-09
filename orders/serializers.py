@@ -26,10 +26,16 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
     reference_name = serializers.CharField(source="product_variant.product_reference.reference_name", read_only=True)
     couleur = serializers.CharField(source="product_variant.couleur", read_only=True)
+    brand_name = serializers.CharField(source="product_variant.product_reference.brand.nom", read_only=True)
+    type_name = serializers.CharField(source="product_variant.product_reference.type.nom", read_only=True)
+    category_name = serializers.CharField(source="product_variant.product_reference.type.category.nom", read_only=True)
 
     class Meta:
         model = OrderItem
-        fields = ["id", "product_variant", "reference_name", "couleur", "prix_unitaire", "quantite"]
+        fields = [
+            "id", "product_variant", "reference_name", "brand_name", "type_name", "category_name",
+            "couleur", "prix_unitaire", "quantite",
+        ]
 
 
 class OrderItemPublicSerializer(serializers.ModelSerializer):
@@ -37,10 +43,15 @@ class OrderItemPublicSerializer(serializers.ModelSerializer):
 
     reference_name = serializers.CharField(source="product_variant.product_reference.reference_name", read_only=True)
     couleur = serializers.CharField(source="product_variant.couleur", read_only=True)
+    brand_name = serializers.CharField(source="product_variant.product_reference.brand.nom", read_only=True)
+    type_name = serializers.CharField(source="product_variant.product_reference.type.nom", read_only=True)
+    category_name = serializers.CharField(source="product_variant.product_reference.type.category.nom", read_only=True)
 
     class Meta:
         model = OrderItem
-        fields = ["id", "reference_name", "couleur", "quantite"]
+        fields = [
+            "id", "reference_name", "brand_name", "type_name", "category_name", "couleur", "quantite",
+        ]
 
 
 class OrderStatusHistorySerializer(serializers.ModelSerializer):
