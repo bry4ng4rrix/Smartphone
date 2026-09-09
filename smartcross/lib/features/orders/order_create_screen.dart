@@ -17,8 +17,8 @@ import '../../state/orders_provider.dart';
 final _moneyFmt = NumberFormat.decimalPattern('fr_FR');
 String _ar(num v) => '${_moneyFmt.format(v.round())} Ar';
 
-class _CartLine {
-  _CartLine({
+class CartLine {
+  CartLine({
     required this.reference,
     required this.couleur,
     required this.variantId,
@@ -47,23 +47,24 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
   final _clientController = TextEditingController();
   final _phoneController = TextEditingController(text: '+261');
   final _adresseController = TextEditingController();
-  final _noteController = TextEditingController();
+  // Deux notes distinctes, chacune destinée à un seul rôle (§ demande).
+  final _notePreparateurController = TextEditingController();
+  final _noteLivreurController = TextEditingController();
   DeliveryZone _zone = DeliveryZone.zone1;
+  PaymentMode _modePaiement = PaymentMode.livraison;
   DateTime _dateCommande = DateTime.now();
-  final List<_CartLine> _lines = [];
+  final List<CartLine> _lines = [];
   bool _submitting = false;
   String? _error;
   bool _isPreparateur = false;
 
   // Assignation à la création (gérant uniquement, miroir web : CreateOrderDialog
-  // affiche Préparateur + Livreur côte à côte — voir page.tsx). Le
-  // préparateur est assigné juste après la création (transition NOUVELLE ->
-  // EN_PREPARATION). Le livreur, lui, ne peut pas déclencher EN_LIVRAISON
-  // depuis NOUVELLE (orders/services.py n'autorise cette transition que
-  // depuis PRETE) — mais il peut être PRÉ-assigné dès maintenant (endpoint
-  // dédié assign-livreur, indépendant du statut) : orders/services.py::
-  // _resolve_assignee réutilise alors ce livreur sans le redemander une fois
-  // la commande Prête et passée manuellement à "En livraison".
+  // affiche Préparateur + Livreur côte à côte — voir page.tsx). Les deux sont
+  // de simples PRÉ-assignations, indépendantes du statut (endpoints dédiés
+  // assign-preparateur/assign-livreur) : la commande reste "Nouvelle" (en
+  // attente) jusqu'à ce que le préparateur clique lui-même "Commencer la
+  // préparation" (§ demande) — orders/services.py::_resolve_assignee
+  // réutilise alors ces personnes sans les redemander.
   List<StaffOption> _preparateurs = [];
   List<StaffOption> _livreurs = [];
   int? _preparateurId;
@@ -102,7 +103,8 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
     _clientController.dispose();
     _phoneController.dispose();
     _adresseController.dispose();
-    _noteController.dispose();
+    _notePreparateurController.dispose();
+    _noteLivreurController.dispose();
     super.dispose();
   }
 
@@ -150,9 +152,9 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
   }
 
   Future<void> _addLine() async {
-    final result = await showDialog<_CartLine>(
+    final result = await showDialog<CartLine>(
       context: context,
-      builder: (_) => _AddLineDialog(hidePrices: _isPreparateur),
+      builder: (_) => AddOrderLineDialog(hidePrices: _isPreparateur),
     );
     if (result != null) setState(() => _lines.add(result));
   }
@@ -181,20 +183,16 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
                   quantite: l.quantite,
                 ),
             ],
-            note: _noteController.text.trim(),
+            notePreparateur: _notePreparateurController.text.trim(),
+            noteLivreur:
+                _zone == DeliveryZone.recuperation ? '' : _noteLivreurController.text.trim(),
             adresseLivraison: _adresseController.text.trim(),
+            modePaiement: _modePaiement.apiValue,
             dateCommande: _dateCommande,
           );
       if (_preparateurId != null) {
         try {
-          await ref
-              .read(ordersProvider.notifier)
-              .changeStatus(
-                order.id,
-                'EN_PREPARATION',
-                preparateurId: _preparateurId,
-                assignedAt: DateTime.now(),
-              );
+          await ref.read(ordersProvider.notifier).assignPreparateur(order.id, _preparateurId!);
         } catch (e) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -485,6 +483,26 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
                   ),
                 ],
               ),
+              const SizedBox(height: 20),
+              Text(
+                'Paiement',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<PaymentMode>(
+                value: _modePaiement,
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.payments_outlined),
+                ),
+                items: [
+                  for (final m in PaymentMode.values)
+                    DropdownMenuItem(value: m, child: Text(m.label)),
+                ],
+                onChanged: (v) =>
+                    setState(() => _modePaiement = v ?? _modePaiement),
+              ),
             ],
             const SizedBox(height: 20),
             Row(
@@ -540,19 +558,38 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
             ),
             const SizedBox(height: 20),
             Text(
-              'Note (optionnel)',
+              _isPreparateur
+                  ? 'Note (optionnel)'
+                  : 'Note pour le préparateur (optionnel)',
               style: Theme.of(
                 context,
               ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
             TextFormField(
-              controller: _noteController,
+              controller: _notePreparateurController,
               decoration: const InputDecoration(
                 prefixIcon: Icon(Icons.notes_outlined),
               ),
               maxLines: 3,
             ),
+            if (!_isPreparateur && !isPickup) ...[
+              const SizedBox(height: 20),
+              Text(
+                'Note pour le livreur (optionnel)',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _noteLivreurController,
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.moped_outlined),
+                ),
+                maxLines: 3,
+              ),
+            ],
             if (!_isPreparateur) ...[
               const SizedBox(height: 20),
               Card(
@@ -608,15 +645,15 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
   }
 }
 
-class _AddLineDialog extends ConsumerStatefulWidget {
-  const _AddLineDialog({this.hidePrices = false});
+class AddOrderLineDialog extends ConsumerStatefulWidget {
+  const AddOrderLineDialog({super.key, this.hidePrices = false});
   final bool hidePrices;
 
   @override
-  ConsumerState<_AddLineDialog> createState() => _AddLineDialogState();
+  ConsumerState<AddOrderLineDialog> createState() => _AddLineDialogState();
 }
 
-class _AddLineDialogState extends ConsumerState<_AddLineDialog> {
+class _AddLineDialogState extends ConsumerState<AddOrderLineDialog> {
   final _searchController = TextEditingController();
   Timer? _debounce;
   List<ReferenceOption> _results = [];
@@ -887,7 +924,7 @@ class _AddLineDialogState extends ConsumerState<_AddLineDialog> {
         FilledButton(
           onPressed: _selectedReference != null && _selectedColor != null
               ? () => Navigator.of(context).pop(
-                  _CartLine(
+                  CartLine(
                     reference: _selectedReference!,
                     couleur: _selectedColor!.couleur,
                     variantId: _selectedColor!.variantId,

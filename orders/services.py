@@ -83,6 +83,33 @@ def assign_livreur_early(*, order, livreur_id, user):
     return order
 
 
+def assign_preparateur_early(*, order, preparateur_id, user):
+    """Pré-assigne un préparateur à une commande sans la faire progresser —
+    la commande reste "Nouvelle" (en attente) tant que ce préparateur n'a pas
+    lui-même cliqué "Commencer la préparation" (§ demande — avant, choisir un
+    préparateur à la création faisait sauter direct en "En préparation", ce
+    qui ne laissait presque aucune fenêtre pour corriger la commande). Miroir
+    de assign_livreur_early — réservé au gérant."""
+    role = user_commande_role(user)
+    if role != "GERANT":
+        raise PermissionDenied("Seul le gérant peut assigner un préparateur à l'avance.")
+
+    from users.models import CustomUser
+
+    try:
+        preparateur = CustomUser.objects.get(id=preparateur_id, employer_profile__commande_role="PREPARATEUR")
+    except CustomUser.DoesNotExist:
+        raise ValidationError("Préparateur introuvable.")
+    if preparateur.employer_profile.magasin_id != order.magasin_id:
+        raise ValidationError("Cette personne n'appartient pas à ce magasin.")
+    if order.statut_courant not in ("NOUVELLE", "EN_PREPARATION"):
+        raise ValidationError("Cette commande a déjà dépassé l'étape de préparation.")
+
+    order.preparateur = preparateur
+    order.save(update_fields=["preparateur", "updated_at"])
+    return order
+
+
 def _notify_commande_role(*, magasin, commande_role, notif_type, message, order):
     """Notifie tous les employers du magasin ayant ce commande_role
     (Préparateur ou Livreur) — §9 Smartreadme.md. Un mouvement par
@@ -102,13 +129,17 @@ def _notify_commande_role(*, magasin, commande_role, notif_type, message, order)
 
 
 @transaction.atomic
-def create_order(*, magasin, client_nom, telephone, livraison_zone, items, note="", created_by,
-                  date_commande=None, adresse_livraison=""):
+def create_order(*, magasin, client_nom, telephone, livraison_zone, items, note_preparateur="", note_livreur="",
+                  created_by, date_commande=None, adresse_livraison="", mode_paiement="LIVRAISON", preparateur=None):
     """items: liste de {"product_variant": ProductVariant, "quantite": int}.
     Prix et frais de livraison sont calculés côté serveur (§6 Smartreadme.md
     — 'Prix' et 'Frais livraison' en lecture seule). `date_commande` est
     optionnelle (auto = maintenant côté modèle, avec l'heure précise) mais
-    modifiable par le gérant (§6 : 'Auto = aujourd'hui, modifiable')."""
+    modifiable par le gérant (§6 : 'Auto = aujourd'hui, modifiable').
+    `note_preparateur`/`note_livreur` : deux notes distinctes, chacune
+    destinée à un seul rôle (§ demande). `preparateur` : auto-assigné au
+    préparateur créateur pour ses propres retraits sur place (§ demande —
+    seules les commandes assignées à son nom apparaissent dans sa page)."""
 
     order = Order.objects.create(
         magasin=magasin,
@@ -116,8 +147,11 @@ def create_order(*, magasin, client_nom, telephone, livraison_zone, items, note=
         telephone=telephone,
         livraison_zone=livraison_zone,
         adresse_livraison=adresse_livraison,
-        note=note,
+        mode_paiement=mode_paiement,
+        note_preparateur=note_preparateur,
+        note_livreur=note_livreur,
         created_by=created_by,
+        preparateur=preparateur,
         **({"date_commande": date_commande} if date_commande else {}),
     )
 
@@ -142,6 +176,66 @@ def create_order(*, magasin, client_nom, telephone, livraison_zone, items, note=
         order=order,
     )
 
+    return order
+
+
+# Une commande assignée à un préparateur dès sa création part directement en
+# "En préparation" (voir change_order_status) — restreindre l'édition à
+# "Nouvelle" laissait donc une fenêtre quasi nulle pour la corriger
+# (§ demande). Au-delà, la commande est trop engagée (livreur en tournée...).
+_EDITABLE_STATUSES = {"NOUVELLE", "EN_PREPARATION"}
+
+
+@transaction.atomic
+def update_order(*, order, user, client_nom=None, telephone=None, livraison_zone=None, adresse_livraison=None,
+                  mode_paiement=None, date_commande=None, note_preparateur=None, note_livreur=None, items=None):
+    """Modification d'une commande "Nouvelle" ou "En préparation" (gérant
+    uniquement, voir views.py::get_permissions). Si les articles changent
+    alors que le stock a déjà été déduit (statut "En préparation"), l'ancien
+    stock est restitué et le nouveau déduit — mouvement 'AJUSTEMENT', pour ne
+    pas se confondre avec une préparation ou un retour normaux."""
+    if order.statut_courant not in _EDITABLE_STATUSES:
+        raise ValidationError(
+            f"Cette commande est '{order.get_statut_courant_display()}' — trop engagée pour être modifiée."
+        )
+
+    for field, value in {
+        "client_nom": client_nom,
+        "telephone": telephone,
+        "livraison_zone": livraison_zone,
+        "adresse_livraison": adresse_livraison,
+        "mode_paiement": mode_paiement,
+        "date_commande": date_commande,
+        "note_preparateur": note_preparateur,
+        "note_livreur": note_livreur,
+    }.items():
+        if value is not None:
+            setattr(order, field, value)
+    order.save()
+
+    if items is not None:
+        stock_already_deducted = order.statut_courant == "EN_PREPARATION"
+        if stock_already_deducted:
+            for item in order.items.select_related("product_variant"):
+                apply_stock_movement(
+                    product_variant=item.product_variant, movement_type="ENTREE", quantite=item.quantite,
+                    origine="AJUSTEMENT", user=user, reference=order.numero,
+                    note="Modification de commande — article retiré",
+                )
+        order.items.all().delete()
+        for item in items:
+            OrderItem.objects.create(
+                order=order, product_variant=item["product_variant"], quantite=item.get("quantite", 1),
+            )
+        if stock_already_deducted:
+            for item in order.items.select_related("product_variant"):
+                apply_stock_movement(
+                    product_variant=item.product_variant, movement_type="SORTIE", quantite=item.quantite,
+                    origine="AJUSTEMENT", user=user, reference=order.numero,
+                    note="Modification de commande — article ajouté",
+                )
+
+    order.recompute_total()
     return order
 
 
@@ -183,7 +277,8 @@ def _resolve_assignee(*, order, role, requesting_user, requested_role, assignee_
 
 
 @transaction.atomic
-def change_order_status(*, order, new_status, user, note="", preparateur_id=None, livreur_id=None, assigned_at=None):
+def change_order_status(*, order, new_status, user, note="", preparateur_id=None, livreur_id=None, assigned_at=None,
+                         photo=None):
     """`assigned_at` : heure manuelle optionnelle (le gérant peut consigner
     une heure passée pour l'affectation préparateur/livreur) — sans valeur,
     l'historique prend l'heure réelle (maintenant), comme avant."""
@@ -198,7 +293,8 @@ def change_order_status(*, order, new_status, user, note="", preparateur_id=None
         order.statut_courant = new_status
         order.save(update_fields=["statut_courant", "updated_at"])
         OrderStatusHistory.objects.create(
-            order=order, ancien_statut=old_status, nouveau_statut=new_status, changed_by=user, note=note
+            order=order, ancien_statut=old_status, nouveau_statut=new_status, changed_by=user, note=note,
+            **({"photo": photo} if photo else {}),
         )
         return order
 
@@ -255,6 +351,7 @@ def change_order_status(*, order, new_status, user, note="", preparateur_id=None
     OrderStatusHistory.objects.create(
         order=order, ancien_statut=old_status, nouveau_statut=new_status, changed_by=user, note=note,
         **({"timestamp": assigned_at} if assigned_at else {}),
+        **({"photo": photo} if photo else {}),
     )
 
     # Le stock quitte physiquement le magasin au moment où le préparateur

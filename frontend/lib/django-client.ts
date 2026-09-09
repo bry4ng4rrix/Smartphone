@@ -694,8 +694,10 @@ class DjangoAPIClient {
       telephone: string
       livraison_zone: 'ZONE1' | 'ZONE2' | 'ZONE3' | 'RECUPERATION'
       items: { product_variant: number; quantite: number }[]
-      note?: string
+      note_preparateur?: string
+      note_livreur?: string
       adresse_livraison?: string
+      mode_paiement?: 'AVANT' | 'LIVRAISON'
       date_commande?: string
       magasin_id?: number
     }) => {
@@ -706,7 +708,18 @@ class DjangoAPIClient {
       statut: string,
       note?: string,
       assignee?: { preparateur_id?: number; livreur_id?: number; assigned_at?: string },
+      photo?: File,
     ) => {
+      if (photo) {
+        const fd = new FormData()
+        fd.append('statut', statut)
+        if (note) fd.append('note', note)
+        if (assignee?.preparateur_id != null) fd.append('preparateur_id', String(assignee.preparateur_id))
+        if (assignee?.livreur_id != null) fd.append('livreur_id', String(assignee.livreur_id))
+        if (assignee?.assigned_at) fd.append('assigned_at', assignee.assigned_at)
+        fd.append('photo', photo)
+        return this.postFormData<any>(`/orders/${id}/status/`, fd)
+      }
       return this.post<any>(`/orders/${id}/status/`, { statut, note, ...assignee })
     },
     cancel: async (id: number, note?: string) => {
@@ -717,6 +730,13 @@ class DjangoAPIClient {
     // (voir orders/services.py::assign_livreur_early/_resolve_assignee).
     assignLivreur: async (id: number, livreurId: number) => {
       return this.post<any>(`/orders/${id}/assign-livreur/`, { livreur_id: livreurId })
+    },
+    // Pré-assigne un préparateur sans faire progresser le statut — la
+    // commande reste "Nouvelle" (en attente) jusqu'à ce que le préparateur
+    // clique lui-même "Commencer la préparation" (§ demande — voir
+    // orders/services.py::assign_preparateur_early).
+    assignPreparateur: async (id: number, preparateurId: number) => {
+      return this.post<any>(`/orders/${id}/assign-preparateur/`, { preparateur_id: preparateurId })
     },
     availableStaff: async (role: 'PREPARATEUR' | 'LIVREUR', magasinId?: number, dateCommande?: string) => {
       const params = new URLSearchParams({ role })
@@ -734,8 +754,11 @@ class DjangoAPIClient {
       telephone?: string
       livraison_zone?: 'ZONE1' | 'ZONE2' | 'ZONE3' | 'RECUPERATION'
       adresse_livraison?: string
+      mode_paiement?: 'AVANT' | 'LIVRAISON'
       date_commande?: string
-      note?: string
+      note_preparateur?: string
+      note_livreur?: string
+      items?: { product_variant: number; quantite: number }[]
     }) => {
       return this.patch<any>(`/orders/${id}/`, data)
     },

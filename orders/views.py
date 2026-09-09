@@ -26,9 +26,10 @@ from .serializers import (
     OrderUpdateSerializer,
 )
 
-# Statuts visibles par rôle sur leur module dédié (§7.2, §7.3 Smartreadme.md).
-# Le livreur voit aussi "En préparation" (visibilité/planning — pas encore
-# actionnable pour lui, § demande), en plus de ses statuts habituels.
+# Statuts visibles par rôle sur leur module dédié (§7.2, §7.3 Smartreadme.md) —
+# uniquement parmi les commandes déjà assignées à SON nom (voir get_queryset,
+# § demande). Le livreur voit aussi "En préparation" (visibilité/planning —
+# pas encore actionnable pour lui, § demande), en plus de ses statuts habituels.
 PREPARATEUR_STATUTS = ["NOUVELLE", "EN_PREPARATION"]
 LIVREUR_STATUTS = ["EN_PREPARATION", "PRETE", "EN_LIVRAISON"]
 
@@ -83,18 +84,23 @@ class OrderViewSet(viewsets.ModelViewSet):
             # Ni préparateur ni livreur ne voit une action bloquée par le
             # "jour J" comme un problème de visibilité : la commande reste
             # affichée à l'avance (planning), seule l'action est retardée
-            # côté services.change_order_status.
+            # côté services.change_order_status. Seules les commandes déjà
+            # assignées à SON nom apparaissent ici (§ demande) — une commande
+            # pas encore assignée reste invisible tant que le gérant ne l'a
+            # pas confiée explicitement à ce préparateur/livreur.
             if role == "PREPARATEUR":
                 # + les récupérations sur place déjà prêtes (pas de livreur
                 # pour ce cas — le préparateur en garde le suivi jusqu'au
                 # retrait, validé par le gérant sur la page Récupération).
-                base = qs.filter(statut_courant__in=PREPARATEUR_STATUTS) | qs.filter(
-                    statut_courant="PRETE", livraison_zone="RECUPERATION"
+                base = qs.filter(
+                    preparateur=self.request.user, statut_courant__in=PREPARATEUR_STATUTS
+                ) | qs.filter(
+                    preparateur=self.request.user, statut_courant="PRETE", livraison_zone="RECUPERATION"
                 )
             else:
                 # Prêtes à récupérer + en livraison (§7.3 Smartreadme.md) — hors
                 # retrait sur place, qui ne passe jamais par un livreur.
-                base = qs.filter(statut_courant__in=LIVREUR_STATUTS).exclude(
+                base = qs.filter(livreur=self.request.user, statut_courant__in=LIVREUR_STATUTS).exclude(
                     statut_courant="PRETE", livraison_zone="RECUPERATION"
                 )
 
@@ -156,27 +162,26 @@ class OrderViewSet(viewsets.ModelViewSet):
             telephone=data["telephone"],
             livraison_zone=data["livraison_zone"],
             adresse_livraison=data.get("adresse_livraison", ""),
+            mode_paiement=data.get("mode_paiement", "LIVRAISON"),
             items=data["items"],
-            note=data.get("note", ""),
+            note_preparateur=data.get("note_preparateur", ""),
+            note_livreur=data.get("note_livreur", ""),
             date_commande=data.get("date_commande"),
             created_by=request.user,
+            preparateur=request.user if role == "PREPARATEUR" else None,
         )
         response_serializer = OrderPreparateurSerializer if role == "PREPARATEUR" else OrderGerantSerializer
         return Response(response_serializer(order).data, status=status.HTTP_201_CREATED)
 
     def partial_update(self, request, *args, **kwargs):
         order = self.get_object()
-        if order.statut_courant != "NOUVELLE":
-            raise DRFValidationError(
-                "Seule une commande 'Nouvelle' peut être modifiée — le stock ou une "
-                "affectation est déjà engagé sur celle-ci."
-            )
         serializer = OrderUpdateSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        for field, value in serializer.validated_data.items():
-            setattr(order, field, value)
-        order.save()
-        order.recompute_total()
+        data = dict(serializer.validated_data)
+        try:
+            order = services.update_order(order=order, user=request.user, **data)
+        except ValidationError as exc:
+            raise DRFValidationError(str(exc))
         return Response(OrderGerantSerializer(order).data)
 
     def destroy(self, request, *args, **kwargs):
@@ -204,6 +209,7 @@ class OrderViewSet(viewsets.ModelViewSet):
                 preparateur_id=serializer.validated_data.get("preparateur_id"),
                 livreur_id=serializer.validated_data.get("livreur_id"),
                 assigned_at=serializer.validated_data.get("assigned_at"),
+                photo=serializer.validated_data.get("photo"),
             )
         except PermissionDenied as exc:
             raise DRFPermissionDenied(str(exc))
@@ -223,6 +229,26 @@ class OrderViewSet(viewsets.ModelViewSet):
             raise DRFValidationError("livreur_id requis.")
         try:
             order = services.assign_livreur_early(order=order, livreur_id=livreur_id, user=request.user)
+        except PermissionDenied as exc:
+            raise DRFPermissionDenied(str(exc))
+        except ValidationError as exc:
+            raise DRFValidationError(str(exc))
+
+        return Response(self.get_serializer(order).data)
+
+    @action(detail=True, methods=["post"], url_path="assign-preparateur")
+    def assign_preparateur(self, request, pk=None):
+        """POST /api/orders/{id}/assign-preparateur/ {preparateur_id} —
+        pré-assigne un préparateur sans faire progresser le statut (gérant
+        uniquement) : la commande reste "Nouvelle" jusqu'à ce que le
+        préparateur clique lui-même "Commencer la préparation" (§ demande).
+        Voir services.assign_preparateur_early."""
+        order = self.get_object()
+        preparateur_id = request.data.get("preparateur_id")
+        if not preparateur_id:
+            raise DRFValidationError("preparateur_id requis.")
+        try:
+            order = services.assign_preparateur_early(order=order, preparateur_id=preparateur_id, user=request.user)
         except PermissionDenied as exc:
             raise DRFPermissionDenied(str(exc))
         except ValidationError as exc:

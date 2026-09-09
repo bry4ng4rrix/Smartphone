@@ -97,8 +97,10 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
     required String telephone,
     required String livraisonZone,
     required List<OrderItemDraft> items,
-    String note = '',
+    String notePreparateur = '',
+    String noteLivreur = '',
     String adresseLivraison = '',
+    String modePaiement = 'LIVRAISON',
     DateTime? dateCommande,
   }) async {
     final order = await _repo.create(
@@ -106,8 +108,10 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
       telephone: telephone,
       livraisonZone: livraisonZone,
       items: items,
-      note: note,
+      notePreparateur: notePreparateur,
+      noteLivreur: noteLivreur,
       adresseLivraison: adresseLivraison,
+      modePaiement: modePaiement,
       dateCommande: dateCommande,
     );
     await refresh();
@@ -121,6 +125,7 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
     int? preparateurId,
     int? livreurId,
     DateTime? assignedAt,
+    String? photoPath,
   }) async {
     final order = await _repo.changeStatus(
       id,
@@ -129,6 +134,7 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
       preparateurId: preparateurId,
       livreurId: livreurId,
       assignedAt: assignedAt,
+      photoPath: photoPath,
     );
     await refresh();
     return order;
@@ -146,8 +152,11 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
     String? telephone,
     String? livraisonZone,
     String? adresseLivraison,
+    String? modePaiement,
     DateTime? dateCommande,
-    String? note,
+    String? notePreparateur,
+    String? noteLivreur,
+    List<OrderItemDraft>? items,
   }) async {
     final order = await _repo.update(
       id,
@@ -155,8 +164,11 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
       telephone: telephone,
       livraisonZone: livraisonZone,
       adresseLivraison: adresseLivraison,
+      modePaiement: modePaiement,
       dateCommande: dateCommande,
-      note: note,
+      notePreparateur: notePreparateur,
+      noteLivreur: noteLivreur,
+      items: items,
     );
     await refresh();
     return order;
@@ -172,6 +184,12 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
 
   Future<Order> assignLivreur(int id, int livreurId) async {
     final order = await _repo.assignLivreur(id, livreurId);
+    await refresh();
+    return order;
+  }
+
+  Future<Order> assignPreparateur(int id, int preparateurId) async {
+    final order = await _repo.assignPreparateur(id, preparateurId);
     await refresh();
     return order;
   }

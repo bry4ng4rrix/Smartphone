@@ -9,36 +9,61 @@ import '../../models/order.dart';
 import '../../state/orders_provider.dart';
 import '../../widgets/assign_staff_dialog.dart';
 import '../../widgets/async_state_widgets.dart';
+import '../../widgets/order_confirm_dialog.dart';
 import '../../widgets/status_badge.dart';
 
 final _moneyFmt = NumberFormat.decimalPattern('fr_FR');
 String _ar(num v) => '${_moneyFmt.format(v.round())} Ar';
 final _dateFmt = DateFormat('dd/MM/yyyy HH:mm');
 
-/// Actions atteignables par le GÉRANT depuis le statut courant (miroir
-/// client de `page.tsx::nextAction` pour `isGerant`, §5 README) — le gérant
-/// ne fait que désigner un préparateur/livreur pour démarrer l'étape
-/// suivante ; il ne marque jamais lui-même "Prête", "Livré" ou "Retour" (ça,
-/// c'est le rôle concerné qui le fait, via Dépôt/Tournée).
-List<OrderStatus> _nextOptions(OrderStatus current) {
-  switch (current) {
+/// Action atteignable par le GÉRANT depuis le statut courant (miroir client
+/// de `page.tsx::nextAction` pour `isGerant`, §5 README) — le gérant peut
+/// désigner un préparateur/livreur pour démarrer une étape (`assign: true`,
+/// via un sélecteur de staff), mais aussi faire progresser lui-même la
+/// commande à chaque étape suivante, exactement comme le préparateur/livreur
+/// le ferait depuis Dépôt/Tournée.
+class _GerantAction {
+  const _GerantAction({required this.target, required this.label, required this.icon, this.assign = false});
+  final OrderStatus target;
+  final String label;
+  final IconData icon;
+  final bool assign;
+}
+
+List<_GerantAction> _nextActions(Order order) {
+  switch (order.statutCourant) {
     case OrderStatus.nouvelle:
-      return [OrderStatus.enPreparation];
-    case OrderStatus.prete:
-      return [OrderStatus.enLivraison];
+      return const [
+        _GerantAction(
+          target: OrderStatus.enPreparation,
+          label: 'Assigner un préparateur',
+          icon: Icons.person_add_alt_outlined,
+          assign: true,
+        ),
+      ];
     case OrderStatus.enPreparation:
+      return const [_GerantAction(target: OrderStatus.prete, label: 'Commande prête', icon: Icons.check)];
+    case OrderStatus.prete:
+      if (order.livraisonZone == DeliveryZone.recuperation) return const [];
+      return const [
+        _GerantAction(
+          target: OrderStatus.enLivraison,
+          label: 'Assigner un livreur',
+          icon: Icons.person_add_alt_outlined,
+          assign: true,
+        ),
+      ];
     case OrderStatus.enLivraison:
+      return const [
+        _GerantAction(target: OrderStatus.livre, label: 'Livré', icon: Icons.check),
+        _GerantAction(target: OrderStatus.retour, label: 'Retour', icon: Icons.undo),
+      ];
     case OrderStatus.livre:
     case OrderStatus.retour:
     case OrderStatus.annulee:
-      return [];
+      return const [];
   }
 }
-
-/// Libellé du bouton gérant pour chaque transition (miroir de
-/// `page.tsx::nextAction` isGerant) — distinct de `OrderStatus.label`.
-String _gerantActionLabel(OrderStatus target) =>
-    target == OrderStatus.enPreparation ? 'Assigner un préparateur' : 'Assigner un livreur';
 
 class OrderDetailScreen extends ConsumerWidget {
   const OrderDetailScreen({super.key, required this.orderId});
@@ -73,18 +98,52 @@ class _OrderDetailBody extends ConsumerStatefulWidget {
 class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
   bool _changing = false;
 
-  Future<void> _changeStatus(OrderStatus target) async {
-    // Nouvelle -> En préparation / Prête -> En livraison : le gérant désigne
-    // manuellement qui prend la commande en charge (occupé ou non n'empêche
-    // plus la sélection, voir services.py::_resolve_assignee) — pas de note
-    // ici, l'affectation en elle-même est la confirmation (miroir web :
-    // AssignStaffDialog n'a pas de champ note, voir page.tsx).
-    final role = target == OrderStatus.enPreparation ? 'PREPARATEUR' : 'LIVREUR';
-    final result = await showAssignStaffDialog(
+  Future<void> _changeStatus(_GerantAction action) async {
+    if (action.assign) {
+      // Nouvelle -> En préparation / Prête -> En livraison : le gérant
+      // désigne manuellement qui prend la commande en charge (occupé ou non
+      // n'empêche plus la sélection, voir services.py::_resolve_assignee) —
+      // pas de note ici, l'affectation en elle-même est la confirmation
+      // (miroir web : AssignStaffDialog n'a pas de champ note, voir page.tsx).
+      final role = action.target == OrderStatus.enPreparation ? 'PREPARATEUR' : 'LIVREUR';
+      final result = await showAssignStaffDialog(
+        context,
+        role: role,
+        orderNumero: widget.order.numero,
+        loadStaff: () => ref.read(ordersProvider.notifier).availableStaff(role),
+      );
+      if (result == null) return;
+      if (!mounted) return;
+
+      setState(() => _changing = true);
+      try {
+        await ref.read(ordersProvider.notifier).changeStatus(
+              widget.order.id,
+              action.target.apiValue,
+              preparateurId: action.target == OrderStatus.enPreparation ? result.staffId : null,
+              livreurId: action.target == OrderStatus.enLivraison ? result.staffId : null,
+              assignedAt: result.assignedAt,
+            );
+        ref.invalidate(orderDetailProvider(widget.order.id));
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+        }
+      } finally {
+        if (mounted) setState(() => _changing = false);
+      }
+      return;
+    }
+
+    // En préparation -> Prête / En livraison -> Livré/Retour : le gérant
+    // fait progresser lui-même la commande, exactement comme le
+    // préparateur/livreur le ferait depuis Dépôt/Tournée (même dialogue de
+    // confirmation avec note optionnelle, voir order_confirm_dialog.dart).
+    final result = await showOrderConfirmDialog(
       context,
-      role: role,
-      orderNumero: widget.order.numero,
-      loadStaff: () => ref.read(ordersProvider.notifier).availableStaff(role),
+      title: 'Confirmer : ${action.label}',
+      order: widget.order,
+      showPhoto: action.target == OrderStatus.prete,
     );
     if (result == null) return;
     if (!mounted) return;
@@ -93,10 +152,9 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
     try {
       await ref.read(ordersProvider.notifier).changeStatus(
             widget.order.id,
-            target.apiValue,
-            preparateurId: target == OrderStatus.enPreparation ? result.staffId : null,
-            livreurId: target == OrderStatus.enLivraison ? result.staffId : null,
-            assignedAt: result.assignedAt,
+            action.target.apiValue,
+            note: result.note,
+            photoPath: result.photoPath,
           );
       ref.invalidate(orderDetailProvider(widget.order.id));
     } catch (e) {
@@ -147,7 +205,7 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
   @override
   Widget build(BuildContext context) {
     final order = widget.order;
-    final nextOptions = _nextOptions(order.statutCourant);
+    final nextActions = _nextActions(order);
     final canCancel = ![OrderStatus.livre, OrderStatus.retour, OrderStatus.annulee].contains(order.statutCourant);
 
     return ListView(
@@ -180,11 +238,16 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
                   _InfoRow(icon: Icons.place_outlined, label: 'Adresse', value: order.adresseLivraison!),
                 if (order.dateCommande != null)
                   _InfoRow(icon: Icons.event_outlined, label: 'Date commande', value: DateFormat('dd/MM/yyyy HH:mm').format(order.dateCommande!.toLocal())),
+                if (order.livraisonZone != DeliveryZone.recuperation)
+                  _InfoRow(icon: Icons.payments_outlined, label: 'Paiement', value: order.modePaiement.label),
                 if (order.preparateurName != null)
                   _InfoRow(icon: Icons.inventory_2_outlined, label: 'Préparateur', value: order.preparateurName!),
                 if (order.livreurName != null)
                   _InfoRow(icon: Icons.moped_outlined, label: 'Livreur', value: order.livreurName!),
-                if (order.note != null && order.note!.isNotEmpty) _InfoRow(icon: Icons.notes_outlined, label: 'Note', value: order.note!),
+                if (order.notePreparateur != null && order.notePreparateur!.isNotEmpty)
+                  _InfoRow(icon: Icons.notes_outlined, label: 'Note préparateur', value: order.notePreparateur!),
+                if (order.noteLivreur != null && order.noteLivreur!.isNotEmpty)
+                  _InfoRow(icon: Icons.notes_outlined, label: 'Note livreur', value: order.noteLivreur!),
               ],
             ),
           ),
@@ -229,17 +292,24 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
             ),
           ),
         ],
-        if (nextOptions.isNotEmpty || canCancel) ...[
+        if (nextActions.isNotEmpty || canCancel) ...[
           const SizedBox(height: 20),
           Wrap(
             spacing: 10,
             children: [
-              for (final target in nextOptions)
-                FilledButton.icon(
-                  onPressed: _changing ? null : () => _changeStatus(target),
-                  icon: const Icon(Icons.person_add_alt_outlined),
-                  label: Text(_gerantActionLabel(target)),
-                ),
+              for (final action in nextActions)
+                action.target == OrderStatus.retour
+                    ? OutlinedButton.icon(
+                        onPressed: _changing ? null : () => _changeStatus(action),
+                        icon: Icon(action.icon),
+                        label: Text(action.label),
+                        style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                      )
+                    : FilledButton.icon(
+                        onPressed: _changing ? null : () => _changeStatus(action),
+                        icon: Icon(action.icon),
+                        label: Text(action.label),
+                      ),
               if (canCancel)
                 OutlinedButton.icon(
                   onPressed: _changing ? null : _cancel,
@@ -268,6 +338,17 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
                 if (h.timestamp != null) _dateFmt.format(h.timestamp!),
                 if (h.note != null && h.note!.isNotEmpty) h.note!,
               ].join(' · ')),
+              // Preuve que la préparation est faite — jointe au passage
+              // "Prête" (§ demande), aussi visible et téléchargeable ici.
+              trailing: h.photo == null
+                  ? null
+                  : InkWell(
+                      onTap: () => launchUrl(Uri.parse(h.photo!)),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: Image.network(h.photo!, width: 40, height: 40, fit: BoxFit.cover),
+                      ),
+                    ),
             ),
         ],
       ],

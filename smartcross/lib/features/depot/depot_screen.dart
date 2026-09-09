@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
@@ -13,6 +14,8 @@ import '../../widgets/order_historique_view.dart';
 import '../../widgets/status_badge.dart';
 
 enum _DepotView { aPreparer, recuperations, historique }
+
+final _depotDateFmt = DateFormat('dd/MM/yyyy');
 
 /// Module Dépôt — Préparateur (§7.2 README) : UX mobile simplifiée, lecture
 /// seule sauf statut. Le serveur ne renvoie déjà que NOUVELLE/EN_PREPARATION
@@ -29,9 +32,26 @@ class DepotScreen extends ConsumerStatefulWidget {
 class _DepotScreenState extends ConsumerState<DepotScreen> {
   _DepotView _view = _DepotView.aPreparer;
 
+  // Filtre "À préparer"/"Récupérations" : une seule date (pas de plage
+  // Du/Au) — § demande. Réutilise le même `ordersFilterProvider` que la
+  // page Commandes du gérant (date_debut = date_fin côté serveur).
+  Future<void> _pickDate(OrdersFilter filter) async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: filter.dateDebut ?? DateTime.now(),
+      firstDate: DateTime.now().subtract(const Duration(days: 365)),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (date == null) return;
+    ref.read(ordersFilterProvider.notifier).set(filter.copyWith(dateDebut: date, dateFin: date));
+  }
+
+  void _clearDate() => ref.read(ordersFilterProvider.notifier).set(const OrdersFilter());
+
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(ordersProvider);
+    final filter = ref.watch(ordersFilterProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Dépôt')),
@@ -67,6 +87,25 @@ class _DepotScreenState extends ConsumerState<DepotScreen> {
               ],
             ),
           ),
+          if (_view != _DepotView.historique)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _pickDate(filter),
+                      icon: const Icon(Icons.event_outlined),
+                      label: Text(
+                        filter.dateDebut != null ? _depotDateFmt.format(filter.dateDebut!) : 'Filtrer par date',
+                      ),
+                    ),
+                  ),
+                  if (filter.dateDebut != null)
+                    IconButton(onPressed: _clearDate, icon: const Icon(Icons.clear)),
+                ],
+              ),
+            ),
           Expanded(
             child: _view == _DepotView.historique
                 ? OrderHistoriqueView(cardBuilder: (context, order) => _DepotHistoriqueCard(order: order))
@@ -162,11 +201,23 @@ class _DepotCardState extends ConsumerState<_DepotCard> {
     final order = widget.order;
     final target = order.statutCourant == OrderStatus.nouvelle ? OrderStatus.enPreparation : OrderStatus.prete;
     final actionLabel = order.statutCourant == OrderStatus.nouvelle ? 'Commencer la préparation' : 'Commande prête';
-    final note = await showOrderConfirmDialog(context, title: 'Confirmer : $actionLabel', order: order);
-    if (note == null) return;
+    // Preuve que la préparation est faite — proposée uniquement au passage
+    // "Prête" (§ demande), visible ensuite par le livreur et dans l'historique.
+    final result = await showOrderConfirmDialog(
+      context,
+      title: 'Confirmer : $actionLabel',
+      order: order,
+      showPhoto: target == OrderStatus.prete,
+    );
+    if (result == null) return;
     setState(() => _loading = true);
     try {
-      await ref.read(ordersProvider.notifier).changeStatus(order.id, target.apiValue, note: note);
+      await ref.read(ordersProvider.notifier).changeStatus(
+            order.id,
+            target.apiValue,
+            note: result.note,
+            photoPath: result.photoPath,
+          );
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
     } finally {

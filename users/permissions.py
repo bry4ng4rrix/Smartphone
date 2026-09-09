@@ -71,6 +71,13 @@ def user_commande_role(user):
     return None
 
 
+def chat_blocked_between(user_a, user_b):
+    """Deux livreurs ne doivent pas pouvoir se contacter entre eux (§ demande
+    — évite qu'ils ne s'organisent en dehors du contrôle du gérant). Tout
+    autre pair (gérant, préparateur, ou l'un des deux) reste autorisé."""
+    return user_commande_role(user_a) == "LIVREUR" and user_commande_role(user_b) == "LIVREUR"
+
+
 def is_gerant(user):
     return user_commande_role(user) == "GERANT"
 

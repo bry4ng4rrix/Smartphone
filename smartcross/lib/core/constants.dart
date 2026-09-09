@@ -154,6 +154,19 @@ extension DeliveryZoneX on DeliveryZone {
   String get shortLabel => label.split(' (').first;
 }
 
+/// Le client paie avant (à la commande) ou à la livraison (contre
+/// remboursement) — sans effet sur le stock/statut, juste indicatif pour le
+/// livreur/gérant (§ demande). Sans objet pour un retrait sur place.
+enum PaymentMode { avant, livraison }
+
+extension PaymentModeX on PaymentMode {
+  static PaymentMode fromApi(String? value) => value == 'AVANT' ? PaymentMode.avant : PaymentMode.livraison;
+
+  String get apiValue => this == PaymentMode.avant ? 'AVANT' : 'LIVRAISON';
+
+  String get label => this == PaymentMode.avant ? 'Paiement avant la livraison' : 'Paiement à la livraison';
+}
+
 enum StockMovementType { entree, sortie }
 
 extension StockMovementTypeX on StockMovementType {

@@ -6,10 +6,12 @@ import 'package:intl/intl.dart';
 import '../../core/api_client.dart';
 import '../../core/constants.dart';
 import '../../data/repositories/orders_repository.dart';
+import '../../models/catalog.dart';
 import '../../models/order.dart';
 import '../../state/orders_provider.dart';
 import '../../widgets/async_state_widgets.dart';
 import '../../widgets/status_badge.dart';
+import 'order_create_screen.dart' show CartLine, AddOrderLineDialog;
 
 final _moneyFmt = NumberFormat.decimalPattern('fr_FR');
 String _ar(num v) => '${_moneyFmt.format(v.round())} Ar';
@@ -19,17 +21,17 @@ final _dateFmt = DateFormat('dd/MM/yyyy');
 class OrdersListScreen extends ConsumerWidget {
   const OrdersListScreen({super.key});
 
-  Future<void> _pickDateRange(BuildContext context, WidgetRef ref, OrdersFilter filter) async {
-    final range = await showDateRangePicker(
+  // Une seule date (pas de plage Du/Au) — § demande. `dateDebut`/`dateFin`
+  // sont réglés sur le même jour côté serveur (date_debut = date_fin).
+  Future<void> _pickDate(BuildContext context, WidgetRef ref, OrdersFilter filter) async {
+    final date = await showDatePicker(
       context: context,
       firstDate: DateTime.now().subtract(const Duration(days: 365)),
       lastDate: DateTime.now().add(const Duration(days: 365)),
-      initialDateRange: filter.dateDebut != null && filter.dateFin != null
-          ? DateTimeRange(start: filter.dateDebut!, end: filter.dateFin!)
-          : null,
+      initialDate: filter.dateDebut ?? DateTime.now(),
     );
-    if (range == null) return;
-    ref.read(ordersFilterProvider.notifier).set(filter.copyWith(dateDebut: range.start, dateFin: range.end));
+    if (date == null) return;
+    ref.read(ordersFilterProvider.notifier).set(filter.copyWith(dateDebut: date, dateFin: date));
   }
 
   Future<void> _pickPreparateur(BuildContext context, WidgetRef ref, OrdersFilter filter) async {
@@ -58,8 +60,8 @@ class OrdersListScreen extends ConsumerWidget {
         actions: [
           IconButton(
             tooltip: 'Filtrer par date',
-            icon: const Icon(Icons.date_range_outlined),
-            onPressed: () => _pickDateRange(context, ref, filter),
+            icon: const Icon(Icons.event_outlined),
+            onPressed: () => _pickDate(context, ref, filter),
           ),
           IconButton(
             tooltip: 'Filtrer par préparateur',
@@ -96,9 +98,9 @@ class OrdersListScreen extends ConsumerWidget {
                       label: Text(OrderStatusX.fromApi(filter.statut).label),
                       onDeleted: () => ref.read(ordersFilterProvider.notifier).set(filter.copyWith(clearStatut: true)),
                     ),
-                  if (filter.dateDebut != null && filter.dateFin != null)
+                  if (filter.dateDebut != null)
                     Chip(
-                      label: Text('${_dateFmt.format(filter.dateDebut!)} → ${_dateFmt.format(filter.dateFin!)}'),
+                      label: Text(_dateFmt.format(filter.dateDebut!)),
                       onDeleted: () => ref.read(ordersFilterProvider.notifier).set(
                             OrdersFilter(statut: filter.statut, preparateurId: filter.preparateurId),
                           ),
@@ -252,7 +254,12 @@ class _OrderTile extends ConsumerWidget {
     final livreurAt = order.statutCourant == OrderStatus.livre
         ? _historyAt(order, OrderStatus.livre)
         : _historyAt(order, OrderStatus.enLivraison);
-    final canEditOrDelete = order.statutCourant == OrderStatus.nouvelle;
+    // Une commande assignée à un préparateur dès sa création part
+    // directement en "En préparation" — restreindre la modification à
+    // "Nouvelle" ne laissait presque aucune fenêtre pour la corriger
+    // (§ demande). La suppression, elle, reste réservée à "Nouvelle".
+    final canEdit = [OrderStatus.nouvelle, OrderStatus.enPreparation].contains(order.statutCourant);
+    final canDelete = order.statutCourant == OrderStatus.nouvelle;
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -290,23 +297,25 @@ class _OrderTile extends ConsumerWidget {
               ],
             ),
           ),
-          if (canEditOrDelete)
+          if (canEdit || canDelete)
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  IconButton(
-                    tooltip: 'Modifier',
-                    icon: const Icon(Icons.edit_outlined, size: 20),
-                    onPressed: () => _edit(context, ref),
-                  ),
-                  IconButton(
-                    tooltip: 'Supprimer',
-                    icon: const Icon(Icons.delete_outline, size: 20),
-                    color: Colors.red,
-                    onPressed: () => _delete(context, ref),
-                  ),
+                  if (canEdit)
+                    IconButton(
+                      tooltip: 'Modifier',
+                      icon: const Icon(Icons.edit_outlined, size: 20),
+                      onPressed: () => _edit(context, ref),
+                    ),
+                  if (canDelete)
+                    IconButton(
+                      tooltip: 'Supprimer',
+                      icon: const Icon(Icons.delete_outline, size: 20),
+                      color: Colors.red,
+                      onPressed: () => _delete(context, ref),
+                    ),
                 ],
               ),
             ),
@@ -317,8 +326,10 @@ class _OrderTile extends ConsumerWidget {
 }
 
 /// Modification d'une commande "Nouvelle" (client, téléphone, date, zone,
-/// adresse, note) — les articles ne sont pas modifiables ici (voir
-/// orders/serializers.py::OrderUpdateSerializer).
+/// adresse, paiement, note, articles) — réservée au gérant (cet écran n'est
+/// accessible qu'à lui, voir nav_items.dart) : rien n'est encore
+/// préparé/déduit du stock à ce stade, donc les articles restent librement
+/// modifiables (voir orders/views.py::partial_update).
 class _EditOrderDialog extends ConsumerStatefulWidget {
   const _EditOrderDialog({required this.order});
   final Order order;
@@ -331,18 +342,55 @@ class _EditOrderDialogState extends ConsumerState<_EditOrderDialog> {
   late final _clientController = TextEditingController(text: widget.order.clientNom);
   late final _phoneController = TextEditingController(text: widget.order.telephone ?? '+261');
   late final _adresseController = TextEditingController(text: widget.order.adresseLivraison ?? '');
-  late final _noteController = TextEditingController(text: widget.order.note ?? '');
+  late final _notePreparateurController = TextEditingController(text: widget.order.notePreparateur ?? '');
+  late final _noteLivreurController = TextEditingController(text: widget.order.noteLivreur ?? '');
   late DeliveryZone _zone = widget.order.livraisonZone;
+  late PaymentMode _modePaiement = widget.order.modePaiement;
   late DateTime _dateCommande = widget.order.dateCommande?.toLocal() ?? DateTime.now();
+  late int? _preparateurId = widget.order.preparateurId;
+  List<StaffOption> _preparateurs = [];
+  late int? _livreurId = widget.order.livreurId;
+  List<StaffOption> _livreurs = [];
+  late final List<CartLine> _lines = [
+    for (final it in widget.order.items)
+      if (it.productVariantId != null)
+        CartLine(
+          reference: ReferenceOption(
+            id: 0,
+            typeId: 0,
+            typeName: '',
+            brandId: 0,
+            brandName: '',
+            referenceName: it.referenceName,
+            prixVente: it.prixUnitaire ?? 0,
+            couleurs: [ColorOption(variantId: it.productVariantId!, couleur: it.couleur, stockActuel: 1 << 30)],
+          ),
+          couleur: it.couleur,
+          variantId: it.productVariantId!,
+          quantite: it.quantite,
+        ),
+  ];
   bool _submitting = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    ref.read(ordersProvider.notifier).availableStaff('PREPARATEUR').then((staff) {
+      if (mounted) setState(() => _preparateurs = staff);
+    }).catchError((_) {});
+    ref.read(ordersProvider.notifier).availableStaff('LIVREUR').then((staff) {
+      if (mounted) setState(() => _livreurs = staff);
+    }).catchError((_) {});
+  }
 
   @override
   void dispose() {
     _clientController.dispose();
     _phoneController.dispose();
     _adresseController.dispose();
-    _noteController.dispose();
+    _notePreparateurController.dispose();
+    _noteLivreurController.dispose();
     super.dispose();
   }
 
@@ -359,6 +407,11 @@ class _EditOrderDialogState extends ConsumerState<_EditOrderDialog> {
     setState(() => _dateCommande = DateTime(date.year, date.month, date.day, time.hour, time.minute));
   }
 
+  Future<void> _addLine() async {
+    final result = await showDialog<CartLine>(context: context, builder: (_) => const AddOrderLineDialog());
+    if (result != null) setState(() => _lines.add(result));
+  }
+
   Future<void> _submit() async {
     if (_clientController.text.trim().isEmpty) {
       setState(() => _error = 'Nom du client requis');
@@ -366,6 +419,10 @@ class _EditOrderDialogState extends ConsumerState<_EditOrderDialog> {
     }
     if (!RegExp(r'^\+261\d{9}$').hasMatch(_phoneController.text.trim())) {
       setState(() => _error = 'Téléphone au format +261XXXXXXXXX');
+      return;
+    }
+    if (_lines.isEmpty) {
+      setState(() => _error = 'Ajoutez au moins un article');
       return;
     }
     setState(() {
@@ -379,9 +436,49 @@ class _EditOrderDialogState extends ConsumerState<_EditOrderDialog> {
             telephone: _phoneController.text.trim(),
             livraisonZone: _zone.apiValue,
             adresseLivraison: _zone == DeliveryZone.recuperation ? '' : _adresseController.text.trim(),
+            modePaiement: _modePaiement.apiValue,
             dateCommande: _dateCommande,
-            note: _noteController.text.trim(),
+            notePreparateur: _notePreparateurController.text.trim(),
+            noteLivreur: _zone == DeliveryZone.recuperation ? '' : _noteLivreurController.text.trim(),
+            items: [
+              for (final l in _lines) OrderItemDraft(productVariant: l.variantId, quantite: l.quantite),
+            ],
           );
+      // Pré-assignation du préparateur/livreur — endpoints indépendants du
+      // statut, comme à la création (voir orders/services.py::
+      // assign_preparateur_early/assign_livreur_early).
+      if (_preparateurId != null && _preparateurId != widget.order.preparateurId) {
+        try {
+          await ref.read(ordersProvider.notifier).assignPreparateur(widget.order.id, _preparateurId!);
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  "Commande mise à jour, mais l'assignation du préparateur a échoué : ${ApiClient.messageFromError(e)}",
+                ),
+              ),
+            );
+          }
+        }
+      }
+      if (_zone != DeliveryZone.recuperation &&
+          _livreurId != null &&
+          _livreurId != widget.order.livreurId) {
+        try {
+          await ref.read(ordersProvider.notifier).assignLivreur(widget.order.id, _livreurId!);
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  "Commande mise à jour, mais l'assignation du livreur a échoué : ${ApiClient.messageFromError(e)}",
+                ),
+              ),
+            );
+          }
+        }
+      }
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       setState(() => _error = ApiClient.messageFromError(e));
@@ -405,6 +502,33 @@ class _EditOrderDialogState extends ConsumerState<_EditOrderDialog> {
                 Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
                 const SizedBox(height: 10),
               ],
+              Text('Articles', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 6),
+              if (_lines.isNotEmpty)
+                Card(
+                  margin: EdgeInsets.zero,
+                  child: Column(
+                    children: [
+                      for (final l in _lines)
+                        ListTile(
+                          dense: true,
+                          title: Text('${l.reference.referenceName} — ${l.couleur}'),
+                          subtitle: Text('${l.quantite} × ${_ar(l.reference.prixVente)}'),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete_outline, size: 20),
+                            onPressed: () => setState(() => _lines.remove(l)),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: _addLine,
+                icon: const Icon(Icons.add),
+                label: const Text('Ajouter un article'),
+              ),
+              const SizedBox(height: 12),
               TextField(
                 controller: _clientController,
                 decoration: const InputDecoration(labelText: 'Nom client'),
@@ -430,19 +554,48 @@ class _EditOrderDialogState extends ConsumerState<_EditOrderDialog> {
                 items: [for (final z in DeliveryZone.values) DropdownMenuItem(value: z, child: Text(z.label))],
                 onChanged: (v) => setState(() => _zone = v ?? _zone),
               ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<int>(
+                initialValue: _preparateurId,
+                decoration: const InputDecoration(labelText: 'Préparateur', hintText: 'Non assigné'),
+                items: [for (final p in _preparateurs) DropdownMenuItem(value: p.id, child: Text(p.fullName))],
+                onChanged: (v) => setState(() => _preparateurId = v),
+              ),
               if (_zone != DeliveryZone.recuperation) ...[
                 const SizedBox(height: 12),
                 TextField(
                   controller: _adresseController,
                   decoration: const InputDecoration(labelText: 'Adresse de livraison'),
                 ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<PaymentMode>(
+                  initialValue: _modePaiement,
+                  decoration: const InputDecoration(labelText: 'Paiement'),
+                  items: [for (final m in PaymentMode.values) DropdownMenuItem(value: m, child: Text(m.label))],
+                  onChanged: (v) => setState(() => _modePaiement = v ?? _modePaiement),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<int>(
+                  initialValue: _livreurId,
+                  decoration: const InputDecoration(labelText: 'Livreur', hintText: 'Non assigné'),
+                  items: [for (final l in _livreurs) DropdownMenuItem(value: l.id, child: Text(l.fullName))],
+                  onChanged: (v) => setState(() => _livreurId = v),
+                ),
               ],
               const SizedBox(height: 12),
               TextField(
-                controller: _noteController,
-                decoration: const InputDecoration(labelText: 'Note'),
+                controller: _notePreparateurController,
+                decoration: const InputDecoration(labelText: 'Note pour le préparateur'),
                 maxLines: 2,
               ),
+              if (_zone != DeliveryZone.recuperation) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _noteLivreurController,
+                  decoration: const InputDecoration(labelText: 'Note pour le livreur'),
+                  maxLines: 2,
+                ),
+              ],
             ],
           ),
         ),

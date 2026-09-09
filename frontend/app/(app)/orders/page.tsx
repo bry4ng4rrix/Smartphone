@@ -62,6 +62,7 @@ import {
   UserRound,
   Ban,
   History,
+  Camera,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -158,6 +159,11 @@ const ZONES = [
   { value: "RECUPERATION", label: "Récupération (0 Ar)", frais: 0 },
 ];
 
+const MODE_PAIEMENT = [
+  { value: "AVANT", label: "Paiement avant la livraison" },
+  { value: "LIVRAISON", label: "Paiement à la livraison" },
+];
+
 interface CartItem {
   key: string;
   type_id: number;
@@ -208,17 +214,17 @@ export default function OrdersPage() {
   const [viewMode, setViewMode] = useState<"ACTIF" | "HISTORIQUE">("ACTIF");
   const [historiqueFrom, setHistoriqueFrom] = useState("");
   const [historiqueTo, setHistoriqueTo] = useState("");
-  // Filtres gérant : date (période) + préparateur assigné.
-  const [dateDebut, setDateDebut] = useState("");
-  const [dateFin, setDateFin] = useState("");
+  // Filtres gérant : date (un seul jour, pas de plage Du/Au) + préparateur assigné.
+  const [gerantDate, setGerantDate] = useState("");
   const [preparateurFilterId, setPreparateurFilterId] = useState("");
   const [preparateurFilterList, setPreparateurFilterList] = useState<
     { id: number; full_name: string }[]
   >([]);
-  // Filtres livreur (vue "Ma tournée") : statut + date.
+  // Filtres livreur (vue "Ma tournée") : statut + date (un seul jour).
   const [livreurStatutFilter, setLivreurStatutFilter] = useState("ALL");
-  const [livreurDateDebut, setLivreurDateDebut] = useState("");
-  const [livreurDateFin, setLivreurDateFin] = useState("");
+  const [livreurDate, setLivreurDate] = useState("");
+  // Filtre préparateur (vue "À préparer"/"Récupérations") : date (un seul jour).
+  const [preparateurDate, setPreparateurDate] = useState("");
 
   useEffect(() => {
     if (!isGerant) return;
@@ -236,8 +242,10 @@ export default function OrdersPage() {
         if (isGerant) {
           if (statutFilter !== "ALL" && statutFilter !== "NON_LIVREE")
             filters.statut = statutFilter;
-          if (dateDebut) filters.date_debut = dateDebut;
-          if (dateFin) filters.date_fin = dateFin;
+          if (gerantDate) {
+            filters.date_debut = gerantDate;
+            filters.date_fin = gerantDate;
+          }
           if (preparateurFilterId)
             filters.preparateur_id = Number(preparateurFilterId);
         }
@@ -248,11 +256,17 @@ export default function OrdersPage() {
           if (historiqueTo)
             filters.date_to = new Date(historiqueTo).toISOString();
         }
+        if (isPreparateur && viewMode === "ACTIF" && preparateurDate) {
+          filters.date_debut = preparateurDate;
+          filters.date_fin = preparateurDate;
+        }
         if (isLivreur && viewMode === "ACTIF") {
           if (livreurStatutFilter !== "ALL")
             filters.statut = livreurStatutFilter;
-          if (livreurDateDebut) filters.date_debut = livreurDateDebut;
-          if (livreurDateFin) filters.date_fin = livreurDateFin;
+          if (livreurDate) {
+            filters.date_debut = livreurDate;
+            filters.date_fin = livreurDate;
+          }
         }
         const data = await djangoClient.orders.list(filters);
         setOrders(data);
@@ -265,17 +279,16 @@ export default function OrdersPage() {
     [
       isGerant,
       statutFilter,
-      dateDebut,
-      dateFin,
+      gerantDate,
       preparateurFilterId,
       isPreparateur,
       isLivreur,
       viewMode,
       historiqueFrom,
       historiqueTo,
+      preparateurDate,
       livreurStatutFilter,
-      livreurDateDebut,
-      livreurDateFin,
+      livreurDate,
     ],
   );
 
@@ -305,7 +318,7 @@ export default function OrdersPage() {
 
   const nextAction = (
     order: any,
-  ): { label: string; target: string; icon: any } | null => {
+  ): { label: string; target: string; icon: any; assign?: boolean } | null => {
     if (isPreparateur) {
       if (order.statut_courant === "NOUVELLE")
         return {
@@ -328,15 +341,20 @@ export default function OrdersPage() {
         return { label: "Livré", target: "LIVRE", icon: Truck };
       return null;
     }
-    // Gérant : désigne un préparateur/livreur libre pour faire avancer la
-    // commande (les retraits sur place se gèrent sur la page Récupération).
+    // Gérant : peut désigner un préparateur/livreur libre pour démarrer une
+    // étape, mais aussi faire progresser lui-même la commande à chaque étape
+    // suivante — exactement comme le préparateur/livreur le ferait (les
+    // retraits sur place se gèrent sur la page Récupération).
     if (isGerant) {
       if (order.statut_courant === "NOUVELLE")
         return {
           label: "Assigner un préparateur",
           target: "EN_PREPARATION",
           icon: UserCheck,
+          assign: true,
         };
+      if (order.statut_courant === "EN_PREPARATION")
+        return { label: "Commande prête", target: "PRETE", icon: Package };
       if (
         order.statut_courant === "PRETE" &&
         order.livraison_zone !== "RECUPERATION"
@@ -345,8 +363,11 @@ export default function OrdersPage() {
           label: "Assigner un livreur",
           target: "EN_LIVRAISON",
           icon: UserCheck,
+          assign: true,
         };
       }
+      if (order.statut_courant === "EN_LIVRAISON")
+        return { label: "Livré", target: "LIVRE", icon: Truck };
       return null;
     }
     return null;
@@ -361,9 +382,10 @@ export default function OrdersPage() {
       livreur_id?: number;
       assigned_at?: string;
     },
+    photo?: File,
   ) => {
     try {
-      await djangoClient.orders.changeStatus(order.id, target, note, assignee);
+      await djangoClient.orders.changeStatus(order.id, target, note, assignee, photo);
       toast.success(`Commande ${order.numero} → ${statutInfo(target).label}`);
       fetchOrders(true);
       setActionNote(null);
@@ -515,34 +537,45 @@ export default function OrdersPage() {
             </Select>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Du</Label>
+            <Label className="text-xs text-muted-foreground">Date</Label>
             <Input
               type="date"
-              value={livreurDateDebut}
-              onChange={(e) => setLivreurDateDebut(e.target.value)}
+              value={livreurDate}
+              onChange={(e) => setLivreurDate(e.target.value)}
               className="w-auto"
             />
           </div>
-          <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Au</Label>
-            <Input
-              type="date"
-              value={livreurDateFin}
-              onChange={(e) => setLivreurDateFin(e.target.value)}
-              className="w-auto"
-            />
-          </div>
-          {(livreurStatutFilter !== "ALL" ||
-            livreurDateDebut ||
-            livreurDateFin) && (
+          {(livreurStatutFilter !== "ALL" || livreurDate) && (
             <Button
               variant="ghost"
               size="sm"
               onClick={() => {
                 setLivreurStatutFilter("ALL");
-                setLivreurDateDebut("");
-                setLivreurDateFin("");
+                setLivreurDate("");
               }}
+            >
+              Réinitialiser
+            </Button>
+          )}
+        </div>
+      )}
+
+      {isPreparateur && viewMode === "ACTIF" && (
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Date</Label>
+            <Input
+              type="date"
+              value={preparateurDate}
+              onChange={(e) => setPreparateurDate(e.target.value)}
+              className="w-auto"
+            />
+          </div>
+          {preparateurDate && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setPreparateurDate("")}
             >
               Réinitialiser
             </Button>
@@ -617,20 +650,11 @@ export default function OrdersPage() {
       {isGerant && (
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Du</Label>
+            <Label className="text-xs text-muted-foreground">Date</Label>
             <Input
               type="date"
-              value={dateDebut}
-              onChange={(e) => setDateDebut(e.target.value)}
-              className="w-auto"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Au</Label>
-            <Input
-              type="date"
-              value={dateFin}
-              onChange={(e) => setDateFin(e.target.value)}
+              value={gerantDate}
+              onChange={(e) => setGerantDate(e.target.value)}
               className="w-auto"
             />
           </div>
@@ -669,16 +693,12 @@ export default function OrdersPage() {
               </SelectContent>
             </Select>
           </div>
-          {(dateDebut ||
-            dateFin ||
-            preparateurFilterId ||
-            statutFilter !== "ALL") && (
+          {(gerantDate || preparateurFilterId || statutFilter !== "ALL") && (
             <Button
               variant="ghost"
               size="sm"
               onClick={() => {
-                setDateDebut("");
-                setDateFin("");
+                setGerantDate("");
                 setPreparateurFilterId("");
                 setStatutFilter("ALL");
               }}
@@ -710,7 +730,7 @@ export default function OrdersPage() {
                     {isLivreur && <TableHead>Adresse</TableHead>}
                     {isLivreur && <TableHead>Téléphone</TableHead>}
                     <TableHead>Produit</TableHead>
-                    <TableHead>Zone</TableHead>
+                    <TableHead>{isLivreur ? "Zone" : "Adresse"}</TableHead>
                     {!isPreparateur && <TableHead>Total</TableHead>}
                     <TableHead>Statut</TableHead>
                     {isGerant && <TableHead>Assigné à</TableHead>}
@@ -727,7 +747,17 @@ export default function OrdersPage() {
                       order.statut_courant === "LIVRE"
                         ? historyAt(order, "LIVRE")
                         : historyAt(order, "EN_LIVRAISON");
-                    const canEditOrDelete =
+                    // Une commande assignée à un préparateur dès sa création
+                    // part directement en "En préparation" — restreindre la
+                    // modification à "Nouvelle" ne laissait presque aucune
+                    // fenêtre pour la corriger (§ demande). La suppression,
+                    // elle, reste réservée à "Nouvelle" (rien d'engagé).
+                    const canEdit =
+                      isGerant &&
+                      ["NOUVELLE", "EN_PREPARATION"].includes(
+                        order.statut_courant,
+                      );
+                    const canDelete =
                       isGerant && order.statut_courant === "NOUVELLE";
                     const canCancel =
                       isGerant &&
@@ -790,10 +820,18 @@ export default function OrdersPage() {
                             )
                             .join(", ")}
                         </TableCell>
-                        <TableCell>
-                          {ZONES.find(
-                            (z) => z.value === order.livraison_zone,
-                          )?.label.split(" (")[0] || order.livraison_zone}
+                        <TableCell
+                          className={isLivreur ? undefined : "max-w-[180px] truncate"}
+                        >
+                          {isLivreur
+                            ? ZONES.find(
+                                (z) => z.value === order.livraison_zone,
+                              )?.label.split(" (")[0] || order.livraison_zone
+                            : order.adresse_livraison ||
+                              ZONES.find(
+                                (z) => z.value === order.livraison_zone,
+                              )?.label.split(" (")[0] ||
+                              order.livraison_zone}
                         </TableCell>
                         {!isPreparateur && (
                           <TableCell>{fmt(order.total_a_payer)}</TableCell>
@@ -859,7 +897,7 @@ export default function OrdersPage() {
                                 disabled={notYetDue}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  if (isGerant) {
+                                  if (isGerant && action.assign) {
                                     setAssignTarget({
                                       order,
                                       role:
@@ -877,7 +915,7 @@ export default function OrdersPage() {
                                 }}
                               />
                             )}
-                            {isLivreur &&
+                            {(isLivreur || isGerant) &&
                               order.statut_courant === "EN_LIVRAISON" && (
                                 <IconAction
                                   label={
@@ -899,7 +937,7 @@ export default function OrdersPage() {
                                   }}
                                 />
                               )}
-                            {canEditOrDelete && (
+                            {canEdit && (
                               <IconAction
                                 label="Modifier"
                                 icon={Pencil}
@@ -922,7 +960,7 @@ export default function OrdersPage() {
                                 }}
                               />
                             )}
-                            {canEditOrDelete && (
+                            {canDelete && (
                               <IconAction
                                 label="Supprimer"
                                 icon={Trash2}
@@ -991,6 +1029,16 @@ export default function OrdersPage() {
                     </span>
                   </div>
                 )}
+                {detail.livraison_zone !== "RECUPERATION" && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Paiement</span>
+                    <span>
+                      {MODE_PAIEMENT.find(
+                        (m) => m.value === detail.mode_paiement,
+                      )?.label || detail.mode_paiement}
+                    </span>
+                  </div>
+                )}
                 {detail.total_a_payer != null && (
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Total à payer</span>
@@ -1011,10 +1059,20 @@ export default function OrdersPage() {
                     <span>{detail.livreur_name}</span>
                   </div>
                 )}
-                {detail.note && (
+                {detail.note_preparateur && (
                   <div>
-                    <span className="text-muted-foreground">Note</span>
-                    <p>{detail.note}</p>
+                    <span className="text-muted-foreground">
+                      Note pour le préparateur
+                    </span>
+                    <p>{detail.note_preparateur}</p>
+                  </div>
+                )}
+                {detail.note_livreur && (
+                  <div>
+                    <span className="text-muted-foreground">
+                      Note pour le livreur
+                    </span>
+                    <p>{detail.note_livreur}</p>
                   </div>
                 )}
                 <div>
@@ -1054,6 +1112,23 @@ export default function OrdersPage() {
                             {h.changed_by_name || "Système"} —{" "}
                             {new Date(h.timestamp).toLocaleString("fr-FR")}
                             {h.note && ` (${h.note})`}
+                            {h.photo && (
+                              <a
+                                href={h.photo}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-2 mt-1"
+                              >
+                                <img
+                                  src={h.photo}
+                                  alt="Photo de préparation"
+                                  className="h-16 w-16 object-cover rounded border"
+                                />
+                                <span className="text-blue-600 underline">
+                                  Voir / télécharger la photo
+                                </span>
+                              </a>
+                            )}
                           </li>
                         ))}
                       </ul>
@@ -1111,6 +1186,16 @@ export default function OrdersPage() {
                   </span>
                 </div>
               )}
+              {actionNote.order.livraison_zone !== "RECUPERATION" && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Paiement</span>
+                  <span>
+                    {MODE_PAIEMENT.find(
+                      (m) => m.value === actionNote.order.mode_paiement,
+                    )?.label || actionNote.order.mode_paiement}
+                  </span>
+                </div>
+              )}
               <div className="border-t pt-1.5">
                 <span className="text-muted-foreground">Articles</span>
                 <ul className="mt-1 space-y-0.5">
@@ -1157,10 +1242,17 @@ export default function OrdersPage() {
             </div>
           )}
           <NoteForm
+            showPhoto={actionNote?.target === "PRETE"}
             onCancel={() => setActionNote(null)}
-            onSubmit={(note) =>
+            onSubmit={(note, photo) =>
               actionNote &&
-              doChangeStatus(actionNote.order, actionNote.target, note)
+              doChangeStatus(
+                actionNote.order,
+                actionNote.target,
+                note,
+                undefined,
+                photo,
+              )
             }
           />
         </DialogContent>
@@ -1333,11 +1425,18 @@ function OrderTimeline({ order }: { order: any }) {
 function NoteForm({
   onSubmit,
   onCancel,
+  showPhoto = false,
 }: {
-  onSubmit: (note: string) => void;
+  onSubmit: (note: string, photo?: File) => void;
   onCancel?: () => void;
+  // Preuve que la préparation est faite — proposé uniquement au passage
+  // "Prête" (préparateur/gérant), voir OrderStatusHistory.photo.
+  showPhoto?: boolean;
 }) {
   const [note, setNote] = useState("");
+  const [photo, setPhoto] = useState<File | undefined>(undefined);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+
   return (
     <div className="space-y-4">
       <Textarea
@@ -1345,13 +1444,36 @@ function NoteForm({
         value={note}
         onChange={(e) => setNote(e.target.value)}
       />
+      {showPhoto && (
+        <div className="space-y-2">
+          <Label className="flex items-center gap-1.5 text-sm">
+            <Camera className="h-4 w-4" /> Photo de la préparation (optionnel)
+          </Label>
+          <Input
+            type="file"
+            accept="image/*"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              setPhoto(file);
+              setPhotoPreview(file ? URL.createObjectURL(file) : null);
+            }}
+          />
+          {photoPreview && (
+            <img
+              src={photoPreview}
+              alt="Aperçu"
+              className="h-20 w-20 object-cover rounded border"
+            />
+          )}
+        </div>
+      )}
       <DialogFooter>
         {onCancel && (
           <Button variant="outline" onClick={onCancel}>
             Annuler
           </Button>
         )}
-        <Button onClick={() => onSubmit(note)}>Confirmer</Button>
+        <Button onClick={() => onSubmit(note, photo)}>Confirmer</Button>
       </DialogFooter>
     </div>
   );
@@ -1454,8 +1576,9 @@ function AssignStaffDialog({
 }
 
 // Modification d'une commande "Nouvelle" (client, téléphone, date, zone,
-// adresse, note) — les articles ne sont pas modifiables ici (voir
-// orders/views.py::partial_update).
+// adresse, paiement, note, articles) — réservée au gérant (voir
+// orders/views.py::partial_update) : rien n'est encore préparé/déduit du
+// stock à ce stade, donc les articles restent librement modifiables.
 function EditOrderDialog({
   order,
   onOpenChange,
@@ -1469,9 +1592,20 @@ function EditOrderDialog({
   const [telephone, setTelephone] = useState("");
   const [zone, setZone] = useState("ZONE1");
   const [adresseLivraison, setAdresseLivraison] = useState("");
+  const [modePaiement, setModePaiement] = useState("LIVRAISON");
   const [dateCommande, setDateCommande] = useState("");
-  const [note, setNote] = useState("");
+  const [notePreparateur, setNotePreparateur] = useState("");
+  const [noteLivreur, setNoteLivreur] = useState("");
+  const [items, setItems] = useState<CartItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [preparateurId, setPreparateurId] = useState("");
+  const [preparateurs, setPreparateurs] = useState<
+    { id: number; full_name: string; available: boolean }[]
+  >([]);
+  const [livreurId, setLivreurId] = useState("");
+  const [livreurs, setLivreurs] = useState<
+    { id: number; full_name: string; available: boolean }[]
+  >([]);
 
   useEffect(() => {
     if (!order) return;
@@ -1479,12 +1613,42 @@ function EditOrderDialog({
     setTelephone(order.telephone || "");
     setZone(order.livraison_zone || "ZONE1");
     setAdresseLivraison(order.adresse_livraison || "");
+    setModePaiement(order.mode_paiement || "LIVRAISON");
     setDateCommande(
       order.date_commande
         ? toDatetimeLocalValue(new Date(order.date_commande))
         : "",
     );
-    setNote(order.note || "");
+    setNotePreparateur(order.note_preparateur || "");
+    setNoteLivreur(order.note_livreur || "");
+    setPreparateurId(order.preparateur ? String(order.preparateur) : "");
+    djangoClient.orders
+      .availableStaff("PREPARATEUR", order.magasin)
+      .then(setPreparateurs)
+      .catch(() => setPreparateurs([]));
+    setLivreurId(order.livreur ? String(order.livreur) : "");
+    djangoClient.orders
+      .availableStaff(
+        "LIVREUR",
+        order.magasin,
+        order.date_commande || undefined,
+      )
+      .then(setLivreurs)
+      .catch(() => setLivreurs([]));
+    setItems(
+      (order.items || []).map((it: any) => ({
+        key: `existing-${it.id}`,
+        type_id: 0,
+        type_name: "",
+        reference_id: 0,
+        reference_label: it.reference_name,
+        prix_vente: Number(it.prix_unitaire),
+        variant_id: it.product_variant,
+        couleur: it.couleur,
+        stock_actuel: Infinity,
+        quantite: it.quantite,
+      })),
+    );
   }, [order]);
 
   const submit = async () => {
@@ -1497,6 +1661,10 @@ function EditOrderDialog({
       toast.error("Téléphone au format +261XXXXXXXXX");
       return;
     }
+    if (items.length === 0) {
+      toast.error("Ajoutez au moins un article");
+      return;
+    }
     setSubmitting(true);
     try {
       await djangoClient.orders.update(order.id, {
@@ -1505,11 +1673,49 @@ function EditOrderDialog({
         livraison_zone: zone as any,
         adresse_livraison:
           zone === "RECUPERATION" ? "" : adresseLivraison.trim(),
+        mode_paiement: modePaiement as any,
         ...(dateCommande
           ? { date_commande: new Date(dateCommande).toISOString() }
           : {}),
-        note,
+        note_preparateur: notePreparateur,
+        note_livreur: zone === "RECUPERATION" ? "" : noteLivreur,
+        items: items.map((it) => ({
+          product_variant: it.variant_id,
+          quantite: it.quantite,
+        })),
       });
+      // Pré-assignation du préparateur/livreur — endpoints indépendants du
+      // statut, comme à la création (voir orders/services.py::
+      // assign_preparateur_early/assign_livreur_early). Rien à envoyer si
+      // rien n'a changé.
+      if (preparateurId && Number(preparateurId) !== order.preparateur) {
+        try {
+          await djangoClient.orders.assignPreparateur(
+            order.id,
+            Number(preparateurId),
+          );
+        } catch (assignErr: any) {
+          toast.error(
+            `Commande mise à jour, mais l'assignation du préparateur a échoué : ${assignErr.message || "erreur inconnue"}`,
+          );
+        }
+      }
+      if (
+        zone !== "RECUPERATION" &&
+        livreurId &&
+        Number(livreurId) !== order.livreur
+      ) {
+        try {
+          await djangoClient.orders.assignLivreur(
+            order.id,
+            Number(livreurId),
+          );
+        } catch (assignErr: any) {
+          toast.error(
+            `Commande mise à jour, mais l'assignation du livreur a échoué : ${assignErr.message || "erreur inconnue"}`,
+          );
+        }
+      }
       toast.success("Commande mise à jour");
       onSaved();
     } catch (err: any) {
@@ -1521,13 +1727,15 @@ function EditOrderDialog({
 
   return (
     <Dialog open={!!order} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Modifier la commande {order?.numero}</DialogTitle>
           <DialogDescription>
-            Uniquement possible tant que la commande est "Nouvelle".
+            Possible tant que la commande n'est pas encore "Prête".
           </DialogDescription>
         </DialogHeader>
+
+        <OrderItemsEditor items={items} setItems={setItems} showPrices />
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-2">
@@ -1578,16 +1786,43 @@ function EditOrderDialog({
         </div>
 
         {zone !== "RECUPERATION" && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>Zone de livraison</Label>
+              <Select value={zone} onValueChange={setZone}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ZONES.filter((z) => z.value !== "RECUPERATION").map((z) => (
+                    <SelectItem key={z.value} value={z.value}>
+                      {z.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Adresse de livraison</Label>
+              <Input
+                value={adresseLivraison}
+                onChange={(e) => setAdresseLivraison(e.target.value)}
+              />
+            </div>
+          </div>
+        )}
+
+        {zone !== "RECUPERATION" && (
           <div className="space-y-2">
-            <Label>Zone de livraison</Label>
-            <Select value={zone} onValueChange={setZone}>
-              <SelectTrigger>
+            <Label>Paiement</Label>
+            <Select value={modePaiement} onValueChange={setModePaiement}>
+              <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {ZONES.filter((z) => z.value !== "RECUPERATION").map((z) => (
-                  <SelectItem key={z.value} value={z.value}>
-                    {z.label}
+                {MODE_PAIEMENT.map((m) => (
+                  <SelectItem key={m.value} value={m.value}>
+                    {m.label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1595,20 +1830,58 @@ function EditOrderDialog({
           </div>
         )}
 
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-2">
+            <Label>Préparateur</Label>
+            <Select value={preparateurId} onValueChange={setPreparateurId}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Non assigné" />
+              </SelectTrigger>
+              <SelectContent>
+                {preparateurs.map((p) => (
+                  <SelectItem key={p.id} value={String(p.id)}>
+                    {p.full_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {zone !== "RECUPERATION" && (
+            <div className="space-y-2">
+              <Label>Livreur</Label>
+              <Select value={livreurId} onValueChange={setLivreurId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Non assigné" />
+                </SelectTrigger>
+                <SelectContent>
+                  {livreurs.map((l) => (
+                    <SelectItem key={l.id} value={String(l.id)}>
+                      {l.full_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <Label>Note pour le préparateur (optionnel)</Label>
+          <Textarea
+            value={notePreparateur}
+            onChange={(e) => setNotePreparateur(e.target.value)}
+          />
+        </div>
+
         {zone !== "RECUPERATION" && (
           <div className="space-y-2">
-            <Label>Adresse de livraison</Label>
-            <Input
-              value={adresseLivraison}
-              onChange={(e) => setAdresseLivraison(e.target.value)}
+            <Label>Note pour le livreur (optionnel)</Label>
+            <Textarea
+              value={noteLivreur}
+              onChange={(e) => setNoteLivreur(e.target.value)}
             />
           </div>
         )}
-
-        <div className="space-y-2">
-          <Label>Note (optionnel)</Label>
-          <Textarea value={note} onChange={(e) => setNote(e.target.value)} />
-        </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -1629,41 +1902,21 @@ function toDatetimeLocalValue(d: Date) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function CreateOrderDialog({
-  open,
-  onOpenChange,
-  onCreated,
+// Sélecteur d'articles (recherche catalogue + panier) — partagé entre
+// CreateOrderDialog et EditOrderDialog (le gérant peut aussi modifier les
+// articles d'une commande "Nouvelle", voir orders/views.py::partial_update).
+function OrderItemsEditor({
+  items,
+  setItems,
+  showPrices,
 }: {
-  open: boolean;
-  onOpenChange: (o: boolean) => void;
-  onCreated: () => void;
+  items: CartItem[];
+  setItems: React.Dispatch<React.SetStateAction<CartItem[]>>;
+  showPrices: boolean;
 }) {
-  const { isPreparateur } = useCurrentUser();
-  // Le préparateur ne crée que des retraits sur place, et ne voit aucune
-  // donnée financière (§4/§7.2 du cahier des charges — même règle que pour
-  // la consultation des commandes).
-  const showPrices = !isPreparateur;
-  const [clientNom, setClientNom] = useState("");
-  const [telephone, setTelephone] = useState("+261");
-  const [zone, setZone] = useState("ZONE1");
-  const [adresseLivraison, setAdresseLivraison] = useState("");
-  const [dateCommande, setDateCommande] = useState("");
-  const [note, setNote] = useState("");
-  const [items, setItems] = useState<CartItem[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [preparateurId, setPreparateurId] = useState("");
-  const [preparateurAssignedAt, setPreparateurAssignedAt] = useState("");
-  const [livreurId, setLivreurId] = useState("");
-  const [preparateurs, setPreparateurs] = useState<
-    { id: number; full_name: string; available: boolean }[]
-  >([]);
-  const [livreurs, setLivreurs] = useState<
-    { id: number; full_name: string; available: boolean }[]
-  >([]);
-
-  // Sélecteur en cours d'ajout — filtres Catégorie → Sous-type + Marque,
-  // combinés à la recherche texte (§6 du cahier des charges : "Type produit"
-  // filtre "Marque", recherche autocomplete dans le catalogue).
+  // Filtres Catégorie → Sous-type + Marque, combinés à la recherche texte
+  // (§6 du cahier des charges : "Type produit" filtre "Marque", recherche
+  // autocomplete dans le catalogue).
   const [categories, setCategories] = useState<any[]>([]);
   const [types, setTypes] = useState<any[]>([]);
   const [brands, setBrands] = useState<any[]>([]);
@@ -1678,7 +1931,6 @@ function CreateOrderDialog({
   const [quantite, setQuantite] = useState("");
 
   useEffect(() => {
-    if (!open) return;
     djangoClient.catalog.categories
       .list()
       .then(setCategories)
@@ -1691,45 +1943,7 @@ function CreateOrderDialog({
       .list()
       .then(setBrands)
       .catch(() => {});
-    if (!isPreparateur) {
-      djangoClient.orders
-        .availableStaff("PREPARATEUR")
-        .then(setPreparateurs)
-        .catch(() => setPreparateurs([]));
-    }
-    setClientNom("");
-    setTelephone("+261");
-    setZone(isPreparateur ? "RECUPERATION" : "ZONE1");
-    setAdresseLivraison("");
-    setDateCommande(toDatetimeLocalValue(new Date()));
-    setNote("");
-    setItems([]);
-    setCategoryId(null);
-    setTypeId(null);
-    setBrandId(null);
-    setPreparateurId("");
-    setPreparateurAssignedAt(toDatetimeLocalValue(new Date()));
-    setLivreurId("");
-    setQuery("");
-    setSuggestions([]);
-    setSelectedRef(null);
-    setVariantId(null);
-    setQuantite("");
-  }, [open, isPreparateur]);
-
-  // Reinterrogé à chaque changement de date/heure : le livreur peut être
-  // pré-assigné dès la création (voir submit()), donc "disponible" reflète
-  // aussi un éventuel conflit d'horaire avec une autre commande déjà
-  // (pré-)assignée à ce livreur le même jour/heure — purement indicatif,
-  // n'empêche pas la sélection (voir orders/views.py::available_staff).
-  useEffect(() => {
-    if (!open || isPreparateur) return;
-    const iso = dateCommande ? new Date(dateCommande).toISOString() : undefined;
-    djangoClient.orders
-      .availableStaff("LIVREUR", undefined, iso)
-      .then(setLivreurs)
-      .catch(() => setLivreurs([]));
-  }, [open, isPreparateur, dateCommande]);
+  }, []);
 
   const typesForCategory = categoryId
     ? types.filter((t) => t.category === categoryId)
@@ -1756,13 +1970,6 @@ function CreateOrderDialog({
     }, 250);
     return () => clearTimeout(t);
   }, [query, typeId, brandId, categoryId]);
-
-  const zoneInfo = ZONES.find((z) => z.value === zone)!;
-  const itemsTotal = items.reduce(
-    (s, it) => s + it.prix_vente * it.quantite,
-    0,
-  );
-  const total = itemsTotal + zoneInfo.frais;
 
   const addItem = () => {
     if (!selectedRef || !variantId) {
@@ -1804,6 +2011,304 @@ function CreateOrderDialog({
     setQuantite("");
   };
 
+  return (
+    <div className="space-y-3">
+      <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
+        <p className="text-sm font-medium">Ajouter un article</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <Select
+            value={categoryId ? String(categoryId) : ""}
+            onValueChange={(v) => {
+              setCategoryId(Number(v));
+              setTypeId(null);
+            }}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Catégorie" />
+            </SelectTrigger>
+            <SelectContent>
+              {categories.map((c) => (
+                <SelectItem key={c.id} value={String(c.id)}>
+                  {c.nom}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={typeId ? String(typeId) : ""}
+            onValueChange={(v) => setTypeId(Number(v))}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Sous-type" />
+            </SelectTrigger>
+            <SelectContent>
+              {typesForCategory.map((t) => (
+                <SelectItem key={t.id} value={String(t.id)}>
+                  {t.nom}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={brandId ? String(brandId) : ""}
+            onValueChange={(v) => setBrandId(Number(v))}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Marque" />
+            </SelectTrigger>
+            <SelectContent>
+              {brands.map((b) => (
+                <SelectItem key={b.id} value={String(b.id)}>
+                  {b.nom}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {(categoryId || typeId || brandId) && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">Filtres :</span>
+            {categoryId && (
+              <Badge variant="secondary" className="gap-1">
+                {categories.find((c) => c.id === categoryId)?.nom}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCategoryId(null);
+                    setTypeId(null);
+                  }}
+                >
+                  ×
+                </button>
+              </Badge>
+            )}
+            {typeId && (
+              <Badge variant="secondary" className="gap-1">
+                {types.find((t) => t.id === typeId)?.nom}
+                <button type="button" onClick={() => setTypeId(null)}>
+                  ×
+                </button>
+              </Badge>
+            )}
+            {brandId && (
+              <Badge variant="secondary" className="gap-1">
+                {brands.find((b) => b.id === brandId)?.nom}
+                <button type="button" onClick={() => setBrandId(null)}>
+                  ×
+                </button>
+              </Badge>
+            )}
+          </div>
+        )}
+
+        <div className="relative">
+          <Input
+            placeholder="Rechercher une référence (ex: A15)"
+            value={
+              selectedRef
+                ? `${selectedRef.brand_name} ${selectedRef.reference_name}`
+                : query
+            }
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setSelectedRef(null);
+              setVariantId(null);
+            }}
+          />
+          {!selectedRef && (query || typeId || brandId || categoryId) && (
+            <div className="absolute z-10 mt-1 w-full bg-background border rounded-md shadow-md max-h-56 overflow-y-auto">
+              {searching ? (
+                <p className="px-3 py-2 text-sm text-muted-foreground">
+                  Recherche…
+                </p>
+              ) : suggestions.length === 0 ? (
+                <p className="px-3 py-2 text-sm text-muted-foreground">
+                  Aucun résultat pour cette sélection.
+                </p>
+              ) : (
+                suggestions.map((s) => (
+                  <button
+                    type="button"
+                    key={s.id}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex justify-between"
+                    onClick={() => {
+                      setSelectedRef(s);
+                      setQuery("");
+                      setSuggestions([]);
+                    }}
+                  >
+                    <span>
+                      {s.brand_name} {s.reference_name}{" "}
+                      <span className="text-muted-foreground">
+                        ({s.type_name})
+                      </span>
+                    </span>
+                    {showPrices && <span>{fmt(s.prix_vente)}</span>}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+
+        {selectedRef && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+            <div className="space-y-1">
+              <Label>Couleur</Label>
+              <Select
+                value={variantId ? String(variantId) : ""}
+                onValueChange={(v) => setVariantId(Number(v))}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Couleur" />
+                </SelectTrigger>
+                <SelectContent>
+                  {selectedRef.couleurs.map((c: any) => (
+                    <SelectItem
+                      key={c.variant_id}
+                      value={String(c.variant_id)}
+                      disabled={c.stock_actuel <= 0}
+                    >
+                      {c.couleur} (stock: {c.stock_actuel})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Quantité</Label>
+              <Input
+                type="number"
+                min={1}
+                placeholder="Ex: 1"
+                value={quantite}
+                onChange={(e) => setQuantite(e.target.value)}
+              />
+            </div>
+            {showPrices && (
+              <div className="space-y-1">
+                <Label>Prix (Ar)</Label>
+                <Input value={fmt(selectedRef.prix_vente)} readOnly disabled />
+              </div>
+            )}
+            <Button
+              type="button"
+              className="sm:col-span-3"
+              variant="secondary"
+              onClick={addItem}
+            >
+              <Plus className="h-4 w-4 mr-2" /> Ajouter à la commande
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {items.length > 0 && (
+        <div className="space-y-2">
+          {items.map((it, idx) => (
+            <div
+              key={it.key}
+              className="flex items-center justify-between text-sm border rounded-md px-3 py-2"
+            >
+              <span>
+                {it.reference_label} ({it.couleur}) x{it.quantite}
+              </span>
+              <div className="flex items-center gap-3">
+                {showPrices && <span>{fmt(it.prix_vente * it.quantite)}</span>}
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() =>
+                    setItems((prev) => prev.filter((_, i) => i !== idx))
+                  }
+                >
+                  <Trash2 className="h-4 w-4 text-red-500" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CreateOrderDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  onCreated: () => void;
+}) {
+  const { isPreparateur } = useCurrentUser();
+  // Le préparateur ne crée que des retraits sur place, et ne voit aucune
+  // donnée financière (§4/§7.2 du cahier des charges — même règle que pour
+  // la consultation des commandes).
+  const showPrices = !isPreparateur;
+  const [clientNom, setClientNom] = useState("");
+  const [telephone, setTelephone] = useState("+261");
+  const [zone, setZone] = useState("ZONE1");
+  const [adresseLivraison, setAdresseLivraison] = useState("");
+  const [modePaiement, setModePaiement] = useState("LIVRAISON");
+  const [dateCommande, setDateCommande] = useState("");
+  const [notePreparateur, setNotePreparateur] = useState("");
+  const [noteLivreur, setNoteLivreur] = useState("");
+  const [items, setItems] = useState<CartItem[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [preparateurId, setPreparateurId] = useState("");
+  const [livreurId, setLivreurId] = useState("");
+  const [preparateurs, setPreparateurs] = useState<
+    { id: number; full_name: string; available: boolean }[]
+  >([]);
+  const [livreurs, setLivreurs] = useState<
+    { id: number; full_name: string; available: boolean }[]
+  >([]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!isPreparateur) {
+      djangoClient.orders
+        .availableStaff("PREPARATEUR")
+        .then(setPreparateurs)
+        .catch(() => setPreparateurs([]));
+    }
+    setClientNom("");
+    setTelephone("+261");
+    setZone(isPreparateur ? "RECUPERATION" : "ZONE1");
+    setAdresseLivraison("");
+    setModePaiement("LIVRAISON");
+    setDateCommande(toDatetimeLocalValue(new Date()));
+    setNotePreparateur("");
+    setNoteLivreur("");
+    setItems([]);
+    setPreparateurId("");
+    setLivreurId("");
+  }, [open, isPreparateur]);
+
+  // Reinterrogé à chaque changement de date/heure : le livreur peut être
+  // pré-assigné dès la création (voir submit()), donc "disponible" reflète
+  // aussi un éventuel conflit d'horaire avec une autre commande déjà
+  // (pré-)assignée à ce livreur le même jour/heure — purement indicatif,
+  // n'empêche pas la sélection (voir orders/views.py::available_staff).
+  useEffect(() => {
+    if (!open || isPreparateur) return;
+    const iso = dateCommande ? new Date(dateCommande).toISOString() : undefined;
+    djangoClient.orders
+      .availableStaff("LIVREUR", undefined, iso)
+      .then(setLivreurs)
+      .catch(() => setLivreurs([]));
+  }, [open, isPreparateur, dateCommande]);
+
+  const zoneInfo = ZONES.find((z) => z.value === zone)!;
+  const itemsTotal = items.reduce(
+    (s, it) => s + it.prix_vente * it.quantite,
+    0,
+  );
+  const total = itemsTotal + zoneInfo.frais;
+
   const submit = async () => {
     if (!clientNom.trim()) {
       toast.error("Nom du client requis");
@@ -1824,29 +2329,28 @@ function CreateOrderDialog({
         telephone,
         livraison_zone: zone as any,
         adresse_livraison: adresseLivraison.trim(),
+        mode_paiement: modePaiement as any,
         // Champ vidé par l'utilisateur -> pas envoyé -> le serveur prend "maintenant" (heure précise).
         ...(dateCommande
           ? { date_commande: new Date(dateCommande).toISOString() }
           : {}),
-        note,
+        note_preparateur: notePreparateur,
+        note_livreur: zone === "RECUPERATION" ? "" : noteLivreur,
         items: items.map((it) => ({
           product_variant: it.variant_id,
           quantite: it.quantite,
         })),
       });
       let assignmentFailed = false;
+      // Pré-assignation du préparateur — indépendante du statut : la
+      // commande reste "Nouvelle" (en attente) jusqu'à ce que ce
+      // préparateur clique lui-même "Commencer la préparation" (§ demande —
+      // voir orders/services.py::assign_preparateur_early).
       if (preparateurId) {
         try {
-          await djangoClient.orders.changeStatus(
+          await djangoClient.orders.assignPreparateur(
             order.id,
-            "EN_PREPARATION",
-            undefined,
-            {
-              preparateur_id: Number(preparateurId),
-              assigned_at: preparateurAssignedAt
-                ? new Date(preparateurAssignedAt).toISOString()
-                : undefined,
-            },
+            Number(preparateurId),
           );
         } catch (assignErr: any) {
           assignmentFailed = true;
@@ -1893,231 +2397,8 @@ function CreateOrderDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* ajout de l'article  */}
+        <OrderItemsEditor items={items} setItems={setItems} showPrices={showPrices} />
 
-        <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
-          <p className="text-sm font-medium">Ajouter un article</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Select
-              value={categoryId ? String(categoryId) : ""}
-              onValueChange={(v) => {
-                setCategoryId(Number(v));
-                setTypeId(null);
-              }}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Catégorie" />
-              </SelectTrigger>
-              <SelectContent>
-                {categories.map((c) => (
-                  <SelectItem key={c.id} value={String(c.id)}>
-                    {c.nom}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={typeId ? String(typeId) : ""}
-              onValueChange={(v) => setTypeId(Number(v))}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Sous-type" />
-              </SelectTrigger>
-              <SelectContent>
-                {typesForCategory.map((t) => (
-                  <SelectItem key={t.id} value={String(t.id)}>
-                    {t.nom}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={brandId ? String(brandId) : ""}
-              onValueChange={(v) => setBrandId(Number(v))}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Marque" />
-              </SelectTrigger>
-              <SelectContent>
-                {brands.map((b) => (
-                  <SelectItem key={b.id} value={String(b.id)}>
-                    {b.nom}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {(categoryId || typeId || brandId) && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">Filtres :</span>
-              {categoryId && (
-                <Badge variant="secondary" className="gap-1">
-                  {categories.find((c) => c.id === categoryId)?.nom}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCategoryId(null);
-                      setTypeId(null);
-                    }}
-                  >
-                    ×
-                  </button>
-                </Badge>
-              )}
-              {typeId && (
-                <Badge variant="secondary" className="gap-1">
-                  {types.find((t) => t.id === typeId)?.nom}
-                  <button type="button" onClick={() => setTypeId(null)}>
-                    ×
-                  </button>
-                </Badge>
-              )}
-              {brandId && (
-                <Badge variant="secondary" className="gap-1">
-                  {brands.find((b) => b.id === brandId)?.nom}
-                  <button type="button" onClick={() => setBrandId(null)}>
-                    ×
-                  </button>
-                </Badge>
-              )}
-            </div>
-          )}
-
-          <div className="relative">
-            <Input
-              placeholder="Rechercher une référence (ex: A15)"
-              value={
-                selectedRef
-                  ? `${selectedRef.brand_name} ${selectedRef.reference_name}`
-                  : query
-              }
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setSelectedRef(null);
-                setVariantId(null);
-              }}
-            />
-            {!selectedRef && (query || typeId || brandId || categoryId) && (
-              <div className="absolute z-10 mt-1 w-full bg-background border rounded-md shadow-md max-h-56 overflow-y-auto">
-                {searching ? (
-                  <p className="px-3 py-2 text-sm text-muted-foreground">
-                    Recherche…
-                  </p>
-                ) : suggestions.length === 0 ? (
-                  <p className="px-3 py-2 text-sm text-muted-foreground">
-                    Aucun résultat pour cette sélection.
-                  </p>
-                ) : (
-                  suggestions.map((s) => (
-                    <button
-                      type="button"
-                      key={s.id}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex justify-between"
-                      onClick={() => {
-                        setSelectedRef(s);
-                        setQuery("");
-                        setSuggestions([]);
-                      }}
-                    >
-                      <span>
-                        {s.brand_name} {s.reference_name}{" "}
-                        <span className="text-muted-foreground">
-                          ({s.type_name})
-                        </span>
-                      </span>
-                      {showPrices && <span>{fmt(s.prix_vente)}</span>}
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-
-          {selectedRef && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
-              <div className="space-y-1">
-                <Label>Couleur</Label>
-                <Select
-                  value={variantId ? String(variantId) : ""}
-                  onValueChange={(v) => setVariantId(Number(v))}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Couleur" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {selectedRef.couleurs.map((c: any) => (
-                      <SelectItem
-                        key={c.variant_id}
-                        value={String(c.variant_id)}
-                        disabled={c.stock_actuel <= 0}
-                      >
-                        {c.couleur} (stock: {c.stock_actuel})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label>Quantité</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  placeholder="Ex: 1"
-                  value={quantite}
-                  onChange={(e) => setQuantite(e.target.value)}
-                />
-              </div>
-              {showPrices && (
-                <div className="space-y-1">
-                  <Label>Prix (Ar)</Label>
-                  <Input
-                    value={fmt(selectedRef.prix_vente)}
-                    readOnly
-                    disabled
-                  />
-                </div>
-              )}
-              <Button
-                type="button"
-                className="sm:col-span-3"
-                variant="secondary"
-                onClick={addItem}
-              >
-                <Plus className="h-4 w-4 mr-2" /> Ajouter à la commande
-              </Button>
-            </div>
-          )}
-        </div>
-
-        {items.length > 0 && (
-          <div className="space-y-2">
-            {items.map((it, idx) => (
-              <div
-                key={it.key}
-                className="flex items-center justify-between text-sm border rounded-md px-3 py-2"
-              >
-                <span>
-                  {it.reference_label} ({it.couleur}) x{it.quantite}
-                </span>
-                <div className="flex items-center gap-3">
-                  {showPrices && (
-                    <span>{fmt(it.prix_vente * it.quantite)}</span>
-                  )}
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={() =>
-                      setItems((prev) => prev.filter((_, i) => i !== idx))
-                    }
-                  >
-                    <Trash2 className="h-4 w-4 text-red-500" />
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
         {isPreparateur ? (
           <p className="text-xs text-muted-foreground -mt-2">
             Retrait sur place uniquement — la commande apparaîtra dans
@@ -2145,13 +2426,6 @@ function CreateOrderDialog({
                 <Package className="h-4 w-4 mr-2" /> Récupération sur place
               </Button>
             </div>
-            {zone === "RECUPERATION" && (
-              <p className="text-xs text-muted-foreground">
-                Pas de frais ni de livreur — la commande apparaîtra dans
-                "Récupération" une fois prête, à valider comme livrée au
-                comptoir quand le client vient la chercher.
-              </p>
-            )}
           </div>
         )}
         <div className="space-y-2">
@@ -2179,22 +2453,6 @@ function CreateOrderDialog({
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">
-                Optionnel — assigne et démarre la préparation dès la création de
-                la commande.
-              </p>
-              {preparateurId && (
-                <div className="space-y-1 pt-1">
-                  <Label className="text-xs text-muted-foreground">
-                    Date et heure d'assignation
-                  </Label>
-                  <Input
-                    type="datetime-local"
-                    value={preparateurAssignedAt}
-                    onChange={(e) => setPreparateurAssignedAt(e.target.value)}
-                  />
-                </div>
-              )}
             </div>
 
             <div className="space-y-2">
@@ -2211,12 +2469,6 @@ function CreateOrderDialog({
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">
-                Optionnel — pré-assigné dès maintenant, sans attendre que la
-                commande soit prête. Le passage "En livraison" reste une
-                action manuelle, mais n'aura pas besoin de choisir à nouveau
-                le livreur.
-              </p>
             </div>
           </div>
         )}
@@ -2248,6 +2500,24 @@ function CreateOrderDialog({
           </div>
         )}
 
+        {zone !== "RECUPERATION" && (
+          <div className="space-y-2">
+            <Label>Paiement</Label>
+            <Select value={modePaiement} onValueChange={setModePaiement}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {MODE_PAIEMENT.map((m) => (
+                  <SelectItem key={m.value} value={m.value}>
+                    {m.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>Nom client</Label>
@@ -2270,9 +2540,25 @@ function CreateOrderDialog({
         {/* informations du client  */}
 
         <div className="space-y-2">
-          <Label>Note (optionnel)</Label>
-          <Textarea value={note} onChange={(e) => setNote(e.target.value)} />
+          <Label>
+            {isPreparateur
+              ? "Note (optionnel)"
+              : "Note pour le préparateur (optionnel)"}
+          </Label>
+          <Textarea
+            value={notePreparateur}
+            onChange={(e) => setNotePreparateur(e.target.value)}
+          />
         </div>
+        {!isPreparateur && zone !== "RECUPERATION" && (
+          <div className="space-y-2">
+            <Label>Note pour le livreur (optionnel)</Label>
+            <Textarea
+              value={noteLivreur}
+              onChange={(e) => setNoteLivreur(e.target.value)}
+            />
+          </div>
+        )}
         {showPrices && (
           <>
             <div className="flex justify-between items-center border-t pt-3 text-sm">

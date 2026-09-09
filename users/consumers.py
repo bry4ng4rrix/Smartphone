@@ -47,6 +47,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 if not recipient_magasin_ids or not (my_magasin_ids & recipient_magasin_ids):
                     await self.close()
                     return
+                # Deux livreurs ne peuvent pas se contacter entre eux (§ demande).
+                if await self.is_chat_blocked_async(self.user, self.recipient):
+                    await self.close()
+                    return
                 # Create a deterministic room name for the DM
                 user_ids = sorted([self.user.id, recipient_id])
                 self.room_name = f"dm_{user_ids[0]}_{user_ids[1]}"
@@ -176,6 +180,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
     def get_company_magasin_ids_async(self, user):
         from users.views import get_company_magasins
         return set(get_company_magasins(user).values_list("id", flat=True))
+
+    @database_sync_to_async
+    def is_chat_blocked_async(self, user_a, user_b):
+        from users.permissions import chat_blocked_between
+        return chat_blocked_between(user_a, user_b)
 
     @database_sync_to_async
     def get_company_id_async(self, user):

@@ -24,7 +24,7 @@ from decimal import Decimal, InvalidOperation
 
 from .models import CustomUser, MagasinProfile, EmployerProfile, AdminProfile, CaisseSession, CaisseMovement, CaisseCategory, ChatMessage, Notification, LoginEvent, EmployeePasswordResetRequest
 from .serializers import RegisterSerializer, CaisseSessionSerializer, CaisseMovementSerializer, CaisseCategorySerializer, NotificationSerializer, MagasinProfileSerializer, ChatMessageSerializer, EmployeePasswordResetRequestSerializer
-from .permissions import IsAdmin, IsCompanyOwner, IsGerant, get_accessible_magasins, resolve_magasin_for_request, user_commande_role
+from .permissions import IsAdmin, IsCompanyOwner, IsGerant, get_accessible_magasins, resolve_magasin_for_request, user_commande_role, chat_blocked_between
 from .subscriptions import get_company_magasins, get_company_user_ids, get_company_owner
 from rest_framework_simplejwt.views import TokenViewBase
 from .authentication import CustomTokenObtainPairSerializer
@@ -1903,6 +1903,10 @@ class ChatUsersListView(APIView):
             Q(employer_profile__magasin__in=magasins)
         ).exclude(id=request.user.id).distinct()
 
+        # Deux livreurs ne doivent pas se voir dans la liste de contacts
+        # (§ demande) — sans effet sur les autres paires (gérant/préparateur).
+        users = [u for u in users if not chat_blocked_between(request.user, u)]
+
         now = timezone.now()
         data = []
         for u in users:
@@ -1948,6 +1952,8 @@ class ChatMessageHistoryView(APIView):
                 recipient_magasins = get_company_magasins(recipient)
                 if not recipient_magasins.exists() or not my_magasins.filter(id__in=recipient_magasins).exists():
                     return Response({"error": "Permission refusée"}, status=403)
+                if chat_blocked_between(request.user, recipient):
+                    return Response({"error": "Deux livreurs ne peuvent pas se contacter entre eux"}, status=403)
 
                 messages = ChatMessage.objects.filter(
                     Q(sender=request.user, recipient=recipient) |

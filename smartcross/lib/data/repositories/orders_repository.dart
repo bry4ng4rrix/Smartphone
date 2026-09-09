@@ -63,8 +63,11 @@ class OrdersRepository {
     required String telephone,
     required String livraisonZone,
     required List<OrderItemDraft> items,
-    String note = '',
+    // Deux notes distinctes, chacune destinée à un seul rôle (§ demande).
+    String notePreparateur = '',
+    String noteLivreur = '',
     String adresseLivraison = '',
+    String modePaiement = 'LIVRAISON',
     DateTime? dateCommande,
   }) async {
     final response = await _dio.post('orders/', data: {
@@ -72,7 +75,9 @@ class OrdersRepository {
       'telephone': telephone,
       'livraison_zone': livraisonZone,
       'adresse_livraison': adresseLivraison,
-      'note': note,
+      'mode_paiement': modePaiement,
+      'note_preparateur': notePreparateur,
+      'note_livreur': noteLivreur,
       'items': items.map((e) => e.toJson()).toList(),
       if (dateCommande != null) 'date_commande': dateCommande.toUtc().toIso8601String(),
     });
@@ -91,7 +96,22 @@ class OrdersRepository {
     int? preparateurId,
     int? livreurId,
     DateTime? assignedAt,
+    // Preuve que la préparation est faite — jointe au passage "Prête"
+    // (§ demande), chemin local du fichier choisi via image_picker.
+    String? photoPath,
   }) async {
+    if (photoPath != null) {
+      final formData = FormData.fromMap({
+        'statut': statut,
+        'note': note,
+        if (preparateurId != null) 'preparateur_id': preparateurId,
+        if (livreurId != null) 'livreur_id': livreurId,
+        if (assignedAt != null) 'assigned_at': assignedAt.toUtc().toIso8601String(),
+        'photo': await MultipartFile.fromFile(photoPath),
+      });
+      final response = await _dio.post('orders/$id/status/', data: formData);
+      return Order.fromJson(response.data as Map<String, dynamic>);
+    }
     final response = await _dio.post('orders/$id/status/', data: {
       'statut': statut,
       'note': note,
@@ -109,24 +129,31 @@ class OrdersRepository {
     return Order.fromJson(response.data as Map<String, dynamic>);
   }
 
-  /// Modification (gérant, uniquement tant que "Nouvelle") — les articles ne
-  /// sont pas modifiables ici, voir orders/serializers.py::OrderUpdateSerializer.
+  /// Modification (gérant, uniquement tant que "Nouvelle") — les articles
+  /// restent modifiables à ce stade puisque rien n'est encore déduit du
+  /// stock, voir orders/views.py::partial_update.
   Future<Order> update(
     int id, {
     String? clientNom,
     String? telephone,
     String? livraisonZone,
     String? adresseLivraison,
+    String? modePaiement,
     DateTime? dateCommande,
-    String? note,
+    String? notePreparateur,
+    String? noteLivreur,
+    List<OrderItemDraft>? items,
   }) async {
     final response = await _dio.patch('orders/$id/', data: {
       if (clientNom != null) 'client_nom': clientNom,
       if (telephone != null) 'telephone': telephone,
       if (livraisonZone != null) 'livraison_zone': livraisonZone,
       if (adresseLivraison != null) 'adresse_livraison': adresseLivraison,
+      if (modePaiement != null) 'mode_paiement': modePaiement,
       if (dateCommande != null) 'date_commande': dateCommande.toUtc().toIso8601String(),
-      if (note != null) 'note': note,
+      if (notePreparateur != null) 'note_preparateur': notePreparateur,
+      if (noteLivreur != null) 'note_livreur': noteLivreur,
+      if (items != null) 'items': items.map((e) => e.toJson()).toList(),
     });
     return Order.fromJson(response.data as Map<String, dynamic>);
   }
@@ -152,6 +179,15 @@ class OrdersRepository {
   /// orders/services.py::assign_livreur_early/_resolve_assignee).
   Future<Order> assignLivreur(int id, int livreurId) async {
     final response = await _dio.post('orders/$id/assign-livreur/', data: {'livreur_id': livreurId});
+    return Order.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  /// Pré-assigne un préparateur sans faire progresser le statut — la
+  /// commande reste "Nouvelle" (en attente) jusqu'à ce que ce préparateur
+  /// clique lui-même "Commencer la préparation" (§ demande — voir
+  /// orders/services.py::assign_preparateur_early).
+  Future<Order> assignPreparateur(int id, int preparateurId) async {
+    final response = await _dio.post('orders/$id/assign-preparateur/', data: {'preparateur_id': preparateurId});
     return Order.fromJson(response.data as Map<String, dynamic>);
   }
 

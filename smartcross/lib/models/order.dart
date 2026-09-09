@@ -39,6 +39,7 @@ class OrderStatusHistoryEntry {
     required this.nouveauStatut,
     this.changedByName,
     this.note,
+    this.photo,
     required this.timestamp,
   });
 
@@ -47,6 +48,9 @@ class OrderStatusHistoryEntry {
   final OrderStatus nouveauStatut;
   final String? changedByName;
   final String? note;
+  // Preuve que la préparation est faite — jointe au passage "Prête"
+  // (§ demande), voir OrderStatusHistory.photo côté serveur.
+  final String? photo;
   final DateTime? timestamp;
 
   factory OrderStatusHistoryEntry.fromJson(Map<String, dynamic> json) {
@@ -56,6 +60,7 @@ class OrderStatusHistoryEntry {
       nouveauStatut: OrderStatusX.fromApi(asString(json['nouveau_statut'])),
       changedByName: asStringOrNull(json['changed_by_name']),
       note: asStringOrNull(json['note']),
+      photo: asStringOrNull(json['photo']),
       timestamp: asDateOrNull(json['timestamp']),
     );
   }
@@ -74,14 +79,18 @@ class Order {
     this.telephone,
     required this.livraisonZone,
     this.adresseLivraison,
+    this.modePaiement = PaymentMode.livraison,
     this.fraisLivraison,
     this.totalAPayer,
-    this.note,
+    this.notePreparateur,
+    this.noteLivreur,
     required this.statutCourant,
     required this.items,
     this.statusHistory = const [],
     this.createdAt,
+    this.preparateurId,
     this.preparateurName,
+    this.livreurId,
     this.livreurName,
   });
 
@@ -92,16 +101,22 @@ class Order {
   final String? telephone;
   final DeliveryZone livraisonZone;
   final String? adresseLivraison;
+  final PaymentMode modePaiement;
   final double? fraisLivraison;
   final double? totalAPayer;
-  final String? note;
+  // Deux notes distinctes, chacune destinée à un seul rôle (§ demande) — le
+  // préparateur ne voit jamais celle du livreur, et inversement.
+  final String? notePreparateur;
+  final String? noteLivreur;
   final OrderStatus statutCourant;
   final List<OrderItem> items;
   final List<OrderStatusHistoryEntry> statusHistory;
   final DateTime? createdAt;
   // Préparateur/livreur désigné pour cette commande (voir orders/services.py
   // — un seul à la fois par personne).
+  final int? preparateurId;
   final String? preparateurName;
+  final int? livreurId;
   final String? livreurName;
 
   factory Order.fromJson(Map<String, dynamic> json) {
@@ -113,16 +128,20 @@ class Order {
       telephone: asStringOrNull(json['telephone']),
       livraisonZone: DeliveryZoneX.fromApi(asStringOrNull(json['livraison_zone'])),
       adresseLivraison: asStringOrNull(json['adresse_livraison']),
+      modePaiement: PaymentModeX.fromApi(asStringOrNull(json['mode_paiement'])),
       fraisLivraison: asDoubleOrNull(json['frais_livraison']),
       totalAPayer: asDoubleOrNull(json['total_a_payer']),
-      note: asStringOrNull(json['note']),
+      notePreparateur: asStringOrNull(json['note_preparateur']),
+      noteLivreur: asStringOrNull(json['note_livreur']),
       statutCourant: OrderStatusX.fromApi(asString(json['statut_courant'])),
       items: (json['items'] as List? ?? []).map((e) => OrderItem.fromJson(e as Map<String, dynamic>)).toList(),
       statusHistory: (json['status_history'] as List? ?? [])
           .map((e) => OrderStatusHistoryEntry.fromJson(e as Map<String, dynamic>))
           .toList(),
       createdAt: asDateOrNull(json['created_at']),
+      preparateurId: asIntOrNull(json['preparateur']),
       preparateurName: asStringOrNull(json['preparateur_name']),
+      livreurId: asIntOrNull(json['livreur']),
       livreurName: asStringOrNull(json['livreur_name']),
     );
   }

@@ -14,6 +14,7 @@ import '../../widgets/status_badge.dart';
 
 final _moneyFmt = NumberFormat.decimalPattern('fr_FR');
 String _ar(num v) => '${_moneyFmt.format(v.round())} Ar';
+final _tourneeDateFmt = DateFormat('dd/MM/yyyy');
 
 /// Module Livreur (§7.3 README) : UX ultra simplifiée, orientée tournée. Le
 /// serveur renvoie aussi les commandes "En préparation" (visibilité/planning,
@@ -28,9 +29,26 @@ class TourneeScreen extends ConsumerStatefulWidget {
 class _TourneeScreenState extends ConsumerState<TourneeScreen> {
   bool _historique = false;
 
+  // Filtre "Ma tournée" : une seule date (pas de plage Du/Au) — § demande.
+  // Réutilise le même `ordersFilterProvider` que la page Commandes du gérant
+  // (date_debut = date_fin côté serveur).
+  Future<void> _pickDate(OrdersFilter filter) async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: filter.dateDebut ?? DateTime.now(),
+      firstDate: DateTime.now().subtract(const Duration(days: 365)),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (date == null) return;
+    ref.read(ordersFilterProvider.notifier).set(filter.copyWith(dateDebut: date, dateFin: date));
+  }
+
+  void _clearDate() => ref.read(ordersFilterProvider.notifier).set(const OrdersFilter());
+
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(ordersProvider);
+    final filter = ref.watch(ordersFilterProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -45,22 +63,46 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
       ),
       body: _historique
           ? OrderHistoriqueView(cardBuilder: (context, order) => _TourneeHistoriqueCard(order: order))
-          : RefreshIndicator(
-              onRefresh: () => ref.read(ordersProvider.notifier).refresh(),
-              child: switch (async) {
-                AsyncData(:final value) => value.isEmpty
-                    ? const EmptyState(message: 'Aucune commande en tournée.', icon: Icons.local_shipping_outlined)
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(12),
-                        itemCount: value.length,
-                        itemBuilder: (context, i) => _TourneeCard(order: value[i]),
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _pickDate(filter),
+                          icon: const Icon(Icons.event_outlined),
+                          label: Text(
+                            filter.dateDebut != null ? _tourneeDateFmt.format(filter.dateDebut!) : 'Filtrer par date',
+                          ),
+                        ),
                       ),
-                AsyncError(:final error) => ErrorState(
-                    message: ApiClient.messageFromError(error),
-                    onRetry: () => ref.read(ordersProvider.notifier).refresh(),
+                      if (filter.dateDebut != null)
+                        IconButton(onPressed: _clearDate, icon: const Icon(Icons.clear)),
+                    ],
                   ),
-                _ => const LoadingState(),
-              },
+                ),
+                Expanded(
+                  child: RefreshIndicator(
+                    onRefresh: () => ref.read(ordersProvider.notifier).refresh(),
+                    child: switch (async) {
+                      AsyncData(:final value) => value.isEmpty
+                          ? const EmptyState(message: 'Aucune commande en tournée.', icon: Icons.local_shipping_outlined)
+                          : ListView.builder(
+                              padding: const EdgeInsets.all(12),
+                              itemCount: value.length,
+                              itemBuilder: (context, i) => _TourneeCard(order: value[i]),
+                            ),
+                      AsyncError(:final error) => ErrorState(
+                          message: ApiClient.messageFromError(error),
+                          onRetry: () => ref.read(ordersProvider.notifier).refresh(),
+                        ),
+                      _ => const LoadingState(),
+                    },
+                  ),
+                ),
+              ],
             ),
     );
   }
@@ -92,8 +134,8 @@ class _TourneeCardState extends ConsumerState<_TourneeCard> {
       target == OrderStatus.enLivraison ? 'Récupérer le colis' : target.label;
 
   Future<void> _confirm(OrderStatus target) async {
-    final note = await showOrderConfirmDialog(context, title: 'Confirmer : ${_actionLabel(target)}', order: widget.order);
-    if (note != null) _changeStatus(target, note: note);
+    final result = await showOrderConfirmDialog(context, title: 'Confirmer : ${_actionLabel(target)}', order: widget.order);
+    if (result != null) _changeStatus(target, note: result.note);
   }
 
   @override
