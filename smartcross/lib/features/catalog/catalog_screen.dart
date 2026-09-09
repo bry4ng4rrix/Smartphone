@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:collection/collection.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -12,6 +13,7 @@ import '../../core/constants.dart';
 import '../../data/repositories/stock_repository.dart';
 import '../../models/catalog.dart';
 import '../../models/stock.dart';
+import '../../state/auth_provider.dart';
 import '../../state/catalog_provider.dart';
 import '../../state/stock_provider.dart';
 import '../../widgets/async_state_widgets.dart';
@@ -32,16 +34,16 @@ class CatalogScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 4,
+      length: 3,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Produits'),
           bottom: const TabBar(
             isScrollable: true,
-            tabs: [Tab(text: 'Références'), Tab(text: 'Ruptures'), Tab(text: 'Mouvements'), Tab(text: 'Configuration')],
+            tabs: [Tab(text: 'Références'), Tab(text: 'Ruptures'), Tab(text: 'Mouvements')],
           ),
         ),
-        body: const TabBarView(children: [_ReferencesTab(), _RupturesTab(), _MovementsTab(), _ConfigTab()]),
+        body: const TabBarView(children: [_ReferencesTab(), _RupturesTab(), _MovementsTab()]),
       ),
     );
   }
@@ -78,63 +80,84 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> {
     return Scaffold(
       body: Column(
         children: [
+          // Recherche + filtres compacts en icônes (Catégorie/Sous-type/
+          // Marque) plutôt que 3 menus déroulants pleine largeur — même
+          // esprit que les icônes de filtre de la liste Commandes
+          // (orders_list_screen.dart), pour libérer de l'espace vertical
+          // (§ demande). Les puces actives ci-dessous montrent/permettent de
+          // retirer ce qui est sélectionné, faute de libellé visible sur l'icône.
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-            child: TextField(
-              controller: _searchController,
-              decoration: const InputDecoration(hintText: 'Rechercher (marque, référence)…', prefixIcon: Icon(Icons.search), isDense: true, border: OutlineInputBorder()),
-              onChanged: (v) => setState(() => _search = v.trim().toLowerCase()),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.fromLTRB(12, 12, 4, 4),
             child: Row(
               children: [
                 Expanded(
-                  child: DropdownButtonFormField<int?>(
-                    initialValue: _categoryFilter,
-                    isExpanded: true,
-                    decoration: const InputDecoration(isDense: true, labelText: 'Catégorie', border: OutlineInputBorder()),
-                    items: [
-                      const DropdownMenuItem(value: null, child: Text('Toutes les catégories')),
-                      for (final c in categories) DropdownMenuItem(value: c.id, child: Text(c.nom, overflow: TextOverflow.ellipsis)),
-                    ],
-                    onChanged: (v) => setState(() {
-                      _categoryFilter = v;
-                      _typeFilter = null;
-                    }),
+                  child: TextField(
+                    controller: _searchController,
+                    decoration: const InputDecoration(hintText: 'Rechercher (marque, référence)…', prefixIcon: Icon(Icons.search), isDense: true, border: OutlineInputBorder()),
+                    onChanged: (v) => setState(() => _search = v.trim().toLowerCase()),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: DropdownButtonFormField<int?>(
-                    initialValue: _typeFilter,
-                    isExpanded: true,
-                    decoration: const InputDecoration(isDense: true, labelText: 'Sous-type', border: OutlineInputBorder()),
-                    items: [
-                      const DropdownMenuItem(value: null, child: Text('Tous les sous-types')),
-                      for (final t in typesForCategory) DropdownMenuItem(value: t.id, child: Text(t.nom, overflow: TextOverflow.ellipsis)),
-                    ],
-                    onChanged: (v) => setState(() => _typeFilter = v),
-                  ),
+                PopupMenuButton<int?>(
+                  tooltip: 'Filtrer par catégorie',
+                  icon: Icon(Icons.category_outlined, color: _categoryFilter != null ? Theme.of(context).colorScheme.primary : null),
+                  onSelected: (v) => setState(() {
+                    _categoryFilter = v;
+                    _typeFilter = null;
+                  }),
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(value: null, child: Text('Toutes les catégories')),
+                    for (final c in categories) PopupMenuItem(value: c.id, child: Text(c.nom)),
+                  ],
+                ),
+                PopupMenuButton<int?>(
+                  tooltip: 'Filtrer par sous-type',
+                  icon: Icon(Icons.style_outlined, color: _typeFilter != null ? Theme.of(context).colorScheme.primary : null),
+                  onSelected: (v) => setState(() => _typeFilter = v),
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(value: null, child: Text('Tous les sous-types')),
+                    for (final t in typesForCategory) PopupMenuItem(value: t.id, child: Text(t.nom)),
+                  ],
+                ),
+                PopupMenuButton<int?>(
+                  tooltip: 'Filtrer par marque',
+                  icon: Icon(Icons.storefront_outlined, color: _brandFilter != null ? Theme.of(context).colorScheme.primary : null),
+                  onSelected: (v) => setState(() => _brandFilter = v),
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(value: null, child: Text('Toutes les marques')),
+                    for (final b in brands) PopupMenuItem(value: b.id, child: Text(b.nom)),
+                  ],
                 ),
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-            child: DropdownButtonFormField<int?>(
-              initialValue: _brandFilter,
-              isExpanded: true,
-              decoration: const InputDecoration(isDense: true, labelText: 'Marque', border: OutlineInputBorder()),
-              items: [
-                const DropdownMenuItem(value: null, child: Text('Toutes les marques')),
-                for (final b in brands) DropdownMenuItem(value: b.id, child: Text(b.nom, overflow: TextOverflow.ellipsis)),
-              ],
-              onChanged: (v) => setState(() => _brandFilter = v),
+          if (_categoryFilter != null || _typeFilter != null || _brandFilter != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  if (_categoryFilter != null)
+                    Chip(
+                      label: Text(categories.firstWhereOrNull((c) => c.id == _categoryFilter)?.nom ?? ''),
+                      onDeleted: () => setState(() {
+                        _categoryFilter = null;
+                        _typeFilter = null;
+                      }),
+                    ),
+                  if (_typeFilter != null)
+                    Chip(
+                      label: Text(types.firstWhereOrNull((t) => t.id == _typeFilter)?.nom ?? ''),
+                      onDeleted: () => setState(() => _typeFilter = null),
+                    ),
+                  if (_brandFilter != null)
+                    Chip(
+                      label: Text(brands.firstWhereOrNull((b) => b.id == _brandFilter)?.nom ?? ''),
+                      onDeleted: () => setState(() => _brandFilter = null),
+                    ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
           const Divider(height: 1),
           Expanded(
             child: switch (async) {
@@ -148,10 +171,23 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showAddReferenceDialog(context, ref),
-        icon: const Icon(Icons.add),
-        label: const Text('Référence'),
+      floatingActionButton: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton.extended(
+            heroTag: 'catalog-fab-new-reference',
+            onPressed: () => _showAddReferenceDialog(context, ref),
+            icon: const Icon(Icons.add),
+            label: const Text('Nouvelle référence'),
+          ),
+          const SizedBox(width: 10),
+          FloatingActionButton(
+            heroTag: 'catalog-fab-more',
+            tooltip: 'Plus d\'options',
+            onPressed: () => _showMoreMenu(context, ref),
+            child: const Icon(Icons.more_vert),
+          ),
+        ],
       ),
     );
   }
@@ -177,12 +213,19 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> {
     if (filtered.isEmpty) {
       return const EmptyState(message: 'Aucune référence pour cette sélection.', icon: Icons.style_outlined);
     }
+    // Carte verticale plutôt qu'un DataTable : sur un écran de téléphone, un
+    // vrai tableau (10 colonnes côté web) impose un scroll horizontal — pas
+    // souhaité (§ demande). Champs affichés sans tap : Catégorie, Marque,
+    // Référence, Prix de vente, Marge, Variantes (couleurs+stock), Statut.
+    // Actions (modifier/supprimer/couleurs) dans un menu "⋮" par ligne,
+    // visible seulement pour le gérant.
+    final isGerant = ref.watch(authProvider).user?.role == UserRole.gerant;
     return RefreshIndicator(
       onRefresh: () => ref.read(referencesProvider.notifier).refresh(),
       child: ListView.builder(
         padding: const EdgeInsets.all(12),
         itemCount: filtered.length,
-        itemBuilder: (context, i) => _ReferenceTile(reference: filtered[i]),
+        itemBuilder: (context, i) => _ReferenceCard(reference: filtered[i], isGerant: isGerant),
       ),
     );
   }
@@ -191,106 +234,427 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> {
     final categories = ref.read(categoriesProvider).value ?? [];
     if (categories.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Créez d\'abord une catégorie (Paramètres → Catalogue, ou onglet Configuration).')),
+        const SnackBar(content: Text('Créez d\'abord une catégorie (Paramètres → Catalogue, ou ⋮ → Paramètres ici).')),
       );
       return;
     }
     await showDialog<void>(context: context, builder: (_) => const _AddReferenceDialog());
   }
-}
 
-class _ReferenceTile extends ConsumerWidget {
-  const _ReferenceTile({required this.reference});
-  final ProductReference reference;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      child: ExpansionTile(
-        leading: ClipRRect(
-          borderRadius: BorderRadius.circular(6),
-          child: reference.photo != null
-              ? Image.network(reference.photo!, width: 40, height: 40, fit: BoxFit.cover)
-              : Container(
-                  width: 40,
-                  height: 40,
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  child: const Icon(Icons.image_outlined, size: 18),
-                ),
-        ),
-        title: Text('${reference.brandName} ${reference.referenceName}'),
-        subtitle: Text(
-          '${reference.categoryName} / ${reference.typeName} — ${_ar(reference.prixVente)}'
-          ' · marge ${_ar(reference.margeUnitaire)}'
-          '${reference.actif ? '' : ' · inactive'}',
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
+  /// Menu "⋮" (à droite du FAB "Nouvelle référence") : réplique les actions
+  /// secondaires de la barre d'outils Next.js (`app/(app)/products/page.tsx`)
+  /// — Export/Import Excel, Paramètres du catalogue, Modifier prix par
+  /// sous-type — regroupées ici plutôt qu'éparpillées dans l'AppBar (§ demande).
+  void _showMoreMenu(BuildContext context, WidgetRef ref) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Wrap(
           children: [
-            IconButton(
-              icon: const Icon(Icons.edit_outlined),
-              onPressed: () => showDialog<void>(context: context, builder: (_) => _EditReferenceDialog(reference: reference)),
+            ListTile(
+              leading: const Icon(Icons.file_download_outlined),
+              title: const Text('Exporter Excel'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _exportExcel(context, ref);
+              },
             ),
-            IconButton(
-              icon: const Icon(Icons.delete_outline),
-              onPressed: () => _confirmDeleteReference(context, ref),
+            ListTile(
+              leading: const Icon(Icons.file_upload_outlined),
+              title: const Text('Importer Excel'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _importExcel(context, ref);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.sell_outlined),
+              title: const Text('Modifier prix par sous-type'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                showDialog<void>(context: context, builder: (_) => const _BulkPriceDialog());
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings_outlined),
+              title: const Text('Paramètres'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _showSettingsSheet(context);
+              },
             ),
           ],
         ),
-        children: [
-          for (final v in reference.variants)
-            ListTile(
-              dense: true,
-              title: Text(v.couleur),
-              subtitle: Text('Stock : ${v.stockActuel} · Seuil : ${v.seuilAlerte}'),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  StockLevelBadge(isRupture: v.isRupture, isStockBas: v.isStockBas),
-                  IconButton(
-                    icon: const Icon(Icons.tune, size: 18),
-                    tooltip: 'Ajuster le stock',
-                    onPressed: () => showDialog<void>(
-                      context: context,
-                      builder: (_) => _QuickAdjustDialog(
-                        variantId: v.id,
-                        productLabel: '${reference.brandName} ${reference.referenceName}',
-                        couleur: v.couleur,
-                        stockActuel: v.stockActuel,
-                        seuilAlerte: v.seuilAlerte,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, size: 18),
-                    onPressed: () async {
-                      final confirmed = await _confirm(context, 'Supprimer la variante "${v.couleur}" ?');
-                      if (confirmed) await ref.read(referencesProvider.notifier).deleteVariant(v.id);
-                    },
-                  ),
-                ],
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: () => showDialog<void>(context: context, builder: (_) => _AddVariantDialog(referenceId: reference.id)),
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('Ajouter une couleur'),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
 
-  Future<void> _confirmDeleteReference(BuildContext context, WidgetRef ref) async {
+  /// GET catalog/references/export-excel/ → fichier .xlsx (une ligne par
+  /// variante) — même pattern fetch-bytes-puis-partager que l'export PDF de
+  /// l'onglet Ruptures (voir _RupturesTab._exportPdf plus bas).
+  Future<void> _exportExcel(BuildContext context, WidgetRef ref) async {
+    try {
+      final bytes = await ref.read(catalogRepositoryProvider).exportExcelBytes();
+      final file = XFile.fromData(
+        bytes,
+        name: 'catalogue.xlsx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      await SharePlus.instance.share(ShareParams(files: [file], text: 'Export catalogue'));
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      }
+    }
+  }
+
+  /// Sélectionne un .xlsx local puis POST catalog/references/import-excel/
+  /// (multipart). Le serveur renvoie le fichier lui-même, annoté d'une
+  /// colonne Statut/Date par ligne (pas de JSON) — on affiche le résumé
+  /// chiffré (en-têtes X-Import-*) puis on repartage ce fichier annoté pour
+  /// que l'utilisateur puisse le réimporter plus tard sans repartir de zéro
+  /// (les lignes déjà marquées sont sautées côté serveur).
+  Future<void> _importExcel(BuildContext context, WidgetRef ref) async {
+    try {
+      final picked = await FilePicker.pickFile(type: FileType.custom, allowedExtensions: ['xlsx', 'xls']);
+      if (picked == null) return; // Annulé par l'utilisateur.
+      final bytes = await picked.readAsBytes();
+
+      final result = await ref.read(catalogRepositoryProvider).importExcel(bytes, picked.name);
+
+      // L'import peut créer de nouvelles catégories/sous-types/marques en
+      // plus des références/variantes (voir catalog/views.py::_import_row) —
+      // on invalide donc tout ce que le formulaire "Nouvelle référence" et
+      // les filtres consomment, pas seulement les références.
+      ref.invalidate(referencesProvider);
+      ref.invalidate(categoriesProvider);
+      ref.invalidate(typesProvider);
+      ref.invalidate(brandsProvider);
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+            '${result.createdReferences} référence(s) créée(s), ${result.updatedReferences} mise(s) à jour'
+            ' · ${result.createdVariants} couleur(s) créée(s), ${result.updatedVariants} mise(s) à jour'
+            '${result.skippedCount > 0 ? ' · ${result.skippedCount} déjà traitée(s)' : ''}'
+            '${result.errorsCount > 0 ? ' · ${result.errorsCount} erreur(s) (voir le fichier)' : ''}',
+          ),
+          duration: const Duration(seconds: 6),
+        ));
+      }
+
+      final file = XFile.fromData(
+        result.bytes,
+        name: result.filename,
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      await SharePlus.instance.share(ShareParams(files: [file], text: 'Résultat de l\'import catalogue'));
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      }
+    }
+  }
+
+  /// Bottom sheet "Paramètres du catalogue" (réplique de CatalogSettingsDialog
+  /// côté web) — 3 onglets Marques / Catégories (+ sous-types imbriqués) /
+  /// Couleurs, comme les 3 onglets Marques/Catégories/Couleurs du web (§
+  /// demande : "bien organiser" plutôt que 4 sections empilées). Réutilise
+  /// tel quel le CRUD déjà implémenté plus bas dans ce fichier
+  /// (_ConfigSection) — Catégories et Sous-types partagent juste un onglet
+  /// maintenant, ils restent 2 sections distinctes dedans (pas de refonte du
+  /// CRUD lui-même).
+  void _showSettingsSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => DraggableScrollableSheet(
+        initialChildSize: 0.85,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (context, scrollController) => DefaultTabController(
+          length: 3,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+                child: Row(
+                  children: [
+                    Expanded(child: Text('Paramètres du catalogue', style: Theme.of(context).textTheme.titleLarge)),
+                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.of(sheetContext).pop()),
+                  ],
+                ),
+              ),
+              const TabBar(
+                tabs: [Tab(text: 'Marques'), Tab(text: 'Catégories'), Tab(text: 'Couleurs')],
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    ListView(
+                      padding: const EdgeInsets.all(12),
+                      children: const [_ConfigSection<Brand>(title: 'Marques', kind: _ConfigKind.brand)],
+                    ),
+                    ListView(
+                      padding: const EdgeInsets.all(12),
+                      children: const [
+                        _ConfigSection<ProductCategory>(title: 'Catégories', kind: _ConfigKind.category),
+                        SizedBox(height: 16),
+                        _ConfigSection<ProductType>(title: 'Sous-types', kind: _ConfigKind.type),
+                      ],
+                    ),
+                    ListView(
+                      padding: const EdgeInsets.all(12),
+                      children: const [_ConfigSection<ProductColor>(title: 'Couleurs', kind: _ConfigKind.color)],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Seuils de couleur du badge "Variantes" — indépendants du statut agrégé
+/// (is_rupture/is_stock_bas) : rouge = plus de stock, bleu = 2 ou moins,
+/// vert = 3 ou plus. Mêmes seuils que le web (`variantStockBadgeClass`,
+/// `frontend/app/(app)/products/page.tsx:61-67`).
+Color _variantChipColor(int stock) {
+  if (stock <= 0) return const Color(0xFFEF4444);
+  if (stock <= 2) return const Color(0xFF3B82F6);
+  return const Color(0xFF10B981);
+}
+
+/// Une référence, en carte verticale (pas de DataTable — évite le scroll
+/// horizontal sur téléphone, § demande). [isGerant] masque les actions
+/// (modifier/supprimer/couleurs) pour préparateur/livreur — cet écran n'est
+/// normalement accessible qu'au gérant (voir nav_items.dart), mais le
+/// routeur ne fait pas de contrôle de rôle par route (seule la nav liste
+/// filtre), donc ce contrôle reste utile en défense en profondeur.
+class _ReferenceCard extends ConsumerWidget {
+  const _ReferenceCard({required this.reference, required this.isGerant});
+  final ProductReference reference;
+  final bool isGerant;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final variants = reference.variants;
+    final rupture = variants.any((v) => v.isRupture);
+    final basStock = variants.any((v) => v.isStockBas);
+
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        reference.categoryName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.grey),
+                      ),
+                      Text(
+                        '${reference.brandName} ${reference.referenceName}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                StockLevelBadge(isRupture: rupture, isStockBas: basStock),
+                if (isGerant)
+                  PopupMenuButton<void Function()>(
+                    tooltip: 'Actions',
+                    icon: const Icon(Icons.more_vert, size: 20),
+                    onSelected: (action) => action(),
+                    itemBuilder: (context) => [
+                      PopupMenuItem(
+                        value: () => showDialog<void>(context: context, builder: (_) => _ManageVariantsDialog(reference: reference)),
+                        child: const ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.palette_outlined),
+                          title: Text('Gérer les couleurs'),
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: () => showDialog<void>(context: context, builder: (_) => _EditReferenceDialog(reference: reference)),
+                        child: const ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.edit_outlined),
+                          title: Text('Modifier'),
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: () => _confirmDelete(context, ref),
+                        child: const ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.delete_outline, color: Colors.red),
+                          title: Text('Supprimer', style: TextStyle(color: Colors.red)),
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 18,
+              runSpacing: 4,
+              children: [
+                _PriceStat(label: 'Prix de vente', value: _ar(reference.prixVente)),
+                _PriceStat(
+                  label: 'Marge',
+                  value: _ar(reference.margeUnitaire),
+                  color: reference.margeUnitaire >= 0 ? Colors.green : Colors.red,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (variants.isEmpty)
+              Text('Aucune variante', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey))
+            else
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final v in variants)
+                    StatusChip(label: '${v.couleur} · ${v.stockActuel}', color: _variantChipColor(v.stockActuel)),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
     final confirmed = await _confirm(context, 'Supprimer "${reference.referenceName}" et ses variantes ?');
     if (confirmed) await ref.read(referencesProvider.notifier).deleteReference(reference.id);
+  }
+}
+
+/// Petit couple label/valeur pour la rangée Prix de vente/Marge de [_ReferenceCard].
+class _PriceStat extends StatelessWidget {
+  const _PriceStat({required this.label, required this.value, this.color});
+  final String label;
+  final String value;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(label, style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.grey)),
+        Text(value, style: TextStyle(fontWeight: FontWeight.w600, color: color)),
+      ],
+    );
+  }
+}
+
+/// Gestion des couleurs d'une référence (ajout/suppression/ajustement rapide
+/// du stock), ouverte depuis le menu "⋮" de [_ReferenceCard] — équivalent du
+/// clic sur une ligne côté web qui ouvre ProductDetailDialog.
+class _ManageVariantsDialog extends ConsumerWidget {
+  const _ManageVariantsDialog({required this.reference});
+  final ProductReference reference;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Relu depuis referencesProvider pour rester à jour après un ajout/
+    // suppression de variante pendant que ce dialog reste ouvert.
+    final current = ref.watch(referencesProvider).value?.firstWhereOrNull((r) => r.id == reference.id) ?? reference;
+
+    return AlertDialog(
+      title: Text('Couleurs — ${current.brandName} ${current.referenceName}'),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (current.variants.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Text('Aucune variante pour cette référence.'),
+              )
+            else
+              Flexible(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 320),
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final v in current.variants)
+                        ListTile(
+                          dense: true,
+                          title: Text(v.couleur),
+                          subtitle: Text('Stock : ${v.stockActuel} · Seuil : ${v.seuilAlerte}'),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              StockLevelBadge(isRupture: v.isRupture, isStockBas: v.isStockBas),
+                              IconButton(
+                                icon: const Icon(Icons.tune, size: 18),
+                                tooltip: 'Ajuster le stock',
+                                onPressed: () => showDialog<void>(
+                                  context: context,
+                                  builder: (_) => _QuickAdjustDialog(
+                                    variantId: v.id,
+                                    productLabel: '${current.brandName} ${current.referenceName}',
+                                    couleur: v.couleur,
+                                    stockActuel: v.stockActuel,
+                                    seuilAlerte: v.seuilAlerte,
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline, size: 18),
+                                onPressed: () async {
+                                  final confirmed = await _confirm(context, 'Supprimer la variante "${v.couleur}" ?');
+                                  if (confirmed) await ref.read(referencesProvider.notifier).deleteVariant(v.id);
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => showDialog<void>(context: context, builder: (_) => _AddVariantDialog(referenceId: current.id)),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Ajouter une couleur'),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Fermer')),
+      ],
+    );
   }
 }
 
@@ -1244,25 +1608,113 @@ class _AddVariantDialogState extends ConsumerState<_AddVariantDialog> {
   }
 }
 
-class _ConfigTab extends ConsumerWidget {
-  const _ConfigTab();
+/// Réplique de BulkPriceDialog côté web (`products/page.tsx`) : modifie
+/// prix_achat/prix_vente de TOUTES les références d'un sous-type en une
+/// seule fois — ouvert depuis le menu "⋮" de l'onglet Références.
+class _BulkPriceDialog extends ConsumerStatefulWidget {
+  const _BulkPriceDialog();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return ListView(
-      padding: const EdgeInsets.all(12),
-      children: const [
-        _ConfigSection<ProductCategory>(title: 'Catégories', kind: _ConfigKind.category),
-        SizedBox(height: 16),
-        _ConfigSection<ProductType>(title: 'Sous-types', kind: _ConfigKind.type),
-        SizedBox(height: 16),
-        _ConfigSection<Brand>(title: 'Marques', kind: _ConfigKind.brand),
+  ConsumerState<_BulkPriceDialog> createState() => _BulkPriceDialogState();
+}
+
+class _BulkPriceDialogState extends ConsumerState<_BulkPriceDialog> {
+  int? _typeId;
+  final _prixAchatController = TextEditingController();
+  final _prixVenteController = TextEditingController();
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _prixAchatController.dispose();
+    _prixVenteController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_typeId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Choisissez un sous-type')));
+      return;
+    }
+    final prixAchat = double.tryParse(_prixAchatController.text.replaceAll(',', '.'));
+    final prixVente = double.tryParse(_prixVenteController.text.replaceAll(',', '.'));
+    if (prixAchat == null && prixVente == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Indiquez au moins un prix à modifier')));
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      final updated = await ref.read(referencesProvider.notifier).bulkUpdatePrice(
+            _typeId!,
+            prixAchat: prixAchat,
+            prixVente: prixVente,
+          );
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$updated référence(s) mise(s) à jour')));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final types = ref.watch(typesProvider).value ?? const <ProductType>[];
+    return AlertDialog(
+      title: const Text('Modifier le prix par sous-type'),
+      content: SizedBox(
+        width: 380,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Change le prix d\'achat et/ou de vente de TOUTES les références d\'un sous-type '
+              '(ex : toutes les "Flip cover", quelle que soit la marque).',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<int>(
+              initialValue: _typeId,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Sous-type'),
+              items: [for (final t in types) DropdownMenuItem(value: t.id, child: Text(t.nom))],
+              onChanged: (v) => setState(() => _typeId = v),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _prixAchatController,
+              decoration: const InputDecoration(labelText: 'Nouveau prix actuel (Ar)', hintText: 'Laisser vide = inchangé'),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _prixVenteController,
+              decoration: const InputDecoration(labelText: 'Nouveau prix de vente (Ar)', hintText: 'Laisser vide = inchangé'),
+              keyboardType: TextInputType.number,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
+        FilledButton(onPressed: _saving ? null : _submit, child: Text(_saving ? 'Mise à jour…' : 'Appliquer')),
       ],
     );
   }
 }
 
-enum _ConfigKind { category, type, brand }
+/// Sections CRUD Catégories/Sous-types/Marques/Couleurs — anciennement le
+/// contenu de l'onglet "Configuration" (aujourd'hui présenté dans la feuille
+/// "Paramètres", voir _ReferencesTabState._showSettingsSheet), inchangées
+/// sinon. Note : la couleur ("Couleurs") n'existait pas dans l'ancien onglet
+/// (seulement Catégories/Sous-types/Marques) — ajoutée ici pour la parité
+/// avec CatalogSettingsDialog côté web (onglets Marques/Catégories/Couleurs),
+/// en réutilisant le CRUD déjà implémenté par ailleurs (colorsProvider).
+enum _ConfigKind { category, type, brand, color }
 
 class _ConfigSection<T> extends ConsumerWidget {
   const _ConfigSection({required this.title, required this.kind});
@@ -1289,6 +1741,7 @@ class _ConfigSection<T> extends ConsumerWidget {
               _ConfigKind.category => _CategoryList(),
               _ConfigKind.type => _TypeList(),
               _ConfigKind.brand => _BrandList(),
+              _ConfigKind.color => _ColorList(),
             },
           ],
         ),
@@ -1297,25 +1750,32 @@ class _ConfigSection<T> extends ConsumerWidget {
   }
 
   Future<void> _showAddDialog(BuildContext context, WidgetRef ref) async {
-    if (kind == _ConfigKind.category) {
-      final controller = TextEditingController();
-      final name = await _promptText(context, 'Nouvelle catégorie', controller, hint: 'ex : HOUSSE');
-      if (name != null && name.isNotEmpty) {
-        await ref.read(categoriesProvider.notifier).create(name, 0);
-      }
-    } else if (kind == _ConfigKind.brand) {
-      final controller = TextEditingController();
-      final name = await _promptText(context, 'Nouvelle marque', controller, hint: 'ex : Samsung');
-      if (name != null && name.isNotEmpty) {
-        await ref.read(brandsProvider.notifier).create(name);
-      }
-    } else {
-      final categories = ref.read(categoriesProvider).value ?? [];
-      if (categories.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Créez d\'abord une catégorie.')));
-        return;
-      }
-      await showDialog<void>(context: context, builder: (_) => _AddTypeDialog(categories: categories));
+    switch (kind) {
+      case _ConfigKind.category:
+        final controller = TextEditingController();
+        final name = await _promptText(context, 'Nouvelle catégorie', controller, hint: 'ex : HOUSSE');
+        if (name != null && name.isNotEmpty) {
+          await ref.read(categoriesProvider.notifier).create(name, 0);
+        }
+      case _ConfigKind.brand:
+        final controller = TextEditingController();
+        final name = await _promptText(context, 'Nouvelle marque', controller, hint: 'ex : Samsung');
+        if (name != null && name.isNotEmpty) {
+          await ref.read(brandsProvider.notifier).create(name);
+        }
+      case _ConfigKind.color:
+        final controller = TextEditingController();
+        final name = await _promptText(context, 'Nouvelle couleur', controller, hint: 'ex : Bleu');
+        if (name != null && name.isNotEmpty) {
+          await ref.read(colorsProvider.notifier).create(name);
+        }
+      case _ConfigKind.type:
+        final categories = ref.read(categoriesProvider).value ?? [];
+        if (categories.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Créez d\'abord une catégorie.')));
+          return;
+        }
+        await showDialog<void>(context: context, builder: (_) => _AddTypeDialog(categories: categories));
     }
   }
 }
@@ -1502,6 +1962,46 @@ class _BrandList extends ConsumerWidget {
                   onPressed: () async {
                     if (await _confirm(context, 'Supprimer la marque "${b.nom}" ?')) {
                       await ref.read(brandsProvider.notifier).delete(b.id);
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _ColorList extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final list = ref.watch(colorsProvider).value ?? [];
+    if (list.isEmpty) return const Text('Aucune couleur.');
+    return Column(
+      children: [
+        for (final c in list)
+          ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: Text(c.nom),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                  onPressed: () => _renamePrompt(
+                    context,
+                    'Renommer la couleur',
+                    c.nom,
+                    (name) => ref.read(colorsProvider.notifier).rename(c.id, name),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, size: 18),
+                  onPressed: () async {
+                    if (await _confirm(context, 'Supprimer la couleur "${c.nom}" ?')) {
+                      await ref.read(colorsProvider.notifier).delete(c.id);
                     }
                   },
                 ),

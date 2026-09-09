@@ -180,6 +180,15 @@ class ReferencesNotifier extends AsyncNotifier<List<ProductReference>> {
     await _repo.deleteVariant(id);
     await refresh();
   }
+
+  /// Modification groupée prix_achat/prix_vente pour toutes les références
+  /// d'un sous-type — voir CatalogRepository.bulkUpdatePrice. Renvoie le
+  /// nombre de références modifiées.
+  Future<int> bulkUpdatePrice(int typeId, {double? prixAchat, double? prixVente}) async {
+    final updated = await _repo.bulkUpdatePrice(typeId, prixAchat: prixAchat, prixVente: prixVente);
+    await refresh();
+    return updated;
+  }
 }
 
 final referencesProvider = AsyncNotifierProvider<ReferencesNotifier, List<ProductReference>>(ReferencesNotifier.new);

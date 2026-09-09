@@ -37,6 +37,6 @@ class StockLevelBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     if (isRupture) return const StatusChip(label: 'Rupture', color: Color(0xFFEF4444));
     if (isStockBas) return const StatusChip(label: 'Stock bas', color: Color(0xFFF59E0B));
-    return const StatusChip(label: 'En stock', color: Color(0xFF10B981));
+    return const StatusChip(label: 'OK', color: Color(0xFF10B981));
   }
 }

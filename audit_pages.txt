@@ -1,0 +1,689 @@
+AUDIT DE PARITÉ — pages web (frontend/app/(app)/) vs app Flutter (smartcross/)
+=============================================================================
+
+Contexte : audit demandé après découverte en session que le Flutter était
+bien plus avancé que prévu (écran Produits/Catalogue complet notamment).
+Objectif : photo exacte et actuelle de ce qui existe des deux côtés, page
+web par page web, pour décider quoi construire ensuite. Aucune modification
+de code effectuée — recherche seule.
+
+Méthode : lecture directe des page.tsx (frontend) et des écrans/providers
+Flutter correspondants, plus quelques fichiers backend quand le rôle exact
+d'un champ/endpoint n'était pas clair depuis le frontend seul. Le dossier
+smartcross/lib/features/catalog/ (catalog_screen.dart, catalog_provider.dart,
+catalog_repository.dart, router.dart, nav_items.dart) n'a été QUE lu, pas
+modifié — un autre agent le retouche en parallèle de cette session.
+
+Rôles web réels (lib/auth/useCurrentUser.ts:79-95) — à ne pas confondre :
+  role backend "admin"    = propriétaire de société (multi-magasins) — noté
+                             isSuperAdmin/isAdmin dans le hook (nom trompeur,
+                             RIEN À VOIR avec "Label Technology")
+  role backend "magasin"  = gérant d'un seul magasin
+  role backend "employer" = employé, sous-rôle commande_role PREPARATEUR/LIVREUR
+  isGerant = admin OR magasin ; isManager = admin OR magasin (alias identique)
+Flutter (core/constants.dart:3) n'a que UserRole{gerant, preparateur, livreur,
+unknown} — admin et magasin sont FUSIONNÉS en un seul "gerant" au niveau nav/
+routing. La distinction fine admin-vs-magasin existe quand même au niveau
+modèle (models/user.dart: rawRole, isCompanyOwner) et n'est utilisée que dans
+users_screen.dart. Conséquence notée page par page ci-dessous.
+
+Pattern récurrent (noté ici une fois, pas répété partout) : plusieurs pages
+web n'ont PAS de garde au niveau page (pas de "if (!role) return Accès
+refusé") — elles sont seulement masquées dans components/layout/sidebar.tsx.
+Une navigation URL directe par un rôle non prévu passerait. Pages concernées :
+alerts, caisse, movements, reports, suppliers, scanner (scanner n'est même
+pas dans le sidebar). Pages AVEC garde explicite ("Accès refusé"/redirect) :
+dashboard, pickup, transfers, superadmin, users.
+
+RÉSUMÉ (18 pages)
+-----------------
+  1. alerts       — pas d'équivalent Flutter, mais pas de vrai manque (voir §1)
+  2. caisse       — équivalent existe, GAP RÉEL (Résumé caisse + catégories dépense)
+  3. chats        — parité confirmée (présence + accusés de lecture déjà portés)
+  4. dashboard    — équivalent existe, endpoint différent, PLUS riche par endroits
+  5. movements    — équivalent existe (onglet), GAP RÉEL (analytics/export)
+  6. notifications— équivalent existe, gap mineur (delete/mark-all manquants)
+  7. orders       — équivalent existe (3 écrans), parité confirmée (déjà vérifié)
+  8. pickup       — équivalent existe (onglet Dépôt), parité OK
+  9. products     — équivalent existe, parité OK (écarts web récents = hors périmètre mobile, décision déjà actée)
+ 10. reports      — AUCUN équivalent Flutter — PLUS GROS GAP RÉEL de l'audit
+ 11. sales        — mort des deux côtés (redirect web, rien en Flutter) — non applicable
+ 12. scanner      — pas d'équivalent Flutter, mais pas un vrai manque (voir §12)
+ 13. settings     — équivalent existe, gap mineur (catégories de dépenses)
+ 14. stores       — équivalent existe, écart de contrôle d'accès (pas un écart fonctionnel)
+ 15. superadmin   — AUCUN équivalent Flutter — gap réel mais bien plus restreint qu'il n'y paraît (voir §15, corrige une hypothèse de départ)
+ 16. suppliers    — équivalent existe, parité OK (+ un bug indépendant trouvé au passage)
+ 17. transfers    — équivalent existe, écart de contrôle d'accès (pas un écart fonctionnel)
+ 18. users        — équivalent existe, GAP RÉEL (gestion multi-magasin/rôles admin absente)
+
+Sur 18 : 8 pages avec un gap réel à évaluer (caisse, movements, notifications,
+reports, settings, superadmin, suppliers[bug mineur], users) dont 1 gros
+(reports) et le reste petit/moyen ; 2 pages sans équivalent mais légitimement
+non prioritaires (alerts, scanner) ; 1 morte des deux côtés (sales) ; 6 pages
+déjà à parité correcte (chats, orders, pickup, products, dashboard-modulo-UI,
+stores/transfers dont l'écart est un problème de contrôle d'accès, pas de
+fonctionnalité manquante).
+
+=============================================================================
+1. ALERTS — frontend/app/(app)/alerts/page.tsx (184 lignes)
+=============================================================================
+CE QUE C'EST : liste de produits nécessitant attention — rupture de stock,
+stock faible (<= seuil d'alerte), expire sous 30j, expiré. 4 KPI + 3 tableaux.
+Pure lecture, calculée côté client depuis djangoClient.products.list().
+
+RÔLE WEB : pas de garde dans la page elle-même. sidebar.tsx:79-83 la masque
+avec adminOnly (isAdminOrSuperAdmin = admin OU magasin).
+
+ÉQUIVALENT FLUTTER : aucun dossier/écran dédié. MAIS l'onglet "Ruptures" de
+smartcross/lib/features/catalog/catalog_screen.dart:566-650 (_RupturesTab)
+couvre déjà rupture + stock bas avec ajustement rapide en un tap et export
+PDF de réapprovisionnement (bouton FAB, _exportPdf ligne 571) — une action
+que le web n'a même pas sur /alerts. Ce qui manque réellement : les 2
+tableaux "Dates de péremption" (expire bientôt / expiré, colonne
+expiry_date) — aucune notion de date de péremption trouvée dans le catalog
+Flutter (modèle ProductVariant/ProductReference à vérifier si le champ
+existe côté backend et est juste absent de l'UI Flutter, ou absent partout).
+
+VERDICT : PAS UN VRAI GAP. La fonction "stock bas/rupture" est déjà couverte
+et même mieux outillée côté Flutter (export PDF, ajustement en 1 tap). Seule
+la péremption manque, et c'est un sous-cas, pas une page entière à porter.
+Ne pas créer d'écran "Alertes" dédié — au mieux, ajouter la péremption à
+l'onglet Ruptures existant si le champ existe en base.
+
+=============================================================================
+2. CAISSE — frontend/app/(app)/caisse/page.tsx (697 lignes)
+=============================================================================
+RÔLE WEB : pas de garde explicite dans la page ; sidebar.tsx:59-65 la masque
+pour Préparateur ET Livreur (hidePreparateur + hideLivreur) — donc Gérant
+(admin ou magasin) seulement, en pratique. isAdmin (caisse/page.tsx:85-95)
+sert uniquement à basculer entre "magasin sélectionné" (admin, multi-
+magasins) et "mon magasin" (magasin mono-boutique).
+
+ÉQUIVALENT FLUTTER : smartcross/lib/features/caisse/caisse_screen.dart (413
+lignes), 2 onglets "Session en cours" / "Historique". Ouvrir/fermer session,
+mouvements entrée/sortie — tout ça est présent et correspond bien à
+_OpenView/_ClosedView/_MovementDialog du web.
+
+GAP RÉEL : la carte web "Résumé de la caisse" (caisse/page.tsx:420-508) —
+filtrable par plage de dates, indépendante des sessions — est ABSENTE de
+Flutter. Elle affiche : entrées/sorties/solde de la période, CA produits
+vendus, coût des produits vendus, bénéfice produits vendus, répartition des
+sorties PAR CATÉGORIE DE DÉPENSE, et la liste des mouvements de la période.
+Le Flutter _HistoryTab (caisse_screen.dart:180-217) ne fait que lister les
+sessions passées (date, ouverte/fermée, fond, écart) — aucune donnée
+financière agrégée, aucun filtre de dates, aucune notion de catégorie.
+
+Second volet du même gap : les CATÉGORIES DE DÉPENSE elles-mêmes. Recherche
+"categor" dans tout le module caisse Flutter (écran + state + repository) :
+0 résultat. Le dialogue de mouvement "sortie" web permet de choisir une
+catégorie (movementCategory, caisse/page.tsx:72) ; côté Flutter,
+_MovementDialog n'a pas ce champ. Ces catégories sont gérées côté web dans
+Paramètres (§13 ci-dessous) — donc le gap est cohérent des deux côtés
+(création ET usage des catégories absents en Flutter).
+
+VERDICT : GAP RÉEL, taille moyenne. La caisse "opérationnelle" (ouvrir/
+fermer/mouvement du jour) est à parité. Ce qui manque est la vue analytique
+transverse (résumé multi-session + catégorisation des dépenses) — utile à
+un Gérant qui veut un aperçu financier caisse sans repasser par le web.
+
+=============================================================================
+3. CHATS — frontend/app/(app)/chats/page.tsx (1070 lignes)
+=============================================================================
+RÔLE WEB : aucune garde — accessible à tous les rôles (cohérent avec
+nav_items.dart:33, roles: null).
+
+ÉQUIVALENT FLUTTER : smartcross/lib/features/chats/chat_list_screen.dart
+(154) + chat_conversation_screen.dart (300).
+
+VÉRIFICATION SPÉCIFIQUE : le guide.txt de cette session listait la présence
+en ligne et les accusés de lecture comme "à porter" (pas encore fait à
+l'époque). Vérifié maintenant : LES DEUX SONT PORTÉS.
+  - Présence : chat_list_screen.dart:22-23,52,137 (user.isOnline, point vert
+    sur avatar, lastSeenLabel) ; chat_conversation_screen.dart:181 (en-tête).
+  - Accusés de lecture : chat_conversation_screen.dart:96-101 (traitement du
+    broadcast message_read → readAt), 287-289 (icône done/done_all selon
+    readAt, exactement le pattern "coche grise/coche double" du guide).
+
+VERDICT : À PARITÉ. Rien à faire ici — le travail du guide.txt section 1 est
+terminé.
+
+=============================================================================
+4. DASHBOARD — frontend/app/(app)/dashboard/page.tsx (508 lignes)
+=============================================================================
+RÔLE WEB : garde explicite dashboard/page.tsx:194-208 (if !isGerant → Accès
+refusé). Gérant only (admin ou magasin).
+
+ÉQUIVALENT FLUTTER : smartcross/lib/features/dashboard/dashboard_screen.dart
+(264 lignes). Route /dashboard réservée à {UserRole.gerant} (nav_items.dart:23).
+
+DÉCOUVERTE IMPORTANTE : les deux dashboards utilisent des ENDPOINTS BACKEND
+DIFFÉRENTS. Web appelle GET /users/dashboard/ (users/views.py::DashboardView,
+ancien). Flutter appelle GET /api/orders/dashboard/ (orders/dashboard.py::
+DashboardView, 196 lignes, docstring "§7.7 Smartreadme.md" — endpoint dédié,
+visiblement écrit spécifiquement pour ce dashboard Flutter, scope par
+magasins accessibles, filtrable par date_from/date_to). Ce ne sont pas deux
+vues du même calcul, ce sont deux calculs distincts.
+
+CE QUE FLUTTER A EN PLUS / MIEUX que le web dashboard :
+  - Filtre de période (Jour/Semaine/Mois/Personnalisé, dashboard_provider.
+    dart:9-38) piloté au niveau de TOUT le dashboard — le web n'a un tel
+    filtre que sur le graphe CA de /reports, pas sur /dashboard.
+  - Carte "Analyse financière" complète (dashboard_screen.dart:110-126) :
+    CA produits vendus, frais livraison encaissés, total investi
+    fournisseurs, bénéfice estimé — calcul du coût de revient réel incluant
+    les commandes fournisseurs de la période (orders/dashboard.py:82-92).
+  - "Suivi commandes temps réel" par statut (chips, tous les 6 statuts).
+  - TOP 20 produits sur 4 dimensions (sous-type/marque/référence/couleur) —
+    le web n'a qu'un seul TOP produits (par quantité, tous critères mélangés,
+    reports/page.tsx, pas dashboard).
+  - Taux de livraison réussie (%), nombre de retours — absents du dashboard web.
+
+NUANCE SUR "PAS DE KPI FINANCIER/IMPAYÉ" (vérification demandée) : c'est
+FAUX en l'état actuel — le dashboard Flutter a une vraie section financière
+(ci-dessus). Ce qui est vrai : ni le dashboard web ni le dashboard Flutter
+n'affichent de KPI "Ventes impayées/Montant impayé" — c'est voulu et
+symétrique (guide.txt section 2, déjà fait des deux côtés). Le tableau
+"Ventes à crédit" détaillé (par client) existe uniquement sur /reports (web),
+voir §10 — c'est ÇA qui manque en Flutter, pas un KPI de dashboard.
+
+CE QUE LE WEB A QUE FLUTTER N'A PAS :
+  - Graphe "Stock par catégorie" (camembert/barres).
+  - Liste "Ventes récentes" (8 dernières transactions nommées, avec vendeur/
+    magasin) — Flutter n'a que des compteurs agrégés (Stock rapide), pas de
+    liste d'items individuels récents.
+  - Liste "Alertes de stock" avec NOMS de produits (jusqu'à 8) — Flutter
+    "Stock rapide" ne donne que des compteurs (ruptures/stock bas), pas les
+    noms (il faut aller dans Produits → onglet Ruptures pour les noms, ce
+    qui existe donc ailleurs, pas un vrai manque).
+  - KPI "Admins/Magasins" (effectif) — mineur.
+
+TROUVAILLE ANNEXE (bug indépendant, pas un écart web/Flutter) : le modèle
+Flutter DashboardFinance attend un champ total_pub_meta_ads (models/
+dashboard.dart:41,49) mais orders/dashboard.py ne renvoie JAMAIS ce champ
+dans analyse_financiere (dashboard.py:172-177) — il n'entre même pas dans le
+calcul de benefice_estime (dashboard.py:91, somme seulement prix_fournisseur+
+fret_import+douane). Résultat : la ligne "Total pub Meta Ads" du dashboard
+Flutter affichera toujours 0 Ar. Se recoupe avec le §16 (suppliers) — voir
+là-bas pour la cause complète.
+
+VERDICT : PAS UN GAP AU SENS "Flutter en retard" — c'est un dashboard
+parallèle, différent, et sur plusieurs points (analyse financière, période,
+TOP produits multi-dimension) plus riche que le web. Les manques réels sont
+mineurs (liste nominative des ventes récentes, stock par catégorie). Corriger
+le mental model : le dashboard Flutter n'est pas "en retard", il a
+simplement évolué séparément avec son propre endpoint.
+
+=============================================================================
+5. MOVEMENTS — frontend/app/(app)/movements/page.tsx (899 lignes)
+=============================================================================
+RÔLE WEB : pas de garde page ; sidebar.tsx:72-77 masque en adminOnly.
+
+ÉQUIVALENT FLUTTER : PAS une page dédiée — onglet "Mouvements" dans
+smartcross/lib/features/catalog/catalog_screen.dart:652-713 (_MovementsTab),
+confirmé par le docstring de CatalogScreen (catalog_screen.dart:25-29) qui
+dit explicitement suivre le pattern web "pas de page Stock séparée".
+
+GAP RÉEL : le web movements/page.tsx est en fait une mini-page d'analytics,
+pas juste un journal :
+  - KPI cards (entrées/sorties/total période).
+  - Filtre par PLAGE DE DATES sur les stats (statsStartDate/statsEndDate,
+    lignes 113-114), séparé du filtre de la liste.
+  - Export CSV (ligne ~245-267).
+  - Tableau "Entrées" et tableau "Sorties" séparés, avec badges couleur.
+  - "DailyMovementsTable" (ligne 757+) — regroupement par jour.
+  - Liste "produits sans mouvement" (ligne 205) — produits jamais sortis.
+  - Colonne Magasin visible pour isManager (admin/magasin) — comparaison
+    multi-magasins pour l'admin.
+Le _MovementsTab Flutter (catalog_screen.dart:654-713) est un simple journal
+chronologique (liste + FAB "Ajustement" avec sélecteur de produit) — pas de
+filtre de dates, pas d'export, pas de regroupement par jour, pas de vue
+"produits sans mouvement", pas de séparation entrées/sorties.
+
+VERDICT : GAP RÉEL. Le "journal + ajustement manuel" (le coeur opérationnel)
+est à parité. La couche analytics/reporting du web (filtres dates, export,
+vue par jour, produits sans mouvement) n'a pas d'équivalent — plus proche en
+esprit du gap Reports (§10) que d'un simple oubli d'UI, mais à plus petite
+échelle et scoping plus proche du terrain (un Gérant qui veut vérifier "quoi
+est sorti cette semaine" doit encore utiliser le web pour ça).
+
+=============================================================================
+6. NOTIFICATIONS — frontend/app/(app)/notifications/page.tsx (235 lignes)
+=============================================================================
+RÔLE WEB : aucune garde — accessible à tous (cohérent nav_items.dart, roles: null).
+
+ÉQUIVALENT FLUTTER : smartcross/lib/features/notifications/
+notifications_screen.dart (70 lignes).
+
+GAP RÉEL (mineur mais réel — plusieurs actions manquantes, pas juste du
+style) : web a "Marquer tout lu" (markAllRead), "Supprimer tout" (clearAll,
+lignes 85-96), suppression individuelle (deleteNotification, lignes 98-109,
+bouton Trash2 par ligne), toggle lu/non-lu dans LES DEUX SENS (toggleRead),
+et un badge de statut de connexion WebSocket ("Temps réel"/"Connexion..."/
+"Déconnecté", lignes 120-140). djangoClient expose bien delete/deleteAll/
+bulkRead/bulkDelete/markAllRead (django-client.ts:848-855). Côté Flutter,
+notifications_provider.dart n'expose QUE markRead(id) (ligne 23) — pas de
+delete, pas de markAllRead, pas de toggle retour-arrière (une fois lue, reste
+lue). L'écran Flutter (_NotificationTile) ne propose que "tap → marquer lu +
+naviguer vers la commande".
+
+VERDICT : GAP RÉEL mineur. Fonctionnalité de base (voir + marquer lu +
+naviguer) à parité. Actions de gestion (nettoyer sa liste, tout marquer lu)
+manquantes — l'API backend les supporte déjà toutes, donc peu de travail
+serveur si on décide de porter.
+
+=============================================================================
+7. ORDERS — frontend/app/(app)/orders/page.tsx (2299 lignes)
+=============================================================================
+RÔLE WEB : pas de blocage dur — page adaptive via isGerant/isPreparateur/
+isLivreur (orders/page.tsx:224-294), une seule page qui change de vue selon
+le rôle connecté.
+
+ÉQUIVALENT FLUTTER : PAS une seule page — web /orders est éclaté en 3 écrans
+Flutter distincts selon le rôle (nav_items.dart:24,26,27) : orders_list_
+screen.dart (461, Gérant), depot_screen.dart (240, Préparateur, voir aussi
+§8 pickup), tournee_screen.dart (271, Livreur) + order_create_screen.dart
+(485) + order_detail_screen.dart (395). C'est une différence d'architecture
+voulue et documentée, pas un manque.
+
+VÉRIFICATION SPÉCIFIQUE (guide.txt section 3, "à évaluer" à l'époque) :
+assignation Livreur dès la création — DÉJÀ FAIT. order_create_screen.dart:
+62-65 (_livreurId/_livreurs), 176-186 (assignLivreur juste après création,
+avec message d'erreur dédié si l'assignation échoue mais pas la création),
+248-251 (dropdown "Assigner plus tard" par défaut) — correspond exactement
+à ce que le guide demandait d'évaluer.
+
+SPOT-CHECK filtres (orders_list_screen.dart:19-153) : statut, plage de
+dates (date range picker natif), filtre préparateur, chips de filtres actifs
+avec suppression individuelle, raccourci "non livrées" — comparable en
+substance aux filtres web (statutFilter/viewMode/preparateurFilterId/
+livreurStatutFilter, orders/page.tsx:184-219).
+
+VERDICT : À PARITÉ (déjà vérifié en session précédente selon guide.txt, et
+le spot-check de cette session le confirme, y compris sur le point qui était
+encore ouvert). Rien de nouveau à signaler.
+
+=============================================================================
+8. PICKUP — frontend/app/(app)/pickup/page.tsx (148 lignes)
+=============================================================================
+CE QUE C'EST : "Récupération sur place" — commandes statut=PRETE ET
+livraison_zone=RECUPERATION (retrait comptoir, pas de livreur). Liste +
+bouton "Marquer comme récupérée" (→ statut LIVRE).
+
+RÔLE WEB : garde explicite (pickup/page.tsx:56-68, if !isGerant → Accès refusé).
+
+ÉQUIVALENT FLUTTER : onglet "Récupérations" dans depot_screen.dart:15,54-58,
+77-80 (_DepotView.recuperations, filtre livraisonZone==recuperation) — MAIS
+c'est un onglet du module Préparateur (Dépôt), pas Gérant. Le Gérant, lui, a
+accès à la même donnée via orders_list_screen.dart en filtrant par zone
+(pas un onglet dédié mais la même liste sous-jacente). La création d'une
+récupération existe aussi (FAB "Nouvelle récupération", depot_screen.dart:
+102-106 et order_create_screen.dart:201).
+
+VERDICT : PARITÉ FONCTIONNELLE. La donnée et l'action (marquer récupérée)
+existent des deux côtés ; l'endroit où on les trouve diffère par rôle
+(Préparateur a un onglet dédié en Flutter, le Gérant web a sa propre page
+dédiée /pickup alors que le Gérant Flutter doit filtrer dans Commandes) —
+c'est une différence de nesting/organisation, pas un manque de capacité. Si
+un Gérant se plaint de ne pas trouver ça facilement sur mobile, un raccourci
+de filtre pourrait être ajouté à orders_list_screen, mais ce n'est pas un
+gap fonctionnel.
+
+=============================================================================
+9. PRODUCTS — frontend/app/(app)/products/page.tsx (2690 lignes)
+=============================================================================
+RÔLE WEB : pas de blocage dur ; isGerant masque prix/marge/actions d'édition
+pour les autres rôles (lecture seule pour employer, products/page.tsx:408-690).
+Masqué du sidebar pour Livreur uniquement (hideLivreur).
+
+ÉQUIVALENT FLUTTER : catalog_screen.dart, onglets "Références" (lignes
+51-473) + "Ruptures" (566-650) + "Mouvements" (voir §5). Couverture large :
+CRUD référence complet (cascade Catégorie→Sous-type→Marque, création inline
+de sous-type/marque/couleur manquants, variantes/couleurs, photo, actif),
+ajustement de stock rapide, export/import Excel avec résumé chiffré,
+Paramètres du catalogue (Marques/Catégories/Sous-types/Couleurs CRUD, en
+bottom sheet plutôt qu'en onglet).
+
+Les écarts identifiés lors du diff avec products/page.tsx sont TOUS déjà
+actés comme non-portables par une décision précédente documentée dans
+guide.txt section 4 : toggle catégorie "avec couleurs"/"sans couleurs",
+révision par IA des quasi-doublons à l'import, système d'annulation d'import
+(ImportBatch/revert_import_batch). Rien de neuf à signaler ici.
+
+POINT D'ATTENTION (pas un gap de parité, mais factuel) : catalog_screen.
+dart:254 référence `_BulkPriceDialog` ("Modifier prix par sous-type" dans le
+menu ⋮) mais AUCUNE classe `_BulkPriceDialog` n'est définie nulle part dans
+le fichier ni ailleurs dans smartcross/ (grep confirmé, 0 résultat pour la
+définition, 1 seul résultat pour l'appel). Web a bien ce dialogue fonctionnel
+(products/page.tsx:2556, BulkPriceDialog). Comme précisé en tête de ce
+rapport, catalog_screen.dart est en cours de retouche par un autre agent en
+parallèle de cette session — c'est probablement un état transitoire, pas un
+bug stable. À revérifier après, pas la peine d'agir dessus maintenant.
+
+VERDICT : À PARITÉ. Le mental model "juste une page Produits basique" côté
+Flutter est largement dépassé — c'est une réplique complète et fidèle du
+CRUD catalogue web, décisions d'exclusion déjà actées pour le reste.
+
+=============================================================================
+10. REPORTS — frontend/app/(app)/reports/page.tsx (455 lignes)
+=============================================================================
+RÔLE WEB : pas de garde page ; sidebar.tsx:104-109 masque en adminOnly.
+isAdmin (admin seul, pas magasin) débloque en plus une carte comparaison
+multi-magasins.
+
+ÉQUIVALENT FLUTTER : AUCUN — pas de dossier "reports", aucun écran
+équivalent nulle part dans smartcross/. C'EST LE PLUS GROS GAP RÉEL DE CET
+AUDIT, et il est bien plus large que "2 cartes KPI impayées manquantes" :
+
+  - 6 KPI (CA, Bénéfice net, Unités vendues, Transactions, Produits en
+    stock, Alertes stock).
+  - Graphe CA en barres, période commutable 7/30/90 jours.
+  - Tableau "Top produits vendus" (qté/CA/bénéfice, top 10).
+  - Tableau "Ventes à crédit" — clients avec solde dû, badge "En retard" si
+    date d'échéance dépassée (payment_due_date).
+  - Tableau "Performance des vendeurs" (classement CA/bénéfice par employé)
+    — AUCUN équivalent nulle part côté Flutter, y compris dans le dashboard
+    (qui classe par produit, jamais par vendeur).
+  - Tableau "Performance par magasin" (admin seul, comparaison multi-boutique).
+  - Répartition mouvements de stock (entrées/sorties/transferts, période).
+  - "Analyse IA Stratégique" (components/ai-analysis.tsx) : bouton qui
+    envoie un résumé chiffré (CA, bénéfice, top produits, ruptures, etc.) à
+    POST /api/ai/analyze (route Next.js qui appelle un modèle Ollama local,
+    cf. guide.txt) et affiche un texte d'analyse généré. AUCUNE
+    infrastructure IA/LLM trouvée dans smartcross (grep vide).
+
+NUANCE IMPORTANTE (répond directement à "est-ce que le gap est plus gros que
+2 KPI ?") : oui, très largement — c'est une page entière avec 8 sections,
+dont une fonctionnalité IA générative qui n'existe nulle part ailleurs dans
+l'app. CEPENDANT, en lisant le calcul sous-jacent, une partie de la valeur
+de cette page est probablement déjà cassée CÔTÉ WEB LUI-MÊME, indépendamment
+de Flutter : reports.tsx charge ses données via djangoClient.sales.list()
+(frontend/lib/django-client.ts:820-844), qui est un SHIM DE COMPATIBILITÉ
+(pas un vrai modèle "Sale" en base — aucune classe Sale trouvée dans
+*/models.py) dérivé des commandes LIVRE, avec `total_profit: 0` codé en dur
+(ligne 837) et sans champ `payment_amount` du tout. Conséquence en suivant
+le calcul (reports/page.tsx:57-68) :
+  - "Bénéfice net" (KPI) et les colonnes "Bénéfice" des tableaux Top
+    produits/Top vendeurs/Top magasins semblent toujours valoir 0 Ar (somme
+    d'une valeur codée en dur à 0).
+  - Le tableau "Ventes à crédit" semble lister TOUTES les lignes de
+    commande livrées avec un solde dû égal au prix plein (la condition
+    `payment_amount < total_price` est toujours vraie puisque
+    payment_amount est toujours undefined→0), pas seulement les vraies
+    ventes à crédit.
+  - Seule l'IA (aiData.beneficeNet, ligne 178) contourne le problème en
+    préférant dashboardKpis.total_profit (le vrai calcul, venant de /users/
+    dashboard/) — donc l'analyse IA elle-même reste correcte, mais pas
+    l'affichage direct de la page.
+Ceci est une lecture statique du code, pas une vérification à l'exécution —
+à confirmer en conditions réelles avant de conclure définitivement, mais le
+chemin logique est clair et mérite une vérification rapide côté web AVANT
+d'investir dans un portage Flutter de ces deux éléments précis (bénéfice net
+affiché, ventes à crédit) — le graphe CA, le Top produits (quantités, ça
+c'est fiable), la répartition mouvements et l'IA restent eux pleinement
+valables et sont le vrai coeur du gap.
+
+VERDICT : GAP RÉEL, LE PLUS IMPORTANT DE L'AUDIT. Confirme l'hypothèse de
+l'utilisateur (plus gros qu'un simple oubli de 2 KPI) — mais avant de porter
+tel quel, vérifier/corriger le calcul "bénéfice"/"ventes à crédit" côté web,
+sinon on porterait un bug vers le mobile.
+
+=============================================================================
+11. SALES — frontend/app/(app)/sales/page.tsx (15 lignes)
+=============================================================================
+CE QUE C'EST : redirect pur vers /orders, rien d'autre. Commentaire dans le
+fichier : "Le module Ventes/Ticket (caisse rapide) est retiré : le seul flux
+de vente est désormais la Commande à 6 statuts." Pas dans le sidebar (route
+orpheline, accessible seulement par URL directe).
+
+RÔLE WEB : N/A (redirect immédiat, avant tout rendu).
+
+ÉQUIVALENT FLUTTER : aucun, et c'est cohérent — aucune route /sales dans
+router.dart, aucun item nav dans nav_items.dart.
+
+NUANCE : la PAGE /sales est morte, mais le CONCEPT "sales" en tant que
+donnée ne l'est pas totalement — djangoClient.sales.list() (compat shim,
+voir §10) est toujours consommé par reports.tsx. C'est un détail
+d'implémentation web, sans rapport avec Flutter.
+
+VERDICT : NON APPLICABLE des deux côtés. Confirme l'hypothèse de
+l'utilisateur telle quelle — rien à porter, la page peut même être
+supprimée du web si on veut nettoyer (elle ne fait que rediriger).
+
+=============================================================================
+12. SCANNER — frontend/app/(app)/scanner/page.tsx (138 lignes)
+=============================================================================
+CE QUE C'EST : PAS un scanner caméra/code-barres malgré l'icône QrCode et le
+nom — c'est une recherche texte dans le catalogue (nom/marque/référence, via
+djangoClient.products.search) avec un bouton "Créer une commande" qui
+renvoie vers /orders. Commentaire dans le fichier confirme : "La vente
+instantanée a été retirée : le seul flux de vente est désormais le module
+Commandes." Route orpheline — absente du sidebar ET absente de tout autre
+lien interne (grep sur toute la codebase frontend, 0 résultat hors le
+fichier lui-même).
+
+RÔLE WEB : aucune garde dans le fichier (accessible à tout utilisateur
+authentifié qui connaît l'URL).
+
+ÉQUIVALENT FLUTTER : aucun.
+
+VERDICT : PAS UN VRAI GAP. C'est une route orpheline côté web elle-même
+(aucun lien n'y mène dans l'UI) — probablement un vestige d'une itération
+antérieure de l'app (avant le pivot vers le module Commandes). Un vrai
+scanner code-barres pourrait avoir de la valeur sur mobile (terrain), mais
+CE N'EST PAS ce que fait cette page — porter "cette page telle quelle" n'a
+pas de sens. Si un scanner caméra est un jour voulu sur mobile, c'est un
+besoin neuf à spécifier, pas un portage.
+
+=============================================================================
+13. SETTINGS — frontend/app/(app)/settings/page.tsx (509 lignes)
+=============================================================================
+RÔLE WEB : aucune garde dure — accessible à tous ; isGerant désactive/masque
+les champs d'édition et l'onglet Dépenses pour les non-Gérant (employer voit
+son profil en lecture largement limitée).
+3 onglets : Profil, Sécurité (mot de passe), Dépenses (Gérant seul, CRUD
+catégories de dépense — settings/page.tsx:361-438, ExpenseCategoriesCrudList).
+
+ÉQUIVALENT FLUTTER : smartcross/lib/features/settings/settings_screen.dart
+(743 lignes — PLUS long que le web, pas de tabs, page scrollable à sections).
+Profil (nom/tél/adresse/photo) et mot de passe présents et complets (lignes
+31-100+).
+
+GAP RÉEL (le même que §2, deux faces du même trou) : aucune section
+"Dépenses"/catégories nulle part dans le fichier (grep "epense"/"Dépense" :
+0 résultat). Voir §2 pour l'usage aval (mouvements de caisse catégorisés).
+
+À NOTER (pas un gap, presque l'inverse) : settings_screen.dart contient
+_CatalogueBrandsCard/_CatalogueTypesCard/_CatalogueColorsCard (lignes
+258-690+) — gestion Marques/Catégories/Sous-types/Couleurs DEPUIS Paramètres,
+alors que côté web cette gestion catalogue vit uniquement dans /products
+(CatalogSettingsDialog). Flutter expose donc CETTE fonctionnalité à DEUX
+endroits (Paramètres ET Produits → ⋮ → Paramètres du catalogue, catalog_
+screen.dart:337-377) alors que le web ne l'a qu'à un endroit. Redondance
+mineure, pas un manque — à noter si un futur nettoyage UI est fait.
+
+VERDICT : GAP RÉEL mineur, identique à celui de la Caisse (§2) : catégories
+de dépenses absentes. Le reste (profil, sécurité) est à parité, et Flutter a
+même une redondance en plus (gestion catalogue accessible par 2 chemins).
+
+=============================================================================
+14. STORES — frontend/app/(app)/stores/page.tsx (589 lignes)
+=============================================================================
+RÔLE WEB : isAdmin SEUL (pas magasin) peut créer/éditer/gérer les magasins
+et déclencher un transfert depuis cette page (stores/page.tsx:72,254,403) —
+un compte "magasin" (gérant mono-boutique) voit une page qui ne charge
+jamais rien pour lui (fetchStores conditionné à `if (isAdmin)`, ligne 121).
+
+ÉQUIVALENT FLUTTER : smartcross/lib/features/stores/stores_screen.dart (354
+lignes). Liste + création complète (nom boutique + nom/email/mot de passe du
+gérant en une seule fois, _CreateStoreDialog:218-248 — correspond exactement
+au flow web managerName/managerEmail/managerPassword). Déclenche transferts
+depuis la carte magasin (import transfers_screen.dart en ligne 9).
+
+ÉCART DE CONTRÔLE D'ACCÈS (pas un écart fonctionnel) : nav_items.dart:30
+route /stores vers roles:{gerant} SANS distinction admin/magasin (le modèle
+UserRole Flutter ne fait pas cette distinction, voir tête de rapport) — donc
+un compte "magasin" verrait ce module en Flutter alors qu'il ne le voit
+jamais utilement sur le web (page vide). Le comportement RÉEL dépend de ce
+que permet le backend (StoresProvider/backend permission) — pas vérifié
+jusqu'au bout (hors périmètre de cet audit "page par page"), mais à
+surveiller : soit le backend bloque proprement (juste une UX confuse, pas un
+trou de sécurité), soit un compte magasin peut réellement créer/gérer
+d'autres magasins depuis mobile alors qu'il ne le peut pas depuis le web —
+à vérifier avant de considérer ce module "fini".
+
+VERDICT : FONCTIONNALITÉ À PARITÉ (et même comparable en profondeur, ex. la
+création magasin+gérant en une étape). Le seul point réel à vérifier est le
+contrôle d'accès admin-vs-magasin, pas une fonctionnalité manquante.
+
+=============================================================================
+15. SUPERADMIN — frontend/app/(app)/superadmin/page.tsx (245 lignes)
+=============================================================================
+CORRECTION D'HYPOTHÈSE IMPORTANTE (demandée explicitement) : ceci N'EST PAS
+la couche "SaaS platform-admin pour Label Technology". C'est gardé par
+isSuperAdmin, qui dans useCurrentUser.ts:82 vaut littéralement `role ===
+'admin'` — c'est-à-dire un propriétaire de société (le rôle "admin" décrit
+en tête de rapport), gérant PLUSIEURS magasins DE SA PROPRE société. La page
+appelle GET /users/magasins/users/ (superadmin/page.tsx:40) et permet de
+changer le rôle (admin/magasin/employer) ou supprimer un utilisateur PARMI
+SES PROPRES magasins. Rien de tout ça ne sort du tenant de l'utilisateur
+connecté.
+
+LA VRAIE COUCHE SaaS/PLATEFORME (Label Technology) : recherchée
+spécifiquement. Trouvé : users/migrations/0005_subscription_platform_admin_
+role.py a ajouté un rôle `platform_admin` et un modèle `Subscription`
+(status actif/désactivé/en attente/essai/démo) — MAIS le ROLE_CHOICES actuel
+dans users/models.py:51-55 n'a QUE ("admin","magasin","employer") :
+platform_admin a été retiré depuis. Aucune vue backend n'utilise Subscription
+(grep users/views.py : 0 résultat), aucune URL ne l'expose (users/urls.py :
+rien), aucune trace côté frontend ni Flutter (grep global : seulement dans
+les migrations elles-mêmes). CONCLUSION : la vraie couche SaaS-vendeur
+n'existe quasiment pas comme fonctionnalité utilisable — c'est une colonne
+en base + un modèle de données jamais branché à une UI, des deux côtés.
+
+RÔLE WEB (page /superadmin telle qu'elle existe réellement) : isSuperAdmin
+= role admin seul (superadmin/page.tsx:31-35, redirect vers /dashboard sinon).
+
+ÉQUIVALENT FLUTTER : aucune page dédiée. MAIS la fonction "changer le rôle
+d'un utilisateur" existe partiellement dans users_screen.dart — sauf qu'elle
+est SCOPÉE différemment : accountsProvider (users_screen.dart:63,69, message
+vide "Aucun compte préparateur/livreur") ne charge QUE les employés
+Préparateur/Livreur DU magasin courant. Aucune vue Flutter ne liste "toutes
+les équipes de toutes mes boutiques" avec changement de rôle admin/magasin/
+employer comme le fait /superadmin (et la partie admin-only de /users, voir
+§18) — cette fonctionnalité "administration multi-magasins du propriétaire"
+n'a réellement AUCUN équivalent mobile, ni ici ni ailleurs.
+
+VERDICT : GAP RÉEL mais BEAUCOUP PLUS ÉTROIT que l'hypothèse de départ. Ce
+n'est pas "l'outillage SaaS pour Label Technology" qui manque (cette couche
+n'existe quasiment pas non plus côté web, donc rien à porter là) — c'est la
+vue "propriétaire multi-magasins : toutes mes équipes, tous mes magasins,
+changer un rôle où que ce soit dans ma société" qui n'a pas d'équivalent
+mobile. Pertinence mobile réelle : faible-à-moyenne — c'est une tâche
+d'administration ponctuelle (créer un gérant de magasin, changer un rôle),
+plausible mais pas urgente sur téléphone. Recoupe directement le gap §18.
+
+=============================================================================
+16. SUPPLIERS — frontend/app/(app)/suppliers/page.tsx (348 lignes)
+=============================================================================
+RÔLE WEB : AUCUNE garde trouvée dans le fichier (grep rôle : 0 résultat) —
+accessible à tout utilisateur authentifié qui navigue dessus ; masqué du
+sidebar en adminOnly seulement (donc Préparateur/Livreur ne le voient pas
+dans le menu, mais rien ne bloque une URL directe).
+
+ÉQUIVALENT FLUTTER : suppliers_screen.dart (77, liste) + supplier_order_
+create_screen.dart (219) + supplier_order_detail_screen.dart (153) — web
+condense liste+création+détail en une page à dialogues, Flutter éclate en 3
+écrans (normal/attendu sur mobile). Champs coût de revient (prix fournisseur/
+fret import/douane) + lignes multiples avec sélection de variante présents
+des deux côtés et cohérents (supplier_order_create_screen.dart:32-80).
+
+TROUVAILLE (bug Flutter indépendant, pas un écart de parité avec le web —
+le web n'a PAS ce champ non plus) : supplier_order_create_screen.dart a un
+champ "Pub Meta Ads" (_adsController, ligne 36) inclus dans le calcul du
+coût estimé affiché à l'écran (_coutEstime, ligne 54) et envoyé au serveur
+(metaAds: ligne 98). MAIS suppliers/models.py (lignes 25-27) ne définit QUE
+prix_fournisseur/fret_import/douane — aucune colonne pour stocker ce
+montant. Cette valeur saisie par l'utilisateur est donc silencieusement
+perdue à l'enregistrement (aucune erreur, l'API ignore juste le champ
+inconnu) — explique aussi pourquoi le dashboard Flutter (§4) affiche
+toujours 0 Ar pour "Total pub Meta Ads". Ce n'est un problème que côté
+Flutter/backend (le web n'expose même pas ce concept) — mais si l'app
+prétend suivre ce coût, soit ajouter la colonne backend, soit retirer le
+champ de saisie qui trompe l'utilisateur.
+
+VERDICT : PARITÉ FONCTIONNELLE pour tout ce que le web fait réellement. Le
+seul point à corriger est indépendant de la parité web/Flutter : un champ de
+saisie Flutter qui n'est jamais persisté (bug ponctuel, backend suppliers/
+models.py à corriger si on veut que "Pub Meta Ads" soit un vrai concept
+suivi, sinon retirer le champ de l'écran de création).
+
+=============================================================================
+17. TRANSFERS — frontend/app/(app)/transfers/page.tsx (128 lignes)
+=============================================================================
+RÔLE WEB : garde explicite isAdmin seul (transfers/page.tsx:49-60, "réservée
+aux administrateurs"). Backend TransferProductsView (users/views.py:1978-1986)
+a pour docstring "réservé à l'admin (seul rôle avec visibilité sur plusieurs
+magasins)" MAIS permission_classes = [IsAuthenticated] seulement — pas de
+vérification de rôle explicite trouvée dans la vue elle-même dans la portion
+lue ; probablement auto-limité en pratique car un compte "magasin" n'a
+qu'un seul magasin accessible (get_accessible_magasins), donc rien à
+transférer entre deux — à confirmer si on s'inquiète du contrôle d'accès
+serveur, mais hors périmètre de cet audit page-par-page.
+
+ÉQUIVALENT FLUTTER : transfers_screen.dart (283 lignes), branché depuis
+stores_screen.dart. AUCUNE vérification de rôle trouvée dans le fichier
+(grep isAdmin/isManager/role : 0 résultat) — accessible à tout Gérant
+(admin ou magasin) via nav_items.dart:31 (roles:{gerant}, pas de distinction
+fine).
+
+VERDICT : ÉCART DE CONTRÔLE D'ACCÈS (comme §14 Stores), PAS un écart
+fonctionnel — le mécanisme de transfert lui-même est présent et cohérent
+avec le web. Point à vérifier : un compte "magasin" sur Flutter atteint cet
+écran alors qu'il ne le peut pas sur web ; si le backend ne bloque pas non
+plus explicitement au niveau rôle (à re-vérifier), c'est un vrai écart de
+sécurité, pas seulement de confort — mérite une vérification dédiée,
+séparée de ce périmètre d'audit "parité de fonctionnalités".
+
+=============================================================================
+18. USERS — frontend/app/(app)/users/page.tsx (770 lignes)
+=============================================================================
+RÔLE WEB : garde explicite isManager (admin OU magasin), users/page.tsx:310.
+3 onglets : Équipe active, En attente, Mots de passe (isAdmin seul — reset
+employés, users/page.tsx:409-416). isCompanyOwner (vs co-admin ajouté)
+distingue en plus qui peut promouvoir vers "admin" (lignes 371,737).
+
+ÉQUIVALENT FLUTTER : users_screen.dart (494 lignes) — structure remarquable-
+ment proche : 3 tabs identiques (Équipe / En attente / Mots de passe,
+isAdmin-only pour le 3e onglet, lignes 30-37) ; suppression avec confirmation
+mot de passe (_PasswordConfirmDialog, mêmes règles que web) ; demandes de
+reset mot de passe avec approuver/rejeter (_PasswordResetsTab/Tile, lignes
+377-481) — CETTE PARTIE EST À PARITÉ, y compris la distinction admin-only.
+
+GAP RÉEL : le tab "Équipe" Flutter (_TeamTab, lignes 58-83) est BEAUCOUP
+plus étroit que web "Équipe active" — accountsProvider ne charge QUE les
+comptes employer (Préparateur/Livreur) DU magasin courant (message vide
+explicite : "Aucun compte préparateur/livreur"). _UserTile (lignes 137-197)
+ne permet de changer QUE le commande_role (Préparateur ↔ Livreur, Segmented
+Button lignes 180-187) — aucune option pour promouvoir/rétrograder vers
+"magasin" ou "admin" comme le fait le Select web (users/page.tsx:370-371,
+"Gérant de magasin"/"Administrateur"). Autrement dit : Flutter gère "mon
+équipe opérationnelle du magasin", le web gère EN PLUS "toute la structure
+de rôles de la société" (magasins et administrateurs). Se recoupe
+directement avec le gap §15 (superadmin) — c'est la même fonctionnalité
+"administration multi-magasins" qui manque, vue depuis deux pages web
+différentes.
+
+VERDICT : GAP RÉEL, mais seulement pour le rôle "admin"/propriétaire de
+société multi-magasins — un compte "magasin" (gérant mono-boutique) ou
+"employer" a déjà tout ce qu'il lui faut en Flutter. Pertinence mobile :
+faible-à-moyenne, comme §15 — tâche d'administration de structure, pas
+d'opération quotidienne.
+
+=============================================================================
+NOTE FINALE — pages Flutter SANS équivalent web direct
+=============================================================================
+Pour complétude (non demandé explicitement mais utile pour le mental model) :
+smartcross/lib/features/auth/ (login/server-setup/splash) et depot/tournee
+n'ont pas de "page web" à comparer un-à-un — auth est un besoin mobile-only
+(le web utilise une session cookie/URL classique), et depot/tournee sont les
+vues Préparateur/Livreur de la même donnée que web /orders (voir §7).

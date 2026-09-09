@@ -29,6 +29,7 @@ dependencies:
   url_launcher: ^6.3.2
   connectivity_plus: ^7.3.1
   image_picker: ^1.2.0
+  file_picker: ^12.2.0
 
 dev_dependencies:
   flutter_test:

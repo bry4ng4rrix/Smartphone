@@ -13,6 +13,8 @@ class AppUser {
     this.adresse,
     this.photo,
     this.createdAt,
+    this.lastLoginAt,
+    this.lastLogoutAt,
     this.magasinId,
     this.shopName,
     this.rawRole,
@@ -28,16 +30,21 @@ class AppUser {
   final String? adresse;
   final String? photo;
   final DateTime? createdAt;
+  final DateTime? lastLoginAt;
+  final DateTime? lastLogoutAt;
+
   /// Magasin de l'utilisateur — présent pour magasin/employer, et pour un
   /// admin qui ne possède qu'un seul magasin (cas Smartphone.Mg, §11
   /// Smartreadme.md — commodité ajoutée côté serveur pour les clients mobiles).
   final int? magasinId;
   final String? shopName;
+
   /// Rôle Django brut ("admin"/"magasin"/"employer") — distinct du rôle
   /// module Commande ci-dessus, nécessaire pour les fonctionnalités
   /// "Super Admin" (mots de passe réservés à `role=="admin"`, abonnement/
   /// appareils réservés au propriétaire de la société ci-dessous).
   final String? rawRole;
+
   /// Vrai uniquement pour le fondateur de la société (a un AdminProfile) —
   /// un co-admin ajouté via "Ajouter un administrateur" partage l'accès aux
   /// données mais pas les actions de propriété (abonnement, appareils).
@@ -54,12 +61,16 @@ class AppUser {
       // l'expose sous `role_commande` (calculé : GERANT pour admin/magasin,
       // PREPARATEUR/LIVREUR pour un employer) ; `magasins/users/` expose
       // directement le champ brut `commande_role` sur chaque employé.
-      role: UserRoleX.fromApi(asStringOrNull(json['role_commande'] ?? json['commande_role'])),
+      role: UserRoleX.fromApi(
+        asStringOrNull(json['role_commande'] ?? json['commande_role']),
+      ),
       isActive: asBool(json['is_confirmed'], true),
       phone: asStringOrNull(json['phone']),
       adresse: asStringOrNull(json['adresse']),
       photo: asStringOrNull(json['photo']),
       createdAt: asDateOrNull(json['created_at']),
+      lastLoginAt: asDateOrNull(json['last_login_at']),
+      lastLogoutAt: asDateOrNull(json['last_logout_at']),
       magasinId: asIntOrNull(json['magasin_id']),
       shopName: asStringOrNull(json['shop_name']),
       rawRole: asStringOrNull(json['role']),
@@ -72,7 +83,14 @@ class AppUser {
 /// (`GET /api/users/pending/`) — flux distinct de la création directe par
 /// le gérant (§4 Smartreadme.md), pour un employé qui s'inscrit lui-même.
 class PendingUser {
-  PendingUser({required this.id, required this.fullName, required this.email, required this.role, this.position, this.createdAt});
+  PendingUser({
+    required this.id,
+    required this.fullName,
+    required this.email,
+    required this.role,
+    this.position,
+    this.createdAt,
+  });
 
   final int id;
   final String fullName;

@@ -15,8 +15,20 @@ import '../../state/catalog_provider.dart';
 /// (`app/(app)/settings/page.tsx`), pour ajouter une marque en un clic
 /// plutôt que de retaper son nom depuis le module Catalogue.
 const _kSuggestedBrands = [
-  'Samsung', 'iPhone', 'Huawei', 'Redmi', 'Xiaomi', 'Tecno', 'Infinix',
-  'Itel', 'Oppo', 'Realme', 'Google Pixel', 'Poco', 'Vivo', 'Honor',
+  'Samsung',
+  'iPhone',
+  'Huawei',
+  'Redmi',
+  'Xiaomi',
+  'Tecno',
+  'Infinix',
+  'Itel',
+  'Oppo',
+  'Realme',
+  'Google Pixel',
+  'Poco',
+  'Vivo',
+  'Honor',
 ];
 
 /// Profil et sécurité du compte connecté — infrastructure conservée du
@@ -64,7 +76,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _pickPhoto() async {
-    final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85);
+    final file = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+    );
     if (file != null) setState(() => _photoFile = file);
   }
 
@@ -84,7 +99,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         _photoFile = null;
       }
       await ref.read(authProvider.notifier).refreshUser();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profil mis à jour')));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Profil mis à jour')));
     } catch (e) {
       setState(() => _profileError = ApiClient.messageFromError(e));
     } finally {
@@ -93,6 +111,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _changePassword() async {
+    final user = ref.read(authProvider).user;
+    if (user?.role != UserRole.gerant) {
+      setState(
+        () => _passwordError = 'Seul le gérant peut modifier le mot de passe.',
+      );
+      return;
+    }
     if (_newPwController.text.length < 6) {
       setState(() => _passwordError = '6 caractères minimum');
       return;
@@ -107,7 +132,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _passwordSuccess = null;
     });
     try {
-      await AuthRepository().changePassword(oldPassword: _oldPwController.text, newPassword: _newPwController.text);
+      await AuthRepository().changePassword(
+        oldPassword: _oldPwController.text,
+        newPassword: _newPwController.text,
+      );
       _oldPwController.clear();
       _newPwController.clear();
       _confirmPwController.clear();
@@ -135,7 +163,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Mon profil', style: Theme.of(context).textTheme.titleMedium),
+                  Text(
+                    'Mon profil',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                   const SizedBox(height: 12),
                   Row(
                     children: [
@@ -143,9 +174,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         radius: 32,
                         backgroundImage: _photoFile != null
                             ? FileImage(File(_photoFile!.path))
-                            : (user?.photo != null ? NetworkImage(user!.photo!) : null) as ImageProvider?,
+                            : (user?.photo != null
+                                      ? NetworkImage(user!.photo!)
+                                      : null)
+                                  as ImageProvider?,
                         child: (_photoFile == null && user?.photo == null)
-                            ? Text(user?.fullName.isNotEmpty == true ? user!.fullName[0].toUpperCase() : '?')
+                            ? Text(
+                                user?.fullName.isNotEmpty == true
+                                    ? user!.fullName[0].toUpperCase()
+                                    : '?',
+                              )
                             : null,
                       ),
                       const SizedBox(width: 16),
@@ -161,32 +199,62 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   if (!isGerant) ...[
                     Text(
                       'Seul le gérant peut modifier ces informations. Contactez votre gérant pour toute correction.',
-                      style: TextStyle(color: Theme.of(context).colorScheme.error),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     ),
                     const SizedBox(height: 10),
                   ],
-                  TextField(controller: TextEditingController(text: user?.email), decoration: const InputDecoration(labelText: 'Email'), enabled: false),
-                  const SizedBox(height: 10),
                   TextField(
-                    decoration: InputDecoration(labelText: 'Rôle'),
-                    controller: TextEditingController(text: user?.role.label ?? ''),
+                    controller: TextEditingController(text: user?.email),
+                    decoration: const InputDecoration(labelText: 'Email'),
                     enabled: false,
                   ),
                   const SizedBox(height: 10),
-                  TextField(controller: _nameController, enabled: isGerant, decoration: const InputDecoration(labelText: 'Nom complet')),
+                  TextField(
+                    decoration: InputDecoration(labelText: 'Rôle'),
+                    controller: TextEditingController(
+                      text: user?.role.label ?? '',
+                    ),
+                    enabled: false,
+                  ),
                   const SizedBox(height: 10),
-                  TextField(controller: _phoneController, enabled: isGerant, decoration: const InputDecoration(labelText: 'Téléphone')),
+                  TextField(
+                    controller: _nameController,
+                    enabled: isGerant,
+                    decoration: const InputDecoration(labelText: 'Nom complet'),
+                  ),
                   const SizedBox(height: 10),
-                  TextField(controller: _adresseController, enabled: isGerant, decoration: const InputDecoration(labelText: 'Adresse')),
+                  TextField(
+                    controller: _phoneController,
+                    enabled: isGerant,
+                    decoration: const InputDecoration(labelText: 'Téléphone'),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _adresseController,
+                    enabled: isGerant,
+                    decoration: const InputDecoration(labelText: 'Adresse'),
+                  ),
                   if (_profileError != null) ...[
                     const SizedBox(height: 8),
-                    Text(_profileError!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                    Text(
+                      _profileError!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
                   ],
                   if (isGerant) ...[
                     const SizedBox(height: 12),
                     Align(
                       alignment: Alignment.centerRight,
-                      child: FilledButton(onPressed: _savingProfile ? null : _saveProfile, child: Text(_savingProfile ? 'Enregistrement…' : 'Enregistrer')),
+                      child: FilledButton(
+                        onPressed: _savingProfile ? null : _saveProfile,
+                        child: Text(
+                          _savingProfile ? 'Enregistrement…' : 'Enregistrer',
+                        ),
+                      ),
                     ),
                   ],
                 ],
@@ -200,31 +268,67 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Changer le mot de passe', style: Theme.of(context).textTheme.titleMedium),
+                  Text(
+                    'Changer le mot de passe',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                   const SizedBox(height: 12),
                   if (!isGerant)
                     Text(
                       'Seul le gérant peut modifier le mot de passe. Contactez votre gérant.',
-                      style: TextStyle(color: Theme.of(context).colorScheme.error),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     )
                   else ...[
-                    TextField(controller: _oldPwController, obscureText: true, decoration: const InputDecoration(labelText: 'Mot de passe actuel')),
+                    TextField(
+                      controller: _oldPwController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Mot de passe actuel',
+                      ),
+                    ),
                     const SizedBox(height: 10),
-                    TextField(controller: _newPwController, obscureText: true, decoration: const InputDecoration(labelText: 'Nouveau mot de passe')),
+                    TextField(
+                      controller: _newPwController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Nouveau mot de passe',
+                      ),
+                    ),
                     const SizedBox(height: 10),
-                    TextField(controller: _confirmPwController, obscureText: true, decoration: const InputDecoration(labelText: 'Confirmer le nouveau mot de passe')),
+                    TextField(
+                      controller: _confirmPwController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Confirmer le nouveau mot de passe',
+                      ),
+                    ),
                     if (_passwordError != null) ...[
                       const SizedBox(height: 8),
-                      Text(_passwordError!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                      Text(
+                        _passwordError!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
                     ],
                     if (_passwordSuccess != null) ...[
                       const SizedBox(height: 8),
-                      Text(_passwordSuccess!, style: const TextStyle(color: Colors.green)),
+                      Text(
+                        _passwordSuccess!,
+                        style: const TextStyle(color: Colors.green),
+                      ),
                     ],
                     const SizedBox(height: 12),
                     Align(
                       alignment: Alignment.centerRight,
-                      child: FilledButton(onPressed: _savingPassword ? null : _changePassword, child: Text(_savingPassword ? 'Enregistrement…' : 'Changer')),
+                      child: FilledButton(
+                        onPressed: _savingPassword ? null : _changePassword,
+                        child: Text(
+                          _savingPassword ? 'Enregistrement…' : 'Changer',
+                        ),
+                      ),
                     ),
                   ],
                 ],
@@ -260,7 +364,8 @@ class _CatalogueBrandsCard extends ConsumerStatefulWidget {
   const _CatalogueBrandsCard();
 
   @override
-  ConsumerState<_CatalogueBrandsCard> createState() => _CatalogueBrandsCardState();
+  ConsumerState<_CatalogueBrandsCard> createState() =>
+      _CatalogueBrandsCardState();
 }
 
 class _CatalogueBrandsCardState extends ConsumerState<_CatalogueBrandsCard> {
@@ -270,9 +375,15 @@ class _CatalogueBrandsCardState extends ConsumerState<_CatalogueBrandsCard> {
     setState(() => _adding = nom);
     try {
       await ref.read(brandsProvider.notifier).create(nom);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Marque "$nom" ajoutée')));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Marque "$nom" ajoutée')));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
     } finally {
       if (mounted) setState(() => _adding = null);
     }
@@ -286,8 +397,14 @@ class _CatalogueBrandsCardState extends ConsumerState<_CatalogueBrandsCard> {
         title: const Text('Renommer la marque'),
         content: TextField(controller: controller, autofocus: true),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
-          FilledButton(onPressed: () => Navigator.of(context).pop(controller.text.trim()), child: const Text('Enregistrer')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('Enregistrer'),
+          ),
         ],
       ),
     );
@@ -295,7 +412,10 @@ class _CatalogueBrandsCardState extends ConsumerState<_CatalogueBrandsCard> {
     try {
       await ref.read(brandsProvider.notifier).rename(b.id, name);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
     }
   }
 
@@ -304,12 +424,19 @@ class _CatalogueBrandsCardState extends ConsumerState<_CatalogueBrandsCard> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Supprimer la marque'),
-        content: Text('Supprimer "${b.nom}" ? Impossible si des références l\'utilisent déjà.'),
+        content: Text(
+          'Supprimer "${b.nom}" ? Impossible si des références l\'utilisent déjà.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Annuler')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Annuler'),
+          ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
             child: const Text('Supprimer'),
           ),
         ],
@@ -319,7 +446,10 @@ class _CatalogueBrandsCardState extends ConsumerState<_CatalogueBrandsCard> {
     try {
       await ref.read(brandsProvider.notifier).delete(b.id);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
     }
   }
 
@@ -347,14 +477,19 @@ class _CatalogueBrandsCardState extends ConsumerState<_CatalogueBrandsCard> {
                 for (final nom in _kSuggestedBrands)
                   _BrandChip(
                     nom: nom,
-                    already: brands.any((b) => b.nom.toLowerCase() == nom.toLowerCase()),
+                    already: brands.any(
+                      (b) => b.nom.toLowerCase() == nom.toLowerCase(),
+                    ),
                     loading: _adding == nom,
                     onTap: () => _addBrand(nom),
                   ),
               ],
             ),
             const Divider(height: 24),
-            Text('Toutes les marques (${brands.length})', style: Theme.of(context).textTheme.labelLarge),
+            Text(
+              'Toutes les marques (${brands.length})',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
             for (final b in brands)
               ListTile(
                 dense: true,
@@ -363,8 +498,14 @@ class _CatalogueBrandsCardState extends ConsumerState<_CatalogueBrandsCard> {
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    IconButton(icon: const Icon(Icons.edit_outlined, size: 18), onPressed: () => _rename(b)),
-                    IconButton(icon: const Icon(Icons.delete_outline, size: 18), onPressed: () => _delete(b)),
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      onPressed: () => _rename(b),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, size: 18),
+                      onPressed: () => _delete(b),
+                    ),
                   ],
                 ),
               ),
@@ -376,7 +517,12 @@ class _CatalogueBrandsCardState extends ConsumerState<_CatalogueBrandsCard> {
 }
 
 class _BrandChip extends StatelessWidget {
-  const _BrandChip({required this.nom, required this.already, required this.loading, required this.onTap});
+  const _BrandChip({
+    required this.nom,
+    required this.already,
+    required this.loading,
+    required this.onTap,
+  });
   final String nom;
   final bool already;
   final bool loading;
@@ -387,7 +533,13 @@ class _BrandChip extends StatelessWidget {
     return ActionChip(
       avatar: already
           ? const Icon(Icons.check, size: 16)
-          : (loading ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.add, size: 16)),
+          : (loading
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.add, size: 16)),
       label: Text(nom),
       onPressed: already || loading ? null : onTap,
     );
@@ -403,7 +555,8 @@ class _CatalogueTypesCard extends ConsumerStatefulWidget {
   const _CatalogueTypesCard();
 
   @override
-  ConsumerState<_CatalogueTypesCard> createState() => _CatalogueTypesCardState();
+  ConsumerState<_CatalogueTypesCard> createState() =>
+      _CatalogueTypesCardState();
 }
 
 class _CatalogueTypesCardState extends ConsumerState<_CatalogueTypesCard> {
@@ -420,7 +573,10 @@ class _CatalogueTypesCardState extends ConsumerState<_CatalogueTypesCard> {
   }
 
   TextEditingController _controllerFor(int categoryId) {
-    return _newTypeControllers.putIfAbsent(categoryId, () => TextEditingController());
+    return _newTypeControllers.putIfAbsent(
+      categoryId,
+      () => TextEditingController(),
+    );
   }
 
   Future<void> _renameCategory(ProductCategory c) async {
@@ -431,8 +587,14 @@ class _CatalogueTypesCardState extends ConsumerState<_CatalogueTypesCard> {
         title: const Text('Renommer la catégorie'),
         content: TextField(controller: controller, autofocus: true),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
-          FilledButton(onPressed: () => Navigator.of(context).pop(controller.text.trim()), child: const Text('Enregistrer')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('Enregistrer'),
+          ),
         ],
       ),
     );
@@ -440,17 +602,26 @@ class _CatalogueTypesCardState extends ConsumerState<_CatalogueTypesCard> {
     try {
       await ref.read(categoriesProvider.notifier).rename(c.id, name);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
     }
   }
 
   Future<void> _deleteCategory(ProductCategory c) async {
-    final confirmed = await _confirmDialog(context, 'Supprimer la catégorie "${c.nom}" ? Impossible si des sous-types en dépendent.');
+    final confirmed = await _confirmDialog(
+      context,
+      'Supprimer la catégorie "${c.nom}" ? Impossible si des sous-types en dépendent.',
+    );
     if (!confirmed) return;
     try {
       await ref.read(categoriesProvider.notifier).delete(c.id);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
     }
   }
 
@@ -458,10 +629,15 @@ class _CatalogueTypesCardState extends ConsumerState<_CatalogueTypesCard> {
     final name = _newCategoryController.text.trim();
     if (name.isEmpty) return;
     try {
-      await ref.read(categoriesProvider.notifier).create(name, ref.read(categoriesProvider).value?.length ?? 0);
+      await ref
+          .read(categoriesProvider.notifier)
+          .create(name, ref.read(categoriesProvider).value?.length ?? 0);
       _newCategoryController.clear();
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
     }
   }
 
@@ -473,8 +649,14 @@ class _CatalogueTypesCardState extends ConsumerState<_CatalogueTypesCard> {
         title: const Text('Renommer le sous-type'),
         content: TextField(controller: controller, autofocus: true),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
-          FilledButton(onPressed: () => Navigator.of(context).pop(controller.text.trim()), child: const Text('Enregistrer')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('Enregistrer'),
+          ),
         ],
       ),
     );
@@ -482,17 +664,26 @@ class _CatalogueTypesCardState extends ConsumerState<_CatalogueTypesCard> {
     try {
       await ref.read(typesProvider.notifier).rename(t.id, name);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
     }
   }
 
   Future<void> _deleteType(ProductType t) async {
-    final confirmed = await _confirmDialog(context, 'Supprimer le sous-type "${t.nom}" ? Impossible si des références en dépendent.');
+    final confirmed = await _confirmDialog(
+      context,
+      'Supprimer le sous-type "${t.nom}" ? Impossible si des références en dépendent.',
+    );
     if (!confirmed) return;
     try {
       await ref.read(typesProvider.notifier).delete(t.id);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
     }
   }
 
@@ -504,7 +695,10 @@ class _CatalogueTypesCardState extends ConsumerState<_CatalogueTypesCard> {
       await ref.read(typesProvider.notifier).create(categoryId, name);
       controller.clear();
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
     }
   }
 
@@ -519,7 +713,10 @@ class _CatalogueTypesCardState extends ConsumerState<_CatalogueTypesCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Sous-types (catégories produit)', style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              'Sous-types (catégories produit)',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 4),
             Text(
               'Le niveau entre la catégorie (ex. Housse, Cache écran) et la marque — ex. Flip cover, '
@@ -532,7 +729,10 @@ class _CatalogueTypesCardState extends ConsumerState<_CatalogueTypesCard> {
               Container(
                 margin: const EdgeInsets.only(bottom: 10),
                 padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(border: Border.all(color: Theme.of(context).dividerColor), borderRadius: BorderRadius.circular(8)),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Theme.of(context).dividerColor),
+                  borderRadius: BorderRadius.circular(8),
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -540,9 +740,20 @@ class _CatalogueTypesCardState extends ConsumerState<_CatalogueTypesCard> {
                       children: [
                         const Icon(Icons.sell_outlined, size: 16),
                         const SizedBox(width: 6),
-                        Expanded(child: Text(c.nom, style: Theme.of(context).textTheme.titleSmall)),
-                        IconButton(icon: const Icon(Icons.edit_outlined, size: 18), onPressed: () => _renameCategory(c)),
-                        IconButton(icon: const Icon(Icons.delete_outline, size: 18), onPressed: () => _deleteCategory(c)),
+                        Expanded(
+                          child: Text(
+                            c.nom,
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.edit_outlined, size: 18),
+                          onPressed: () => _renameCategory(c),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, size: 18),
+                          onPressed: () => _deleteCategory(c),
+                        ),
                       ],
                     ),
                     Padding(
@@ -550,18 +761,42 @@ class _CatalogueTypesCardState extends ConsumerState<_CatalogueTypesCard> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          for (final t in types.where((t) => t.categoryId == c.id))
+                          for (final t in types.where(
+                            (t) => t.categoryId == c.id,
+                          ))
                             Row(
                               children: [
-                                Expanded(child: Text(t.nom, style: Theme.of(context).textTheme.bodySmall)),
-                                IconButton(icon: const Icon(Icons.edit_outlined, size: 16), onPressed: () => _renameType(t)),
-                                IconButton(icon: const Icon(Icons.delete_outline, size: 16), onPressed: () => _deleteType(t)),
+                                Expanded(
+                                  child: Text(
+                                    t.nom,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodySmall,
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.edit_outlined,
+                                    size: 16,
+                                  ),
+                                  onPressed: () => _renameType(t),
+                                ),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.delete_outline,
+                                    size: 16,
+                                  ),
+                                  onPressed: () => _deleteType(t),
+                                ),
                               ],
                             ),
                           if (!types.any((t) => t.categoryId == c.id))
                             Padding(
                               padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Text('Aucun sous-type.', style: Theme.of(context).textTheme.bodySmall),
+                              child: Text(
+                                'Aucun sous-type.',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
                             ),
                           Padding(
                             padding: const EdgeInsets.only(top: 4),
@@ -570,11 +805,21 @@ class _CatalogueTypesCardState extends ConsumerState<_CatalogueTypesCard> {
                                 Expanded(
                                   child: TextField(
                                     controller: _controllerFor(c.id),
-                                    decoration: const InputDecoration(isDense: true, hintText: 'Nouveau sous-type (ex. Chargeur)'),
+                                    decoration: const InputDecoration(
+                                      isDense: true,
+                                      hintText:
+                                          'Nouveau sous-type (ex. Chargeur)',
+                                    ),
                                     onSubmitted: (_) => _addType(c.id),
                                   ),
                                 ),
-                                IconButton(icon: const Icon(Icons.add_circle_outline, size: 20), onPressed: () => _addType(c.id)),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.add_circle_outline,
+                                    size: 20,
+                                  ),
+                                  onPressed: () => _addType(c.id),
+                                ),
                               ],
                             ),
                           ),
@@ -585,19 +830,32 @@ class _CatalogueTypesCardState extends ConsumerState<_CatalogueTypesCard> {
                 ),
               ),
             ],
-            if (categories.isEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text('Aucune catégorie.', style: Theme.of(context).textTheme.bodySmall)),
+            if (categories.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  'Aucune catégorie.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
             const Divider(height: 20),
             Row(
               children: [
                 Expanded(
                   child: TextField(
                     controller: _newCategoryController,
-                    decoration: const InputDecoration(isDense: true, labelText: 'Nouvelle catégorie (ex. Accessoires)'),
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      labelText: 'Nouvelle catégorie (ex. Accessoires)',
+                    ),
                     onSubmitted: (_) => _addCategory(),
                   ),
                 ),
                 const SizedBox(width: 8),
-                FilledButton(onPressed: _addCategory, child: const Text('Ajouter')),
+                FilledButton(
+                  onPressed: _addCategory,
+                  child: const Text('Ajouter'),
+                ),
               ],
             ),
           ],
@@ -614,10 +872,15 @@ Future<bool> _confirmDialog(BuildContext context, String message) async {
       title: const Text('Confirmer'),
       content: Text(message),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Annuler')),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Annuler'),
+        ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(true),
-          style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+          style: FilledButton.styleFrom(
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
           child: const Text('Supprimer'),
         ),
       ],
@@ -633,7 +896,8 @@ class _CatalogueColorsCard extends ConsumerStatefulWidget {
   const _CatalogueColorsCard();
 
   @override
-  ConsumerState<_CatalogueColorsCard> createState() => _CatalogueColorsCardState();
+  ConsumerState<_CatalogueColorsCard> createState() =>
+      _CatalogueColorsCardState();
 }
 
 class _CatalogueColorsCardState extends ConsumerState<_CatalogueColorsCard> {
@@ -650,10 +914,15 @@ class _CatalogueColorsCardState extends ConsumerState<_CatalogueColorsCard> {
     if (_newColorController.text.trim().isEmpty) return;
     setState(() => _adding = true);
     try {
-      await ref.read(colorsProvider.notifier).create(_newColorController.text.trim());
+      await ref
+          .read(colorsProvider.notifier)
+          .create(_newColorController.text.trim());
       _newColorController.clear();
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
     } finally {
       if (mounted) setState(() => _adding = false);
     }
@@ -667,8 +936,14 @@ class _CatalogueColorsCardState extends ConsumerState<_CatalogueColorsCard> {
         title: const Text('Renommer la couleur'),
         content: TextField(controller: controller, autofocus: true),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
-          FilledButton(onPressed: () => Navigator.of(context).pop(controller.text.trim()), child: const Text('Enregistrer')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('Enregistrer'),
+          ),
         ],
       ),
     );
@@ -676,17 +951,26 @@ class _CatalogueColorsCardState extends ConsumerState<_CatalogueColorsCard> {
     try {
       await ref.read(colorsProvider.notifier).rename(c.id, name);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
     }
   }
 
   Future<void> _delete(ProductColor c) async {
-    final confirmed = await _confirmDialog(context, 'Supprimer la couleur "${c.nom}" ?');
+    final confirmed = await _confirmDialog(
+      context,
+      'Supprimer la couleur "${c.nom}" ?',
+    );
     if (!confirmed) return;
     try {
       await ref.read(colorsProvider.notifier).delete(c.id);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
     }
   }
 
@@ -715,24 +999,40 @@ class _CatalogueColorsCardState extends ConsumerState<_CatalogueColorsCard> {
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    IconButton(icon: const Icon(Icons.edit_outlined, size: 18), onPressed: () => _rename(c)),
-                    IconButton(icon: const Icon(Icons.delete_outline, size: 18), onPressed: () => _delete(c)),
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      onPressed: () => _rename(c),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, size: 18),
+                      onPressed: () => _delete(c),
+                    ),
                   ],
                 ),
               ),
-            if (colors.isEmpty) Text('Aucune couleur.', style: Theme.of(context).textTheme.bodySmall),
+            if (colors.isEmpty)
+              Text(
+                'Aucune couleur.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             const Divider(height: 20),
             Row(
               children: [
                 Expanded(
                   child: TextField(
                     controller: _newColorController,
-                    decoration: const InputDecoration(isDense: true, labelText: 'Nouvelle couleur (ex: Bleu)'),
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      labelText: 'Nouvelle couleur (ex: Bleu)',
+                    ),
                     onSubmitted: (_) => _addColor(),
                   ),
                 ),
                 const SizedBox(width: 8),
-                FilledButton(onPressed: _adding ? null : _addColor, child: const Text('Ajouter')),
+                FilledButton(
+                  onPressed: _adding ? null : _addColor,
+                  child: const Text('Ajouter'),
+                ),
               ],
             ),
           ],

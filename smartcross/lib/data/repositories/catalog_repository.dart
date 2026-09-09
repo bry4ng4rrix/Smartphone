@@ -1,7 +1,36 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 
 import '../../core/api_client.dart';
 import '../../models/catalog.dart';
+import '../../models/json_utils.dart';
+
+/// Résultat de `CatalogRepository.importExcel` — le serveur renvoie le
+/// fichier .xlsx lui-même (annoté d'une colonne Statut/Date par ligne), pas
+/// du JSON ; le résumé chiffré voyage dans des en-têtes `X-Import-*` (voir
+/// catalog/views.py::import_excel).
+class ExcelImportResult {
+  ExcelImportResult({
+    required this.bytes,
+    required this.filename,
+    required this.createdReferences,
+    required this.updatedReferences,
+    required this.createdVariants,
+    required this.updatedVariants,
+    required this.errorsCount,
+    required this.skippedCount,
+  });
+
+  final Uint8List bytes;
+  final String filename;
+  final int createdReferences;
+  final int updatedReferences;
+  final int createdVariants;
+  final int updatedVariants;
+  final int errorsCount;
+  final int skippedCount;
+}
 
 /// `/api/catalog/` — CRUD catalogue (lecture pour tous, écriture réservée
 /// au gérant, §11 README).
@@ -175,5 +204,66 @@ class CatalogRepository {
 
   Future<void> deleteVariant(int id) async {
     await _dio.delete('catalog/variants/$id/');
+  }
+
+  /// Modification groupée prix_achat/prix_vente pour TOUTES les références
+  /// d'un même sous-type (ex : toutes les "Flip cover", quelle que soit la
+  /// marque) — voir catalog/views.py::bulk_update_price. Renvoie le nombre
+  /// de références modifiées.
+  Future<int> bulkUpdatePrice(int typeId, {double? prixAchat, double? prixVente}) async {
+    final response = await _dio.post('catalog/references/bulk-update-price/', data: {
+      'type_id': typeId,
+      if (prixAchat != null) 'prix_achat': prixAchat,
+      if (prixVente != null) 'prix_vente': prixVente,
+    });
+    return asInt((response.data as Map<String, dynamic>)['updated']);
+  }
+
+  /// Export Excel du catalogue (une ligne par variante couleur), pour
+  /// édition hors-ligne puis réimport via [importExcel] — voir
+  /// catalog/views.py::export_excel.
+  Future<Uint8List> exportExcelBytes() async {
+    final response = await _dio.get<List<int>>(
+      'catalog/references/export-excel/',
+      options: Options(responseType: ResponseType.bytes),
+    );
+    return Uint8List.fromList(response.data!);
+  }
+
+  /// Import Excel (multipart) : crée/actualise Catégorie → Sous-type →
+  /// Marque → Référence → Couleur à partir d'un fichier au format
+  /// [exportExcelBytes]. Voir catalog/views.py::import_excel — le serveur
+  /// répond avec le fichier annoté (pas du JSON), résumé chiffré dans des
+  /// en-têtes `X-Import-*`.
+  ///
+  /// Prend des octets déjà lus (plutôt qu'un chemin de fichier) : sur
+  /// Android, `file_picker` peut renvoyer un document choisi via le Storage
+  /// Access Framework, dont l'URI `content://` n'a pas de chemin disque
+  /// direct (`PlatformFile.path` serait alors `null`) — `PlatformFile.
+  /// readAsBytes()` fonctionne dans tous les cas, quel que soit le schéma
+  /// d'URI.
+  Future<ExcelImportResult> importExcel(Uint8List bytes, String filename) async {
+    final formData = FormData.fromMap({
+      'file': MultipartFile.fromBytes(bytes, filename: filename),
+    });
+    final response = await _dio.post<List<int>>(
+      'catalog/references/import-excel/',
+      data: formData,
+      options: Options(responseType: ResponseType.bytes),
+    );
+    final headers = response.headers;
+    int header(String name) => asInt(headers.value(name));
+    final disposition = headers.value('content-disposition') ?? '';
+    final nameMatch = RegExp(r'filename="?([^"]+)"?').firstMatch(disposition);
+    return ExcelImportResult(
+      bytes: Uint8List.fromList(response.data!),
+      filename: nameMatch?.group(1) ?? 'catalogue_import.xlsx',
+      createdReferences: header('x-import-created-references'),
+      updatedReferences: header('x-import-updated-references'),
+      createdVariants: header('x-import-created-variants'),
+      updatedVariants: header('x-import-updated-variants'),
+      errorsCount: header('x-import-errors-count'),
+      skippedCount: header('x-import-skipped-count'),
+    );
   }
 }

@@ -42,11 +42,18 @@ class UsersScreen extends ConsumerWidget {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Utilisateurs'),
-          bottom: TabBar(isScrollable: true, tabAlignment: TabAlignment.start, tabs: tabs),
+          bottom: TabBar(
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
+            tabs: tabs,
+          ),
         ),
         body: TabBarView(children: views),
         floatingActionButton: FloatingActionButton.extended(
-          onPressed: () => showDialog<void>(context: context, builder: (_) => const _CreateUserDialog()),
+          onPressed: () => showDialog<void>(
+            context: context,
+            builder: (_) => const _CreateUserDialog(),
+          ),
           icon: const Icon(Icons.person_add_outlined),
           label: const Text('Ajouter'),
         ),
@@ -65,17 +72,21 @@ class _TeamTab extends ConsumerWidget {
     return RefreshIndicator(
       onRefresh: () => ref.read(accountsProvider.notifier).refresh(),
       child: switch (async) {
-        AsyncData(:final value) => value.isEmpty
-            ? const EmptyState(message: 'Aucun compte préparateur/livreur.', icon: Icons.people_outline)
-            : ListView.builder(
-                padding: const EdgeInsets.all(12),
-                itemCount: value.length,
-                itemBuilder: (context, i) => _UserTile(user: value[i]),
-              ),
+        AsyncData(:final value) =>
+          value.isEmpty
+              ? const EmptyState(
+                  message: 'Aucun compte préparateur/livreur.',
+                  icon: Icons.people_outline,
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: value.length,
+                  itemBuilder: (context, i) => _UserTile(user: value[i]),
+                ),
         AsyncError(:final error) => ErrorState(
-            message: ApiClient.messageFromError(error),
-            onRetry: () => ref.read(accountsProvider.notifier).refresh(),
-          ),
+          message: ApiClient.messageFromError(error),
+          onRetry: () => ref.read(accountsProvider.notifier).refresh(),
+        ),
         _ => const LoadingState(),
       },
     );
@@ -92,42 +103,60 @@ class _PendingTab extends ConsumerWidget {
     return RefreshIndicator(
       onRefresh: () => ref.read(pendingUsersProvider.notifier).refresh(),
       child: switch (async) {
-        AsyncData(:final value) => value.isEmpty
-            ? const EmptyState(message: 'Aucune demande en attente.', icon: Icons.hourglass_empty)
-            : ListView.builder(
-                padding: const EdgeInsets.all(12),
-                itemCount: value.length,
-                itemBuilder: (context, i) {
-                  final u = value[i];
-                  return Card(
-                    margin: const EdgeInsets.symmetric(vertical: 4),
-                    child: ListTile(
-                      leading: const CircleAvatar(child: Icon(Icons.person_outline)),
-                      title: Text(u.fullName),
-                      subtitle: Text('${u.email}${u.position != null ? ' · ${u.position}' : ''}'),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.check_circle_outline, color: Colors.green),
-                            tooltip: 'Approuver',
-                            onPressed: () => ref.read(pendingUsersProvider.notifier).approve(u.id),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.cancel_outlined, color: Colors.red),
-                            tooltip: 'Rejeter',
-                            onPressed: () => ref.read(pendingUsersProvider.notifier).reject(u.id),
-                          ),
-                        ],
+        AsyncData(:final value) =>
+          value.isEmpty
+              ? const EmptyState(
+                  message: 'Aucune demande en attente.',
+                  icon: Icons.hourglass_empty,
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: value.length,
+                  itemBuilder: (context, i) {
+                    final u = value[i];
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 4),
+                      child: ListTile(
+                        leading: const CircleAvatar(
+                          child: Icon(Icons.person_outline),
+                        ),
+                        title: Text(u.fullName),
+                        subtitle: Text(
+                          '${u.email}${u.position != null ? ' · ${u.position}' : ''}',
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(
+                                Icons.check_circle_outline,
+                                color: Colors.green,
+                              ),
+                              tooltip: 'Approuver',
+                              onPressed: () => ref
+                                  .read(pendingUsersProvider.notifier)
+                                  .approve(u.id),
+                            ),
+                            IconButton(
+                              icon: const Icon(
+                                Icons.cancel_outlined,
+                                color: Colors.red,
+                              ),
+                              tooltip: 'Rejeter',
+                              onPressed: () => ref
+                                  .read(pendingUsersProvider.notifier)
+                                  .reject(u.id),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                },
-              ),
+                    );
+                  },
+                ),
         AsyncError(:final error) => ErrorState(
-            message: ApiClient.messageFromError(error),
-            onRetry: () => ref.read(pendingUsersProvider.notifier).refresh(),
-          ),
+          message: ApiClient.messageFromError(error),
+          onRetry: () => ref.read(pendingUsersProvider.notifier).refresh(),
+        ),
         _ => const LoadingState(),
       },
     );
@@ -138,56 +167,174 @@ class _UserTile extends ConsumerWidget {
   const _UserTile({required this.user});
   final AppUser user;
 
-  Future<void> _changeRole(WidgetRef ref, BuildContext context, UserRole role) async {
+  Future<void> _changeRole(
+    WidgetRef ref,
+    BuildContext context,
+    UserRole role,
+  ) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
     try {
-      await ref.read(accountsProvider.notifier).updateCommandeRole(user.id, role.apiValue);
+      await ref
+          .read(accountsProvider.notifier)
+          .updateCommandeRole(user.id, role.apiValue);
+      if (context.mounted) {
+        messenger?.showSnackBar(
+          SnackBar(content: Text('Rôle mis à jour : ${role.label}')),
+        );
+      }
     } catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      if (context.mounted) {
+        messenger?.showSnackBar(
+          SnackBar(content: Text(ApiClient.messageFromError(e))),
+        );
+      }
     }
   }
 
   Future<void> _confirmDelete(WidgetRef ref, BuildContext context) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (!context.mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) =>
+          _PasswordConfirmDialog(userName: user.fullName),
+    );
+    if (!context.mounted) return;
+    if (confirmed != true) return;
     final password = await showDialog<String>(
       context: context,
-      builder: (context) => _PasswordConfirmDialog(userName: user.fullName),
+      builder: (dialogContext) =>
+          _PasswordConfirmDialog(userName: user.fullName),
     );
+    if (!context.mounted) return;
     if (password == null || password.isEmpty) return;
     try {
       await ref.read(accountsProvider.notifier).delete(user.id, password);
+      if (context.mounted) {
+        messenger?.showSnackBar(
+          const SnackBar(content: Text('Utilisateur supprimé')),
+        );
+      }
     } catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      if (context.mounted) {
+        messenger?.showSnackBar(
+          SnackBar(content: Text(ApiClient.messageFromError(e))),
+        );
+      }
     }
+  }
+
+  Future<void> _openEditDialog(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => _EditUserDialog(user: user),
+    );
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundImage: user.photo != null ? NetworkImage(user.photo!) : null,
-          child: user.photo == null ? Text(user.fullName.isNotEmpty ? user.fullName[0].toUpperCase() : '?') : null,
-        ),
-        title: Text(user.fullName),
-        subtitle: Text([
-          user.email,
-          if (user.phone != null && user.phone!.isNotEmpty) user.phone!,
-          if (user.adresse != null && user.adresse!.isNotEmpty) user.adresse!,
-        ].join(' · ')),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            SegmentedButton<UserRole>(
-              segments: const [
-                ButtonSegment(value: UserRole.preparateur, label: Text('Prép.')),
-                ButtonSegment(value: UserRole.livreur, label: Text('Livr.')),
-              ],
-              selected: {if (user.role == UserRole.livreur) UserRole.livreur else UserRole.preparateur},
-              onSelectionChanged: (s) => _changeRole(ref, context, s.first),
+            CircleAvatar(
+              radius: 26,
+              backgroundImage: user.photo != null
+                  ? NetworkImage(user.photo!)
+                  : null,
+              child: user.photo == null
+                  ? Text(
+                      user.fullName.isNotEmpty
+                          ? user.fullName[0].toUpperCase()
+                          : '?',
+                    )
+                  : null,
             ),
-            IconButton(
-              icon: const Icon(Icons.delete_outline),
-              onPressed: () => _confirmDelete(ref, context),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    user.fullName,
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    user.email,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  if (user.phone != null || user.adresse != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      [
+                        if (user.phone != null && user.phone!.isNotEmpty)
+                          user.phone,
+                        if (user.adresse != null && user.adresse!.isNotEmpty)
+                          user.adresse,
+                      ].join(' · '),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.access_time_filled_rounded,
+                        size: 14,
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        user.lastLoginAt != null
+                            ? 'Dernière connexion : ${_dateTimeFmt.format(user.lastLoginAt!)}'
+                            : 'Jamais connecté',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            SizedBox(
+              width: 160,
+              child: DropdownButtonFormField<UserRole>(
+                initialValue: user.role == UserRole.livreur
+                    ? UserRole.livreur
+                    : UserRole.preparateur,
+                decoration: const InputDecoration(labelText: 'Rôle'),
+                items: const [
+                  DropdownMenuItem(
+                    value: UserRole.preparateur,
+                    child: Text('Préparateur'),
+                  ),
+                  DropdownMenuItem(
+                    value: UserRole.livreur,
+                    child: Text('Livreur'),
+                  ),
+                ],
+                onChanged: (value) {
+                  if (value != null) _changeRole(ref, context, value);
+                },
+              ),
+            ),
+            const SizedBox(width: 8),
+            PopupMenuButton<String>(
+              tooltip: 'Actions',
+              itemBuilder: (context) => [
+                const PopupMenuItem(value: 'edit', child: Text('Modifier')),
+                const PopupMenuItem(value: 'delete', child: Text('Supprimer')),
+              ],
+              onSelected: (value) {
+                if (value == 'edit') _openEditDialog(context);
+                if (value == 'delete') _confirmDelete(ref, context);
+              },
             ),
           ],
         ),
@@ -219,25 +366,204 @@ class _PasswordConfirmDialogState extends State<_PasswordConfirmDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Confirmer la suppression'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text('Supprimer le compte de "${widget.userName}" ? Entrez votre mot de passe pour confirmer.'),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _controller,
-            obscureText: true,
-            autofocus: true,
-            decoration: const InputDecoration(labelText: 'Votre mot de passe'),
-          ),
-        ],
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Supprimer le compte de "${widget.userName}" ? Entrez votre mot de passe pour confirmer.',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _controller,
+              obscureText: true,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Votre mot de passe',
+              ),
+            ),
+          ],
+        ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Annuler'),
+        ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(_controller.text),
-          style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+          style: FilledButton.styleFrom(
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
           child: const Text('Supprimer'),
+        ),
+      ],
+    );
+  }
+}
+
+class _EditUserDialog extends ConsumerStatefulWidget {
+  const _EditUserDialog({required this.user});
+  final AppUser user;
+
+  @override
+  ConsumerState<_EditUserDialog> createState() => _EditUserDialogState();
+}
+
+class _EditUserDialogState extends ConsumerState<_EditUserDialog> {
+  late final TextEditingController _fullNameController;
+  late final TextEditingController _emailController;
+  late final TextEditingController _phoneController;
+  late final TextEditingController _adresseController;
+  late UserRole _role;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _fullNameController = TextEditingController(text: widget.user.fullName);
+    _emailController = TextEditingController(text: widget.user.email);
+    _phoneController = TextEditingController(text: widget.user.phone ?? '');
+    _adresseController = TextEditingController(text: widget.user.adresse ?? '');
+    _role = widget.user.role == UserRole.livreur
+        ? UserRole.livreur
+        : UserRole.preparateur;
+  }
+
+  @override
+  void dispose() {
+    _fullNameController.dispose();
+    _emailController.dispose();
+    _phoneController.dispose();
+    _adresseController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await ref
+          .read(accountsProvider.notifier)
+          .updateCommandeRole(widget.user.id, _role.apiValue);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      if (mounted) setState(() => _error = ApiClient.messageFromError(e));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final lastLogin = widget.user.lastLoginAt != null
+        ? _dateTimeFmt.format(widget.user.lastLoginAt!)
+        : 'Jamais';
+    final lastLogout = widget.user.lastLogoutAt != null
+        ? _dateTimeFmt.format(widget.user.lastLogoutAt!)
+        : 'Aucune déconnexion enregistrée';
+
+    return AlertDialog(
+      title: const Text('Modifier l’utilisateur'),
+      content: SizedBox(
+        width: 440,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Informations du compte',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _fullNameController,
+                decoration: const InputDecoration(labelText: 'Nom complet'),
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _emailController,
+                decoration: const InputDecoration(labelText: 'Email'),
+                enabled: false,
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _phoneController,
+                decoration: const InputDecoration(labelText: 'Téléphone'),
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _adresseController,
+                decoration: const InputDecoration(labelText: 'Adresse'),
+                maxLines: 2,
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<UserRole>(
+                initialValue: _role,
+                decoration: const InputDecoration(labelText: 'Rôle'),
+                items: const [
+                  DropdownMenuItem(
+                    value: UserRole.preparateur,
+                    child: Text('Préparateur'),
+                  ),
+                  DropdownMenuItem(
+                    value: UserRole.livreur,
+                    child: Text('Livreur'),
+                  ),
+                ],
+                onChanged: (value) => setState(() => _role = value ?? _role),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Connexion',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    Text('Dernière connexion : $lastLogin'),
+                    const SizedBox(height: 4),
+                    Text('Dernière déconnexion : $lastLogout'),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Statut : ${widget.user.isActive ? 'Actif' : 'Inactif'}',
+                    ),
+                  ],
+                ),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Annuler'),
+        ),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: Text(_saving ? 'Enregistrement...' : 'Enregistrer'),
         ),
       ],
     );
@@ -277,12 +603,16 @@ class _CreateUserDialogState extends ConsumerState<_CreateUserDialog> {
       _error = null;
     });
     try {
-      await ref.read(accountsProvider.notifier).create(
+      await ref
+          .read(accountsProvider.notifier)
+          .create(
             fullName: _nameController.text.trim(),
             email: _emailController.text.trim(),
             password: _passwordController.text,
             commandeRole: _role.apiValue,
-            phone: _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
+            phone: _phoneController.text.trim().isEmpty
+                ? null
+                : _phoneController.text.trim(),
           );
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
@@ -306,36 +636,53 @@ class _CreateUserDialogState extends ConsumerState<_CreateUserDialog> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 if (_error != null) ...[
-                  Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                  Text(
+                    _error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
                   const SizedBox(height: 8),
                 ],
                 TextFormField(
                   controller: _nameController,
                   decoration: const InputDecoration(labelText: 'Nom complet'),
-                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Requis' : null,
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Requis' : null,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _emailController,
                   decoration: const InputDecoration(labelText: 'Email'),
                   keyboardType: TextInputType.emailAddress,
-                  validator: (v) => (v == null || !v.contains('@')) ? 'Email invalide' : null,
+                  validator: (v) =>
+                      (v == null || !v.contains('@')) ? 'Email invalide' : null,
                 ),
                 const SizedBox(height: 12),
-                TextFormField(controller: _phoneController, decoration: const InputDecoration(labelText: 'Téléphone (optionnel)')),
+                TextFormField(
+                  controller: _phoneController,
+                  decoration: const InputDecoration(
+                    labelText: 'Téléphone (optionnel)',
+                  ),
+                ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _passwordController,
                   decoration: const InputDecoration(labelText: 'Mot de passe'),
                   obscureText: true,
-                  validator: (v) => (v == null || v.length < 6) ? '6 caractères minimum' : null,
+                  validator: (v) => (v == null || v.length < 6)
+                      ? '6 caractères minimum'
+                      : null,
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<UserRole>(
                   initialValue: _role,
-                  decoration: const InputDecoration(labelText: 'Rôle module Commande'),
+                  decoration: const InputDecoration(
+                    labelText: 'Rôle module Commande',
+                  ),
                   items: [
-                    for (final r in [UserRole.preparateur, UserRole.livreur]) DropdownMenuItem(value: r, child: Text(r.label)),
+                    for (final r in [UserRole.preparateur, UserRole.livreur])
+                      DropdownMenuItem(value: r, child: Text(r.label)),
                   ],
                   onChanged: (v) => setState(() => _role = v ?? _role),
                 ),
@@ -345,14 +692,24 @@ class _CreateUserDialogState extends ConsumerState<_CreateUserDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
-        FilledButton(onPressed: _saving ? null : _save, child: const Text('Créer')),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Annuler'),
+        ),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: const Text('Créer'),
+        ),
       ],
     );
   }
 }
 
-const _prStatusLabel = {'pending': 'En attente', 'approved': 'Approuvée', 'rejected': 'Rejetée'};
+const _prStatusLabel = {
+  'pending': 'En attente',
+  'approved': 'Approuvée',
+  'rejected': 'Rejetée',
+};
 
 Color _statusColor(BuildContext context, String status) {
   switch (status) {
@@ -406,20 +763,28 @@ class _PasswordResetsTab extends ConsumerWidget {
         ),
         Expanded(
           child: switch (async) {
-            AsyncData(:final value) => value.isEmpty
-                ? const EmptyState(message: 'Aucune demande.', icon: Icons.key_outlined)
-                : RefreshIndicator(
-                    onRefresh: () => ref.read(passwordResetRequestsProvider.notifier).refresh(),
-                    child: ListView.builder(
-                      padding: const EdgeInsets.all(12),
-                      itemCount: value.length,
-                      itemBuilder: (context, i) => _PasswordResetTile(request: value[i]),
+            AsyncData(:final value) =>
+              value.isEmpty
+                  ? const EmptyState(
+                      message: 'Aucune demande.',
+                      icon: Icons.key_outlined,
+                    )
+                  : RefreshIndicator(
+                      onRefresh: () => ref
+                          .read(passwordResetRequestsProvider.notifier)
+                          .refresh(),
+                      child: ListView.builder(
+                        padding: const EdgeInsets.all(12),
+                        itemCount: value.length,
+                        itemBuilder: (context, i) =>
+                            _PasswordResetTile(request: value[i]),
+                      ),
                     ),
-                  ),
             AsyncError(:final error) => ErrorState(
-                message: ApiClient.messageFromError(error),
-                onRetry: () => ref.read(passwordResetRequestsProvider.notifier).refresh(),
-              ),
+              message: ApiClient.messageFromError(error),
+              onRetry: () =>
+                  ref.read(passwordResetRequestsProvider.notifier).refresh(),
+            ),
             _ => const LoadingState(),
           },
         ),
@@ -447,38 +812,64 @@ class _PasswordResetTile extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(request.userName, style: const TextStyle(fontWeight: FontWeight.w600)),
-                      Text(request.userEmail, style: Theme.of(context).textTheme.bodySmall),
+                      Text(
+                        request.userName,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      Text(
+                        request.userEmail,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                     ],
                   ),
                 ),
                 Chip(
                   label: Text(_prStatusLabel[request.status] ?? request.status),
-                  backgroundColor: _statusColor(context, request.status).withValues(alpha: 0.12),
-                  labelStyle: TextStyle(color: _statusColor(context, request.status)),
+                  backgroundColor: _statusColor(
+                    context,
+                    request.status,
+                  ).withValues(alpha: 0.12),
+                  labelStyle: TextStyle(
+                    color: _statusColor(context, request.status),
+                  ),
                   side: BorderSide.none,
                 ),
               ],
             ),
             const SizedBox(height: 4),
             Text(
-              [request.userRole, if (request.magasinName != null) 'Magasin : ${request.magasinName}'].join(' · '),
+              [
+                request.userRole,
+                if (request.magasinName != null)
+                  'Magasin : ${request.magasinName}',
+              ].join(' · '),
               style: Theme.of(context).textTheme.bodySmall,
             ),
             if (request.createdAt != null)
-              Text(_dateTimeFmt.format(request.createdAt!.toLocal()), style: Theme.of(context).textTheme.bodySmall),
+              Text(
+                _dateTimeFmt.format(request.createdAt!.toLocal()),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             if (request.status == 'pending') ...[
               const SizedBox(height: 8),
               Row(
                 children: [
                   OutlinedButton.icon(
-                    onPressed: () => ref.read(passwordResetRequestsProvider.notifier).resolve(request.id, 'approve'),
-                    icon: const Icon(Icons.check, size: 16, color: Colors.green),
+                    onPressed: () => ref
+                        .read(passwordResetRequestsProvider.notifier)
+                        .resolve(request.id, 'approve'),
+                    icon: const Icon(
+                      Icons.check,
+                      size: 16,
+                      color: Colors.green,
+                    ),
                     label: const Text('Approuver'),
                   ),
                   const SizedBox(width: 8),
                   OutlinedButton.icon(
-                    onPressed: () => ref.read(passwordResetRequestsProvider.notifier).resolve(request.id, 'reject'),
+                    onPressed: () => ref
+                        .read(passwordResetRequestsProvider.notifier)
+                        .resolve(request.id, 'reject'),
                     icon: const Icon(Icons.close, size: 16, color: Colors.red),
                     label: const Text('Rejeter'),
                   ),
@@ -491,4 +882,3 @@ class _PasswordResetTile extends ConsumerWidget {
     );
   }
 }
-
