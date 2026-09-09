@@ -182,7 +182,7 @@ function buildZoneOptions(
 }
 
 const MODE_PAIEMENT = [
-  { value: "AVANT", label: "Paiement avant la livraison" },
+  { value: "AVANT", label: "Paye" },
   { value: "LIVRAISON", label: "Paiement à la livraison" },
 ];
 
