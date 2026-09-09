@@ -110,22 +110,74 @@ def assign_preparateur_early(*, order, preparateur_id, user):
     return order
 
 
+def _broadcast_notification_ws(group_name, *, notif_type, message, magasin, is_read=False):
+    """Diffuse une seule fois sur un canal WebSocket donné — factorisé pour
+    que _notify_commande_role ne dépende pas du signal post_save (voir plus
+    bas, bulk_create ne déclenche aucun signal)."""
+    try:
+        from channels.layers import get_channel_layer
+        from asgiref.sync import async_to_sync
+
+        channel_layer = get_channel_layer()
+        if not channel_layer:
+            return
+        async_to_sync(channel_layer.group_send)(
+            group_name,
+            {
+                "type": "send_notification",
+                "notification": {
+                    "id": None,
+                    "notif_type": notif_type,
+                    "message": message,
+                    "magasin": magasin.id if magasin else None,
+                    "magasin_name": magasin.shop_name if magasin else None,
+                    "is_read": is_read,
+                    "created_at": timezone.now().isoformat(),
+                },
+            },
+        )
+    except Exception as e:
+        print("Error broadcasting notification:", e)
+
+
 def _notify_commande_role(*, magasin, commande_role, notif_type, message, order):
     """Notifie tous les employers du magasin ayant ce commande_role
-    (Préparateur ou Livreur) — §9 Smartreadme.md. Un mouvement par
-    Notification.objects.create() déclenche déjà le broadcast WebSocket
-    existant (voir users/signals.py::notification_created_broadcast)."""
-    employer_user_ids = EmployerProfile.objects.filter(
-        magasin=magasin, commande_role=commande_role
-    ).values_list("user_id", flat=True)
-    for user_id in employer_user_ids:
-        Notification.objects.create(
-            notif_type=notif_type, message=message, magasin=magasin, user_id=user_id
+    (Préparateur ou Livreur) — §9 Smartreadme.md. Une ligne par destinataire
+    (pour un statut lu/non lu indépendant de chacun), mais créées en
+    bulk_create — qui ne déclenche PAS le signal post_save de
+    users/signals.py::notification_created_broadcast — pour ne diffuser
+    qu'UNE fois par canal au lieu d'une fois par destinataire : sinon, avec
+    plusieurs préparateurs/livreurs, le groupe magasin (donc le gérant)
+    recevait le même toast en double/triple, une fois par ligne créée
+    (§ bug "doublon à chaque notification")."""
+    employer_user_ids = list(
+        EmployerProfile.objects.filter(magasin=magasin, commande_role=commande_role).values_list(
+            "user_id", flat=True
         )
+    )
+
     if not employer_user_ids:
         # Personne assignée à ce rôle pour l'instant (MVP) : notification
-        # visible tout de même côté magasin (le gérant la voit).
+        # visible tout de même côté magasin (le gérant la voit) — un .create()
+        # normal ici, son propre broadcast (signal) ne peut pas se dupliquer
+        # puisqu'il n'y a qu'une seule ligne.
         Notification.objects.create(notif_type=notif_type, message=message, magasin=magasin)
+        return
+
+    Notification.objects.bulk_create(
+        [
+            Notification(notif_type=notif_type, message=message, magasin=magasin, user_id=user_id)
+            for user_id in employer_user_ids
+        ]
+    )
+
+    # Une diffusion magasin/admin (le gérant la voit une seule fois)...
+    _broadcast_notification_ws(f"notifications_magasin_{magasin.id}", notif_type=notif_type, message=message, magasin=magasin)
+    _broadcast_notification_ws(f"notifications_admin_{magasin.admin_id}", notif_type=notif_type, message=message, magasin=magasin)
+    # ...et une diffusion personnelle à chaque destinataire (chacun reçoit la
+    # sienne une seule fois, pas celle des autres).
+    for user_id in employer_user_ids:
+        _broadcast_notification_ws(f"notifications_user_{user_id}", notif_type=notif_type, message=message, magasin=magasin)
 
 
 @transaction.atomic

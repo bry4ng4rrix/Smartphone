@@ -1243,7 +1243,24 @@ export default function OrdersPage() {
           {detail && (
             <>
               <DialogHeader>
-                <DialogTitle>Commande {detail.numero}</DialogTitle>
+                <div className="flex items-center justify-between gap-2 pr-6">
+                  <DialogTitle>Commande {detail.numero}</DialogTitle>
+                  {isGerant &&
+                    ["NOUVELLE", "EN_PREPARATION"].includes(
+                      detail.statut_courant,
+                    ) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setEditTarget(detail);
+                          setDetail(null);
+                        }}
+                      >
+                        <Pencil className="h-4 w-4 mr-2" /> Modifier
+                      </Button>
+                    )}
+                </div>
               </DialogHeader>
               <div className="space-y-3 text-sm">
                 <div className="mb-2">
@@ -1326,10 +1343,20 @@ export default function OrdersPage() {
                       <span>{detail.livreur_name}</span>
                     </div>
                   )}
+                  {detail.created_at && (
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">
+                        Commande créée le
+                      </span>
+                      <span>
+                        {new Date(detail.created_at).toLocaleString("fr-FR")}
+                      </span>
+                    </div>
+                  )}
                   {detail.date_commande && (
                     <div className="flex justify-between gap-4">
                       <span className="text-muted-foreground">
-                        Date de commande
+                        Livraison prévue le
                       </span>
                       <span>
                         {new Date(detail.date_commande).toLocaleString("fr-FR")}
@@ -1338,9 +1365,7 @@ export default function OrdersPage() {
                   )}
                   {detail.status_history && (
                     <div className="flex justify-between gap-4">
-                      <span className="text-muted-foreground">
-                        Date de livraison
-                      </span>
+                      <span className="text-muted-foreground">Livrée le</span>
                       <span>
                         {historyAt(detail, "LIVRE")
                           ? new Date(historyAt(detail, "LIVRE")).toLocaleString(
@@ -2035,7 +2060,7 @@ function EditOrderDialog({
         </div>
 
         <div className="space-y-2">
-          <Label>Date et heure de la commande</Label>
+          <Label>Date et heure de livraison</Label>
           <Input
             type="datetime-local"
             value={dateCommande}
@@ -2738,7 +2763,7 @@ function CreateOrderDialog({
           </div>
         )}
         <div className="space-y-2">
-          <Label>Date et heure de la commande</Label>
+          <Label>Date et heure de livraison</Label>
           <Input
             type="datetime-local"
             value={dateCommande}
