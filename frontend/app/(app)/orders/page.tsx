@@ -73,6 +73,7 @@ function IconAction({
   variant = "default",
   className = "",
   disabled = false,
+  showLabel = false,
 }: {
   label: string;
   onClick: (e: React.MouseEvent) => void;
@@ -80,18 +81,26 @@ function IconAction({
   variant?: "default" | "outline" | "ghost" | "destructive";
   className?: string;
   disabled?: boolean;
+  showLabel?: boolean;
 }) {
+  const content = (
+    <>
+      <Icon className="h-4 w-4" />
+      {showLabel && <span className="text-xs font-medium">{label}</span>}
+    </>
+  );
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <Button
-          size="icon"
+          size={showLabel ? "sm" : "icon"}
           variant={variant}
-          className={className}
+          className={showLabel ? `gap-1.5 ${className}` : className}
           onClick={onClick}
           disabled={disabled}
         >
-          <Icon className="h-4 w-4" />
+          {content}
         </Button>
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
@@ -879,8 +888,10 @@ export default function OrdersPage() {
                     <TableHead>Client</TableHead>
                     {isLivreur && <TableHead>Adresse</TableHead>}
                     {isLivreur && <TableHead>Téléphone</TableHead>}
-                    <TableHead>Produit</TableHead>
                     <TableHead>{isLivreur ? "Zone" : "Adresse"}</TableHead>
+                    <TableHead>Sous-type</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Produit</TableHead>
                     {!isPreparateur && <TableHead>Total</TableHead>}
                     <TableHead>Statut</TableHead>
                     {isGerant && <TableHead>Assigné à</TableHead>}
@@ -914,6 +925,7 @@ export default function OrdersPage() {
                       !["LIVRE", "RETOUR", "ANNULEE"].includes(
                         order.statut_courant,
                       );
+                    const firstItem = (order.items || [])[0];
                     const notYetDue =
                       (isPreparateur || isLivreur) &&
                       !isJourJ(order.date_commande);
@@ -962,62 +974,6 @@ export default function OrdersPage() {
                             </a>
                           </TableCell>
                         )}
-                        <TableCell className="max-w-[320px] align-top">
-                          <div className="space-y-2">
-                            {(order.items || []).map((it: any) => (
-                              <div
-                                key={it.id}
-                                className="rounded-md border border-border/80 bg-muted/10 p-2"
-                              >
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="font-medium text-foreground text-sm leading-tight">
-                                    {it.reference_name || "Article"}
-                                  </div>
-                                  {it.quantite ? (
-                                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                                      x{it.quantite}
-                                    </span>
-                                  ) : null}
-                                </div>
-
-                                <div className="mt-2 space-y-1 text-[11px] leading-snug">
-                                  <div>
-                                    <span className="text-muted-foreground">
-                                      Sous-type:{" "}
-                                    </span>
-                                    <span className="font-semibold text-foreground">
-                                      {it.type_name || "-"}
-                                    </span>
-                                  </div>
-                                  <div>
-                                    <span className="text-muted-foreground">
-                                      Type:{" "}
-                                    </span>
-                                    <span className="font-medium text-foreground">
-                                      {it.category_name || "-"}
-                                    </span>
-                                  </div>
-                                  <div>
-                                    <span className="text-muted-foreground">
-                                      Marque:{" "}
-                                    </span>
-                                    <span className="font-medium text-foreground">
-                                      {it.brand_name || "-"}
-                                    </span>
-                                  </div>
-                                  <div>
-                                    <span className="text-muted-foreground">
-                                      Couleur:{" "}
-                                    </span>
-                                    <span className="inline-flex items-center rounded-full border border-border bg-background px-1.5 py-0.5 text-[10px] text-foreground">
-                                      {it.couleur || "-"}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </TableCell>
                         <TableCell
                           className={
                             isLivreur ? undefined : "max-w-[180px] truncate"
@@ -1032,6 +988,40 @@ export default function OrdersPage() {
                                 (z) => z.value === order.livraison_zone,
                               )?.label.split(" (")[0] ||
                               order.livraison_zone}
+                        </TableCell>
+                        <TableCell className="align-top">
+                          {firstItem?.type_name || "-"}
+                        </TableCell>
+                        <TableCell className="align-top">
+                          {firstItem?.category_name || "-"}
+                        </TableCell>
+                        <TableCell className="max-w-[320px] align-top">
+                          <div className="space-y-1.5">
+                            {(order.items || []).map((it: any) => (
+                              <div key={it.id} className="leading-tight">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="font-medium text-foreground text-sm leading-tight">
+                                    {it.reference_name || "Article"}
+                                  </div>
+                                  {it.quantite ? (
+                                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                      x{it.quantite}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                                  {it.brand_name && (
+                                    <span>Marque: {it.brand_name}</span>
+                                  )}
+                                  {it.couleur && (
+                                    <span className="inline-flex items-center rounded-full border border-border bg-background px-1.5 py-0.5 text-[10px] text-foreground">
+                                      {it.couleur}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </TableCell>
                         {!isPreparateur && (
                           <TableCell>{fmt(order.total_a_payer)}</TableCell>
@@ -1133,6 +1123,7 @@ export default function OrdersPage() {
                                 }
                                 icon={action.icon}
                                 disabled={notYetDue}
+                                showLabel
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (isGerant && action.assign) {
@@ -1166,6 +1157,7 @@ export default function OrdersPage() {
                                   variant="outline"
                                   className="text-red-600"
                                   disabled={notYetDue}
+                                  showLabel
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setActionNote({
@@ -1181,6 +1173,7 @@ export default function OrdersPage() {
                                 label="Modifier"
                                 icon={Pencil}
                                 variant="outline"
+                                showLabel
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setEditTarget(order);
@@ -1193,6 +1186,7 @@ export default function OrdersPage() {
                                 icon={Ban}
                                 variant="outline"
                                 className="text-red-600"
+                                showLabel
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setCancelTarget(order);
@@ -1205,6 +1199,7 @@ export default function OrdersPage() {
                                 icon={Trash2}
                                 variant="outline"
                                 className="text-red-600"
+                                showLabel
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setDeleteTarget(order);
