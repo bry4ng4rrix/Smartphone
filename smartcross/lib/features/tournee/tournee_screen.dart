@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
+import '../../core/app_time.dart';
 import '../../core/constants.dart';
 import '../../models/delivery_zone.dart';
 import '../../models/order.dart';
@@ -12,6 +13,16 @@ import '../../widgets/async_state_widgets.dart';
 import '../../widgets/order_confirm_dialog.dart';
 import '../../widgets/order_historique_view.dart';
 import '../../widgets/status_badge.dart';
+
+/// Filtres de statut de la tournée active (§ demande). « À récupérer » =
+/// commande prête au dépôt, que le livreur doit venir chercher (PRETE) — le
+/// libellé métier du livreur, plus parlant que « Prête ».
+const _tourneeStatutFilters = <({String? value, String label})>[
+  (value: null, label: 'Tous'),
+  (value: 'EN_PREPARATION', label: 'En préparation'),
+  (value: 'PRETE', label: 'À récupérer'),
+  (value: 'EN_LIVRAISON', label: 'En livraison'),
+];
 
 final _moneyFmt = NumberFormat.decimalPattern('fr_FR');
 String _ar(num v) => '${_moneyFmt.format(v.round())} Ar';
@@ -36,15 +47,19 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
   Future<void> _pickDate(OrdersFilter filter) async {
     final date = await showDatePicker(
       context: context,
-      initialDate: filter.dateDebut ?? DateTime.now(),
-      firstDate: DateTime.now().subtract(const Duration(days: 365)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialDate: filter.dateDebut ?? appNow(),
+      firstDate: appNow().subtract(const Duration(days: 365)),
+      lastDate: appNow().add(const Duration(days: 365)),
     );
     if (date == null) return;
     ref.read(ordersFilterProvider.notifier).set(filter.copyWith(dateDebut: date, dateFin: date));
   }
 
-  void _clearDate() => ref.read(ordersFilterProvider.notifier).set(const OrdersFilter());
+  void _clearFilters() => ref.read(ordersFilterProvider.notifier).set(const OrdersFilter());
+
+  void _setStatut(OrdersFilter filter, String? statut) => ref
+      .read(ordersFilterProvider.notifier)
+      .set(statut == null ? filter.copyWith(clearStatut: true) : filter.copyWith(statut: statut));
 
   @override
   Widget build(BuildContext context) {
@@ -85,9 +100,27 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
                           ),
                         ),
                       ),
-                      if (filter.dateDebut != null)
-                        IconButton(onPressed: _clearDate, icon: const Icon(Icons.clear)),
+                      if (filter.dateDebut != null || filter.statut != null)
+                        IconButton(onPressed: _clearFilters, icon: const Icon(Icons.clear)),
                     ],
+                  ),
+                ),
+                // Filtres de statut : à récupérer, en livraison… (§ demande).
+                SizedBox(
+                  height: 40,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    itemCount: _tourneeStatutFilters.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 6),
+                    itemBuilder: (context, i) {
+                      final f = _tourneeStatutFilters[i];
+                      return ChoiceChip(
+                        label: Text(f.label),
+                        selected: filter.statut == f.value,
+                        onSelected: (_) => _setStatut(filter, f.value),
+                      );
+                    },
                   ),
                 ),
                 Expanded(

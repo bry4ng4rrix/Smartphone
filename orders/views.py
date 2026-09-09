@@ -146,6 +146,12 @@ class OrderViewSet(viewsets.ModelViewSet):
                     qs = qs.filter(date_commande__gte=parsed_from)
                 if parsed_to:
                     qs = qs.filter(date_commande__lte=parsed_to)
+                # Filtre statut sur l'historique (§ demande — page livreur :
+                # livrées / retours / annulées...). `statut` accepte plusieurs
+                # valeurs séparées par une virgule.
+                statut = self.request.query_params.get("statut")
+                if statut:
+                    qs = qs.filter(statut_courant__in=[s for s in statut.split(",") if s])
                 return qs.order_by("-date_commande")
 
             # Ni préparateur ni livreur ne voit une action bloquée par le
@@ -177,7 +183,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             date_debut = self.request.query_params.get("date_debut")
             date_fin = self.request.query_params.get("date_fin")
             if statut:
-                base = base.filter(statut_courant=statut)
+                base = base.filter(statut_courant__in=[s for s in statut.split(",") if s])
             if date_debut:
                 base = base.filter(date_commande__date__gte=date_debut)
             if date_fin:

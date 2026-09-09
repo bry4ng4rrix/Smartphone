@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
+import '../core/app_time.dart';
 import '../core/constants.dart';
 import '../models/delivery_zone.dart';
 import '../models/order.dart';
@@ -14,17 +15,18 @@ String arFmt(num v) => '${_moneyFmt.format(v.round())} Ar';
 /// "Jour J" = jour du champ dateCommande (planning) — le préparateur/livreur
 /// voit toutes ses commandes à venir mais ne peut agir dessus qu'à partir de
 /// ce jour (le serveur applique la même règle, voir orders/services.py).
+///
+/// La comparaison se fait sur le jour calendaire d'ANTANANARIVO (voir
+/// core/app_time.dart), pas sur le fuseau de l'appareil : c'est la même
+/// référence que le serveur, sinon l'app autorise l'action alors que le
+/// serveur la refuse (ou l'inverse).
 bool isJourJ(DateTime? dateCommande) {
   if (dateCommande == null) return true;
-  final d = dateCommande.toLocal();
-  final today = DateTime.now();
-  final dueDate = DateTime(d.year, d.month, d.day);
-  final todayDate = DateTime(today.year, today.month, today.day);
-  return !dueDate.isAfter(todayDate);
+  return !appDay(dateCommande).isAfter(appToday());
 }
 
 final _dueDateFmt = DateFormat('dd/MM/yyyy');
-String dueDateLabel(DateTime dateCommande) => _dueDateFmt.format(dateCommande.toLocal());
+String dueDateLabel(DateTime dateCommande) => _dueDateFmt.format(appLocal(dateCommande));
 
 /// Résultat de [showOrderConfirmDialog] : la note saisie (chaîne vide
 /// possible) et, si [showOrderConfirmDialog] l'a proposé, le chemin local de

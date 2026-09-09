@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
+import '../../core/app_time.dart';
 import '../../core/constants.dart';
 import '../../models/delivery_zone.dart';
 import '../../models/order.dart';
@@ -307,13 +308,13 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
                   _InfoRow(
                     icon: Icons.add_shopping_cart_outlined,
                     label: 'Commande créée le',
-                    value: DateFormat('dd/MM/yyyy HH:mm').format(order.createdAt!.toLocal()),
+                    value: DateFormat('dd/MM/yyyy HH:mm').format(appLocal(order.createdAt!)),
                   ),
                 if (order.dateCommande != null)
                   _InfoRow(
                     icon: Icons.event_outlined,
                     label: 'Livraison prévue le',
-                    value: DateFormat('dd/MM/yyyy HH:mm').format(order.dateCommande!.toLocal()),
+                    value: DateFormat('dd/MM/yyyy HH:mm').format(appLocal(order.dateCommande!)),
                   ),
                 if (order.livraisonZone != kRecuperationCode)
                   _InfoRow(icon: Icons.payments_outlined, label: 'Paiement', value: order.modePaiement.label),
@@ -535,7 +536,7 @@ class _TimelineRow extends StatelessWidget {
                 children: [
                   TextSpan(text: '$label ', style: Theme.of(context).textTheme.bodyMedium),
                   TextSpan(
-                    text: date != null ? _dateFmt.format(date!.toLocal()) : '—',
+                    text: date != null ? _dateFmt.format(appLocal(date!)) : '—',
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ],

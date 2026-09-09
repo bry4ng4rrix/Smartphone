@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
+import '../../core/app_time.dart';
 import '../../core/constants.dart';
 import '../../models/delivery_zone.dart';
 import '../../models/order.dart';
@@ -213,8 +214,8 @@ class _DepotHistoriqueCard extends StatelessWidget {
                     const SizedBox(width: 6),
                     Text(
                       order.statutCourant == OrderStatus.livre
-                          ? 'Livrée le ${_depotDateTimeFmt.format(order.dateCommande!.toLocal())}'
-                          : 'Livraison prévue le ${_depotDateTimeFmt.format(order.dateCommande!.toLocal())}',
+                          ? 'Livrée le ${_depotDateTimeFmt.format(appLocal(order.dateCommande!))}'
+                          : 'Livraison prévue le ${_depotDateTimeFmt.format(appLocal(order.dateCommande!))}',
                     ),
                   ],
                 ),
@@ -340,7 +341,7 @@ class _DepotCardState extends ConsumerState<_DepotCard> {
                   children: [
                     const Icon(Icons.event_outlined, size: 16),
                     const SizedBox(width: 6),
-                    Text('Livraison prévue le ${_depotDateTimeFmt.format(order.dateCommande!.toLocal())}'),
+                    Text('Livraison prévue le ${_depotDateTimeFmt.format(appLocal(order.dateCommande!))}'),
                   ],
                 ),
               ),

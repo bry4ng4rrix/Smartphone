@@ -16,18 +16,18 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { ShieldAlert, RefreshCw, Receipt, Undo2, PackageCheck } from 'lucide-react';
+import { APP_TIME_ZONE, appDayBounds } from '@/lib/timezone';
 
 const fmt = (n: number | string | null | undefined) =>
   new Intl.NumberFormat('fr-MG').format(Math.round(Number(n || 0))) + ' Ar';
 
-// Bornes du jour en heure locale — l'historique du livreur (voir orders/views.py
-// ::get_queryset, branche `historique`) est déjà scopé à ce livreur, il ne
-// reste qu'à borner la période à aujourd'hui.
+// Bornes du jour à l'heure d'ANTANANARIVO — l'historique du livreur (voir
+// orders/views.py::get_queryset, branche `historique`) est déjà scopé à ce
+// livreur, il ne reste qu'à borner la période à aujourd'hui. Le fuseau du
+// magasin (et non celui de l'appareil) fait foi, sinon le "bilan du jour"
+// bascule 3 h trop tôt/trop tard (voir lib/timezone.ts).
 function todayBounds() {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-  return { start: start.toISOString(), end: end.toISOString() };
+  return appDayBounds();
 }
 
 // Prix produit seul = total à payer moins les frais de livraison — dérivé
@@ -132,6 +132,7 @@ export default function BilanPage() {
                 <TableCell className="align-top whitespace-nowrap text-xs text-muted-foreground">
                   {order.date_commande
                     ? new Date(order.date_commande).toLocaleString('fr-FR', {
+                        timeZone: APP_TIME_ZONE,
                         day: '2-digit',
                         month: '2-digit',
                         hour: '2-digit',
@@ -228,6 +229,7 @@ export default function BilanPage() {
               <CardTitle className="text-base tracking-wide">BILAN DU JOUR</CardTitle>
               <CardDescription>
                 {new Date().toLocaleDateString('fr-FR', {
+                  timeZone: APP_TIME_ZONE,
                   day: '2-digit',
                   month: '2-digit',
                   year: 'numeric',

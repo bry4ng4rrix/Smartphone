@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/api_client.dart';
+import '../../core/app_time.dart';
 import '../../core/constants.dart';
 import '../../models/delivery_zone.dart';
 import '../../models/order.dart';
@@ -40,10 +41,13 @@ class _Totaux {
 /// L'historique renvoyé par le serveur est déjà limité à CE livreur (voir
 /// orders/views.py::get_queryset, branche `historique`).
 final bilanDuJourProvider = FutureProvider.autoDispose<List<Order>>((ref) async {
-  final now = DateTime.now();
-  final start = DateTime(now.year, now.month, now.day);
-  final end = DateTime(now.year, now.month, now.day, 23, 59, 59);
-  return ref.read(ordersRepositoryProvider).list(historique: true, dateFrom: start, dateTo: end);
+  // Journée bornée à l'heure d'ANTANANARIVO (fuseau du magasin), pas à celle
+  // de l'appareil — sinon le « bilan du jour » bascule 3 h trop tôt/trop tard
+  // (voir core/app_time.dart).
+  final bounds = appDayBounds();
+  return ref
+      .read(ordersRepositoryProvider)
+      .list(historique: true, dateFrom: bounds.start, dateTo: bounds.end);
 });
 
 class BilanScreen extends ConsumerWidget {
@@ -179,7 +183,7 @@ class _BilanOrderCard extends StatelessWidget {
               style: muted,
             ),
             if (order.dateCommande != null)
-              Text(_hourFmt.format(order.dateCommande!.toLocal()), style: muted),
+              Text(_hourFmt.format(appLocal(order.dateCommande!)), style: muted),
             const Divider(height: 16),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -234,7 +238,7 @@ class _TicketCard extends StatelessWidget {
                     'BILAN DU JOUR',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                   ),
-                  Text(_dayFmt.format(DateTime.now()), style: Theme.of(context).textTheme.bodySmall),
+                  Text(_dayFmt.format(appNow()), style: Theme.of(context).textTheme.bodySmall),
                 ],
               ),
             ),

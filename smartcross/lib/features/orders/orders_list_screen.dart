@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/api_client.dart';
+import '../../core/app_time.dart';
 import '../../core/constants.dart';
 import '../../data/repositories/orders_repository.dart';
 import '../../models/catalog.dart';
@@ -290,13 +291,13 @@ class _OrderTile extends ConsumerWidget {
                 Text('${order.clientNom} · ${DeliveryZoneCatalog.shortLabelFor(order.livraisonZone)}'),
                 if (order.preparateurName != null)
                   Text(
-                    'Préparateur : ${order.preparateurName}${preparedAt != null ? ' · ${_shortDateFmt.format(preparedAt.toLocal())}' : ''}',
+                    'Préparateur : ${order.preparateurName}${preparedAt != null ? ' · ${_shortDateFmt.format(appLocal(preparedAt))}' : ''}',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 if (order.livreurName != null)
                   Text(
                     'Livreur : ${order.livreurName}'
-                    '${livreurAt != null ? ' · ${order.statutCourant == OrderStatus.livre ? 'Livré le ' : 'Prévu le '}${_shortDateFmt.format(livreurAt.toLocal())}' : ''}',
+                    '${livreurAt != null ? ' · ${order.statutCourant == OrderStatus.livre ? 'Livré le ' : 'Prévu le '}${_shortDateFmt.format(appLocal(livreurAt))}' : ''}',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
               ],
@@ -362,7 +363,11 @@ class _EditOrderDialogState extends ConsumerState<EditOrderDialog> {
   late final _noteLivreurController = TextEditingController(text: widget.order.noteLivreur ?? '');
   late String _zone = widget.order.livraisonZone;
   late PaymentMode _modePaiement = widget.order.modePaiement;
-  late DateTime _dateCommande = widget.order.dateCommande?.toLocal() ?? DateTime.now();
+  // Heure « au mur » d'Antananarivo : ce que l'utilisateur voit et saisit
+  // est l'heure du magasin, renvoyée telle quelle au serveur via
+  // appWallClockToUtc (voir core/app_time.dart).
+  late DateTime _dateCommande =
+      widget.order.dateCommande != null ? appLocal(widget.order.dateCommande!) : appNow();
   late int? _preparateurId = widget.order.preparateurId;
   List<StaffOption> _preparateurs = [];
   late int? _livreurId = widget.order.livreurId;
@@ -465,7 +470,7 @@ class _EditOrderDialogState extends ConsumerState<EditOrderDialog> {
             livraisonZone: _zone,
             adresseLivraison: _zone == kRecuperationCode ? '' : _adresseController.text.trim(),
             modePaiement: _modePaiement.apiValue,
-            dateCommande: _dateCommande,
+            dateCommande: appWallClockToUtc(_dateCommande),
             notePreparateur: _notePreparateurController.text.trim(),
             noteLivreur: _zone == kRecuperationCode ? '' : _noteLivreurController.text.trim(),
             items: [

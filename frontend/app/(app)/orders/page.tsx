@@ -6,6 +6,15 @@ import { useCurrentUser } from "@/lib/auth/useCurrentUser";
 import { useRealtimeRefresh } from "@/lib/hooks/useRealtimeRefresh";
 import { useDeliveryZones } from "@/lib/hooks/useDeliveryZones";
 import { DateTimeInput } from "@/components/ui/datetime-input";
+import {
+  APP_TIME_ZONE,
+  appDayKey,
+  appToday,
+  appDatetimeLocalValue,
+  appDatetimeLocalToIso,
+  fmtAppDate,
+  fmtAppDateTime,
+} from "@/lib/timezone";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -114,9 +123,13 @@ function IconAction({
 const fmt = (n: number | string | null | undefined) =>
   new Intl.NumberFormat("fr-MG").format(Math.round(Number(n || 0))) + " Ar";
 
+// Tous les horodatages sont affichés à l'heure d'Antananarivo (fuseau du
+// magasin), quel que soit le réglage de l'appareil — cohérent avec la règle
+// du jour J et avec le serveur.
 const fmtDT = (iso?: string | null) =>
   iso
     ? new Date(iso).toLocaleString("fr-FR", {
+        timeZone: APP_TIME_ZONE,
         day: "2-digit",
         month: "2-digit",
         hour: "2-digit",
@@ -152,16 +165,39 @@ const STATUTS = [
 const statutInfo = (s: string) =>
   STATUTS.find((x) => x.value === s) || STATUTS[0];
 
+// Filtres de statut de la page Livreur (§ demande). "À récupérer" = commande
+// prête au dépôt que le livreur doit venir chercher (statut PRETE) — le
+// libellé métier du livreur, plus parlant que "Prête".
+const LIVREUR_STATUT_ACTIF = [
+  { value: "ALL", label: "Tous les statuts" },
+  { value: "EN_PREPARATION", label: "En préparation" },
+  { value: "PRETE", label: "À récupérer" },
+  { value: "EN_LIVRAISON", label: "En livraison" },
+];
+
+// Historique personnel (préparateur/livreur) : tous les statuts déjà
+// traversés par SES commandes, y compris les états terminaux.
+const HISTORIQUE_STATUT_FILTERS = [
+  { value: "ALL", label: "Tous les statuts" },
+  { value: "LIVRE", label: "Livrées" },
+  { value: "RETOUR", label: "Retours" },
+  { value: "ANNULEE", label: "Annulées" },
+  { value: "EN_LIVRAISON", label: "En livraison" },
+  { value: "PRETE", label: "À récupérer" },
+  { value: "EN_PREPARATION", label: "En préparation" },
+  { value: "NOUVELLE", label: "Nouvelles" },
+];
+
 // "Jour J" = jour du champ date_commande (planning) — le préparateur/livreur
 // voit toutes ses commandes à venir mais ne peut agir dessus qu'à partir de
-// ce jour (le serveur applique la même règle, voir orders/services.py).
+// ce jour. La comparaison se fait sur le jour calendaire d'ANTANANARIVO (et
+// non sur le fuseau de l'appareil) : c'est la même référence que le serveur
+// (Stock/settings.py TIME_ZONE + orders/services.py::change_order_status),
+// sinon un téléphone/serveur dans un autre fuseau autorise ou refuse l'action
+// un jour trop tôt/trop tard.
 const isJourJ = (dateStr?: string | null) => {
   if (!dateStr) return true;
-  const d = new Date(dateStr);
-  const today = new Date();
-  d.setHours(0, 0, 0, 0);
-  today.setHours(0, 0, 0, 0);
-  return d.getTime() <= today.getTime();
+  return appDayKey(dateStr) <= appToday();
 };
 
 // Zones de livraison : configurables dans Paramètres (§ demande, CRUD
@@ -241,6 +277,7 @@ export default function OrdersPage() {
   const [viewMode, setViewMode] = useState<"ACTIF" | "HISTORIQUE">("ACTIF");
   const [historiqueFrom, setHistoriqueFrom] = useState("");
   const [historiqueTo, setHistoriqueTo] = useState("");
+  const [historiqueStatut, setHistoriqueStatut] = useState("ALL");
   // Filtres gérant : date (un seul jour, pas de plage Du/Au) + préparateur assigné.
   const [gerantDate, setGerantDate] = useState("");
   const [preparateurFilterId, setPreparateurFilterId] = useState("");
@@ -282,6 +319,7 @@ export default function OrdersPage() {
             filters.date_from = new Date(historiqueFrom).toISOString();
           if (historiqueTo)
             filters.date_to = new Date(historiqueTo).toISOString();
+          if (historiqueStatut !== "ALL") filters.statut = historiqueStatut;
         }
         if (isPreparateur && viewMode === "ACTIF" && preparateurDate) {
           filters.date_debut = preparateurDate;
@@ -313,6 +351,7 @@ export default function OrdersPage() {
       viewMode,
       historiqueFrom,
       historiqueTo,
+      historiqueStatut,
       preparateurDate,
       livreurStatutFilter,
       livreurDate,
@@ -581,10 +620,10 @@ export default function OrdersPage() {
         order.statut_courant,
         productText,
         order.date_commande
-          ? new Date(order.date_commande).toLocaleDateString("fr-FR")
+          ? fmtAppDate(order.date_commande)
           : "",
         order.date_commande
-          ? new Date(order.date_commande).toLocaleString("fr-FR")
+          ? fmtAppDateTime(order.date_commande)
           : "",
       ]
         .filter(Boolean)
@@ -686,10 +725,11 @@ export default function OrdersPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="ALL">Tous</SelectItem>
-                <SelectItem value="EN_PREPARATION">En préparation</SelectItem>
-                <SelectItem value="PRETE">Prête</SelectItem>
-                <SelectItem value="EN_LIVRAISON">En livraison</SelectItem>
+                {LIVREUR_STATUT_ACTIF.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -775,13 +815,29 @@ export default function OrdersPage() {
             <Label className="text-xs text-muted-foreground">Au</Label>
             <DateTimeInput value={historiqueTo} onChange={setHistoriqueTo} />
           </div>
-          {(historiqueFrom || historiqueTo) && (
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Statut</Label>
+            <Select value={historiqueStatut} onValueChange={setHistoriqueStatut}>
+              <SelectTrigger className="w-45">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {HISTORIQUE_STATUT_FILTERS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {(historiqueFrom || historiqueTo || historiqueStatut !== "ALL") && (
             <Button
               variant="ghost"
               size="sm"
               onClick={() => {
                 setHistoriqueFrom("");
                 setHistoriqueTo("");
+                setHistoriqueStatut("ALL");
               }}
             >
               Réinitialiser
@@ -957,10 +1013,7 @@ export default function OrdersPage() {
                       (isPreparateur || isLivreur) &&
                       !isJourJ(order.date_commande);
                     const dueDateLabel = order.date_commande
-                      ? new Date(order.date_commande).toLocaleDateString(
-                          "fr-FR",
-                          { day: "2-digit", month: "2-digit", year: "numeric" },
-                        )
+                      ? fmtAppDate(order.date_commande)
                       : "";
                     return (
                       <TableRow
@@ -1010,6 +1063,7 @@ export default function OrdersPage() {
                             ? new Date(order.date_commande).toLocaleString(
                                 "fr-FR",
                                 {
+                                  timeZone: APP_TIME_ZONE,
                                   day: "2-digit",
                                   month: "2-digit",
                                   hour: "2-digit",
@@ -1402,9 +1456,7 @@ export default function OrdersPage() {
                       >
                         <action.icon className="h-4 w-4 mr-2" />
                         {notYetDue
-                          ? `Disponible le ${new Date(
-                              detail.date_commande,
-                            ).toLocaleDateString("fr-FR")}`
+                          ? `Disponible le ${fmtAppDate(detail.date_commande)}`
                           : action.label}
                       </Button>
                     );
@@ -1445,7 +1497,7 @@ export default function OrdersPage() {
                           >
                             {statutInfo(h.nouveau_statut).label} —{" "}
                             {h.changed_by_name || "Système"} —{" "}
-                            {new Date(h.timestamp).toLocaleString("fr-FR")}
+                            {fmtAppDateTime(h.timestamp)}
                             {h.note && ` (${h.note})`}
                             {h.photo && (
                               <a
@@ -1768,7 +1820,7 @@ function OrderTimeline({ order }: { order: any }) {
           <r.icon className="h-4 w-4 text-primary shrink-0" />
           <span className="text-muted-foreground">{r.label}</span>
           <span className="font-semibold">
-            {r.date ? new Date(r.date).toLocaleString("fr-FR") : "—"}
+            {fmtAppDateTime(r.date)}
           </span>
         </li>
       ))}
@@ -1854,7 +1906,7 @@ function AssignStaffDialog({
   useEffect(() => {
     if (!target) return;
     setSelected("");
-    setAssignedAt(toDatetimeLocalValue(new Date()));
+    setAssignedAt(appDatetimeLocalValue(new Date()));
     setLoading(true);
     djangoClient.orders
       .availableStaff(target.role, target.order.magasin)
@@ -1968,7 +2020,7 @@ function EditOrderDialog({
     setModePaiement(order.mode_paiement || "LIVRAISON");
     setDateCommande(
       order.date_commande
-        ? toDatetimeLocalValue(new Date(order.date_commande))
+        ? appDatetimeLocalValue(new Date(order.date_commande))
         : "",
     );
     setNotePreparateur(order.note_preparateur || "");
@@ -2027,7 +2079,7 @@ function EditOrderDialog({
           zone === "RECUPERATION" ? "" : adresseLivraison.trim(),
         mode_paiement: modePaiement as any,
         ...(dateCommande
-          ? { date_commande: new Date(dateCommande).toISOString() }
+          ? { date_commande: appDatetimeLocalToIso(dateCommande) }
           : {}),
         note_preparateur: notePreparateur,
         note_livreur: zone === "RECUPERATION" ? "" : noteLivreur,
@@ -2246,12 +2298,6 @@ function EditOrderDialog({
       </DialogContent>
     </Dialog>
   );
-}
-
-// Format un Date en valeur locale pour <input type="datetime-local"> (pas d'UTC).
-function toDatetimeLocalValue(d: Date) {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 // Sélecteur d'articles (recherche catalogue + panier) — partagé entre
@@ -2634,7 +2680,7 @@ function CreateOrderDialog({
     setZone(isPreparateur ? "RECUPERATION" : "");
     setAdresseLivraison("");
     setModePaiement("LIVRAISON");
-    setDateCommande(toDatetimeLocalValue(new Date()));
+    setDateCommande(appDatetimeLocalValue(new Date()));
     setNotePreparateur("");
     setNoteLivreur("");
     setItems([]);
@@ -2695,7 +2741,7 @@ function CreateOrderDialog({
         mode_paiement: modePaiement as any,
         // Champ vidé par l'utilisateur -> pas envoyé -> le serveur prend "maintenant" (heure précise).
         ...(dateCommande
-          ? { date_commande: new Date(dateCommande).toISOString() }
+          ? { date_commande: appDatetimeLocalToIso(dateCommande) }
           : {}),
         note_preparateur: notePreparateur,
         note_livreur: zone === "RECUPERATION" ? "" : noteLivreur,

@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/api_client.dart';
+import '../../core/app_time.dart';
 import '../../core/constants.dart';
 import '../../data/repositories/orders_repository.dart' show StaffOption;
 import '../../models/catalog.dart';
@@ -50,7 +51,9 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
   // configurables ne sont pas chargées, puis la première zone active.
   String _zone = '';
   PaymentMode _modePaiement = PaymentMode.livraison;
-  DateTime _dateCommande = DateTime.now();
+  // Heure « au mur » d'Antananarivo (fuseau du magasin) — convertie en
+  // instant absolu à l'envoi via appWallClockToUtc (core/app_time.dart).
+  DateTime _dateCommande = appNow();
   final List<CartLine> _lines = [];
   bool _submitting = false;
   String? _error;
@@ -84,7 +87,7 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
     try {
       final results = await Future.wait([
         notifier.availableStaff('PREPARATEUR'),
-        notifier.availableStaff('LIVREUR', dateCommande: _dateCommande),
+        notifier.availableStaff('LIVREUR', dateCommande: appWallClockToUtc(_dateCommande)),
       ]);
       if (!mounted) return;
       setState(() {
@@ -170,7 +173,7 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
             noteLivreur: _zone == kRecuperationCode ? '' : _noteLivreurController.text.trim(),
             adresseLivraison: _adresseController.text.trim(),
             modePaiement: _modePaiement.apiValue,
-            dateCommande: _dateCommande,
+            dateCommande: appWallClockToUtc(_dateCommande),
           );
       if (_preparateurId != null) {
         try {

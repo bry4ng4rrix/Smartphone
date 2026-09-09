@@ -1,11 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../core/app_time.dart';
 import '../data/repositories/orders_repository.dart';
 import '../models/order.dart';
 import 'async_state_widgets.dart';
 
 final _dateTimeFmt = DateFormat('dd/MM/yyyy HH:mm');
+
+/// Filtres de statut de l'historique (§ demande — page livreur : livrées,
+/// à récupérer, retours…). `null` = tous les statuts.
+const _statutFilters = <({String? value, String label})>[
+  (value: null, label: 'Tous'),
+  (value: 'LIVRE', label: 'Livrées'),
+  (value: 'RETOUR', label: 'Retours'),
+  (value: 'ANNULEE', label: 'Annulées'),
+  (value: 'EN_LIVRAISON', label: 'En livraison'),
+  (value: 'PRETE', label: 'À récupérer'),
+  (value: 'EN_PREPARATION', label: 'En préparation'),
+];
 
 /// Vue "Historique" (préparateur/livreur) : toutes les commandes déjà
 /// désignées à l'utilisateur, tous statuts confondus, filtrables par date —
@@ -22,6 +35,7 @@ class _OrderHistoriqueViewState extends State<OrderHistoriqueView> {
   final _repo = OrdersRepository();
   DateTime? _from;
   DateTime? _to;
+  String? _statut;
   late Future<List<Order>> _future;
 
   @override
@@ -30,7 +44,14 @@ class _OrderHistoriqueViewState extends State<OrderHistoriqueView> {
     _future = _load();
   }
 
-  Future<List<Order>> _load() => _repo.list(historique: true, dateFrom: _from, dateTo: _to);
+  Future<List<Order>> _load() => _repo.list(
+        historique: true,
+        // Les bornes saisies sont des heures « au mur » d'Antananarivo :
+        // converties en instants absolus pour le serveur (core/app_time.dart).
+        dateFrom: _from == null ? null : appWallClockToUtc(_from!),
+        dateTo: _to == null ? null : appWallClockToUtc(_to!),
+        statut: _statut,
+      );
 
   /// Date ET heure, comme les champs "Du"/"Au" du web (§ demande) : le
   /// sélecteur de date est suivi d'un sélecteur d'heure, l'heure est
@@ -80,6 +101,7 @@ class _OrderHistoriqueViewState extends State<OrderHistoriqueView> {
     setState(() {
       _from = null;
       _to = null;
+      _statut = null;
       _future = _load();
     });
   }
@@ -113,9 +135,30 @@ class _OrderHistoriqueViewState extends State<OrderHistoriqueView> {
                   ),
                 ),
               ),
-              if (_from != null || _to != null)
+              if (_from != null || _to != null || _statut != null)
                 IconButton(onPressed: _reset, icon: const Icon(Icons.clear)),
             ],
+          ),
+        ),
+        // Filtres de statut : livrées, à récupérer, retours… (§ demande).
+        SizedBox(
+          height: 40,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            itemCount: _statutFilters.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 6),
+            itemBuilder: (context, i) {
+              final f = _statutFilters[i];
+              return ChoiceChip(
+                label: Text(f.label),
+                selected: _statut == f.value,
+                onSelected: (_) => setState(() {
+                  _statut = f.value;
+                  _future = _load();
+                }),
+              );
+            },
           ),
         ),
         Expanded(
