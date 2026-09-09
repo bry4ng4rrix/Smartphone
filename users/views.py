@@ -133,16 +133,26 @@ def _cost_by_variant(magasins):
 
 
 def _order_items_revenue_and_profit(orders_qs, cost_map):
-    """CA produits (hors frais livraison) et bénéfice estimé pour un
-    queryset de commandes (normalement filtré sur statut_courant='LIVRE'),
-    à partir du coût moyen connu par variante (0 si jamais reçu via une
-    commande fournisseur — le bénéfice est alors surestimé pour ces lignes)."""
+    """CA produits et bénéfice réel sur les commandes livrées.
+
+    Le bénéfice d'une vente correspond à la marge unitaire de l'article
+    multipliée par la quantité vendue, i.e. (prix de vente réel - prix d'achat)
+    * quantite. Le coût moyen fournisseur est conservé pour d'éventuels
+    usages historiques, mais il n'est plus la base du KPI métier demandé.
+    """
     total_revenue = 0
-    total_cost = 0
-    for item in OrderItem.objects.filter(order__in=orders_qs).select_related("product_variant"):
+    total_profit = 0
+    for item in OrderItem.objects.filter(order__in=orders_qs).select_related(
+        "product_variant__product_reference"
+    ):
         total_revenue += item.prix_unitaire * item.quantite
-        total_cost += cost_map.get(item.product_variant_id, 0) * item.quantite
-    return total_revenue, total_revenue - total_cost
+
+        reference = item.product_variant.product_reference
+        achat = reference.prix_achat or 0
+        marge_unitaire = (item.prix_unitaire or 0) - achat
+        total_profit += marge_unitaire * item.quantite
+
+    return total_revenue, total_profit
 
 
 def _top_bottom_products(magasin_ids, livrees_qs, limit=5):

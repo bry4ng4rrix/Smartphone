@@ -153,9 +153,11 @@ const isJourJ = (dateStr?: string | null) => {
 };
 
 const ZONES = [
+  { value: "ZONE0", label: "Zone 0 (0 Ar)", frais: 0 },
   { value: "ZONE1", label: "Zone 1 (3 000 Ar)", frais: 3000 },
   { value: "ZONE2", label: "Zone 2 (4 000 Ar)", frais: 4000 },
   { value: "ZONE3", label: "Zone 3 (5 000 Ar)", frais: 5000 },
+  { value: "ZONE4", label: "Zone 4 (6 000 Ar)", frais: 6000 },
   { value: "RECUPERATION", label: "Récupération (0 Ar)", frais: 0 },
 ];
 
@@ -187,6 +189,7 @@ export default function OrdersPage() {
   } = useCurrentUser();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
   const [statutFilter, setStatutFilter] = useState<string>("ALL");
   const [detail, setDetail] = useState<any | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -507,6 +510,49 @@ export default function OrdersPage() {
           ? orders.filter((o) => o.statut_courant !== "LIVRE")
           : orders;
 
+  const searchableOrders = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return visibleOrders;
+
+    return visibleOrders.filter((order: any) => {
+      const productText = (order.items || [])
+        .map((item: any) =>
+          [
+            item.reference_name,
+            item.product_name,
+            item.couleur,
+            item.variant_name,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        )
+        .join(" ");
+
+      const searchableString = [
+        order.numero,
+        order.client_nom,
+        order.adresse_livraison,
+        order.telephone,
+        order.livraison_zone,
+        order.preparateur_name,
+        order.livreur_name,
+        order.statut_courant,
+        productText,
+        order.date_commande
+          ? new Date(order.date_commande).toLocaleDateString("fr-FR")
+          : "",
+        order.date_commande
+          ? new Date(order.date_commande).toLocaleString("fr-FR")
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return searchableString.includes(q);
+    });
+  }, [visibleOrders, searchQuery]);
+
   return (
     <div className="p-4 sm:p-6 space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -762,7 +808,19 @@ export default function OrdersPage() {
               </SelectContent>
             </Select>
           </div>
-          {(gerantDate || preparateurFilterId || statutFilter !== "ALL") && (
+          <div className="space-y-1 min-w-[220px] flex-1 max-w-[360px]">
+            <Label className="text-xs text-muted-foreground">Recherche</Label>
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Code, client, produit, adresse, livreur, préparateur, date..."
+              className="w-full"
+            />
+          </div>
+          {(gerantDate ||
+            preparateurFilterId ||
+            statutFilter !== "ALL" ||
+            searchQuery) && (
             <Button
               variant="ghost"
               size="sm"
@@ -770,6 +828,7 @@ export default function OrdersPage() {
                 setGerantDate("");
                 setPreparateurFilterId("");
                 setStatutFilter("ALL");
+                setSearchQuery("");
               }}
             >
               Réinitialiser
@@ -784,9 +843,9 @@ export default function OrdersPage() {
             <div className="p-6">
               <Skeleton className="h-64 w-full" />
             </div>
-          ) : visibleOrders.length === 0 ? (
+          ) : searchableOrders.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-12">
-              Aucune commande.
+              Aucune commande trouvée pour cette recherche.
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -807,7 +866,7 @@ export default function OrdersPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {visibleOrders.map((order) => {
+                  {searchableOrders.map((order) => {
                     const action = nextAction(order);
                     const preparedAt = historyAt(order, "EN_PREPARATION");
                     // Une fois livrée, on affiche l'heure de livraison réelle (LIVRE) plutôt
@@ -1700,7 +1759,7 @@ function EditOrderDialog({
 }) {
   const [clientNom, setClientNom] = useState("");
   const [telephone, setTelephone] = useState("");
-  const [zone, setZone] = useState("ZONE1");
+  const [zone, setZone] = useState("ZONE0");
   const [adresseLivraison, setAdresseLivraison] = useState("");
   const [modePaiement, setModePaiement] = useState("LIVRAISON");
   const [dateCommande, setDateCommande] = useState("");
@@ -1721,7 +1780,7 @@ function EditOrderDialog({
     if (!order) return;
     setClientNom(order.client_nom || "");
     setTelephone(order.telephone || "");
-    setZone(order.livraison_zone || "ZONE1");
+    setZone(order.livraison_zone || "ZONE0");
     setAdresseLivraison(order.adresse_livraison || "");
     setModePaiement(order.mode_paiement || "LIVRAISON");
     setDateCommande(
@@ -1877,7 +1936,7 @@ function EditOrderDialog({
               type="button"
               variant={zone !== "RECUPERATION" ? "default" : "outline"}
               className="flex-1"
-              onClick={() => setZone("ZONE1")}
+              onClick={() => setZone("ZONE0")}
             >
               <Truck className="h-4 w-4 mr-2" /> À livrer
             </Button>
@@ -2357,7 +2416,7 @@ function CreateOrderDialog({
   const showPrices = !isPreparateur;
   const [clientNom, setClientNom] = useState("");
   const [telephone, setTelephone] = useState("+261");
-  const [zone, setZone] = useState("ZONE1");
+  const [zone, setZone] = useState("ZONE0");
   const [adresseLivraison, setAdresseLivraison] = useState("");
   const [modePaiement, setModePaiement] = useState("LIVRAISON");
   const [dateCommande, setDateCommande] = useState("");
