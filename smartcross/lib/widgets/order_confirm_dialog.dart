@@ -38,24 +38,37 @@ class OrderConfirmResult {
 /// Confirmation avant toute action de statut (préparateur/livreur/gérant) —
 /// résumé de la commande (client, téléphone, articles, prix) + note
 /// optionnelle, et (si [showPhoto]) une photo justificative optionnelle.
-/// Retourne `null` si annulé.
+/// [hideAmounts] masque tous les montants (commande déjà réglée d'avance :
+/// le livreur n'a rien à encaisser — § demande). Retourne `null` si annulé.
 Future<OrderConfirmResult?> showOrderConfirmDialog(
   BuildContext context, {
   required String title,
   required Order order,
   bool showPhoto = false,
+  bool hideAmounts = false,
 }) {
   return showDialog<OrderConfirmResult>(
     context: context,
-    builder: (context) => _OrderConfirmDialog(title: title, order: order, showPhoto: showPhoto),
+    builder: (context) => _OrderConfirmDialog(
+      title: title,
+      order: order,
+      showPhoto: showPhoto,
+      hideAmounts: hideAmounts,
+    ),
   );
 }
 
 class _OrderConfirmDialog extends StatefulWidget {
-  const _OrderConfirmDialog({required this.title, required this.order, this.showPhoto = false});
+  const _OrderConfirmDialog({
+    required this.title,
+    required this.order,
+    this.showPhoto = false,
+    this.hideAmounts = false,
+  });
   final String title;
   final Order order;
   final bool showPhoto;
+  final bool hideAmounts;
 
   @override
   State<_OrderConfirmDialog> createState() => _OrderConfirmDialogState();
@@ -110,7 +123,10 @@ class _OrderConfirmDialogState extends State<_OrderConfirmDialog> {
             if (!isRecuperation) row('Paiement', order.modePaiement.label),
             const Divider(height: 20),
             for (final item in order.items) row('${item.referenceName} (${item.couleur})', 'x${item.quantite}'),
-            if (order.totalAPayer != null) ...[
+            if (widget.hideAmounts) ...[
+              const Divider(height: 20),
+              row('À encaisser', 'Rien — déjà payé', bold: true),
+            ] else if (order.totalAPayer != null) ...[
               const Divider(height: 20),
               if (!isRecuperation && order.fraisLivraison != null) ...[
                 row('Prix de vente', arFmt(order.totalAPayer! - order.fraisLivraison!)),

@@ -1063,7 +1063,16 @@ export default function OrdersPage() {
                         </TableCell>
                         {!isPreparateur && (
                           <TableCell className="align-top">
-                            {fmt(order.total_a_payer)}
+                            {/* Rien à encaisser : le client a déjà payé
+                                d'avance, on masque le montant au livreur
+                                pour éviter toute confusion (§ demande). */}
+                            {isLivreur && order.mode_paiement === "AVANT" ? (
+                              <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                                Déjà payé
+                              </span>
+                            ) : (
+                              fmt(order.total_a_payer)
+                            )}
                           </TableCell>
                         )}
                         {isGerant && (
@@ -1367,17 +1376,6 @@ export default function OrdersPage() {
                       <span>{detail.livreur_name}</span>
                     </div>
                   )}
-                  {detail.statut_courant === "LIVRE" &&
-                    historyAt(detail, "LIVRE") && (
-                      <div className="flex justify-between gap-4">
-                        <span className="text-muted-foreground">Livrée le</span>
-                        <span>
-                          {new Date(historyAt(detail, "LIVRE")).toLocaleString(
-                            "fr-FR",
-                          )}
-                        </span>
-                      </div>
-                    )}
                 </div>
 
                 {/* Même action que dans le tableau (Commencer la préparation /
@@ -1546,35 +1544,45 @@ export default function OrdersPage() {
                   ))}
                 </ul>
               </div>
-              {actionNote.order.total_a_payer != null && (
-                <div className="border-t pt-1.5 space-y-0.5">
-                  {actionNote.order.livraison_zone !== "RECUPERATION" &&
-                    actionNote.order.frais_livraison != null && (
-                      <>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">
-                            Prix de vente
-                          </span>
-                          <span>
-                            {fmt(
-                              Number(actionNote.order.total_a_payer) -
-                                Number(actionNote.order.frais_livraison),
-                            )}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">
-                            Frais de livraison
-                          </span>
-                          <span>{fmt(actionNote.order.frais_livraison)}</span>
-                        </div>
-                      </>
-                    )}
-                  <div className="flex justify-between font-medium">
-                    <span>Total</span>
-                    <span>{fmt(actionNote.order.total_a_payer)}</span>
-                  </div>
+              {/* Commande déjà réglée : le livreur n'a rien à encaisser,
+                  on masque tous les montants et on l'annonce clairement
+                  (§ demande). */}
+              {isLivreur && actionNote.order.mode_paiement === "AVANT" ? (
+                <div className="border-t pt-1.5 flex justify-between font-medium text-emerald-600 dark:text-emerald-400">
+                  <span>À encaisser</span>
+                  <span>Rien — déjà payé</span>
                 </div>
+              ) : (
+                actionNote.order.total_a_payer != null && (
+                  <div className="border-t pt-1.5 space-y-0.5">
+                    {actionNote.order.livraison_zone !== "RECUPERATION" &&
+                      actionNote.order.frais_livraison != null && (
+                        <>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">
+                              Prix de vente
+                            </span>
+                            <span>
+                              {fmt(
+                                Number(actionNote.order.total_a_payer) -
+                                  Number(actionNote.order.frais_livraison),
+                              )}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">
+                              Frais de livraison
+                            </span>
+                            <span>{fmt(actionNote.order.frais_livraison)}</span>
+                          </div>
+                        </>
+                      )}
+                    <div className="flex justify-between font-medium">
+                      <span>Total</span>
+                      <span>{fmt(actionNote.order.total_a_payer)}</span>
+                    </div>
+                  </div>
+                )
               )}
             </div>
           )}

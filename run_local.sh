@@ -12,3 +12,7 @@ set +a
 
 CMD="${*:-runserver 8010}"
 exec .venv/bin/python manage.py $CMD
+
+
+
+

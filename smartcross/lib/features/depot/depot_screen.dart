@@ -191,6 +191,34 @@ class _DepotHistoriqueCard extends StatelessWidget {
                 Text(DeliveryZoneCatalog.shortLabelFor(order.livraisonZone)),
               ],
             ),
+            // Mêmes repères que sur la file du jour : qui livre, et quand
+            // (prévu, ou réellement livré une fois la commande terminée).
+            if (order.livreurName != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.moped_outlined, size: 16),
+                    const SizedBox(width: 6),
+                    Text('Livreur : ${order.livreurName}'),
+                  ],
+                ),
+              ),
+            if (order.dateCommande != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.event_outlined, size: 16),
+                    const SizedBox(width: 6),
+                    Text(
+                      order.statutCourant == OrderStatus.livre
+                          ? 'Livrée le ${_depotDateTimeFmt.format(order.dateCommande!.toLocal())}'
+                          : 'Livraison prévue le ${_depotDateTimeFmt.format(order.dateCommande!.toLocal())}',
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),

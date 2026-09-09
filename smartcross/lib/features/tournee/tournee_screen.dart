@@ -150,6 +150,9 @@ class _TourneeCardState extends ConsumerState<_TourneeCard> {
       context,
       title: 'Confirmer : ${_actionLabel(target)}',
       order: widget.order,
+      // Déjà payé d'avance : le livreur n'a rien à encaisser, on masque
+      // les montants pour éviter toute confusion (§ demande).
+      hideAmounts: widget.order.modePaiement == PaymentMode.avant,
     );
     if (result != null) _changeStatus(target, note: result.note);
   }
@@ -220,7 +223,15 @@ class _TourneeCardState extends ConsumerState<_TourneeCard> {
                   ],
                 ),
               ),
-            if (order.totalAPayer != null) ...[
+            if (order.modePaiement == PaymentMode.avant)
+              const Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text(
+                  'Déjà payé — rien à encaisser',
+                  style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF059669)),
+                ),
+              )
+            else if (order.totalAPayer != null) ...[
               const SizedBox(height: 4),
               Text(
                 'Total à encaisser : ${_ar(order.totalAPayer!)}',
@@ -337,7 +348,15 @@ class _TourneeHistoriqueCard extends StatelessWidget {
                 Text(DeliveryZoneCatalog.shortLabelFor(order.livraisonZone)),
               ],
             ),
-            if (order.totalAPayer != null) ...[
+            if (order.modePaiement == PaymentMode.avant)
+              const Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text(
+                  'Déjà payé',
+                  style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF059669)),
+                ),
+              )
+            else if (order.totalAPayer != null) ...[
               const SizedBox(height: 4),
               Text('Total : ${_ar(order.totalAPayer!)}', style: const TextStyle(fontWeight: FontWeight.w700)),
             ],
