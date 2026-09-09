@@ -64,11 +64,11 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<string>("employee");
   const [hiddenMetrics, setHiddenMetrics] = useState<Record<string, boolean>>({
-    ca: false,
-    totalProfit: false,
-    totalValue: false,
-    beneficeEstimeStock: false,
-    totalSalesAllStores: false,
+    ca: true,
+    totalProfit: true,
+    totalValue: true,
+    beneficeEstimeStock: true,
+    totalSalesAllStores: true,
   });
 
   // KPIs

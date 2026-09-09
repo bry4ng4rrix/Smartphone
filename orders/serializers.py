@@ -21,6 +21,18 @@ def _validate_zone_code(value, user):
     return value
 
 
+class DeliveryZoneOptionSerializer(serializers.ModelSerializer):
+    """Zone de livraison (nom + prix) — CRUD dans Paramètres (§ demande).
+    `code` est généré une seule fois à la création (voir DeliveryZoneOption.save)
+    et ne change plus jamais — les commandes déjà passées avec cette zone y
+    restent attachées même si le nom/prix est modifié plus tard."""
+
+    class Meta:
+        model = DeliveryZoneOption
+        fields = ["id", "code", "nom", "prix", "actif", "created_at"]
+        read_only_fields = ["id", "code", "created_at"]
+
+
 class OrderItemSerializer(serializers.ModelSerializer):
     """Vue complète d'un article — gérant uniquement (inclut le prix)."""
 

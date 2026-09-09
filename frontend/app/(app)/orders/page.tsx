@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { djangoClient } from "@/lib/django-client";
 import { useCurrentUser } from "@/lib/auth/useCurrentUser";
 import { useRealtimeRefresh } from "@/lib/hooks/useRealtimeRefresh";
+import { useDeliveryZones } from "@/lib/hooks/useDeliveryZones";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -161,14 +162,24 @@ const isJourJ = (dateStr?: string | null) => {
   return d.getTime() <= today.getTime();
 };
 
-const ZONES = [
-  { value: "ZONE0", label: "Zone 0 (0 Ar)", frais: 0 },
-  { value: "ZONE1", label: "Zone 1 (3 000 Ar)", frais: 3000 },
-  { value: "ZONE2", label: "Zone 2 (4 000 Ar)", frais: 4000 },
-  { value: "ZONE3", label: "Zone 3 (5 000 Ar)", frais: 5000 },
-  { value: "ZONE4", label: "Zone 4 (6 000 Ar)", frais: 6000 },
-  { value: "RECUPERATION", label: "Récupération (0 Ar)", frais: 0 },
-];
+// Zones de livraison : configurables dans Paramètres (§ demande, CRUD
+// nom+prix — voir useDeliveryZones/DeliveryZoneOption), plus le littéral
+// "RECUPERATION" toujours présent (retrait sur place, structurellement à
+// part : pas de livreur, pas de frais). `buildZoneOptions` retrouve la même
+// forme {value,label,frais} que l'ancienne liste figée, pour que tous les
+// .find()/.filter() existants restent inchangés.
+function buildZoneOptions(
+  zones: { code: string; nom: string; prix: number }[],
+) {
+  return [
+    ...zones.map((z) => ({
+      value: z.code,
+      label: `${z.nom} (${fmt(z.prix)})`,
+      frais: Number(z.prix),
+    })),
+    { value: "RECUPERATION", label: "Récupération (0 Ar)", frais: 0 },
+  ];
+}
 
 const MODE_PAIEMENT = [
   { value: "AVANT", label: "Paiement avant la livraison" },
@@ -196,6 +207,8 @@ export default function OrdersPage() {
     isLivreur,
     loading: userLoading,
   } = useCurrentUser();
+  const { zones } = useDeliveryZones();
+  const zoneOptions = useMemo(() => buildZoneOptions(zones), [zones]);
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -884,16 +897,16 @@ export default function OrdersPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>N° commande</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Sous-type</TableHead>
+                    <TableHead>Produit</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Client</TableHead>
                     {isLivreur && <TableHead>Adresse</TableHead>}
                     {isLivreur && <TableHead>Téléphone</TableHead>}
                     <TableHead>{isLivreur ? "Zone" : "Adresse"}</TableHead>
-                    <TableHead>Sous-type</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Produit</TableHead>
-                    {!isPreparateur && <TableHead>Total</TableHead>}
                     <TableHead>Statut</TableHead>
+                    {!isPreparateur && <TableHead>Total</TableHead>}
                     {isGerant && <TableHead>Assigné à</TableHead>}
                     <TableHead className="text-right">Action</TableHead>
                   </TableRow>
@@ -941,61 +954,16 @@ export default function OrdersPage() {
                         className="cursor-pointer"
                         onClick={() => setDetail(order)}
                       >
-                        <TableCell className="font-medium">
+                        <TableCell className="align-top font-medium">
                           {order.numero}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                          {order.date_commande
-                            ? new Date(order.date_commande).toLocaleString(
-                                "fr-FR",
-                                {
-                                  day: "2-digit",
-                                  month: "2-digit",
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                },
-                              )
-                            : "-"}
-                        </TableCell>
-                        <TableCell>{order.client_nom}</TableCell>
-                        {isLivreur && (
-                          <TableCell className="max-w-[180px] truncate">
-                            {order.adresse_livraison || "-"}
-                          </TableCell>
-                        )}
-                        {isLivreur && (
-                          <TableCell>
-                            <a
-                              href={`tel:${order.telephone}`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="flex items-center gap-1 text-blue-600 hover:underline"
-                            >
-                              <Phone className="h-3 w-3" /> {order.telephone}
-                            </a>
-                          </TableCell>
-                        )}
-                        <TableCell
-                          className={
-                            isLivreur ? undefined : "max-w-[180px] truncate"
-                          }
-                        >
-                          {isLivreur
-                            ? ZONES.find(
-                                (z) => z.value === order.livraison_zone,
-                              )?.label.split(" (")[0] || order.livraison_zone
-                            : order.adresse_livraison ||
-                              ZONES.find(
-                                (z) => z.value === order.livraison_zone,
-                              )?.label.split(" (")[0] ||
-                              order.livraison_zone}
-                        </TableCell>
-                        <TableCell className="align-top">
-                          {firstItem?.type_name || "-"}
                         </TableCell>
                         <TableCell className="align-top">
                           {firstItem?.category_name || "-"}
                         </TableCell>
-                        <TableCell className="max-w-[320px] align-top">
+                        <TableCell className="align-top">
+                          {firstItem?.type_name || "-"}
+                        </TableCell>
+                        <TableCell className="align-top max-w-[280px]">
                           <div className="space-y-1.5">
                             {(order.items || []).map((it: any) => (
                               <div key={it.id} className="leading-tight">
@@ -1023,18 +991,69 @@ export default function OrdersPage() {
                             ))}
                           </div>
                         </TableCell>
-                        {!isPreparateur && (
-                          <TableCell>{fmt(order.total_a_payer)}</TableCell>
+                        <TableCell className="align-top whitespace-nowrap text-xs text-muted-foreground">
+                          {order.date_commande
+                            ? new Date(order.date_commande).toLocaleString(
+                                "fr-FR",
+                                {
+                                  day: "2-digit",
+                                  month: "2-digit",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                },
+                              )
+                            : "-"}
+                        </TableCell>
+                        <TableCell className="align-top">
+                          {order.client_nom}
+                        </TableCell>
+                        {isLivreur && (
+                          <TableCell className="align-top max-w-[180px] truncate">
+                            {order.adresse_livraison || "-"}
+                          </TableCell>
                         )}
-                        <TableCell>
+                        {isLivreur && (
+                          <TableCell className="align-top">
+                            <a
+                              href={`tel:${order.telephone}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="flex items-center gap-1 text-blue-600 hover:underline"
+                            >
+                              <Phone className="h-3 w-3" /> {order.telephone}
+                            </a>
+                          </TableCell>
+                        )}
+                        <TableCell
+                          className={
+                            isLivreur
+                              ? "align-top"
+                              : "align-top max-w-[180px] truncate"
+                          }
+                        >
+                          {isLivreur
+                            ? zoneOptions
+                                .find((z) => z.value === order.livraison_zone)
+                                ?.label.split(" (")[0] || order.livraison_zone
+                            : order.adresse_livraison ||
+                              zoneOptions
+                                .find((z) => z.value === order.livraison_zone)
+                                ?.label.split(" (")[0] ||
+                              order.livraison_zone}
+                        </TableCell>
+                        <TableCell className="align-top">
                           <Badge
                             className={statutInfo(order.statut_courant).color}
                           >
                             {statutInfo(order.statut_courant).label}
                           </Badge>
                         </TableCell>
+                        {!isPreparateur && (
+                          <TableCell className="align-top">
+                            {fmt(order.total_a_payer)}
+                          </TableCell>
+                        )}
                         {isGerant && (
-                          <TableCell className="text-xs">
+                          <TableCell className="align-top text-xs">
                             {!order.preparateur_name && !order.livreur_name ? (
                               <span className="text-muted-foreground">-</span>
                             ) : (
@@ -1074,7 +1093,7 @@ export default function OrdersPage() {
                             )}
                           </TableCell>
                         )}
-                        <TableCell className="text-right">
+                        <TableCell className="align-top text-right">
                           <div className="flex items-center justify-end gap-1">
                             {isGerant && (
                               <Select
@@ -1225,29 +1244,18 @@ export default function OrdersPage() {
             <>
               <DialogHeader>
                 <DialogTitle>Commande {detail.numero}</DialogTitle>
-                <DialogDescription>
-                  {detail.client_nom} — {detail.telephone}
-                </DialogDescription>
               </DialogHeader>
               <div className="space-y-3 text-sm">
                 <div className="mb-2">
                   <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
                     Information
                   </p>
-                  <div className="mt-1 flex items-center justify-between gap-2">
-                    <span className="font-semibold text-base">
-                      Commande {detail.numero}
-                    </span>
-                    <Badge className={statutInfo(detail.statut_courant).color}>
-                      {statutInfo(detail.statut_courant).label}
-                    </Badge>
-                  </div>
                 </div>
 
                 {detail.items && detail.items.length > 0 && (
                   <div className="space-y-2 rounded-md border bg-muted/10 p-3">
                     <p className="text-muted-foreground text-xs uppercase tracking-[0.2em]">
-                      Sous type
+                      Articles
                     </p>
                     {(detail.items || []).map((it: any) => (
                       <div key={it.id} className="space-y-1">
@@ -1364,24 +1372,7 @@ export default function OrdersPage() {
                     <p>{detail.note_livreur}</p>
                   </div>
                 )}
-                <div>
-                  <p className="text-muted-foreground mb-1">Articles</p>
-                  <ul className="space-y-1">
-                    {(detail.items || []).map((it: any) => (
-                      <li key={it.id} className="flex justify-between gap-3">
-                        <span>
-                          {it.reference_name || "Article"} ({it.couleur || "-"})
-                          x{it.quantite}
-                        </span>
-                        {it.prix_unitaire != null && (
-                          <span>
-                            {fmt(Number(it.prix_unitaire) * it.quantite)}
-                          </span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+
                 {detail.status_history && (
                   <>
                     <div className="border-t pt-3">
@@ -1461,9 +1452,9 @@ export default function OrdersPage() {
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Zone</span>
                 <span>
-                  {ZONES.find(
-                    (z) => z.value === actionNote.order.livraison_zone,
-                  )?.label.split(" (")[0] || actionNote.order.livraison_zone}
+                  {zoneOptions
+                    .find((z) => z.value === actionNote.order.livraison_zone)
+                    ?.label.split(" (")[0] || actionNote.order.livraison_zone}
                 </span>
               </div>
               {actionNote.order.adresse_livraison && (
@@ -1878,9 +1869,11 @@ function EditOrderDialog({
   onOpenChange: (o: boolean) => void;
   onSaved: () => void;
 }) {
+  const { zones } = useDeliveryZones();
+  const zoneOptions = useMemo(() => buildZoneOptions(zones), [zones]);
   const [clientNom, setClientNom] = useState("");
   const [telephone, setTelephone] = useState("");
-  const [zone, setZone] = useState("ZONE0");
+  const [zone, setZone] = useState("");
   const [adresseLivraison, setAdresseLivraison] = useState("");
   const [modePaiement, setModePaiement] = useState("LIVRAISON");
   const [dateCommande, setDateCommande] = useState("");
@@ -1901,7 +1894,7 @@ function EditOrderDialog({
     if (!order) return;
     setClientNom(order.client_nom || "");
     setTelephone(order.telephone || "");
-    setZone(order.livraison_zone || "ZONE0");
+    setZone(order.livraison_zone || "");
     setAdresseLivraison(order.adresse_livraison || "");
     setModePaiement(order.mode_paiement || "LIVRAISON");
     setDateCommande(
@@ -2057,7 +2050,12 @@ function EditOrderDialog({
               type="button"
               variant={zone !== "RECUPERATION" ? "default" : "outline"}
               className="flex-1"
-              onClick={() => setZone("ZONE0")}
+              onClick={() =>
+                setZone(
+                  zoneOptions.find((z) => z.value !== "RECUPERATION")?.value ||
+                    "",
+                )
+              }
             >
               <Truck className="h-4 w-4 mr-2" /> À livrer
             </Button>
@@ -2081,11 +2079,13 @@ function EditOrderDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {ZONES.filter((z) => z.value !== "RECUPERATION").map((z) => (
-                    <SelectItem key={z.value} value={z.value}>
-                      {z.label}
-                    </SelectItem>
-                  ))}
+                  {zoneOptions
+                    .filter((z) => z.value !== "RECUPERATION")
+                    .map((z) => (
+                      <SelectItem key={z.value} value={z.value}>
+                        {z.label}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>
@@ -2531,13 +2531,15 @@ function CreateOrderDialog({
   onCreated: () => void;
 }) {
   const { isPreparateur } = useCurrentUser();
+  const { zones } = useDeliveryZones();
+  const zoneOptions = useMemo(() => buildZoneOptions(zones), [zones]);
   // Le préparateur ne crée que des retraits sur place, et ne voit aucune
   // donnée financière (§4/§7.2 du cahier des charges — même règle que pour
   // la consultation des commandes).
   const showPrices = !isPreparateur;
   const [clientNom, setClientNom] = useState("");
   const [telephone, setTelephone] = useState("+261");
-  const [zone, setZone] = useState("ZONE0");
+  const [zone, setZone] = useState("");
   const [adresseLivraison, setAdresseLivraison] = useState("");
   const [modePaiement, setModePaiement] = useState("LIVRAISON");
   const [dateCommande, setDateCommande] = useState("");
@@ -2564,7 +2566,7 @@ function CreateOrderDialog({
     }
     setClientNom("");
     setTelephone("+261");
-    setZone(isPreparateur ? "RECUPERATION" : "ZONE1");
+    setZone(isPreparateur ? "RECUPERATION" : "");
     setAdresseLivraison("");
     setModePaiement("LIVRAISON");
     setDateCommande(toDatetimeLocalValue(new Date()));
@@ -2574,6 +2576,15 @@ function CreateOrderDialog({
     setPreparateurId("");
     setLivreurId("");
   }, [open, isPreparateur]);
+
+  // Sélectionne la première zone payante disponible dès qu'elle est chargée
+  // (les zones sont fetchées de façon async — voir useDeliveryZones) ; sans
+  // effet pour le préparateur, dont la zone reste toujours "RECUPERATION".
+  useEffect(() => {
+    if (!open || isPreparateur || zone) return;
+    const first = zoneOptions.find((z) => z.value !== "RECUPERATION");
+    if (first) setZone(first.value);
+  }, [open, isPreparateur, zone, zoneOptions]);
 
   // Reinterrogé à chaque changement de date/heure : le livreur peut être
   // pré-assigné dès la création (voir submit()), donc "disponible" reflète
@@ -2589,7 +2600,7 @@ function CreateOrderDialog({
       .catch(() => setLivreurs([]));
   }, [open, isPreparateur, dateCommande]);
 
-  const zoneInfo = ZONES.find((z) => z.value === zone)!;
+  const zoneInfo = zoneOptions.find((z) => z.value === zone) ?? { frais: 0 };
   const itemsTotal = items.reduce(
     (s, it) => s + it.prix_vente * it.quantite,
     0,
@@ -2706,7 +2717,12 @@ function CreateOrderDialog({
                 type="button"
                 variant={zone !== "RECUPERATION" ? "default" : "outline"}
                 className="flex-1"
-                onClick={() => setZone("ZONE1")}
+                onClick={() =>
+                  setZone(
+                    zoneOptions.find((z) => z.value !== "RECUPERATION")
+                      ?.value || "",
+                  )
+                }
               >
                 <Truck className="h-4 w-4 mr-2" /> À livrer
               </Button>
@@ -2774,11 +2790,13 @@ function CreateOrderDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {ZONES.filter((z) => z.value !== "RECUPERATION").map((z) => (
-                    <SelectItem key={z.value} value={z.value}>
-                      {z.label}
-                    </SelectItem>
-                  ))}
+                  {zoneOptions
+                    .filter((z) => z.value !== "RECUPERATION")
+                    .map((z) => (
+                      <SelectItem key={z.value} value={z.value}>
+                        {z.label}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>

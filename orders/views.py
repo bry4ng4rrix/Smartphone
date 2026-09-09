@@ -14,10 +14,12 @@ from users.permissions import (
     resolve_magasin_for_request,
     user_commande_role,
 )
+from users.subscriptions import get_company_owner
 
 from . import services
-from .models import Order
+from .models import DeliveryZoneOption, Order
 from .serializers import (
+    DeliveryZoneOptionSerializer,
     OrderCreateSerializer,
     OrderGerantSerializer,
     OrderLivreurSerializer,
@@ -32,6 +34,71 @@ from .serializers import (
 # pas encore actionnable pour lui, § demande), en plus de ses statuts habituels.
 PREPARATEUR_STATUTS = ["NOUVELLE", "EN_PREPARATION"]
 LIVREUR_STATUTS = ["EN_PREPARATION", "PRETE", "EN_LIVRAISON"]
+
+
+# Défauts pour une société qui n'a encore aucune zone (nouvelle société —
+# les sociétés déjà existantes au moment de l'introduction du CRUD ont été
+# seedées une fois pour toutes avec leurs 3 zones historiques, voir migration
+# 0010_seed_legacy_delivery_zones ; on ne leur ajoute pas la zone gratuite
+# ci-dessous automatiquement pour ne pas modifier leurs données sans le leur
+# demander — § demande, "ne pas toucher aux données existantes"). Toujours
+# au moins une zone à prix 0 pour les nouvelles sociétés (§ demande).
+DEFAULT_DELIVERY_ZONES = [
+    ("Zone gratuite", 0),
+    ("Zone 1", 3000),
+    ("Zone 2", 4000),
+    ("Zone 3", 5000),
+]
+
+
+class DeliveryZoneOptionViewSet(viewsets.ModelViewSet):
+    """Zones de livraison (nom + prix) — CRUD dans Paramètres (§ demande),
+    partagées par toute la société comme CaisseCategory (voir users/views.py::
+    CaisseCategoryViewSet, même schéma). Lecture ouverte à tous (nécessaire
+    pour peupler le select à la création d'une commande), écriture réservée
+    au gérant."""
+
+    serializer_class = DeliveryZoneOptionSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    def get_permissions(self):
+        if self.action in ("create", "partial_update", "update", "destroy"):
+            return [IsGerant()]
+        return super().get_permissions()
+
+    def get_queryset(self):
+        owner = get_company_owner(self.request.user)
+        admin_profile = getattr(owner, "admin_profile", None) if owner else None
+        if not admin_profile:
+            return DeliveryZoneOption.objects.none()
+
+        if not admin_profile.delivery_zones.exists():
+            for nom, prix in DEFAULT_DELIVERY_ZONES:
+                DeliveryZoneOption.objects.create(admin_profile=admin_profile, nom=nom, prix=prix)
+        return admin_profile.delivery_zones.all()
+
+    def perform_create(self, serializer):
+        owner = get_company_owner(self.request.user)
+        admin_profile = getattr(owner, "admin_profile", None) if owner else None
+        if not admin_profile:
+            raise DRFValidationError("Société introuvable.")
+        serializer.save(admin_profile=admin_profile)
+
+    def destroy(self, request, *args, **kwargs):
+        zone = self.get_object()
+        in_use = Order.objects.filter(
+            magasin__admin__admin_profile=zone.admin_profile, livraison_zone=zone.code
+        ).exists()
+        if in_use:
+            # Une zone déjà utilisée par des commandes n'est pas supprimée —
+            # ça casserait la résolution de leurs frais de livraison (voir
+            # Order.save()). On la désactive à la place : elle disparaît des
+            # nouveaux choix mais reste résolue pour les commandes existantes.
+            zone.actif = False
+            zone.save(update_fields=["actif"])
+            return Response(self.get_serializer(zone).data)
+        return super().destroy(request, *args, **kwargs)
 
 
 class OrderViewSet(viewsets.ModelViewSet):
@@ -145,7 +212,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         if role not in ("GERANT", "PREPARATEUR"):
             raise DRFPermissionDenied("Seuls le gérant et le préparateur peuvent créer une commande.")
 
-        serializer = OrderCreateSerializer(data=request.data)
+        serializer = OrderCreateSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
@@ -175,7 +242,7 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     def partial_update(self, request, *args, **kwargs):
         order = self.get_object()
-        serializer = OrderUpdateSerializer(data=request.data, partial=True)
+        serializer = OrderUpdateSerializer(data=request.data, partial=True, context={"request": request})
         serializer.is_valid(raise_exception=True)
         data = dict(serializer.validated_data)
         try:

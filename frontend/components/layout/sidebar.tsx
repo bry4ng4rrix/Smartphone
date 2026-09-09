@@ -24,6 +24,7 @@ import {
   ArrowLeftRight,
   Wallet,
   PackageCheck,
+  Receipt,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -48,6 +49,12 @@ const navigationItems = [
     href: "/pickup",
     icon: PackageCheck,
     adminOnly: true,
+  },
+  {
+    label: "Bilan du jour",
+    href: "/bilan",
+    icon: Receipt,
+    livreurOnly: true,
   },
   {
     label: "Produits",
@@ -201,6 +208,7 @@ export function Sidebar() {
                 if (item.adminOnly && !isAdminOrSuperAdmin) return false;
                 if (item.hidePreparateur && isPreparateur) return false;
                 if (item.hideLivreur && isLivreur) return false;
+                if (item.livreurOnly && !isLivreur) return false;
                 return true;
               })
               .map((item) => {

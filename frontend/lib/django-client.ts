@@ -692,7 +692,9 @@ class DjangoAPIClient {
     create: async (data: {
       client_nom: string
       telephone: string
-      livraison_zone: 'ZONE1' | 'ZONE2' | 'ZONE3' | 'RECUPERATION'
+      // Le `code` d'une zone créée dans Paramètres, ou 'RECUPERATION' —
+      // voir orders/models.py::DeliveryZoneOption.
+      livraison_zone: string
       items: { product_variant: number; quantite: number }[]
       note_preparateur?: string
       note_livreur?: string
@@ -752,7 +754,7 @@ class DjangoAPIClient {
     update: async (id: number, data: {
       client_nom?: string
       telephone?: string
-      livraison_zone?: 'ZONE1' | 'ZONE2' | 'ZONE3' | 'RECUPERATION'
+      livraison_zone?: string
       adresse_livraison?: string
       mode_paiement?: 'AVANT' | 'LIVRAISON'
       date_commande?: string
@@ -772,6 +774,28 @@ class DjangoAPIClient {
       if (params?.magasin_id) q.append('magasin_id', String(params.magasin_id))
       const suffix = q.toString() ? `?${q.toString()}` : ''
       return this.get<any>(`/orders/dashboard/${suffix}`)
+    },
+  }
+
+  // ==================== Zones de livraison (CRUD Paramètres, § demande) ====================
+  // Nom + prix, partagées par toute la société (voir orders/models.py::
+  // DeliveryZoneOption). Lecture ouverte à tous, écriture réservée au gérant.
+  zones = {
+    list: async () => {
+      return this.get<{ id: number; code: string; nom: string; prix: number; actif: boolean }[]>(
+        '/orders/delivery-zones/',
+      )
+    },
+    create: async (data: { nom: string; prix: number }) => {
+      return this.post<any>('/orders/delivery-zones/', data)
+    },
+    update: async (id: number, data: { nom?: string; prix?: number; actif?: boolean }) => {
+      return this.patch<any>(`/orders/delivery-zones/${id}/`, data)
+    },
+    // Une zone déjà utilisée par des commandes n'est pas vraiment supprimée
+    // côté serveur — elle est désactivée (voir DeliveryZoneOptionViewSet.destroy).
+    delete: async (id: number) => {
+      return this.delete<void>(`/orders/delivery-zones/${id}/`)
     },
   }
 

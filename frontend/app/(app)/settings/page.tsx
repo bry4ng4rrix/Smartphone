@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Dialog,
@@ -18,7 +19,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { User, Lock, Building2, Loader2, Plus, Pencil, Trash2, Wallet } from 'lucide-react';
+import { User, Lock, Building2, Loader2, Plus, Pencil, Trash2, Wallet, MapPin } from 'lucide-react';
 
 const roleLabel: Record<string, string> = {
   admin: 'Administrateur',
@@ -36,6 +37,15 @@ export default function SettingsPage() {
   };
 
   useEffect(loadExpenseCategories, [isGerant]);
+
+  const [deliveryZones, setDeliveryZones] = useState<any[]>([]);
+
+  const loadDeliveryZones = () => {
+    if (!isGerant) return;
+    djangoClient.zones.list().then(setDeliveryZones).catch(() => {});
+  };
+
+  useEffect(loadDeliveryZones, [isGerant]);
 
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
@@ -183,6 +193,11 @@ export default function SettingsPage() {
           {isGerant && (
             <TabsTrigger value="depenses">
               <Wallet className="h-4 w-4 mr-2" />Dépenses
+            </TabsTrigger>
+          )}
+          {isGerant && (
+            <TabsTrigger value="zones">
+              <MapPin className="h-4 w-4 mr-2" />Zones de livraison
             </TabsTrigger>
           )}
         </TabsList>
@@ -370,6 +385,29 @@ export default function SettingsPage() {
             </Card>
           </TabsContent>
         )}
+
+        {/* Zones de livraison — nom + prix, utilisées par le formulaire Nouvelle
+            commande (§ demande). Le "code" interne (jamais montré ici) reste
+            stable même si le nom/prix change, pour ne pas affecter les
+            commandes déjà passées avec cette zone. */}
+        {isGerant && (
+          <TabsContent value="zones" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Zones de livraison</CardTitle>
+                <CardDescription>
+                  Zones proposées à la création d'une commande (nom + frais de livraison). Le
+                  retrait sur place ("Récupération") reste toujours disponible séparément et n'est
+                  pas géré ici. Ajoutez-en, renommez ou changez le prix selon vos besoins — pensez
+                  à garder au moins une zone gratuite (0 Ar).
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <DeliveryZonesCrudList zones={deliveryZones} onChanged={loadDeliveryZones} />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
       </Tabs>
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
@@ -502,6 +540,116 @@ function ExpenseCategoriesCrudList({ categories, onChanged }: { categories: any[
       <div className="flex gap-2 mt-3">
         <Input placeholder="Nouvelle catégorie (ex: Transport)" value={newName} onChange={(e) => setNewName(e.target.value)} />
         <Button onClick={addCategory}><Plus className="h-4 w-4 mr-2" /> Ajouter</Button>
+      </div>
+    </div>
+  );
+}
+
+const arFmt = (n: number | string) => `${new Intl.NumberFormat('fr-MG').format(Math.round(Number(n || 0)))} Ar`;
+
+function DeliveryZonesCrudList({ zones, onChanged }: { zones: any[]; onChanged: () => void }) {
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingName, setEditingName] = useState('');
+  const [editingPrix, setEditingPrix] = useState('');
+  const [newName, setNewName] = useState('');
+  const [newPrix, setNewPrix] = useState('');
+
+  const startEdit = (z: any) => {
+    setEditingId(z.id);
+    setEditingName(z.nom);
+    setEditingPrix(String(z.prix));
+  };
+
+  const saveEdit = async () => {
+    if (!editingId || !editingName.trim()) return;
+    try {
+      await djangoClient.zones.update(editingId, { nom: editingName.trim(), prix: Number(editingPrix) || 0 });
+      toast.success('Zone mise à jour');
+      setEditingId(null);
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur');
+    }
+  };
+
+  const toggleActive = async (z: any) => {
+    try {
+      await djangoClient.zones.update(z.id, { actif: !z.actif });
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur');
+    }
+  };
+
+  const removeZone = async (z: any) => {
+    try {
+      await djangoClient.zones.delete(z.id);
+      toast.success('Zone supprimée');
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur lors de la suppression');
+    }
+  };
+
+  const addZone = async () => {
+    if (!newName.trim()) return;
+    try {
+      await djangoClient.zones.create({ nom: newName.trim(), prix: Number(newPrix) || 0 });
+      toast.success('Zone ajoutée');
+      setNewName('');
+      setNewPrix('');
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur');
+    }
+  };
+
+  return (
+    <div>
+      <p className="text-sm font-medium mb-2">Toutes les zones ({zones.length})</p>
+      <div className="space-y-2 max-h-96 overflow-y-auto">
+        {zones.map((z) => (
+          <div key={z.id} className="flex items-center gap-2 border rounded-md px-3 py-2">
+            {editingId === z.id ? (
+              <>
+                <Input value={editingName} onChange={(e) => setEditingName(e.target.value)} className="h-8 flex-1" autoFocus />
+                <Input
+                  type="number"
+                  min={0}
+                  value={editingPrix}
+                  onChange={(e) => setEditingPrix(e.target.value)}
+                  className="h-8 w-28"
+                  placeholder="Prix (Ar)"
+                />
+                <Button size="sm" onClick={saveEdit}>OK</Button>
+                <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Annuler</Button>
+              </>
+            ) : (
+              <>
+                <span className={`flex-1 text-sm ${!z.actif ? 'text-muted-foreground line-through' : ''}`}>
+                  {z.nom}
+                </span>
+                <Badge variant="secondary">{arFmt(z.prix)}</Badge>
+                <Switch checked={z.actif} onCheckedChange={() => toggleActive(z)} title="Zone active" />
+                <Button size="icon" variant="ghost" onClick={() => startEdit(z)}><Pencil className="h-4 w-4" /></Button>
+                <Button size="icon" variant="ghost" onClick={() => removeZone(z)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+              </>
+            )}
+          </div>
+        ))}
+        {zones.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Aucune zone.</p>}
+      </div>
+      <div className="flex gap-2 mt-3">
+        <Input placeholder="Nouvelle zone (ex: Zone 4)" value={newName} onChange={(e) => setNewName(e.target.value)} className="flex-1" />
+        <Input
+          type="number"
+          min={0}
+          placeholder="Prix (Ar)"
+          value={newPrix}
+          onChange={(e) => setNewPrix(e.target.value)}
+          className="w-32"
+        />
+        <Button onClick={addZone}><Plus className="h-4 w-4 mr-2" /> Ajouter</Button>
       </div>
     </div>
   );
