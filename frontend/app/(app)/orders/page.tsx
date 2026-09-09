@@ -316,6 +316,87 @@ export default function OrdersPage() {
           ? 'Commandes prêtes à récupérer, puis "Livré" ou "Retour" une fois la tournée faite.'
           : "Suivi complet des commandes clients (§5-§7.1 du cahier des charges).";
 
+  const gerantActionOptions = (order: any) => {
+    const options: {
+      value: string;
+      label: string;
+      target: string;
+      kind: "status" | "assign";
+      role?: "PREPARATEUR" | "LIVREUR";
+      icon?: any;
+    }[] = [
+      {
+        value: "assign-preparateur",
+        label: "Assigner un préparateur",
+        target: "EN_PREPARATION",
+        kind: "assign",
+        role: "PREPARATEUR",
+        icon: UserCheck,
+      },
+      {
+        value: "commencer-preparation",
+        label: "Commencer la préparation",
+        target: "EN_PREPARATION",
+        kind: "status",
+        icon: Package,
+      },
+      {
+        value: "commande-prete",
+        label: "Commande prête",
+        target: "PRETE",
+        kind: "status",
+        icon: Package,
+      },
+      {
+        value: "assign-livreur",
+        label: "Assigner un livreur",
+        target: "EN_LIVRAISON",
+        kind: "assign",
+        role: "LIVREUR",
+        icon: UserCheck,
+      },
+      {
+        value: "rendre-en-livraison",
+        label: "Récupérer / En livraison",
+        target: "EN_LIVRAISON",
+        kind: "status",
+        icon: Truck,
+      },
+      {
+        value: "livre",
+        label: "Livrée",
+        target: "LIVRE",
+        kind: "status",
+        icon: Truck,
+      },
+      {
+        value: "retour",
+        label: "Retour",
+        target: "RETOUR",
+        kind: "status",
+        icon: Undo2,
+      },
+      {
+        value: "retour-apres-livraison",
+        label: "Retour après livraison",
+        target: "RETOUR",
+        kind: "status",
+        icon: Undo2,
+      },
+    ];
+
+    if (order?.livraison_zone === "RECUPERATION") {
+      return options.filter(
+        (option) =>
+          !["assign-livreur", "rendre-en-livraison", "livre"].includes(
+            option.value,
+          ),
+      );
+    }
+
+    return options;
+  };
+
   const nextAction = (
     order: any,
   ): { label: string; target: string; icon: any; assign?: boolean } | null => {
@@ -341,34 +422,16 @@ export default function OrdersPage() {
         return { label: "Livré", target: "LIVRE", icon: Truck };
       return null;
     }
-    // Gérant : peut désigner un préparateur/livreur libre pour démarrer une
-    // étape, mais aussi faire progresser lui-même la commande à chaque étape
-    // suivante — exactement comme le préparateur/livreur le ferait (les
-    // retraits sur place se gèrent sur la page Récupération).
     if (isGerant) {
-      if (order.statut_courant === "NOUVELLE")
-        return {
-          label: "Assigner un préparateur",
-          target: "EN_PREPARATION",
-          icon: UserCheck,
-          assign: true,
-        };
-      if (order.statut_courant === "EN_PREPARATION")
-        return { label: "Commande prête", target: "PRETE", icon: Package };
-      if (
-        order.statut_courant === "PRETE" &&
-        order.livraison_zone !== "RECUPERATION"
-      ) {
-        return {
-          label: "Assigner un livreur",
-          target: "EN_LIVRAISON",
-          icon: UserCheck,
-          assign: true,
-        };
-      }
-      if (order.statut_courant === "EN_LIVRAISON")
-        return { label: "Livré", target: "LIVRE", icon: Truck };
-      return null;
+      const actions = gerantActionOptions(order);
+      if (actions.length === 0) return null;
+      const first = actions[0];
+      return {
+        label: first.label,
+        target: first.target,
+        icon: first.icon || Package,
+        assign: first.kind === "assign",
+      };
     }
     return null;
   };
@@ -385,7 +448,13 @@ export default function OrdersPage() {
     photo?: File,
   ) => {
     try {
-      await djangoClient.orders.changeStatus(order.id, target, note, assignee, photo);
+      await djangoClient.orders.changeStatus(
+        order.id,
+        target,
+        note,
+        assignee,
+        photo,
+      );
       toast.success(`Commande ${order.numero} → ${statutInfo(target).label}`);
       fetchOrders(true);
       setActionNote(null);
@@ -821,7 +890,9 @@ export default function OrdersPage() {
                             .join(", ")}
                         </TableCell>
                         <TableCell
-                          className={isLivreur ? undefined : "max-w-[180px] truncate"}
+                          className={
+                            isLivreur ? undefined : "max-w-[180px] truncate"
+                          }
                         >
                           {isLivreur
                             ? ZONES.find(
@@ -886,7 +957,45 @@ export default function OrdersPage() {
                         )}
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
-                            {action && (
+                            {isGerant && (
+                              <Select
+                                onValueChange={(value) => {
+                                  const option = gerantActionOptions(
+                                    order,
+                                  ).find((item) => item.value === value);
+                                  if (!option) return;
+
+                                  if (option.kind === "assign") {
+                                    setAssignTarget({
+                                      order,
+                                      role: option.role || "PREPARATEUR",
+                                    });
+                                    return;
+                                  }
+
+                                  setActionNote({
+                                    order,
+                                    target: option.target,
+                                    label: option.label,
+                                  });
+                                }}
+                              >
+                                <SelectTrigger className="h-8 w-[170px] text-xs">
+                                  <SelectValue placeholder="Action" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {gerantActionOptions(order).map((option) => (
+                                    <SelectItem
+                                      key={option.value}
+                                      value={option.value}
+                                    >
+                                      {option.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                            {!isGerant && action && (
                               <IconAction
                                 label={
                                   notYetDue
@@ -916,7 +1025,8 @@ export default function OrdersPage() {
                               />
                             )}
                             {(isLivreur || isGerant) &&
-                              order.statut_courant === "EN_LIVRAISON" && (
+                              order.statut_courant === "EN_LIVRAISON" &&
+                              !isGerant && (
                                 <IconAction
                                   label={
                                     notYetDue
@@ -1706,10 +1816,7 @@ function EditOrderDialog({
         Number(livreurId) !== order.livreur
       ) {
         try {
-          await djangoClient.orders.assignLivreur(
-            order.id,
-            Number(livreurId),
-          );
+          await djangoClient.orders.assignLivreur(order.id, Number(livreurId));
         } catch (assignErr: any) {
           toast.error(
             `Commande mise à jour, mais l'assignation du livreur a échoué : ${assignErr.message || "erreur inconnue"}`,
@@ -2376,7 +2483,9 @@ function CreateOrderDialog({
       }
       if (!assignmentFailed) {
         toast.success(
-          preparateurId || livreurId ? "Commande créée et assignée" : "Commande créée",
+          preparateurId || livreurId
+            ? "Commande créée et assignée"
+            : "Commande créée",
         );
       }
       onCreated();
@@ -2397,7 +2506,11 @@ function CreateOrderDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <OrderItemsEditor items={items} setItems={setItems} showPrices={showPrices} />
+        <OrderItemsEditor
+          items={items}
+          setItems={setItems}
+          showPrices={showPrices}
+        />
 
         {isPreparateur ? (
           <p className="text-xs text-muted-foreground -mt-2">

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -41,6 +42,8 @@ import {
   Pencil,
   Search,
   Package,
+  ShoppingCart,
+  Truck,
   RefreshCw,
   ArrowUpCircle,
   ArrowDownCircle,
@@ -82,6 +85,7 @@ export default function ProductsPage() {
   const [typeFilter, setTypeFilter] = useState<string>("ALL");
   const [brandFilter, setBrandFilter] = useState<string>("ALL");
   const [createOpen, setCreateOpen] = useState(false);
+  const [createOrderOpen, setCreateOrderOpen] = useState(false);
   const [catalogSettingsOpen, setCatalogSettingsOpen] = useState(false);
   const [bulkPriceOpen, setBulkPriceOpen] = useState(false);
   const [variantsOf, setVariantsOf] = useState<any | null>(null);
@@ -328,7 +332,9 @@ export default function ProductsPage() {
             // Ollama indisponible/hors service — l'import reste valide, on
             // marque juste la vérification comme non concluante.
             setImportReview((prev) =>
-              prev && prev.batchId === res.batch_id ? { ...prev, aiStatus: "done" } : prev,
+              prev && prev.batchId === res.batch_id
+                ? { ...prev, aiStatus: "done" }
+                : prev,
             );
           });
       }
@@ -372,7 +378,9 @@ export default function ProductsPage() {
     setCancellingImport(true);
     try {
       await djangoClient.catalog.importBatches.cancel(importReview.batchId);
-      toast.success("Import annulé — les données ajoutées/modifiées ont été retirées de la base.");
+      toast.success(
+        "Import annulé — les données ajoutées/modifiées ont été retirées de la base.",
+      );
       setImportReview(null);
       fetchAll();
     } catch (err: any) {
@@ -464,13 +472,22 @@ export default function ProductsPage() {
           )}
 
           {isGerant && (
-            <Button
-              size="sm"
-              onClick={() => setCreateOpen(true)}
-              className="h-10 px-4 font-medium"
-            >
-              <Plus className="h-4 w-4 mr-2" /> Nouvelle référence
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                onClick={() => setCreateOrderOpen(true)}
+                className="h-10 px-4 font-medium bg-slate-900 text-white hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
+              >
+                <ShoppingCart className="h-4 w-4 mr-2" /> Nouvelle commande
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => setCreateOpen(true)}
+                className="h-10 px-4 font-medium"
+              >
+                <Plus className="h-4 w-4 mr-2" /> Nouvelle référence
+              </Button>
+            </div>
           )}
         </div>
       </div>
@@ -688,6 +705,17 @@ export default function ProductsPage() {
       />
 
       {isGerant && (
+        <ProductCreateOrderDialog
+          open={createOrderOpen}
+          onOpenChange={setCreateOrderOpen}
+          onCreated={() => {
+            setCreateOrderOpen(false);
+            fetchAll();
+          }}
+        />
+      )}
+
+      {isGerant && (
         <CreateReferenceDialog
           open={createOpen}
           onOpenChange={setCreateOpen}
@@ -768,12 +796,16 @@ export default function ProductsPage() {
             <div className="space-y-3 text-sm">
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-md border p-3">
-                  <p className="font-medium text-green-700 dark:text-green-500">Ajouté</p>
+                  <p className="font-medium text-green-700 dark:text-green-500">
+                    Ajouté
+                  </p>
                   <p>{importReview.created_references} référence(s)</p>
                   <p>{importReview.created_variants} couleur(s)</p>
                 </div>
                 <div className="rounded-md border p-3">
-                  <p className="font-medium text-blue-700 dark:text-blue-500">Mis à jour</p>
+                  <p className="font-medium text-blue-700 dark:text-blue-500">
+                    Mis à jour
+                  </p>
                   <p>{importReview.updated_references} référence(s)</p>
                   <p>{importReview.updated_variants} couleur(s)</p>
                 </div>
@@ -781,24 +813,34 @@ export default function ProductsPage() {
 
               {importReview.new_reference_names.length > 0 && (
                 <div>
-                  <p className="text-muted-foreground">Nouvelles références :</p>
-                  <p className="line-clamp-3">{importReview.new_reference_names.join(", ")}</p>
+                  <p className="text-muted-foreground">
+                    Nouvelles références :
+                  </p>
+                  <p className="line-clamp-3">
+                    {importReview.new_reference_names.join(", ")}
+                  </p>
                 </div>
               )}
               {importReview.updated_reference_names.length > 0 && (
                 <div>
-                  <p className="text-muted-foreground">Références mises à jour :</p>
-                  <p className="line-clamp-3">{importReview.updated_reference_names.join(", ")}</p>
+                  <p className="text-muted-foreground">
+                    Références mises à jour :
+                  </p>
+                  <p className="line-clamp-3">
+                    {importReview.updated_reference_names.join(", ")}
+                  </p>
                 </div>
               )}
               {importReview.skipped_count > 0 && (
                 <p className="text-muted-foreground">
-                  {importReview.skipped_count} ligne(s) déjà traitée(s) ignorée(s).
+                  {importReview.skipped_count} ligne(s) déjà traitée(s)
+                  ignorée(s).
                 </p>
               )}
               {importReview.errors_count > 0 && (
                 <p className="text-red-600 dark:text-red-500">
-                  {importReview.errors_count} ligne(s) en erreur — voir le fichier téléchargé.
+                  {importReview.errors_count} ligne(s) en erreur — voir le
+                  fichier téléchargé.
                 </p>
               )}
 
@@ -808,22 +850,29 @@ export default function ProductsPage() {
                   <p className="text-muted-foreground">Analyse en cours…</p>
                 )}
                 {importReview.aiStatus === "skipped" && (
-                  <p className="text-muted-foreground">Aucune nouvelle référence à vérifier.</p>
+                  <p className="text-muted-foreground">
+                    Aucune nouvelle référence à vérifier.
+                  </p>
                 )}
-                {importReview.aiStatus === "done" && importReview.aiWarnings.length === 0 && (
-                  <p className="text-muted-foreground">Aucun doublon suspect détecté.</p>
-                )}
-                {importReview.aiStatus === "done" && importReview.aiWarnings.length > 0 && (
-                  <ul className="space-y-1">
-                    {importReview.aiWarnings.map((w, i) => (
-                      <li key={i}>
-                        <span className="font-medium">"{w.nouvelle}"</span> ressemble à{" "}
-                        <span className="font-medium">"{w.ressemble_a}"</span>
-                        {w.raison ? ` — ${w.raison}` : ""}
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                {importReview.aiStatus === "done" &&
+                  importReview.aiWarnings.length === 0 && (
+                    <p className="text-muted-foreground">
+                      Aucun doublon suspect détecté.
+                    </p>
+                  )}
+                {importReview.aiStatus === "done" &&
+                  importReview.aiWarnings.length > 0 && (
+                    <ul className="space-y-1">
+                      {importReview.aiWarnings.map((w, i) => (
+                        <li key={i}>
+                          <span className="font-medium">"{w.nouvelle}"</span>{" "}
+                          ressemble à{" "}
+                          <span className="font-medium">"{w.ressemble_a}"</span>
+                          {w.raison ? ` — ${w.raison}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
               </div>
             </div>
           )}
@@ -836,7 +885,11 @@ export default function ProductsPage() {
             >
               {cancellingImport ? "Annulation..." : "Annuler l'import"}
             </Button>
-            <Button variant="outline" onClick={handleEditImport} disabled={cancellingImport}>
+            <Button
+              variant="outline"
+              onClick={handleEditImport}
+              disabled={cancellingImport}
+            >
               Modifier
             </Button>
             <Button onClick={handleConfirmImport} disabled={cancellingImport}>
@@ -1524,7 +1577,9 @@ function CreateReferenceDialog({
   // formulaire saisit directement une quantité (voir Paramètres du
   // catalogue).
   const selectedCategory = categories.find((c) => String(c.id) === categoryId);
-  const avecCouleurs = selectedCategory ? selectedCategory.avec_couleurs !== false : true;
+  const avecCouleurs = selectedCategory
+    ? selectedCategory.avec_couleurs !== false
+    : true;
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1894,6 +1949,693 @@ function CreateReferenceDialog({
   );
 }
 
+const ZONES = [
+  { value: "ZONE1", label: "Zone 1 (3 000 Ar)", frais: 3000 },
+  { value: "ZONE2", label: "Zone 2 (4 000 Ar)", frais: 4000 },
+  { value: "ZONE3", label: "Zone 3 (5 000 Ar)", frais: 5000 },
+  { value: "RECUPERATION", label: "Récupération (0 Ar)", frais: 0 },
+];
+
+const MODE_PAIEMENT = [
+  { value: "AVANT", label: "Paiement avant la livraison" },
+  { value: "LIVRAISON", label: "Paiement à la livraison" },
+];
+
+interface ProductCartItem {
+  key: string;
+  type_id: number;
+  type_name: string;
+  reference_id: number;
+  reference_label: string;
+  prix_vente: number;
+  variant_id: number;
+  couleur: string;
+  stock_actuel: number;
+  quantite: number;
+}
+
+function ProductOrderItemsEditor({
+  items,
+  setItems,
+  showPrices,
+}: {
+  items: ProductCartItem[];
+  setItems: React.Dispatch<React.SetStateAction<ProductCartItem[]>>;
+  showPrices: boolean;
+}) {
+  const [categories, setCategories] = useState<any[]>([]);
+  const [types, setTypes] = useState<any[]>([]);
+  const [brands, setBrands] = useState<any[]>([]);
+  const [categoryId, setCategoryId] = useState<number | null>(null);
+  const [typeId, setTypeId] = useState<number | null>(null);
+  const [brandId, setBrandId] = useState<number | null>(null);
+  const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [selectedRef, setSelectedRef] = useState<any | null>(null);
+  const [variantId, setVariantId] = useState<number | null>(null);
+  const [quantite, setQuantite] = useState("");
+
+  useEffect(() => {
+    djangoClient.catalog.categories
+      .list()
+      .then(setCategories)
+      .catch(() => {});
+    djangoClient.catalog.types
+      .list()
+      .then(setTypes)
+      .catch(() => {});
+    djangoClient.catalog.brands
+      .list()
+      .then(setBrands)
+      .catch(() => {});
+  }, []);
+
+  const typesForCategory = categoryId
+    ? types.filter((t) => t.category === categoryId)
+    : types;
+
+  useEffect(() => {
+    if (!query && !typeId && !brandId && !categoryId) {
+      setSuggestions([]);
+      return;
+    }
+    setSearching(true);
+    const t = setTimeout(() => {
+      djangoClient.catalog.references
+        .autocomplete(query, {
+          type: typeId ?? undefined,
+          brand: brandId ?? undefined,
+          category: categoryId ?? undefined,
+        })
+        .then(setSuggestions)
+        .catch(() => setSuggestions([]))
+        .finally(() => setSearching(false));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [query, typeId, brandId, categoryId]);
+
+  const addItem = () => {
+    if (!selectedRef || !variantId) {
+      toast.error("Sélectionnez une référence et une couleur");
+      return;
+    }
+    const variant = selectedRef.couleurs.find(
+      (c: any) => c.variant_id === variantId,
+    );
+    if (!variant) return;
+    const qty = Number(quantite);
+    if (!qty || qty < 1) {
+      toast.error("Quantité invalide");
+      return;
+    }
+    if (qty > variant.stock_actuel) {
+      toast.error(`Stock insuffisant (disponible: ${variant.stock_actuel})`);
+      return;
+    }
+    setItems((prev) => [
+      ...prev,
+      {
+        key: `${variantId}-${Date.now()}`,
+        type_id: selectedRef.type,
+        type_name: selectedRef.type_name,
+        reference_id: selectedRef.id,
+        reference_label: `${selectedRef.brand_name} ${selectedRef.reference_name}`,
+        prix_vente: Number(selectedRef.prix_vente),
+        variant_id: variantId,
+        couleur: variant.couleur,
+        stock_actuel: variant.stock_actuel,
+        quantite: qty,
+      },
+    ]);
+    setQuery("");
+    setSuggestions([]);
+    setSelectedRef(null);
+    setVariantId(null);
+    setQuantite("");
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
+        <p className="text-sm font-medium">Ajouter un article</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <Select
+            value={categoryId ? String(categoryId) : ""}
+            onValueChange={(v) => {
+              setCategoryId(Number(v));
+              setTypeId(null);
+            }}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Catégorie" />
+            </SelectTrigger>
+            <SelectContent>
+              {categories.map((c) => (
+                <SelectItem key={c.id} value={String(c.id)}>
+                  {c.nom}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={typeId ? String(typeId) : ""}
+            onValueChange={(v) => setTypeId(Number(v))}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Sous-type" />
+            </SelectTrigger>
+            <SelectContent>
+              {typesForCategory.map((t) => (
+                <SelectItem key={t.id} value={String(t.id)}>
+                  {t.nom}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={brandId ? String(brandId) : ""}
+            onValueChange={(v) => setBrandId(Number(v))}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Marque" />
+            </SelectTrigger>
+            <SelectContent>
+              {brands.map((b) => (
+                <SelectItem key={b.id} value={String(b.id)}>
+                  {b.nom}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {(categoryId || typeId || brandId) && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">Filtres :</span>
+            {categoryId && (
+              <Badge variant="secondary" className="gap-1">
+                {categories.find((c) => c.id === categoryId)?.nom}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCategoryId(null);
+                    setTypeId(null);
+                  }}
+                >
+                  ×
+                </button>
+              </Badge>
+            )}
+            {typeId && (
+              <Badge variant="secondary" className="gap-1">
+                {types.find((t) => t.id === typeId)?.nom}
+                <button type="button" onClick={() => setTypeId(null)}>
+                  ×
+                </button>
+              </Badge>
+            )}
+            {brandId && (
+              <Badge variant="secondary" className="gap-1">
+                {brands.find((b) => b.id === brandId)?.nom}
+                <button type="button" onClick={() => setBrandId(null)}>
+                  ×
+                </button>
+              </Badge>
+            )}
+          </div>
+        )}
+
+        <div className="relative">
+          <Input
+            placeholder="Rechercher une référence (ex: A15)"
+            value={
+              selectedRef
+                ? `${selectedRef.brand_name} ${selectedRef.reference_name}`
+                : query
+            }
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setSelectedRef(null);
+              setVariantId(null);
+            }}
+          />
+          {!selectedRef && (query || typeId || brandId || categoryId) && (
+            <div className="absolute z-10 mt-1 w-full bg-background border rounded-md shadow-md max-h-56 overflow-y-auto">
+              {searching ? (
+                <p className="px-3 py-2 text-sm text-muted-foreground">
+                  Recherche…
+                </p>
+              ) : suggestions.length === 0 ? (
+                <p className="px-3 py-2 text-sm text-muted-foreground">
+                  Aucun résultat pour cette sélection.
+                </p>
+              ) : (
+                suggestions.map((s) => (
+                  <button
+                    type="button"
+                    key={s.id}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex justify-between"
+                    onClick={() => {
+                      setSelectedRef(s);
+                      setQuery("");
+                      setSuggestions([]);
+                    }}
+                  >
+                    <span>
+                      {s.brand_name} {s.reference_name}{" "}
+                      <span className="text-muted-foreground">
+                        ({s.type_name})
+                      </span>
+                    </span>
+                    {showPrices && <span>{fmt(s.prix_vente)}</span>}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+
+        {selectedRef && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+            <div className="space-y-1">
+              <Label>Couleur</Label>
+              <Select
+                value={variantId ? String(variantId) : ""}
+                onValueChange={(v) => setVariantId(Number(v))}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Couleur" />
+                </SelectTrigger>
+                <SelectContent>
+                  {selectedRef.couleurs.map((c: any) => (
+                    <SelectItem
+                      key={c.variant_id}
+                      value={String(c.variant_id)}
+                      disabled={c.stock_actuel <= 0}
+                    >
+                      {c.couleur} (stock: {c.stock_actuel})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Quantité</Label>
+              <Input
+                type="number"
+                min={1}
+                placeholder="Ex: 1"
+                value={quantite}
+                onChange={(e) => setQuantite(e.target.value)}
+              />
+            </div>
+            {showPrices && (
+              <div className="space-y-1">
+                <Label>Prix (Ar)</Label>
+                <Input value={fmt(selectedRef.prix_vente)} readOnly disabled />
+              </div>
+            )}
+            <Button
+              type="button"
+              className="sm:col-span-3"
+              variant="secondary"
+              onClick={addItem}
+            >
+              <Plus className="h-4 w-4 mr-2" /> Ajouter à la commande
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {items.length > 0 && (
+        <div className="space-y-2">
+          {items.map((it, idx) => (
+            <div
+              key={it.key}
+              className="flex items-center justify-between text-sm border rounded-md px-3 py-2"
+            >
+              <span>
+                {it.reference_label} ({it.couleur}) x{it.quantite}
+              </span>
+              <div className="flex items-center gap-3">
+                {showPrices && <span>{fmt(it.prix_vente * it.quantite)}</span>}
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() =>
+                    setItems((prev) => prev.filter((_, i) => i !== idx))
+                  }
+                >
+                  <Trash2 className="h-4 w-4 text-red-500" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProductCreateOrderDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  onCreated: () => void;
+}) {
+  const { isPreparateur } = useCurrentUser();
+  const showPrices = !isPreparateur;
+  const [clientNom, setClientNom] = useState("");
+  const [telephone, setTelephone] = useState("+261");
+  const [zone, setZone] = useState("ZONE1");
+  const [adresseLivraison, setAdresseLivraison] = useState("");
+  const [modePaiement, setModePaiement] = useState("LIVRAISON");
+  const [dateCommande, setDateCommande] = useState("");
+  const [notePreparateur, setNotePreparateur] = useState("");
+  const [noteLivreur, setNoteLivreur] = useState("");
+  const [items, setItems] = useState<ProductCartItem[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [preparateurId, setPreparateurId] = useState("");
+  const [livreurId, setLivreurId] = useState("");
+  const [preparateurs, setPreparateurs] = useState<any[]>([]);
+  const [livreurs, setLivreurs] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!isPreparateur) {
+      djangoClient.orders
+        .availableStaff("PREPARATEUR")
+        .then(setPreparateurs)
+        .catch(() => setPreparateurs([]));
+    }
+    setClientNom("");
+    setTelephone("+261");
+    setZone(isPreparateur ? "RECUPERATION" : "ZONE1");
+    setAdresseLivraison("");
+    setModePaiement("LIVRAISON");
+    setDateCommande(new Date().toISOString().slice(0, 16));
+    setNotePreparateur("");
+    setNoteLivreur("");
+    setItems([]);
+    setPreparateurId("");
+    setLivreurId("");
+  }, [open, isPreparateur]);
+
+  useEffect(() => {
+    if (!open || isPreparateur) return;
+    const iso = dateCommande ? new Date(dateCommande).toISOString() : undefined;
+    djangoClient.orders
+      .availableStaff("LIVREUR", undefined, iso)
+      .then(setLivreurs)
+      .catch(() => setLivreurs([]));
+  }, [open, isPreparateur, dateCommande]);
+
+  const zoneInfo = ZONES.find((z) => z.value === zone)!;
+  const itemsTotal = items.reduce(
+    (s, it) => s + it.prix_vente * it.quantite,
+    0,
+  );
+  const total = itemsTotal + zoneInfo.frais;
+
+  const submit = async () => {
+    if (!clientNom.trim()) {
+      toast.error("Nom du client requis");
+      return;
+    }
+    if (!/^\+261\d{9}$/.test(telephone)) {
+      toast.error("Téléphone au format +261XXXXXXXXX");
+      return;
+    }
+    if (items.length === 0) {
+      toast.error("Ajoutez au moins un article");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const order = await djangoClient.orders.create({
+        client_nom: clientNom.trim(),
+        telephone,
+        livraison_zone: zone as any,
+        adresse_livraison: adresseLivraison.trim(),
+        mode_paiement: modePaiement as any,
+        ...(dateCommande
+          ? { date_commande: new Date(dateCommande).toISOString() }
+          : {}),
+        note_preparateur: notePreparateur,
+        note_livreur: zone === "RECUPERATION" ? "" : noteLivreur,
+        items: items.map((it) => ({
+          product_variant: it.variant_id,
+          quantite: it.quantite,
+        })),
+      });
+      let assignmentFailed = false;
+      if (preparateurId) {
+        try {
+          await djangoClient.orders.assignPreparateur(
+            order.id,
+            Number(preparateurId),
+          );
+        } catch (assignErr: any) {
+          assignmentFailed = true;
+          toast.error(
+            `Commande créée, mais l'assignation du préparateur a échoué : ${assignErr.message || "erreur inconnue"} ` +
+              "(à assigner depuis le tableau).",
+          );
+        }
+      }
+      if (livreurId) {
+        try {
+          await djangoClient.orders.assignLivreur(order.id, Number(livreurId));
+        } catch (assignErr: any) {
+          assignmentFailed = true;
+          toast.error(
+            `Commande créée, mais l'assignation du livreur a échoué : ${assignErr.message || "erreur inconnue"} ` +
+              "(à assigner depuis le tableau).",
+          );
+        }
+      }
+      if (!assignmentFailed) {
+        toast.success(
+          preparateurId || livreurId
+            ? "Commande créée et assignée"
+            : "Commande créée",
+        );
+      }
+      onCreated();
+      onOpenChange(false);
+    } catch (err: any) {
+      toast.error(err.message || "Erreur lors de la création");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Nouvelle commande</DialogTitle>
+          <DialogDescription>
+            Vente Facebook ou sur place — §6 du cahier des charges.
+          </DialogDescription>
+        </DialogHeader>
+
+        <ProductOrderItemsEditor
+          items={items}
+          setItems={setItems}
+          showPrices={showPrices}
+        />
+
+        {isPreparateur ? (
+          <p className="text-xs text-muted-foreground -mt-2">
+            Retrait sur place uniquement — la commande apparaîtra dans
+            "Récupérations" une fois prête, à valider comme livrée au comptoir
+            par le gérant.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            <Label>Type de commande</Label>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={zone !== "RECUPERATION" ? "default" : "outline"}
+                className="flex-1"
+                onClick={() => setZone("ZONE1")}
+              >
+                <Truck className="h-4 w-4 mr-2" /> À livrer
+              </Button>
+              <Button
+                type="button"
+                variant={zone === "RECUPERATION" ? "default" : "outline"}
+                className="flex-1"
+                onClick={() => setZone("RECUPERATION")}
+              >
+                <Package className="h-4 w-4 mr-2" /> Récupération sur place
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <Label>Date et heure de la commande</Label>
+          <Input
+            type="datetime-local"
+            value={dateCommande}
+            onChange={(e) => setDateCommande(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">Vide = maintenant.</p>
+        </div>
+
+        {!isPreparateur && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Préparateur</Label>
+              <Select value={preparateurId} onValueChange={setPreparateurId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Assigner plus tard" />
+                </SelectTrigger>
+                <SelectContent>
+                  {preparateurs.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>
+                      {p.full_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Livreur</Label>
+              <Select value={livreurId} onValueChange={setLivreurId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Assigner plus tard" />
+                </SelectTrigger>
+                <SelectContent>
+                  {livreurs.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>
+                      {p.full_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        )}
+
+        {zone !== "RECUPERATION" && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>Zone de livraison</Label>
+              <Select value={zone} onValueChange={setZone}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ZONES.filter((z) => z.value !== "RECUPERATION").map((z) => (
+                    <SelectItem key={z.value} value={z.value}>
+                      {z.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Adresse de livraison</Label>
+              <Input
+                value={adresseLivraison}
+                onChange={(e) => setAdresseLivraison(e.target.value)}
+                placeholder="Ex: Lot II M 45 Antanimena, Antananarivo"
+              />
+            </div>
+          </div>
+        )}
+
+        {zone !== "RECUPERATION" && (
+          <div className="space-y-2">
+            <Label>Paiement</Label>
+            <Select value={modePaiement} onValueChange={setModePaiement}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {MODE_PAIEMENT.map((m) => (
+                  <SelectItem key={m.value} value={m.value}>
+                    {m.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Nom client</Label>
+            <Input
+              value={clientNom}
+              onChange={(e) => setClientNom(e.target.value)}
+              placeholder="Rakoto Jean"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Téléphone</Label>
+            <Input
+              value={telephone}
+              onChange={(e) => setTelephone(e.target.value)}
+              placeholder="+261340000000"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label>
+            {isPreparateur
+              ? "Note (optionnel)"
+              : "Note pour le préparateur (optionnel)"}
+          </Label>
+          <Textarea
+            value={notePreparateur}
+            onChange={(e) => setNotePreparateur(e.target.value)}
+          />
+        </div>
+        {!isPreparateur && zone !== "RECUPERATION" && (
+          <div className="space-y-2">
+            <Label>Note pour le livreur (optionnel)</Label>
+            <Textarea
+              value={noteLivreur}
+              onChange={(e) => setNoteLivreur(e.target.value)}
+            />
+          </div>
+        )}
+        {showPrices && (
+          <>
+            <div className="flex justify-between items-center border-t pt-3 text-sm">
+              <span>Frais de livraison</span>
+              <span>{fmt(zoneInfo.frais)}</span>
+            </div>
+            <div className="flex justify-between items-center font-semibold">
+              <span>Total à payer</span>
+              <span>{fmt(total)}</span>
+            </div>
+          </>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Annuler
+          </Button>
+          <Button onClick={submit} disabled={submitting}>
+            {submitting ? "Création…" : "Créer la commande"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // Marques de téléphones courantes (§8.1 du cahier des charges) — proposées
 // en un clic pour éviter de les retaper à chaque nouvelle référence produit.
 const SUGGESTED_BRANDS = [
@@ -1998,8 +2740,8 @@ function CatalogSettingsDialog({
         <DialogHeader>
           <DialogTitle>Paramètres du catalogue</DialogTitle>
           <DialogDescription>
-            Marques, catégories et couleurs utilisés dans le catalogue
-            produits (§8 du cahier des charges).
+            Marques, catégories et couleurs utilisés dans le catalogue produits
+            (§8 du cahier des charges).
           </DialogDescription>
         </DialogHeader>
 
@@ -2401,8 +3143,8 @@ function CategoriesTypesCrud({
           </Button>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          « Avec couleurs » : housse, cache écran… « Sans couleurs » :
-          chargeur, écouteur… — une seule quantité par référence.
+          « Avec couleurs » : housse, cache écran… « Sans couleurs » : chargeur,
+          écouteur… — une seule quantité par référence.
         </p>
       </div>
 
@@ -2435,7 +3177,9 @@ function CategoriesTypesCrud({
                   <Tag className="h-4 w-4 text-muted-foreground" />
                   <span className="flex-1 text-sm font-semibold">{c.nom}</span>
                   <Badge
-                    variant={c.avec_couleurs !== false ? "secondary" : "outline"}
+                    variant={
+                      c.avec_couleurs !== false ? "secondary" : "outline"
+                    }
                     className="cursor-pointer gap-1 font-normal"
                     onClick={() => toggleAvecCouleurs(c)}
                   >
