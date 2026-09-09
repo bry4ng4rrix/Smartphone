@@ -2043,32 +2043,6 @@ function EditOrderDialog({
 
         <OrderItemsEditor items={items} setItems={setItems} showPrices />
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label>Nom client</Label>
-            <Input
-              value={clientNom}
-              onChange={(e) => setClientNom(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Téléphone</Label>
-            <Input
-              value={telephone}
-              onChange={(e) => setTelephone(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label>Date et heure de livraison</Label>
-          <Input
-            type="datetime-local"
-            value={dateCommande}
-            onChange={(e) => setDateCommande(e.target.value)}
-          />
-        </div>
-
         <div className="space-y-2">
           <Label>Type de commande</Label>
           <div className="flex gap-2">
@@ -2093,6 +2067,32 @@ function EditOrderDialog({
             >
               <Package className="h-4 w-4 mr-2" /> Récupération sur place
             </Button>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Date et heure de livraison</Label>
+          <Input
+            type="datetime-local"
+            value={dateCommande}
+            onChange={(e) => setDateCommande(e.target.value)}
+          />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Nom client</Label>
+            <Input
+              value={clientNom}
+              onChange={(e) => setClientNom(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Téléphone</Label>
+            <Input
+              value={telephone}
+              onChange={(e) => setTelephone(e.target.value)}
+            />
           </div>
         </div>
 

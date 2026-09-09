@@ -338,7 +338,7 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
             ),
             const SizedBox(height: 18),
             Text(
-              'Date et heure de la commande',
+              'Date et heure de livraison',
               style: Theme.of(
                 context,
               ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),

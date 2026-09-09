@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../../core/api_client.dart';
+import '../../models/delivery_zone.dart';
 import '../../models/order.dart';
 
 /// Un préparateur/livreur du magasin, pour le sélecteur d'affectation du

@@ -11,6 +11,7 @@ import '../../widgets/assign_staff_dialog.dart';
 import '../../widgets/async_state_widgets.dart';
 import '../../widgets/order_confirm_dialog.dart';
 import '../../widgets/status_badge.dart';
+import 'orders_list_screen.dart' show EditOrderDialog;
 
 final _moneyFmt = NumberFormat.decimalPattern('fr_FR');
 String _ar(num v) => '${_moneyFmt.format(v.round())} Ar';
@@ -73,8 +74,31 @@ class OrderDetailScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(orderDetailProvider(orderId));
 
+    // Bouton "Modifier" directement depuis le détail (§ demande) — même
+    // fenêtre d'édition que la liste, et mêmes statuts autorisés que côté
+    // serveur (voir orders/services.py::_EDITABLE_STATUSES).
+    final order = async.asData?.value;
+    final canEdit =
+        order != null && [OrderStatus.nouvelle, OrderStatus.enPreparation].contains(order.statutCourant);
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Détail commande')),
+      appBar: AppBar(
+        title: const Text('Détail commande'),
+        actions: [
+          if (canEdit)
+            IconButton(
+              tooltip: 'Modifier la commande',
+              icon: const Icon(Icons.edit_outlined),
+              onPressed: () async {
+                await showDialog<void>(
+                  context: context,
+                  builder: (_) => EditOrderDialog(order: order),
+                );
+                ref.invalidate(orderDetailProvider(orderId));
+              },
+            ),
+        ],
+      ),
       body: switch (async) {
         AsyncData(:final value) => _OrderDetailBody(order: value),
         AsyncError(:final error) => ErrorState(
@@ -236,8 +260,21 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
                 _InfoRow(icon: Icons.local_shipping_outlined, label: 'Zone', value: order.livraisonZone.label),
                 if (order.adresseLivraison != null && order.adresseLivraison!.isNotEmpty)
                   _InfoRow(icon: Icons.place_outlined, label: 'Adresse', value: order.adresseLivraison!),
+                // La date de création est automatique et immuable ; la date
+                // saisie par le gérant, elle, est la livraison prévue
+                // (§ demande — voir aussi page.tsx côté web).
+                if (order.createdAt != null)
+                  _InfoRow(
+                    icon: Icons.add_shopping_cart_outlined,
+                    label: 'Commande créée le',
+                    value: DateFormat('dd/MM/yyyy HH:mm').format(order.createdAt!.toLocal()),
+                  ),
                 if (order.dateCommande != null)
-                  _InfoRow(icon: Icons.event_outlined, label: 'Date commande', value: DateFormat('dd/MM/yyyy HH:mm').format(order.dateCommande!.toLocal())),
+                  _InfoRow(
+                    icon: Icons.event_outlined,
+                    label: 'Livraison prévue le',
+                    value: DateFormat('dd/MM/yyyy HH:mm').format(order.dateCommande!.toLocal()),
+                  ),
                 if (order.livraisonZone != DeliveryZone.recuperation)
                   _InfoRow(icon: Icons.payments_outlined, label: 'Paiement', value: order.modePaiement.label),
                 if (order.preparateurName != null)

@@ -219,7 +219,7 @@ class _OrderTile extends ConsumerWidget {
   final Order order;
 
   Future<void> _edit(BuildContext context, WidgetRef ref) async {
-    await showDialog<void>(context: context, builder: (_) => _EditOrderDialog(order: order));
+    await showDialog<void>(context: context, builder: (_) => EditOrderDialog(order: order));
   }
 
   Future<void> _delete(BuildContext context, WidgetRef ref) async {
@@ -333,15 +333,15 @@ class _OrderTile extends ConsumerWidget {
 /// accessible qu'à lui, voir nav_items.dart) : rien n'est encore
 /// préparé/déduit du stock à ce stade, donc les articles restent librement
 /// modifiables (voir orders/views.py::partial_update).
-class _EditOrderDialog extends ConsumerStatefulWidget {
-  const _EditOrderDialog({required this.order});
+class EditOrderDialog extends ConsumerStatefulWidget {
+  const EditOrderDialog({required this.order});
   final Order order;
 
   @override
-  ConsumerState<_EditOrderDialog> createState() => _EditOrderDialogState();
+  ConsumerState<EditOrderDialog> createState() => _EditOrderDialogState();
 }
 
-class _EditOrderDialogState extends ConsumerState<_EditOrderDialog> {
+class _EditOrderDialogState extends ConsumerState<EditOrderDialog> {
   late final _clientController = TextEditingController(text: widget.order.clientNom);
   late final _phoneController = TextEditingController(text: widget.order.telephone ?? '+261');
   late final _adresseController = TextEditingController(text: widget.order.adresseLivraison ?? '');
