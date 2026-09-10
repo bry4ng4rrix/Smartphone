@@ -256,20 +256,27 @@ export default function OrdersPage() {
   // Onglet "Historique" (préparateur/livreur) — journal de leurs commandes
   // déjà traitées, tous statuts, filtrable par date/heure.
   const [viewMode, setViewMode] = useState<"ACTIF" | "HISTORIQUE">("ACTIF");
-  const [historiqueFrom, setHistoriqueFrom] = useState("");
-  const [historiqueTo, setHistoriqueTo] = useState("");
+  // Tous les filtres de date s'ouvrent sur le JOUR J — la date du jour à
+  // Antananarivo (§ demande). C'est la journée de travail en cours : gérant,
+  // préparateur et livreur arrivent donc sur ce qu'ils ont à traiter
+  // aujourd'hui, sans avoir à filtrer eux-mêmes. Ils restent libres de
+  // changer la date, et "Réinitialiser" les ramène au jour J.
+  const [historiqueFrom, setHistoriqueFrom] = useState(
+    () => `${appToday()}T00:00`,
+  );
+  const [historiqueTo, setHistoriqueTo] = useState(() => `${appToday()}T23:59`);
   const [historiqueStatut, setHistoriqueStatut] = useState("ALL");
   // Filtres gérant : date (un seul jour, pas de plage Du/Au) + préparateur assigné.
-  const [gerantDate, setGerantDate] = useState("");
+  const [gerantDate, setGerantDate] = useState(() => appToday());
   const [preparateurFilterId, setPreparateurFilterId] = useState("");
   const [preparateurFilterList, setPreparateurFilterList] = useState<
     { id: number; full_name: string }[]
   >([]);
   // Filtres livreur (vue "Ma tournée") : statut + date (un seul jour).
   const [livreurStatutFilter, setLivreurStatutFilter] = useState("ALL");
-  const [livreurDate, setLivreurDate] = useState("");
+  const [livreurDate, setLivreurDate] = useState(() => appToday());
   // Filtre préparateur (vue "À préparer"/"Récupérations") : date (un seul jour).
-  const [preparateurDate, setPreparateurDate] = useState("");
+  const [preparateurDate, setPreparateurDate] = useState(() => appToday());
 
   useEffect(() => {
     if (!isGerant) return;
@@ -297,9 +304,9 @@ export default function OrdersPage() {
         if ((isPreparateur || isLivreur) && viewMode === "HISTORIQUE") {
           filters.historique = true;
           if (historiqueFrom)
-            filters.date_from = new Date(historiqueFrom).toISOString();
+            filters.date_from = appDatetimeLocalToIso(historiqueFrom);
           if (historiqueTo)
-            filters.date_to = new Date(historiqueTo).toISOString();
+            filters.date_to = appDatetimeLocalToIso(historiqueTo);
           if (historiqueStatut !== "ALL") filters.statut = historiqueStatut;
         }
         if (isPreparateur && viewMode === "ACTIF" && preparateurDate) {
@@ -730,13 +737,15 @@ export default function OrdersPage() {
               className="w-full"
             />
           </div>
-          {(livreurStatutFilter !== "ALL" || livreurDate || searchQuery) && (
+          {(livreurStatutFilter !== "ALL" ||
+            livreurDate !== appToday() ||
+            searchQuery) && (
             <Button
               variant="ghost"
               size="sm"
               onClick={() => {
                 setLivreurStatutFilter("ALL");
-                setLivreurDate("");
+                setLivreurDate(appToday());
                 setSearchQuery("");
               }}
             >
@@ -766,12 +775,12 @@ export default function OrdersPage() {
               className="w-full"
             />
           </div>
-          {(preparateurDate || searchQuery) && (
+          {(preparateurDate !== appToday() || searchQuery) && (
             <Button
               variant="ghost"
               size="sm"
               onClick={() => {
-                setPreparateurDate("");
+                setPreparateurDate(appToday());
                 setSearchQuery("");
               }}
             >
@@ -812,13 +821,15 @@ export default function OrdersPage() {
               </SelectContent>
             </Select>
           </div>
-          {(historiqueFrom || historiqueTo || historiqueStatut !== "ALL") && (
+          {(historiqueFrom !== `${appToday()}T00:00` ||
+            historiqueTo !== `${appToday()}T23:59` ||
+            historiqueStatut !== "ALL") && (
             <Button
               variant="ghost"
               size="sm"
               onClick={() => {
-                setHistoriqueFrom("");
-                setHistoriqueTo("");
+                setHistoriqueFrom(`${appToday()}T00:00`);
+                setHistoriqueTo(`${appToday()}T23:59`);
                 setHistoriqueStatut("ALL");
               }}
             >
@@ -912,7 +923,7 @@ export default function OrdersPage() {
               className="w-full"
             />
           </div>
-          {(gerantDate ||
+          {(gerantDate !== appToday() ||
             preparateurFilterId ||
             statutFilter !== "ALL" ||
             searchQuery) && (
@@ -920,7 +931,7 @@ export default function OrdersPage() {
               variant="ghost"
               size="sm"
               onClick={() => {
-                setGerantDate("");
+                setGerantDate(appToday());
                 setPreparateurFilterId("");
                 setStatutFilter("ALL");
                 setSearchQuery("");

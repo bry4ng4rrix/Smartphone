@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/app_time.dart';
 import '../data/repositories/orders_repository.dart';
 import '../models/delivery_zone.dart';
 import '../models/order.dart';
@@ -63,9 +64,18 @@ class OrdersFilter {
   }
 }
 
+/// Filtre par défaut : le JOUR J, c'est-à-dire la date du jour à
+/// Antananarivo (§ demande — même règle que le web). Gérant, préparateur et
+/// livreur arrivent ainsi sur la journée de travail en cours ; ils restent
+/// libres de changer de date, et « Effacer » les ramène ici.
+OrdersFilter jourJFilter() {
+  final jour = appToday();
+  return OrdersFilter(dateDebut: jour, dateFin: jour);
+}
+
 class OrdersFilterNotifier extends Notifier<OrdersFilter> {
   @override
-  OrdersFilter build() => const OrdersFilter();
+  OrdersFilter build() => jourJFilter();
 
   void set(OrdersFilter filter) => state = filter;
 }

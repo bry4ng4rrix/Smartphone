@@ -49,7 +49,9 @@ class _DepotScreenState extends ConsumerState<DepotScreen> {
     ref.read(ordersFilterProvider.notifier).set(filter.copyWith(dateDebut: date, dateFin: date));
   }
 
-  void _clearDate() => ref.read(ordersFilterProvider.notifier).set(const OrdersFilter());
+  // « Effacer » ramène au jour J, la valeur par défaut — pas à « aucune
+  // date », qui afficherait tout l'historique du préparateur.
+  void _clearDate() => ref.read(ordersFilterProvider.notifier).set(jourJFilter());
 
   @override
   Widget build(BuildContext context) {
