@@ -1309,10 +1309,15 @@ export default function OrdersPage() {
               <DialogHeader>
                 <div className="flex items-center justify-between gap-2 pr-6">
                   <DialogTitle>Commande {detail.numero}</DialogTitle>
+                  {/* Le gérant ne voit "Modifier" que tant que rien n'a
+                      commencé (Nouvelle). Dès que la préparation démarre, ce
+                      bouton laisse la place au sélecteur d'actions, le même
+                      que dans le tableau (§ demande) : à ce stade on fait
+                      avancer la commande, on ne la retouche plus. Les
+                      statuts terminaux n'ont ni l'un ni l'autre —
+                      gerantActionOptions renvoie une liste vide. */}
                   {isGerant &&
-                    ["NOUVELLE", "EN_PREPARATION"].includes(
-                      detail.statut_courant,
-                    ) && (
+                    (detail.statut_courant === "NOUVELLE" ? (
                       <Button
                         variant="outline"
                         size="sm"
@@ -1323,7 +1328,45 @@ export default function OrdersPage() {
                       >
                         <Pencil className="h-4 w-4 mr-2" /> Modifier
                       </Button>
-                    )}
+                    ) : (
+                      gerantActionOptions(detail).length > 0 && (
+                        <Select
+                          onValueChange={(value) => {
+                            const option = gerantActionOptions(detail).find(
+                              (item) => item.value === value,
+                            );
+                            if (!option) return;
+                            // On referme le détail : la confirmation
+                            // s'ouvre à sa place, jamais par-dessus.
+                            const order = detail;
+                            setDetail(null);
+                            if (option.kind === "assign") {
+                              setAssignTarget({
+                                order,
+                                role: option.role || "LIVREUR",
+                              });
+                              return;
+                            }
+                            setActionNote({
+                              order,
+                              target: option.target,
+                              label: option.label,
+                            });
+                          }}
+                        >
+                          <SelectTrigger className="h-8 w-[180px] text-xs">
+                            <SelectValue placeholder="Action" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {gerantActionOptions(detail).map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )
+                    ))}
                 </div>
               </DialogHeader>
               <div className="space-y-3 text-sm">
