@@ -5,13 +5,16 @@ import 'package:go_router/go_router.dart';
 import '../features/auth/login_screen.dart';
 import '../features/auth/server_setup_screen.dart';
 import '../features/auth/splash_screen.dart';
+import '../features/alerts/alerts_screen.dart';
 import '../features/caisse/caisse_screen.dart';
 import '../features/catalog/catalog_screen.dart';
 import '../features/chats/chat_conversation_screen.dart';
 import '../features/chats/chat_list_screen.dart';
 import '../features/dashboard/dashboard_screen.dart';
 import '../features/depot/depot_screen.dart';
+import '../features/movements/movements_screen.dart';
 import '../features/notifications/notifications_screen.dart';
+import '../features/reports/reports_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/orders/order_create_screen.dart';
 import '../features/orders/order_detail_screen.dart';
@@ -25,23 +28,22 @@ import '../features/tournee/tournee_screen.dart';
 import '../features/transfers/transfers_screen.dart';
 import '../features/users/users_screen.dart';
 import '../widgets/navigation_shell.dart';
-import 'constants.dart';
+import '../models/user.dart';
+import 'nav_items.dart';
+import 'permissions.dart';
 import '../state/auth_provider.dart';
 
 const _publicPrefixes = ['/login', '/server-setup', '/splash'];
 
-String _homeFor(UserRole? role) {
-  switch (role) {
-    case UserRole.gerant:
-      return '/dashboard';
-    case UserRole.preparateur:
-      return '/depot';
-    case UserRole.livreur:
-      return '/tournee';
-    case UserRole.unknown:
-    case null:
-      return '/login';
-  }
+/// Ecran d'accueil apres connexion, par role. Un `employer` sans sous-role
+/// module Commande n'a ni depot ni tournee : on le pose sur /orders, la
+/// page que le web lui sert aussi (branche « par defaut », lecture seule).
+String _homeFor(AppUser? user) {
+  if (user == null) return '/login';
+  if (user.isGerant) return '/dashboard';
+  if (user.isPreparateur) return '/depot';
+  if (user.isLivreur) return '/tournee';
+  return '/orders';
 }
 
 class _RouterRefresh extends ChangeNotifier {
@@ -69,7 +71,13 @@ final routerProvider = Provider<GoRouter>((ref) {
         case AuthStatus.unauthenticated:
           return isPublic && loc != '/splash' ? null : '/login';
         case AuthStatus.authenticated:
-          if (isPublic) return _homeFor(auth.user?.role);
+          final user = auth.user;
+          if (isPublic) return _homeFor(user);
+          // Garde de role : le sidebar web se contente de masquer le lien,
+          // taper l'URL passe quand meme. Ici on refuse reellement l'acces
+          // et on renvoie l'utilisateur sur son accueil (core/nav_items.dart
+          // ::canAccessPath applique les memes drapeaux que le menu web).
+          if (user != null && !canAccessPath(user, loc)) return _homeFor(user);
           return null;
       }
     },
@@ -97,6 +105,9 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/tournee', builder: (context, state) => const TourneeScreen()),
           GoRoute(path: '/bilan', builder: (context, state) => const BilanScreen()),
           GoRoute(path: '/catalog', builder: (context, state) => const CatalogScreen()),
+          GoRoute(path: '/movements', builder: (context, state) => const MovementsScreen()),
+          GoRoute(path: '/alerts', builder: (context, state) => const AlertsScreen()),
+          GoRoute(path: '/reports', builder: (context, state) => const ReportsScreen()),
           GoRoute(
             path: '/suppliers',
             builder: (context, state) => const SuppliersScreen(),

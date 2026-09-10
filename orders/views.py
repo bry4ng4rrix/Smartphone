@@ -180,10 +180,13 @@ class OrderViewSet(viewsets.ModelViewSet):
             # Filtres optionnels statut/date (§ demande — page livreur), sans
             # sortir de l'ensemble de statuts déjà autorisé pour ce rôle.
             statut = self.request.query_params.get("statut")
+            livraison_zone = self.request.query_params.get("livraison_zone")
             date_debut = self.request.query_params.get("date_debut")
             date_fin = self.request.query_params.get("date_fin")
             if statut:
                 base = base.filter(statut_courant__in=[s for s in statut.split(",") if s])
+            if livraison_zone:
+                base = base.filter(livraison_zone=livraison_zone)
             if date_debut:
                 base = base.filter(date_commande__date__gte=date_debut)
             if date_fin:

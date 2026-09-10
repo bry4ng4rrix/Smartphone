@@ -26,10 +26,13 @@ class _NavigationShellState extends ConsumerState<NavigationShell> {
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
-    final role = auth.user?.role;
-    if (role == null) return const SizedBox.shrink();
+    final user = auth.user;
+    if (user == null) return const SizedBox.shrink();
 
-    final items = kPrimaryNavItems.where((i) => i.visibleFor(role)).toList();
+    // Menu filtre avec les memes regles que le sidebar web (adminOnly,
+    // superAdminOnly, livreurOnly, hidePreparateur, hideLivreur) — voir
+    // core/nav_items.dart.
+    final items = navItemsFor(user);
     final isWide = MediaQuery.sizeOf(context).width >= kDesktopBreakpoint;
 
     if (isWide) {

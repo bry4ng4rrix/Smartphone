@@ -165,14 +165,17 @@ const STATUTS = [
 const statutInfo = (s: string) =>
   STATUTS.find((x) => x.value === s) || STATUTS[0];
 
-// Filtres de statut de la page Livreur (§ demande). "À récupérer" = commande
-// prête au dépôt que le livreur doit venir chercher (statut PRETE) — le
-// libellé métier du livreur, plus parlant que "Prête".
+// Filtres de statut de la page Livreur (§ demande) : le livreur ne filtre
+// que sur les deux états qui le concernent — celles qu'il doit aller
+// chercher, et celles qu'il a livrées. "À récupérer" = commande prête au
+// dépôt (statut PRETE), libellé métier du livreur, plus parlant que "Prête".
+// Les autres états (en préparation, en livraison, retour) restent visibles
+// dans la liste via "Tous les statuts" : on retire l'option de filtre, pas
+// les commandes.
 const LIVREUR_STATUT_ACTIF = [
   { value: "ALL", label: "Tous les statuts" },
-  { value: "EN_PREPARATION", label: "En préparation" },
   { value: "PRETE", label: "À récupérer" },
-  { value: "EN_LIVRAISON", label: "En livraison" },
+  { value: "LIVRE", label: "Livrées" },
 ];
 
 // Historique personnel (préparateur/livreur) : tous les statuts déjà
@@ -326,8 +329,9 @@ export default function OrdersPage() {
           filters.date_fin = preparateurDate;
         }
         if (isLivreur && viewMode === "ACTIF") {
-          if (livreurStatutFilter !== "ALL")
+          if (livreurStatutFilter !== "ALL") {
             filters.statut = livreurStatutFilter;
+          }
           if (livreurDate) {
             filters.date_debut = livreurDate;
             filters.date_fin = livreurDate;
@@ -619,12 +623,8 @@ export default function OrdersPage() {
         order.livreur_name,
         order.statut_courant,
         productText,
-        order.date_commande
-          ? fmtAppDate(order.date_commande)
-          : "",
-        order.date_commande
-          ? fmtAppDateTime(order.date_commande)
-          : "",
+        order.date_commande ? fmtAppDate(order.date_commande) : "",
+        order.date_commande ? fmtAppDateTime(order.date_commande) : "",
       ]
         .filter(Boolean)
         .join(" ")
@@ -695,44 +695,45 @@ export default function OrdersPage() {
       )}
 
       {isLivreur && (
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant={viewMode === "ACTIF" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setViewMode("ACTIF")}
-          >
-            <Truck className="h-4 w-4 mr-2" /> Ma tournée
-          </Button>
-          <Button
-            variant={viewMode === "HISTORIQUE" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setViewMode("HISTORIQUE")}
-          >
-            <History className="h-4 w-4 mr-2" /> Historique
-          </Button>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant={viewMode === "ACTIF" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setViewMode("ACTIF")}
+            >
+              <Truck className="h-4 w-4 mr-2" /> Ma tournée
+            </Button>
+            <Button
+              variant={viewMode === "HISTORIQUE" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setViewMode("HISTORIQUE")}
+            >
+              <History className=" w-4 mr-2" /> Historique
+            </Button>
+            {viewMode === "ACTIF" && (
+              <Select
+                value={livreurStatutFilter}
+                onValueChange={setLivreurStatutFilter}
+              >
+                <SelectTrigger className="mr-2">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {LIVREUR_STATUT_ACTIF.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
         </div>
       )}
 
       {isLivreur && viewMode === "ACTIF" && (
         <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Statut</Label>
-            <Select
-              value={livreurStatutFilter}
-              onValueChange={setLivreurStatutFilter}
-            >
-              <SelectTrigger className="w-45">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {LIVREUR_STATUT_ACTIF.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Date</Label>
             <Input
@@ -817,7 +818,10 @@ export default function OrdersPage() {
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Statut</Label>
-            <Select value={historiqueStatut} onValueChange={setHistoriqueStatut}>
+            <Select
+              value={historiqueStatut}
+              onValueChange={setHistoriqueStatut}
+            >
               <SelectTrigger className="w-45">
                 <SelectValue />
               </SelectTrigger>
@@ -1819,9 +1823,7 @@ function OrderTimeline({ order }: { order: any }) {
         <li key={r.label} className="flex items-center gap-2 text-sm">
           <r.icon className="h-4 w-4 text-primary shrink-0" />
           <span className="text-muted-foreground">{r.label}</span>
-          <span className="font-semibold">
-            {fmtAppDateTime(r.date)}
-          </span>
+          <span className="font-semibold">{fmtAppDateTime(r.date)}</span>
         </li>
       ))}
     </ul>
