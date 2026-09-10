@@ -55,7 +55,10 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
     ref.read(ordersFilterProvider.notifier).set(filter.copyWith(dateDebut: date, dateFin: date));
   }
 
-  void _clearFilters() => ref.read(ordersFilterProvider.notifier).set(const OrdersFilter());
+  // « Effacer » ramène au jour J, la valeur par défaut — pas à « aucun
+  // filtre », qui afficherait toute la tournée passée.
+  void _clearFilters() =>
+      ref.read(ordersFilterProvider.notifier).set(jourJFilter(UserRole.livreur));
 
   void _setStatut(OrdersFilter filter, String? statut) => ref
       .read(ordersFilterProvider.notifier)
@@ -195,7 +198,7 @@ class _TourneeCardState extends ConsumerState<_TourneeCard> {
     final order = widget.order;
     final isPrete = order.statutCourant == OrderStatus.prete;
     final isEnPreparation = order.statutCourant == OrderStatus.enPreparation;
-    final dueToday = isJourJ(order.dateCommande);
+    final dueToday = isJourJ(order.dateCommande, UserRole.livreur);
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 6),
@@ -296,7 +299,7 @@ class _TourneeCardState extends ConsumerState<_TourneeCard> {
                   label: Text(
                     dueToday || order.dateCommande == null
                         ? 'Récupérer le colis'
-                        : 'Disponible le ${dueDateLabel(order.dateCommande!)}',
+                        : 'Disponible le ${dueDateLabel(order.dateCommande!, UserRole.livreur)}',
                   ),
                 ),
               )
@@ -305,7 +308,7 @@ class _TourneeCardState extends ConsumerState<_TourneeCard> {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 6),
                   child: Text(
-                    'Disponible le ${dueDateLabel(order.dateCommande!)}',
+                    'Disponible le ${dueDateLabel(order.dateCommande!, UserRole.livreur)}',
                     style: TextStyle(color: Theme.of(context).colorScheme.outline),
                   ),
                 ),

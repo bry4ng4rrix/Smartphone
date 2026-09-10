@@ -13,19 +13,20 @@ final _moneyFmt = NumberFormat.decimalPattern('fr_FR');
 String arFmt(num v) => '${_moneyFmt.format(v.round())} Ar';
 
 /// Le préparateur/livreur voit toutes ses commandes à venir (planning) mais
-/// ne peut agir dessus qu'à partir de l'OUVERTURE : 19h00 la veille du jour
-/// de livraison, heure d'Antananarivo (§ demande — la tournée du lendemain se
-/// prépare la veille au soir).
+/// ne peut agir dessus qu'à partir de son OUVERTURE : 19h00 la veille pour le
+/// préparateur, minuit le jour J pour le livreur (§ demande).
 ///
 /// Le calcul vit dans core/app_time.dart et reprend exactement celui du
 /// serveur (orders/services.py::ouverture_actions), qui reste seul juge.
-bool isJourJ(DateTime? dateCommande) => actionOuverte(dateCommande);
+bool isJourJ(DateTime? dateCommande, UserRole role) =>
+    actionOuverte(dateCommande, role);
 
 final _dueDateFmt = DateFormat("dd/MM/yyyy 'à' HH'h'mm");
-/// Libellé du moment où l'action se débloquera — pas la date de
-/// livraison : c'est ce que le bouton doit annoncer.
-String dueDateLabel(DateTime dateCommande) =>
-    _dueDateFmt.format(appLocal(ouvertureActions(dateCommande)));
+
+/// Libellé du moment où l'action se débloquera — pas la date de livraison :
+/// c'est ce que le bouton doit annoncer.
+String dueDateLabel(DateTime dateCommande, UserRole role) =>
+    _dueDateFmt.format(appLocal(ouvertureActions(dateCommande, role)));
 
 /// Résultat de [showOrderConfirmDialog] : la note saisie (chaîne vide
 /// possible) et, si [showOrderConfirmDialog] l'a proposé, le chemin local de

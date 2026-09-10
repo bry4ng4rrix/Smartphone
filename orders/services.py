@@ -15,30 +15,40 @@ from .models import Order, OrderItem, OrderStatusHistory
 # n'importe quelle transition valide (bypass du rôle) mais ne peut pas sauter
 # d'étape (le "droit admin override" pour sauter une étape reste "à discuter"),
 # sauf le cas spécial "Récupération sur place" (voir change_order_status).
-# Heure à laquelle la veille "ouvre" les commandes du lendemain (§ demande).
-# La tournée du lendemain se prépare la veille au soir : à partir de 19h00
-# (heure de Madagascar), le préparateur et le livreur peuvent déjà agir sur
-# les commandes planifiées pour le jour suivant. Exemple : une commande du
-# 11/09 devient actionnable le 10/09 à 19h00.
-HEURE_OUVERTURE_VEILLE = 19
+# Heure à laquelle la veille "ouvre" les commandes du lendemain pour le
+# PRÉPARATEUR (§ demande) : 19h00 heure de Madagascar, soit 5 heures avant le
+# début du jour J. Il prépare ainsi la tournée du lendemain la veille au soir.
+HEURE_OUVERTURE_PREPARATEUR = 19
 
 
-def ouverture_actions(date_commande):
-    """Instant à partir duquel préparateur et livreur peuvent agir sur une
-    commande planifiée à `date_commande`.
+def ouverture_actions(date_commande, role):
+    """Instant à partir duquel `role` peut agir sur une commande planifiée à
+    `date_commande`.
 
-    Ce n'est PAS minuit le jour de livraison : l'ouverture est fixée à
-    `HEURE_OUVERTURE_VEILLE` la veille, dans le fuseau métier
-    (Stock/settings.py TIME_ZONE = Indian/Antananarivo). Le web et l'app
-    mobile appliquent exactement la même règle, mais c'est bien ce calcul-ci
-    qui fait foi — un client ne fait qu'anticiper l'affichage.
+    L'ouverture n'est pas la même selon le métier (§ demande) :
+
+    * PRÉPARATEUR — `HEURE_OUVERTURE_PREPARATEUR` la VEILLE du jour de
+      livraison. Une commande du 11/09 lui est ouverte dès le 10/09 à 19h00 :
+      il prépare les colis du lendemain le soir précédent.
+    * LIVREUR — minuit le JOUR de livraison. Il ne part en tournée que le
+      jour même, donc rien à débloquer la veille.
+
+    Le calcul se fait dans le fuseau métier (Stock/settings.py TIME_ZONE =
+    Indian/Antananarivo). Le web et l'app mobile appliquent la même règle,
+    mais c'est bien ce calcul-ci qui fait foi — un client ne fait
+    qu'anticiper l'affichage.
     """
     tz = timezone.get_current_timezone()
     jour_livraison = timezone.localtime(date_commande).date()
-    veille = jour_livraison - timedelta(days=1)
-    return timezone.make_aware(
-        datetime.combine(veille, time(HEURE_OUVERTURE_VEILLE, 0)), tz
-    )
+    if role == "PREPARATEUR":
+        return timezone.make_aware(
+            datetime.combine(
+                jour_livraison - timedelta(days=1),
+                time(HEURE_OUVERTURE_PREPARATEUR, 0),
+            ),
+            tz,
+        )
+    return timezone.make_aware(datetime.combine(jour_livraison, time(0, 0)), tz)
 
 
 TRANSITIONS = {
@@ -395,11 +405,12 @@ def change_order_status(*, order, new_status, user, note="", preparateur_id=None
         )
 
     # Le préparateur/livreur voit toutes ses commandes à venir (planning),
-    # mais ne peut agir dessus qu'à partir de l'ouverture — 19h00 la veille
-    # du jour de livraison (voir ouverture_actions). Le gérant, lui, peut
-    # toujours forcer une transition en avance.
+    # mais ne peut agir dessus qu'à partir de son ouverture : 19h00 la veille
+    # pour le préparateur, minuit le jour J pour le livreur (voir
+    # ouverture_actions). Le gérant, lui, peut toujours forcer une transition
+    # en avance.
     if role != "GERANT":
-        ouverture = ouverture_actions(order.date_commande)
+        ouverture = ouverture_actions(order.date_commande, role)
         if timezone.now() < ouverture:
             raise PermissionDenied(
                 f"Cette commande est planifiée pour le "

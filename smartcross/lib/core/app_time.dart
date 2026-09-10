@@ -11,6 +11,8 @@
 /// le fuseau réglé sur l'appareil.
 library;
 
+import 'constants.dart';
+
 /// Décalage fixe de Madagascar par rapport à UTC.
 const Duration kAppUtcOffset = Duration(hours: 3);
 
@@ -52,44 +54,50 @@ DateTime appWallClockToUtc(DateTime wallClock) => DateTime.utc(
   );
 }
 
-/// Heure à laquelle la veille "ouvre" les commandes du lendemain.
+/// Heure à laquelle la veille "ouvre" les commandes du lendemain pour le
+/// PRÉPARATEUR : 19h00 heure de Madagascar, soit 5 heures avant le début du
+/// jour J. Il prépare ainsi les colis du lendemain la veille au soir.
 ///
-/// La tournée du lendemain se prépare la veille au soir : à partir de 19h00
-/// (heure de Madagascar), préparateur et livreur peuvent déjà agir sur les
-/// commandes planifiées pour le jour suivant. Exemple : une commande du 11/09
-/// devient actionnable le 10/09 à 19h00.
-///
-/// Doit rester synchronisé avec `orders/services.py::HEURE_OUVERTURE_VEILLE`,
-/// seule autorité — ici on ne fait qu'anticiper l'affichage.
-const int kHeureOuvertureVeille = 19;
+/// Doit rester synchronisé avec
+/// `orders/services.py::HEURE_OUVERTURE_PREPARATEUR`, seule autorité — ici on
+/// ne fait qu'anticiper l'affichage.
+const int kHeureOuverturePreparateur = 19;
 
-/// Instant absolu (UTC) à partir duquel préparateur et livreur peuvent agir
-/// sur une commande planifiée à [dateCommande] : 19h00 la veille du jour de
-/// livraison, heure d'Antananarivo.
+/// Instant absolu (UTC) à partir duquel [role] peut agir sur une commande
+/// planifiée à [dateCommande]. L'ouverture diffère selon le métier :
+///
+/// * [UserRole.preparateur] — 19h00 la VEILLE du jour de livraison ;
+/// * [UserRole.livreur] — minuit le JOUR de livraison : il ne part en tournée
+///   que le jour même, rien à débloquer la veille.
 ///
 /// Madagascar n'ayant pas d'heure d'été, retirer 24 h à 19h00 du jour de
 /// livraison donne toujours 19h00 la veille.
-DateTime ouvertureActions(DateTime dateCommande) {
+DateTime ouvertureActions(DateTime dateCommande, UserRole role) {
   final jour = appDay(dateCommande);
-  return appWallClockToUtc(
-    DateTime(jour.year, jour.month, jour.day, kHeureOuvertureVeille),
-  ).subtract(const Duration(days: 1));
+  if (role == UserRole.preparateur) {
+    return appWallClockToUtc(
+      DateTime(jour.year, jour.month, jour.day, kHeureOuverturePreparateur),
+    ).subtract(const Duration(days: 1));
+  }
+  return appWallClockToUtc(DateTime(jour.year, jour.month, jour.day));
 }
 
-/// La commande est-elle actionnable maintenant ? Une commande sans date
-/// planifiée l'est toujours.
-bool actionOuverte(DateTime? dateCommande) {
+/// La commande est-elle actionnable maintenant par ce rôle ? Une commande
+/// sans date planifiée l'est toujours.
+bool actionOuverte(DateTime? dateCommande, UserRole role) {
   if (dateCommande == null) return true;
-  return !DateTime.now().toUtc().isBefore(ouvertureActions(dateCommande));
+  return !DateTime.now().toUtc().isBefore(ouvertureActions(dateCommande, role));
 }
 
-/// Dernier jour de livraison dont les commandes sont DÉJÀ actionnables :
-/// aujourd'hui avant 19h00, demain à partir de 19h00. Sert à borner la liste
-/// du préparateur et du livreur — sans ça, à 19h05 leurs commandes du
-/// lendemain seraient débloquées mais invisibles.
-DateTime dernierJourOuvert() {
-  final maintenant = appNow();
+/// Dernier jour de livraison dont les commandes sont DÉJÀ actionnables par ce
+/// rôle. Pour le préparateur, à partir de 19h00 les commandes du lendemain
+/// s'ouvrent : sans cette borne elles seraient débloquées mais invisibles.
+/// Pour le livreur, la fenêtre s'arrête toujours à aujourd'hui.
+DateTime dernierJourOuvert(UserRole role) {
   final jour = appToday();
-  if (maintenant.hour < kHeureOuvertureVeille) return jour;
-  return jour.add(const Duration(days: 1));
+  if (role == UserRole.preparateur &&
+      appNow().hour >= kHeureOuverturePreparateur) {
+    return jour.add(const Duration(days: 1));
+  }
+  return jour;
 }

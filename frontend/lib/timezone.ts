@@ -104,46 +104,63 @@ export function appDatetimeLocalToIso(value: string): string {
 }
 
 /**
- * Heure à laquelle la veille "ouvre" les commandes du lendemain.
- *
- * La tournée du lendemain se prépare la veille au soir : à partir de 19h00
- * (heure de Madagascar), préparateur et livreur peuvent déjà agir sur les
- * commandes planifiées pour le jour suivant. Exemple : une commande du
- * 11/09 devient actionnable le 10/09 à 19h00.
- *
- * Doit rester synchronisé avec `orders/services.py::HEURE_OUVERTURE_VEILLE`,
- * qui est la seule autorité : ici on ne fait qu'anticiper l'affichage.
+ * Rôle métier du module Commande, pour le calcul de l'ouverture des actions.
  */
-export const HEURE_OUVERTURE_VEILLE = 19;
+export type RoleCommande = 'PREPARATEUR' | 'LIVREUR';
 
 /**
- * Instant à partir duquel préparateur et livreur peuvent agir sur une
- * commande planifiée à `dateCommande` : 19h00 la veille du jour de livraison,
- * heure d'Antananarivo.
+ * Heure à laquelle la veille "ouvre" les commandes du lendemain pour le
+ * PRÉPARATEUR : 19h00 heure de Madagascar, soit 5 heures avant le début du
+ * jour J. Il prépare ainsi les colis du lendemain la veille au soir.
  *
- * Madagascar n'ayant pas d'heure d'été, retirer 24 h à 19h00 du jour J donne
- * toujours 19h00 la veille.
+ * Doit rester synchronisé avec `orders/services.py::HEURE_OUVERTURE_PREPARATEUR`,
+ * seule autorité — ici on ne fait qu'anticiper l'affichage.
  */
-export function ouvertureActions(dateCommande: string | Date): Date {
+export const HEURE_OUVERTURE_PREPARATEUR = 19;
+
+/**
+ * Instant à partir duquel `role` peut agir sur une commande planifiée à
+ * `dateCommande`. L'ouverture diffère selon le métier :
+ *
+ * - PRÉPARATEUR : 19h00 la VEILLE du jour de livraison ;
+ * - LIVREUR : minuit le JOUR de livraison — il ne part en tournée que le
+ *   jour même, rien à débloquer la veille.
+ *
+ * Madagascar n'ayant pas d'heure d'été, retirer 24 h à 19h00 du jour de
+ * livraison donne toujours 19h00 la veille.
+ */
+export function ouvertureActions(
+  dateCommande: string | Date,
+  role: RoleCommande,
+): Date {
   const jour = appDayKey(dateCommande);
-  const heure = String(HEURE_OUVERTURE_VEILLE).padStart(2, '0');
-  const jourJ19h = new Date(`${jour}T${heure}:00:00${APP_UTC_OFFSET}`);
-  return new Date(jourJ19h.getTime() - 24 * 60 * 60 * 1000);
+  if (role === 'PREPARATEUR') {
+    const heure = String(HEURE_OUVERTURE_PREPARATEUR).padStart(2, '0');
+    const jourJHeure = new Date(`${jour}T${heure}:00:00${APP_UTC_OFFSET}`);
+    return new Date(jourJHeure.getTime() - 24 * 60 * 60 * 1000);
+  }
+  return new Date(`${jour}T00:00:00${APP_UTC_OFFSET}`);
 }
 
 /**
- * La commande est-elle actionnable maintenant par le préparateur/livreur ?
- * Une commande sans date planifiée l'est toujours.
+ * La commande est-elle actionnable maintenant par ce rôle ? Une commande sans
+ * date planifiée l'est toujours.
  */
-export function actionOuverte(dateCommande?: string | null): boolean {
+export function actionOuverte(
+  dateCommande: string | null | undefined,
+  role: RoleCommande,
+): boolean {
   if (!dateCommande) return true;
-  return Date.now() >= ouvertureActions(dateCommande).getTime();
+  return Date.now() >= ouvertureActions(dateCommande, role).getTime();
 }
 
 /** Libellé de l'ouverture — ex : « 10/09/2026 à 19h00 ». */
-export function fmtOuverture(dateCommande?: string | null): string {
+export function fmtOuverture(
+  dateCommande: string | null | undefined,
+  role: RoleCommande,
+): string {
   if (!dateCommande) return '—';
-  const o = ouvertureActions(dateCommande);
+  const o = ouvertureActions(dateCommande, role);
   return `${fmtAppDate(o)} à ${o.toLocaleTimeString('fr-FR', {
     timeZone: APP_TIME_ZONE,
     hour: '2-digit',
@@ -165,14 +182,14 @@ export function appHeure(): number {
 }
 
 /**
- * Dernier jour de livraison dont les commandes sont DÉJÀ actionnables.
- *
- * Avant 19h00 c'est aujourd'hui ; à partir de 19h00 les commandes du
- * lendemain s'ouvrent (voir `ouvertureActions`), donc c'est demain. Sert à
- * borner la liste du préparateur et du livreur : sans ça, à 19h05 leurs
- * commandes du lendemain seraient débloquées mais invisibles.
+ * Dernier jour de livraison dont les commandes sont DÉJÀ actionnables par ce
+ * rôle. Pour le préparateur, à partir de 19h00 les commandes du lendemain
+ * s'ouvrent : sans cette borne elles seraient débloquées mais invisibles.
+ * Pour le livreur, la fenêtre s'arrête toujours à aujourd'hui.
  */
-export function dernierJourOuvert(): string {
-  if (appHeure() < HEURE_OUVERTURE_VEILLE) return appToday();
-  return appDayKey(new Date(Date.now() + 24 * 60 * 60 * 1000));
+export function dernierJourOuvert(role: RoleCommande): string {
+  if (role === 'PREPARATEUR' && appHeure() >= HEURE_OUVERTURE_PREPARATEUR) {
+    return appDayKey(new Date(Date.now() + 24 * 60 * 60 * 1000));
+  }
+  return appToday();
 }

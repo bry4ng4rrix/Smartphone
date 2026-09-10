@@ -23,6 +23,7 @@ import {
   actionOuverte,
   fmtOuverture,
   dernierJourOuvert,
+  type RoleCommande,
   fmtAppDate,
   fmtAppDateTime,
 } from "@/lib/timezone";
@@ -200,14 +201,6 @@ const HISTORIQUE_STATUT_FILTERS = [
   { value: "NOUVELLE", label: "Nouvelles" },
 ];
 
-// Le préparateur/livreur voit toutes ses commandes à venir (planning) mais
-// ne peut agir dessus qu'à partir de l'OUVERTURE : 19h00 la veille du jour
-// de livraison, heure d'Antananarivo (§ demande — la tournée du lendemain se
-// prépare la veille au soir). Le calcul vit dans lib/timezone.ts et reprend
-// exactement celui du serveur (orders/services.py::ouverture_actions), qui
-// reste seul juge : ici on ne fait qu'anticiper l'affichage.
-const isJourJ = (dateStr?: string | null) => actionOuverte(dateStr);
-
 // Zones de livraison : configurables dans Paramètres (§ demande, CRUD
 // nom+prix — voir useDeliveryZones/DeliveryZoneOption), plus le littéral
 // "RECUPERATION" toujours présent (retrait sur place, structurellement à
@@ -230,6 +223,18 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  // Le préparateur et le livreur voient toutes leurs commandes à venir
+  // (planning) mais ne peuvent agir dessus qu'à partir de leur OUVERTURE :
+  // 19h00 la veille pour le préparateur, minuit le jour J pour le livreur
+  // (§ demande). Le calcul vit dans lib/timezone.ts et reprend celui du
+  // serveur (orders/services.py::ouverture_actions), qui reste seul juge :
+  // ici on ne fait qu'anticiper l'affichage.
+  const roleCommande: RoleCommande = isPreparateur ? "PREPARATEUR" : "LIVREUR";
+  const isJourJ = useCallback(
+    (dateStr?: string | null) => actionOuverte(dateStr, roleCommande),
+    [roleCommande],
+  );
+
   const [statutFilter, setStatutFilter] = useState<string>("ALL");
   const [detail, setDetail] = useState<any | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -315,7 +320,9 @@ export default function OrdersPage() {
         if (isPreparateur && viewMode === "ACTIF" && preparateurDate) {
           filters.date_debut = preparateurDate;
           filters.date_fin =
-            preparateurDate === appToday() ? dernierJourOuvert() : preparateurDate;
+            preparateurDate === appToday()
+              ? dernierJourOuvert("PREPARATEUR")
+              : preparateurDate;
         }
         if (isLivreur && viewMode === "ACTIF") {
           if (livreurStatutFilter !== "ALL") {
@@ -324,7 +331,9 @@ export default function OrdersPage() {
           if (livreurDate) {
             filters.date_debut = livreurDate;
             filters.date_fin =
-              livreurDate === appToday() ? dernierJourOuvert() : livreurDate;
+              livreurDate === appToday()
+                ? dernierJourOuvert("LIVREUR")
+                : livreurDate;
           }
         }
         const data = await djangoClient.orders.list(filters);
@@ -1013,7 +1022,7 @@ export default function OrdersPage() {
                     // Ce que le bouton doit annoncer, c'est le moment où il
                     // se débloquera — pas la date de livraison.
                     const dueDateLabel = order.date_commande
-                      ? fmtOuverture(order.date_commande)
+                      ? fmtOuverture(order.date_commande, roleCommande)
                       : "";
                     return (
                       <TableRow
@@ -1499,7 +1508,7 @@ export default function OrdersPage() {
                       >
                         <action.icon className="h-4 w-4 mr-2" />
                         {notYetDue
-                          ? `Disponible le ${fmtOuverture(detail.date_commande)}`
+                          ? `Disponible le ${fmtOuverture(detail.date_commande, roleCommande)}`
                           : action.label}
                       </Button>
                     );

@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/app_time.dart';
+import '../core/constants.dart';
+import 'auth_provider.dart';
 import '../data/repositories/orders_repository.dart';
 import '../models/delivery_zone.dart';
 import '../models/order.dart';
@@ -68,17 +70,20 @@ class OrdersFilter {
 /// Antananarivo (§ demande — même règle que le web). Gérant, préparateur et
 /// livreur arrivent ainsi sur la journée de travail en cours ; ils restent
 /// libres de changer de date, et « Effacer » les ramène ici.
-OrdersFilter jourJFilter() {
-  // La fenêtre va d'aujourd'hui au dernier jour déjà ouvert : à partir de
-  // 19h00 elle inclut donc les commandes du lendemain, qui viennent d'être
-  // débloquées (voir core/app_time.dart::ouvertureActions). Sans ça elles
-  // seraient actionnables mais invisibles.
-  return OrdersFilter(dateDebut: appToday(), dateFin: dernierJourOuvert());
+///
+/// La fenêtre va d'aujourd'hui au dernier jour déjà ouvert POUR CE RÔLE : à
+/// partir de 19h00 le préparateur voit déjà les commandes du lendemain, qui
+/// viennent d'être débloquées pour lui (core/app_time.dart::ouvertureActions).
+/// Sans cette borne elles seraient actionnables mais invisibles. Le livreur,
+/// lui, ne les voit qu'à partir du jour de livraison.
+OrdersFilter jourJFilter(UserRole role) {
+  return OrdersFilter(dateDebut: appToday(), dateFin: dernierJourOuvert(role));
 }
 
 class OrdersFilterNotifier extends Notifier<OrdersFilter> {
   @override
-  OrdersFilter build() => jourJFilter();
+  OrdersFilter build() =>
+      jourJFilter(ref.read(authProvider).user?.role ?? UserRole.unknown);
 
   void set(OrdersFilter filter) => state = filter;
 }

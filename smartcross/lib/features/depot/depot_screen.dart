@@ -51,7 +51,7 @@ class _DepotScreenState extends ConsumerState<DepotScreen> {
 
   // « Effacer » ramène au jour J, la valeur par défaut — pas à « aucune
   // date », qui afficherait tout l'historique du préparateur.
-  void _clearDate() => ref.read(ordersFilterProvider.notifier).set(jourJFilter());
+  void _clearDate() => ref.read(ordersFilterProvider.notifier).set(jourJFilter(UserRole.preparateur));
 
   @override
   Widget build(BuildContext context) {
@@ -274,7 +274,7 @@ class _DepotCardState extends ConsumerState<_DepotCard> {
   Widget build(BuildContext context) {
     final order = widget.order;
     final isNouvelle = order.statutCourant == OrderStatus.nouvelle;
-    final dueToday = isJourJ(order.dateCommande);
+    final dueToday = isJourJ(order.dateCommande, UserRole.preparateur);
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 6),
@@ -357,7 +357,7 @@ class _DepotCardState extends ConsumerState<_DepotCard> {
                     : const Icon(Icons.check),
                 label: Text(
                   !dueToday && order.dateCommande != null
-                      ? 'Disponible le ${dueDateLabel(order.dateCommande!)}'
+                      ? 'Disponible le ${dueDateLabel(order.dateCommande!, UserRole.preparateur)}'
                       : (isNouvelle ? 'Commencer la préparation' : 'Commande prête'),
                 ),
               ),
