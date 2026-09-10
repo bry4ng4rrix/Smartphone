@@ -109,37 +109,43 @@ export function appDatetimeLocalToIso(value: string): string {
 export type RoleCommande = 'PREPARATEUR' | 'LIVREUR';
 
 /**
- * Heure à laquelle la veille "ouvre" les commandes du lendemain pour le
- * PRÉPARATEUR : 19h00 heure de Madagascar, soit 5 heures avant le début du
- * jour J. Il prépare ainsi les colis du lendemain la veille au soir.
+ * Avance accordée au PRÉPARATEUR sur le jour J : il peut agir 5 heures AVANT
+ * le début du jour de livraison. Le jour J commençant à minuit, ses actions
+ * s'ouvrent donc à 19h00 (00h00 − 5h) heure de Madagascar, la veille.
  *
- * Doit rester synchronisé avec `orders/services.py::HEURE_OUVERTURE_PREPARATEUR`,
+ * Doit rester synchronisé avec `orders/services.py::AVANCE_PREPARATEUR`,
  * seule autorité — ici on ne fait qu'anticiper l'affichage.
  */
-export const HEURE_OUVERTURE_PREPARATEUR = 19;
+export const AVANCE_PREPARATEUR_HEURES = 5;
+
+/** Heure d'ouverture qui en découle, pour les seuils d'affichage — 19. */
+export const HEURE_OUVERTURE_PREPARATEUR = 24 - AVANCE_PREPARATEUR_HEURES;
 
 /**
  * Instant à partir duquel `role` peut agir sur une commande planifiée à
  * `dateCommande`. L'ouverture diffère selon le métier :
  *
- * - PRÉPARATEUR : 19h00 la VEILLE du jour de livraison ;
+ * - PRÉPARATEUR : `AVANCE_PREPARATEUR_HEURES` avant le début du jour de
+ *   livraison, soit 19h00 la VEILLE ;
  * - LIVREUR : minuit le JOUR de livraison — il ne part en tournée que le
  *   jour même, rien à débloquer la veille.
  *
- * Madagascar n'ayant pas d'heure d'été, retirer 24 h à 19h00 du jour de
- * livraison donne toujours 19h00 la veille.
+ * Madagascar n'ayant pas d'heure d'été, retrancher un nombre d'heures à
+ * minuit donne toujours l'heure attendue la veille.
  */
 export function ouvertureActions(
   dateCommande: string | Date,
   role: RoleCommande,
 ): Date {
   const jour = appDayKey(dateCommande);
+  // Début du jour J : minuit, heure de Madagascar.
+  const debutJourJ = new Date(`${jour}T00:00:00${APP_UTC_OFFSET}`);
   if (role === 'PREPARATEUR') {
-    const heure = String(HEURE_OUVERTURE_PREPARATEUR).padStart(2, '0');
-    const jourJHeure = new Date(`${jour}T${heure}:00:00${APP_UTC_OFFSET}`);
-    return new Date(jourJHeure.getTime() - 24 * 60 * 60 * 1000);
+    return new Date(
+      debutJourJ.getTime() - AVANCE_PREPARATEUR_HEURES * 60 * 60 * 1000,
+    );
   }
-  return new Date(`${jour}T00:00:00${APP_UTC_OFFSET}`);
+  return debutJourJ;
 }
 
 /**

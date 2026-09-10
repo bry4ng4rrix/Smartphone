@@ -15,10 +15,15 @@ from .models import Order, OrderItem, OrderStatusHistory
 # n'importe quelle transition valide (bypass du rôle) mais ne peut pas sauter
 # d'étape (le "droit admin override" pour sauter une étape reste "à discuter"),
 # sauf le cas spécial "Récupération sur place" (voir change_order_status).
-# Heure à laquelle la veille "ouvre" les commandes du lendemain pour le
-# PRÉPARATEUR (§ demande) : 19h00 heure de Madagascar, soit 5 heures avant le
-# début du jour J. Il prépare ainsi la tournée du lendemain la veille au soir.
-HEURE_OUVERTURE_PREPARATEUR = 19
+# Avance accordée au PRÉPARATEUR sur le jour J (§ demande) : il peut agir
+# 5 heures AVANT le début du jour de livraison. Le jour J commençant à minuit,
+# cela ouvre ses actions à 19h00 (00h00 − 5h) heure de Madagascar, la veille.
+# Changer cette seule valeur décale l'ouverture partout (web et mobile
+# reprennent la même constante).
+AVANCE_PREPARATEUR = timedelta(hours=5)
+
+# Heure d'ouverture qui en découle, pour les libellés — 19 par défaut.
+HEURE_OUVERTURE_PREPARATEUR = 24 - int(AVANCE_PREPARATEUR.total_seconds() // 3600)
 
 
 def ouverture_actions(date_commande, role):
@@ -27,9 +32,9 @@ def ouverture_actions(date_commande, role):
 
     L'ouverture n'est pas la même selon le métier (§ demande) :
 
-    * PRÉPARATEUR — `HEURE_OUVERTURE_PREPARATEUR` la VEILLE du jour de
-      livraison. Une commande du 11/09 lui est ouverte dès le 10/09 à 19h00 :
-      il prépare les colis du lendemain le soir précédent.
+    * PRÉPARATEUR — `AVANCE_PREPARATEUR` avant le début du jour de livraison,
+      soit 5 heures avant minuit : une commande du 11/09 lui est ouverte dès
+      le 10/09 à 19h00. Il prépare les colis du lendemain le soir précédent.
     * LIVREUR — minuit le JOUR de livraison. Il ne part en tournée que le
       jour même, donc rien à débloquer la veille.
 
@@ -40,15 +45,13 @@ def ouverture_actions(date_commande, role):
     """
     tz = timezone.get_current_timezone()
     jour_livraison = timezone.localtime(date_commande).date()
+    # Début du jour J : minuit, heure de Madagascar.
+    debut_jour_j = timezone.make_aware(
+        datetime.combine(jour_livraison, time(0, 0)), tz
+    )
     if role == "PREPARATEUR":
-        return timezone.make_aware(
-            datetime.combine(
-                jour_livraison - timedelta(days=1),
-                time(HEURE_OUVERTURE_PREPARATEUR, 0),
-            ),
-            tz,
-        )
-    return timezone.make_aware(datetime.combine(jour_livraison, time(0, 0)), tz)
+        return debut_jour_j - AVANCE_PREPARATEUR
+    return debut_jour_j
 
 
 TRANSITIONS = {

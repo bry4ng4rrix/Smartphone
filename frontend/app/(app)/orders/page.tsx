@@ -278,7 +278,10 @@ export default function OrdersPage() {
   >([]);
   // Filtres livreur (vue "Ma tournée") : statut + date (un seul jour).
   const [livreurStatutFilter, setLivreurStatutFilter] = useState("ALL");
-  const [livreurDate, setLivreurDate] = useState(() => appToday());
+  // Le livreur voit TOUTES ses commandes, y compris celles des jours
+  // suivants (planning) — § demande : seules les ACTIONS sont bloquées hors
+  // jour J, pas l'affichage. Son filtre de date part donc vide.
+  const [livreurDate, setLivreurDate] = useState("");
   // Filtre préparateur (vue "À préparer"/"Récupérations") : date (un seul jour).
   const [preparateurDate, setPreparateurDate] = useState(() => appToday());
 
@@ -328,12 +331,11 @@ export default function OrdersPage() {
           if (livreurStatutFilter !== "ALL") {
             filters.statut = livreurStatutFilter;
           }
+          // Filtre facultatif : sans date choisie, le serveur renvoie tout
+          // le planning du livreur.
           if (livreurDate) {
             filters.date_debut = livreurDate;
-            filters.date_fin =
-              livreurDate === appToday()
-                ? dernierJourOuvert("LIVREUR")
-                : livreurDate;
+            filters.date_fin = livreurDate;
           }
         }
         const data = await djangoClient.orders.list(filters);
@@ -751,15 +753,13 @@ export default function OrdersPage() {
               className="w-full"
             />
           </div>
-          {(livreurStatutFilter !== "ALL" ||
-            livreurDate !== appToday() ||
-            searchQuery) && (
+          {(livreurStatutFilter !== "ALL" || livreurDate || searchQuery) && (
             <Button
               variant="ghost"
               size="sm"
               onClick={() => {
                 setLivreurStatutFilter("ALL");
-                setLivreurDate(appToday());
+                setLivreurDate("");
                 setSearchQuery("");
               }}
             >

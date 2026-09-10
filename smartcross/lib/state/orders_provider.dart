@@ -77,6 +77,10 @@ class OrdersFilter {
 /// Sans cette borne elles seraient actionnables mais invisibles. Le livreur,
 /// lui, ne les voit qu'à partir du jour de livraison.
 OrdersFilter jourJFilter(UserRole role) {
+  // Le LIVREUR fait exception : il voit TOUTES ses commandes, y compris
+  // celles des jours suivants (planning) — § demande. Seules ses ACTIONS
+  // restent bloquées hors jour J, pas l'affichage.
+  if (role == UserRole.livreur) return const OrdersFilter();
   return OrdersFilter(dateDebut: appToday(), dateFin: dernierJourOuvert(role));
 }
 

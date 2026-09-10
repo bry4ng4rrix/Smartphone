@@ -54,32 +54,35 @@ DateTime appWallClockToUtc(DateTime wallClock) => DateTime.utc(
   );
 }
 
-/// Heure à laquelle la veille "ouvre" les commandes du lendemain pour le
-/// PRÉPARATEUR : 19h00 heure de Madagascar, soit 5 heures avant le début du
-/// jour J. Il prépare ainsi les colis du lendemain la veille au soir.
+/// Avance accordée au PRÉPARATEUR sur le jour J : il peut agir 5 heures AVANT
+/// le début du jour de livraison. Le jour J commençant à minuit, ses actions
+/// s'ouvrent donc à 19h00 (00h00 − 5h) heure de Madagascar, la veille.
 ///
-/// Doit rester synchronisé avec
-/// `orders/services.py::HEURE_OUVERTURE_PREPARATEUR`, seule autorité — ici on
-/// ne fait qu'anticiper l'affichage.
-const int kHeureOuverturePreparateur = 19;
+/// Doit rester synchronisé avec `orders/services.py::AVANCE_PREPARATEUR`,
+/// seule autorité — ici on ne fait qu'anticiper l'affichage.
+const Duration kAvancePreparateur = Duration(hours: 5);
+
+/// Heure d'ouverture qui en découle, pour les seuils d'affichage — 19.
+const int kHeureOuverturePreparateur = 24 - 5;
 
 /// Instant absolu (UTC) à partir duquel [role] peut agir sur une commande
 /// planifiée à [dateCommande]. L'ouverture diffère selon le métier :
 ///
-/// * [UserRole.preparateur] — 19h00 la VEILLE du jour de livraison ;
+/// * [UserRole.preparateur] — [kAvancePreparateur] avant le début du jour de
+///   livraison, soit 19h00 la VEILLE ;
 /// * [UserRole.livreur] — minuit le JOUR de livraison : il ne part en tournée
 ///   que le jour même, rien à débloquer la veille.
 ///
-/// Madagascar n'ayant pas d'heure d'été, retirer 24 h à 19h00 du jour de
-/// livraison donne toujours 19h00 la veille.
+/// Madagascar n'ayant pas d'heure d'été, retrancher une durée à minuit donne
+/// toujours l'heure attendue la veille.
 DateTime ouvertureActions(DateTime dateCommande, UserRole role) {
   final jour = appDay(dateCommande);
+  // Début du jour J : minuit, heure de Madagascar.
+  final debutJourJ = appWallClockToUtc(DateTime(jour.year, jour.month, jour.day));
   if (role == UserRole.preparateur) {
-    return appWallClockToUtc(
-      DateTime(jour.year, jour.month, jour.day, kHeureOuverturePreparateur),
-    ).subtract(const Duration(days: 1));
+    return debutJourJ.subtract(kAvancePreparateur);
   }
-  return appWallClockToUtc(DateTime(jour.year, jour.month, jour.day));
+  return debutJourJ;
 }
 
 /// La commande est-elle actionnable maintenant par ce rôle ? Une commande
