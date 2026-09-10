@@ -970,10 +970,11 @@ export default function OrdersPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>N° commande</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Sous-type</TableHead>
+                    {/* Type, Sous-type et Date ne sont plus des colonnes :
+                        ils allongeaient le tableau au point de le faire
+                        défiler horizontalement. Ils restent consultables
+                        dans le détail, au clic sur la ligne (§ demande). */}
                     <TableHead>Produit</TableHead>
-                    <TableHead>Date</TableHead>
                     <TableHead>Client</TableHead>
                     {isLivreur && <TableHead>Adresse</TableHead>}
                     {isLivreur && <TableHead>Téléphone</TableHead>}
@@ -1012,7 +1013,6 @@ export default function OrdersPage() {
                       !["LIVRE", "RETOUR", "ANNULEE"].includes(
                         order.statut_courant,
                       );
-                    const firstItem = (order.items || [])[0];
                     const notYetDue =
                       (isPreparateur || isLivreur) &&
                       !isJourJ(order.date_commande);
@@ -1027,12 +1027,6 @@ export default function OrdersPage() {
                       >
                         <TableCell className="align-top font-medium">
                           {order.numero}
-                        </TableCell>
-                        <TableCell className="align-top">
-                          {firstItem?.category_name || "-"}
-                        </TableCell>
-                        <TableCell className="align-top">
-                          {firstItem?.type_name || "-"}
                         </TableCell>
                         <TableCell className="align-top max-w-[280px]">
                           <div className="space-y-1.5">
@@ -1061,20 +1055,6 @@ export default function OrdersPage() {
                               </div>
                             ))}
                           </div>
-                        </TableCell>
-                        <TableCell className="align-top whitespace-nowrap text-xs text-muted-foreground">
-                          {order.date_commande
-                            ? new Date(order.date_commande).toLocaleString(
-                                "fr-FR",
-                                {
-                                  timeZone: APP_TIME_ZONE,
-                                  day: "2-digit",
-                                  month: "2-digit",
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                },
-                              )
-                            : "-"}
                         </TableCell>
                         <TableCell className="align-top">
                           {order.client_nom}
@@ -1365,7 +1345,12 @@ export default function OrdersPage() {
                           {it.couleur ? ` (${it.couleur})` : ""}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          {[it.type_name, it.category_name, it.brand_name]
+                          {[
+                            it.category_name && `Type : ${it.category_name}`,
+                            it.type_name && `Sous-type : ${it.type_name}`,
+                            it.brand_name && `Marque : ${it.brand_name}`,
+                            it.quantite && `Quantité : ${it.quantite}`,
+                          ]
                             .filter(Boolean)
                             .join(" • ") || "Sans métadonnées"}
                         </div>
@@ -1375,6 +1360,21 @@ export default function OrdersPage() {
                 )}
 
                 <div className="grid gap-2">
+                  {/* Reprend la colonne « Date » retiree du tableau. */}
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">
+                      {detail.statut_courant === "LIVRE"
+                        ? "Livrée le"
+                        : "Livraison prévue le"}
+                    </span>
+                    <span className="text-right">
+                      {fmtAppDateTime(
+                        detail.statut_courant === "LIVRE"
+                          ? historyAt(detail, "LIVRE") || detail.date_commande
+                          : detail.date_commande,
+                      )}
+                    </span>
+                  </div>
                   <div className="flex justify-between gap-4">
                     <span className="text-muted-foreground">Nom client</span>
                     <span className="text-right">
