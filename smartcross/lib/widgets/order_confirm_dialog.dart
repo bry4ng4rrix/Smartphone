@@ -12,21 +12,20 @@ import '../models/order.dart';
 final _moneyFmt = NumberFormat.decimalPattern('fr_FR');
 String arFmt(num v) => '${_moneyFmt.format(v.round())} Ar';
 
-/// "Jour J" = jour du champ dateCommande (planning) — le préparateur/livreur
-/// voit toutes ses commandes à venir mais ne peut agir dessus qu'à partir de
-/// ce jour (le serveur applique la même règle, voir orders/services.py).
+/// Le préparateur/livreur voit toutes ses commandes à venir (planning) mais
+/// ne peut agir dessus qu'à partir de l'OUVERTURE : 19h00 la veille du jour
+/// de livraison, heure d'Antananarivo (§ demande — la tournée du lendemain se
+/// prépare la veille au soir).
 ///
-/// La comparaison se fait sur le jour calendaire d'ANTANANARIVO (voir
-/// core/app_time.dart), pas sur le fuseau de l'appareil : c'est la même
-/// référence que le serveur, sinon l'app autorise l'action alors que le
-/// serveur la refuse (ou l'inverse).
-bool isJourJ(DateTime? dateCommande) {
-  if (dateCommande == null) return true;
-  return !appDay(dateCommande).isAfter(appToday());
-}
+/// Le calcul vit dans core/app_time.dart et reprend exactement celui du
+/// serveur (orders/services.py::ouverture_actions), qui reste seul juge.
+bool isJourJ(DateTime? dateCommande) => actionOuverte(dateCommande);
 
-final _dueDateFmt = DateFormat('dd/MM/yyyy');
-String dueDateLabel(DateTime dateCommande) => _dueDateFmt.format(appLocal(dateCommande));
+final _dueDateFmt = DateFormat("dd/MM/yyyy 'à' HH'h'mm");
+/// Libellé du moment où l'action se débloquera — pas la date de
+/// livraison : c'est ce que le bouton doit annoncer.
+String dueDateLabel(DateTime dateCommande) =>
+    _dueDateFmt.format(appLocal(ouvertureActions(dateCommande)));
 
 /// Résultat de [showOrderConfirmDialog] : la note saisie (chaîne vide
 /// possible) et, si [showOrderConfirmDialog] l'a proposé, le chemin local de

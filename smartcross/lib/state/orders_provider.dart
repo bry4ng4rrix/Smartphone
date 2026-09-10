@@ -69,8 +69,11 @@ class OrdersFilter {
 /// livreur arrivent ainsi sur la journée de travail en cours ; ils restent
 /// libres de changer de date, et « Effacer » les ramène ici.
 OrdersFilter jourJFilter() {
-  final jour = appToday();
-  return OrdersFilter(dateDebut: jour, dateFin: jour);
+  // La fenêtre va d'aujourd'hui au dernier jour déjà ouvert : à partir de
+  // 19h00 elle inclut donc les commandes du lendemain, qui viennent d'être
+  // débloquées (voir core/app_time.dart::ouvertureActions). Sans ça elles
+  // seraient actionnables mais invisibles.
+  return OrdersFilter(dateDebut: appToday(), dateFin: dernierJourOuvert());
 }
 
 class OrdersFilterNotifier extends Notifier<OrdersFilter> {

@@ -102,3 +102,77 @@ export function appDatetimeLocalToIso(value: string): string {
   const normalized = value.length === 16 ? `${value}:00` : value;
   return new Date(`${normalized}${APP_UTC_OFFSET}`).toISOString();
 }
+
+/**
+ * Heure à laquelle la veille "ouvre" les commandes du lendemain.
+ *
+ * La tournée du lendemain se prépare la veille au soir : à partir de 19h00
+ * (heure de Madagascar), préparateur et livreur peuvent déjà agir sur les
+ * commandes planifiées pour le jour suivant. Exemple : une commande du
+ * 11/09 devient actionnable le 10/09 à 19h00.
+ *
+ * Doit rester synchronisé avec `orders/services.py::HEURE_OUVERTURE_VEILLE`,
+ * qui est la seule autorité : ici on ne fait qu'anticiper l'affichage.
+ */
+export const HEURE_OUVERTURE_VEILLE = 19;
+
+/**
+ * Instant à partir duquel préparateur et livreur peuvent agir sur une
+ * commande planifiée à `dateCommande` : 19h00 la veille du jour de livraison,
+ * heure d'Antananarivo.
+ *
+ * Madagascar n'ayant pas d'heure d'été, retirer 24 h à 19h00 du jour J donne
+ * toujours 19h00 la veille.
+ */
+export function ouvertureActions(dateCommande: string | Date): Date {
+  const jour = appDayKey(dateCommande);
+  const heure = String(HEURE_OUVERTURE_VEILLE).padStart(2, '0');
+  const jourJ19h = new Date(`${jour}T${heure}:00:00${APP_UTC_OFFSET}`);
+  return new Date(jourJ19h.getTime() - 24 * 60 * 60 * 1000);
+}
+
+/**
+ * La commande est-elle actionnable maintenant par le préparateur/livreur ?
+ * Une commande sans date planifiée l'est toujours.
+ */
+export function actionOuverte(dateCommande?: string | null): boolean {
+  if (!dateCommande) return true;
+  return Date.now() >= ouvertureActions(dateCommande).getTime();
+}
+
+/** Libellé de l'ouverture — ex : « 10/09/2026 à 19h00 ». */
+export function fmtOuverture(dateCommande?: string | null): string {
+  if (!dateCommande) return '—';
+  const o = ouvertureActions(dateCommande);
+  return `${fmtAppDate(o)} à ${o.toLocaleTimeString('fr-FR', {
+    timeZone: APP_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+  })}`;
+}
+
+/** Heure courante (0-23) à Antananarivo. */
+export function appHeure(): number {
+  const h = Number(
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: APP_TIME_ZONE,
+      hour: '2-digit',
+      hour12: false,
+    }).format(new Date()),
+  );
+  // Certains moteurs formatent minuit en "24".
+  return h === 24 ? 0 : h;
+}
+
+/**
+ * Dernier jour de livraison dont les commandes sont DÉJÀ actionnables.
+ *
+ * Avant 19h00 c'est aujourd'hui ; à partir de 19h00 les commandes du
+ * lendemain s'ouvrent (voir `ouvertureActions`), donc c'est demain. Sert à
+ * borner la liste du préparateur et du livreur : sans ça, à 19h05 leurs
+ * commandes du lendemain seraient débloquées mais invisibles.
+ */
+export function dernierJourOuvert(): string {
+  if (appHeure() < HEURE_OUVERTURE_VEILLE) return appToday();
+  return appDayKey(new Date(Date.now() + 24 * 60 * 60 * 1000));
+}

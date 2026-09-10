@@ -1,3 +1,5 @@
+from datetime import datetime, time, timedelta
+
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
@@ -13,6 +15,32 @@ from .models import Order, OrderItem, OrderStatusHistory
 # n'importe quelle transition valide (bypass du rôle) mais ne peut pas sauter
 # d'étape (le "droit admin override" pour sauter une étape reste "à discuter"),
 # sauf le cas spécial "Récupération sur place" (voir change_order_status).
+# Heure à laquelle la veille "ouvre" les commandes du lendemain (§ demande).
+# La tournée du lendemain se prépare la veille au soir : à partir de 19h00
+# (heure de Madagascar), le préparateur et le livreur peuvent déjà agir sur
+# les commandes planifiées pour le jour suivant. Exemple : une commande du
+# 11/09 devient actionnable le 10/09 à 19h00.
+HEURE_OUVERTURE_VEILLE = 19
+
+
+def ouverture_actions(date_commande):
+    """Instant à partir duquel préparateur et livreur peuvent agir sur une
+    commande planifiée à `date_commande`.
+
+    Ce n'est PAS minuit le jour de livraison : l'ouverture est fixée à
+    `HEURE_OUVERTURE_VEILLE` la veille, dans le fuseau métier
+    (Stock/settings.py TIME_ZONE = Indian/Antananarivo). Le web et l'app
+    mobile appliquent exactement la même règle, mais c'est bien ce calcul-ci
+    qui fait foi — un client ne fait qu'anticiper l'affichage.
+    """
+    tz = timezone.get_current_timezone()
+    jour_livraison = timezone.localtime(date_commande).date()
+    veille = jour_livraison - timedelta(days=1)
+    return timezone.make_aware(
+        datetime.combine(veille, time(HEURE_OUVERTURE_VEILLE, 0)), tz
+    )
+
+
 TRANSITIONS = {
     "EN_PREPARATION": {"from": "NOUVELLE", "role": "PREPARATEUR"},
     "PRETE": {"from": "EN_PREPARATION", "role": "PREPARATEUR"},
@@ -367,14 +395,18 @@ def change_order_status(*, order, new_status, user, note="", preparateur_id=None
         )
 
     # Le préparateur/livreur voit toutes ses commandes à venir (planning),
-    # mais ne peut agir dessus qu'à partir du jour J (date_commande) — le
-    # gérant, lui, peut toujours forcer une transition en avance.
-    if role != "GERANT" and timezone.localtime(order.date_commande).date() > timezone.localdate():
-        raise PermissionDenied(
-            f"Cette commande est planifiée pour le "
-            f"{timezone.localtime(order.date_commande).strftime('%d/%m/%Y')} — "
-            "l'action ne sera possible qu'à partir de ce jour."
-        )
+    # mais ne peut agir dessus qu'à partir de l'ouverture — 19h00 la veille
+    # du jour de livraison (voir ouverture_actions). Le gérant, lui, peut
+    # toujours forcer une transition en avance.
+    if role != "GERANT":
+        ouverture = ouverture_actions(order.date_commande)
+        if timezone.now() < ouverture:
+            raise PermissionDenied(
+                f"Cette commande est planifiée pour le "
+                f"{timezone.localtime(order.date_commande).strftime('%d/%m/%Y')} — "
+                f"l'action sera possible à partir du "
+                f"{timezone.localtime(ouverture).strftime('%d/%m/%Y à %Hh%M')}."
+            )
 
     # Une fois assignée, seule la personne désignée (ou le gérant) peut faire
     # progresser la commande — évite qu'un autre préparateur/livreur

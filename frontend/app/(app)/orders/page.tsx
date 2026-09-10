@@ -20,6 +20,9 @@ import {
   appToday,
   appDatetimeLocalValue,
   appDatetimeLocalToIso,
+  actionOuverte,
+  fmtOuverture,
+  dernierJourOuvert,
   fmtAppDate,
   fmtAppDateTime,
 } from "@/lib/timezone";
@@ -197,17 +200,13 @@ const HISTORIQUE_STATUT_FILTERS = [
   { value: "NOUVELLE", label: "Nouvelles" },
 ];
 
-// "Jour J" = jour du champ date_commande (planning) — le préparateur/livreur
-// voit toutes ses commandes à venir mais ne peut agir dessus qu'à partir de
-// ce jour. La comparaison se fait sur le jour calendaire d'ANTANANARIVO (et
-// non sur le fuseau de l'appareil) : c'est la même référence que le serveur
-// (Stock/settings.py TIME_ZONE + orders/services.py::change_order_status),
-// sinon un téléphone/serveur dans un autre fuseau autorise ou refuse l'action
-// un jour trop tôt/trop tard.
-const isJourJ = (dateStr?: string | null) => {
-  if (!dateStr) return true;
-  return appDayKey(dateStr) <= appToday();
-};
+// Le préparateur/livreur voit toutes ses commandes à venir (planning) mais
+// ne peut agir dessus qu'à partir de l'OUVERTURE : 19h00 la veille du jour
+// de livraison, heure d'Antananarivo (§ demande — la tournée du lendemain se
+// prépare la veille au soir). Le calcul vit dans lib/timezone.ts et reprend
+// exactement celui du serveur (orders/services.py::ouverture_actions), qui
+// reste seul juge : ici on ne fait qu'anticiper l'affichage.
+const isJourJ = (dateStr?: string | null) => actionOuverte(dateStr);
 
 // Zones de livraison : configurables dans Paramètres (§ demande, CRUD
 // nom+prix — voir useDeliveryZones/DeliveryZoneOption), plus le littéral
@@ -309,9 +308,14 @@ export default function OrdersPage() {
             filters.date_to = appDatetimeLocalToIso(historiqueTo);
           if (historiqueStatut !== "ALL") filters.statut = historiqueStatut;
         }
+        // Préparateur/livreur : sur le jour par défaut, la fenêtre va
+        // jusqu'au dernier jour déjà ouvert — après 19h00 elle inclut donc
+        // les commandes du lendemain, qui viennent d'être débloquées. Dès
+        // que l'utilisateur choisit une autre date, on filtre ce seul jour.
         if (isPreparateur && viewMode === "ACTIF" && preparateurDate) {
           filters.date_debut = preparateurDate;
-          filters.date_fin = preparateurDate;
+          filters.date_fin =
+            preparateurDate === appToday() ? dernierJourOuvert() : preparateurDate;
         }
         if (isLivreur && viewMode === "ACTIF") {
           if (livreurStatutFilter !== "ALL") {
@@ -319,7 +323,8 @@ export default function OrdersPage() {
           }
           if (livreurDate) {
             filters.date_debut = livreurDate;
-            filters.date_fin = livreurDate;
+            filters.date_fin =
+              livreurDate === appToday() ? dernierJourOuvert() : livreurDate;
           }
         }
         const data = await djangoClient.orders.list(filters);
@@ -1005,8 +1010,10 @@ export default function OrdersPage() {
                     const notYetDue =
                       (isPreparateur || isLivreur) &&
                       !isJourJ(order.date_commande);
+                    // Ce que le bouton doit annoncer, c'est le moment où il
+                    // se débloquera — pas la date de livraison.
                     const dueDateLabel = order.date_commande
-                      ? fmtAppDate(order.date_commande)
+                      ? fmtOuverture(order.date_commande)
                       : "";
                     return (
                       <TableRow
@@ -1492,7 +1499,7 @@ export default function OrdersPage() {
                       >
                         <action.icon className="h-4 w-4 mr-2" />
                         {notYetDue
-                          ? `Disponible le ${fmtAppDate(detail.date_commande)}`
+                          ? `Disponible le ${fmtOuverture(detail.date_commande)}`
                           : action.label}
                       </Button>
                     );
