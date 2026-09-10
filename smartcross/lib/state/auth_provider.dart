@@ -10,7 +10,9 @@ import 'dashboard_provider.dart';
 import 'notifications_provider.dart';
 import 'orders_provider.dart';
 import 'stock_provider.dart';
+import 'reports_provider.dart';
 import 'stores_provider.dart';
+import 'superadmin_provider.dart';
 import 'suppliers_provider.dart';
 import 'users_provider.dart';
 
@@ -40,6 +42,8 @@ void _invalidateDataProviders(Ref ref) {
   ref.invalidate(accountsProvider);
   ref.invalidate(pendingUsersProvider);
   ref.invalidate(storesProvider);
+  ref.invalidate(superadminProvider);
+  ref.invalidate(reportsProvider);
 }
 
 enum AuthStatus { loading, unauthenticated, authenticated }

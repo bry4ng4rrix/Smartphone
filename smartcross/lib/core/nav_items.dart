@@ -130,6 +130,21 @@ const List<NavItem> kPrimaryNavItems = [
     icon: Icons.shield_outlined,
     superAdminOnly: true,
   ),
+  // Ces deux pages existent cote web mais ne figurent dans AUCUN menu : sur
+  // le web on y accede par l'URL, ce qui n'existe pas sur mobile. On les
+  // expose donc dans le menu, avec le meme gating que leur page web.
+  NavItem(
+    path: '/superadmin',
+    label: 'Super Administration',
+    icon: Icons.admin_panel_settings_outlined,
+    superAdminOnly: true,
+  ),
+  NavItem(
+    path: '/scanner',
+    label: 'Recherche produit',
+    icon: Icons.qr_code_scanner_outlined,
+    hideLivreur: true,
+  ),
   NavItem(
     path: '/settings',
     label: 'Paramètres',

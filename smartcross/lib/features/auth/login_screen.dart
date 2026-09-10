@@ -118,12 +118,33 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     validator: (v) => (v == null || v.isEmpty) ? 'Mot de passe requis' : null,
                     onFieldSubmitted: (_) => _submit(),
                   ),
-                  const SizedBox(height: 20),
+                  // Seul point d'entree du flux « mot de passe oublie »,
+                  // comme sur le web : sans ce lien la route serait
+                  // orpheline sur mobile (pas de barre d'adresse).
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: _loading ? null : () => context.push('/forgot-password'),
+                      child: const Text('Mot de passe oublié ?'),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
                   FilledButton(
                     onPressed: _loading ? null : _submit,
                     child: _loading
                         ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
                         : const Text('Se connecter'),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text('Pas encore de compte ?', style: Theme.of(context).textTheme.bodySmall),
+                      TextButton(
+                        onPressed: _loading ? null : () => context.push('/register'),
+                        child: const Text('Créer un compte'),
+                      ),
+                    ],
                   ),
                 ],
               ),

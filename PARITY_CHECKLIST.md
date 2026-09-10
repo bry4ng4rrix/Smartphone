@@ -7,39 +7,60 @@ Statuts : `DONE` (porte et verifie) · `PARTIAL` (partiellement porte) · `MISSI
 
 Objectif : **0 MISSING, 0 PARTIAL**.
 
+## Avancement
+
+**Etape 1 — socle de roles et navigation : FAIT.**
+
+- [x] Modele de roles complet (`admin` / `magasin` / `employer` + sous-role) — `smartcross/lib/core/permissions.dart`, replique de `useCurrentUser`
+- [x] Gating de navigation identique au sidebar web (`adminOnly`, `superAdminOnly`, `livreurOnly`, `hidePreparateur`, `hideLivreur`) — `smartcross/lib/core/nav_items.dart`
+- [x] Gardes de route go_router : une route interdite renvoie vers l'accueil du role (le web se contente de masquer le lien)
+- [x] Menu complet : les 16 entrees du sidebar web existent desormais dans l'app
+
+**Etape 2 — les 12 ecrans absents : FAITS.** Mouvements, Alertes, Rapports, Recuperation,
+Scanner/Recherche produit, Super Administration, Inscription, Mot de passe oublie,
+Changement de mot de passe, Verification e-mail, Compte en attente (les deux pages web
+fusionnees), et `/sales` (simple redirection web, sans ecran dedie).
+
+Toutes les routes sont cablees dans `smartcross/lib/core/router.dart` et
+`flutter analyze lib/` ne remonte **aucune erreur ni warning**.
+
+**Etape 3 — a faire : combler les ecarts des 61 routes `PARTIAL`** (ecrans qui existent
+deja dans l'app mais dont toutes les fonctionnalites du web ne sont pas encore portees).
+Le detail par route ci-dessous liste nommement ce qui reste a couvrir.
+
 ## Vue d'ensemble par route
 
 | Route | Ecran Flutter | Elements a porter | Etat |
 | --- | --- | --- | --- |
 | `/orders` | lib/features/orders/orders_list_screen.dart + order_create_screen.dart + order_d | 100 | PARTIAL |
 | `/products` | lib/features/catalog/catalog_screen.dart | 116 | PARTIAL |
-| `/movements` | AUCUN | 76 | MISSING |
+| `/movements` | lib/features/movements/movements_screen.dart | 76 | DONE |
 | `/chats` | lib/features/chats/chat_list_screen.dart + chat_conversation_screen.dart | 79 | PARTIAL |
 | `/users (libellé sidebar : "Super Admin", titre page : "Super` | lib/features/users/users_screen.dart | 73 | PARTIAL |
 | `/caisse` | lib/features/caisse/caisse_screen.dart | 64 | PARTIAL |
 | `/bilan` | lib/features/tournee/bilan_screen.dart | 44 | DONE |
 | `/dashboard` | lib/features/dashboard/dashboard_screen.dart | 43 | PARTIAL |
-| `/reports` | AUCUN | 53 | MISSING |
+| `/reports` | lib/features/reports/reports_screen.dart | 53 | DONE |
 | `/settings` | lib/features/settings/settings_screen.dart | 65 | PARTIAL |
 | `/stores` | lib/features/stores/stores_screen.dart | 57 | PARTIAL |
 | `/suppliers` | lib/features/suppliers/suppliers_screen.dart + supplier_order_*.dart | 63 | PARTIAL |
 | `/transfers` | lib/features/transfers/transfers_screen.dart | 22 | PARTIAL |
 | `/transfers (composant partage TransferProductsPanel — coeur ` | lib/features/transfers/transfers_screen.dart | 53 | PARTIAL |
 | `/stores (modal TransferProductsDialog — variante modale du m` | lib/features/stores/stores_screen.dart | 15 | PARTIAL |
-| `/alerts` | AUCUN | 39 | MISSING |
-| `/pickup` | AUCUN | 37 | MISSING |
-| `/scanner` | AUCUN | 30 | MISSING |
-| `/sales` | AUCUN | 6 | MISSING |
-| `/superadmin` | AUCUN | 52 | MISSING |
+| `/alerts` | lib/features/alerts/alerts_screen.dart | 39 | DONE |
+| `/pickup` | lib/features/pickup/pickup_screen.dart | 37 | DONE |
+| `/scanner` | lib/features/scanner/scanner_screen.dart | 30 | DONE |
+| `/sales` | redirection go_router vers /orders (lib/core/router.dart) | 6 | DONE |
+| `/superadmin` | lib/features/superadmin/superadmin_screen.dart | 52 | DONE |
 | `/notifications` | lib/features/notifications/notifications_screen.dart | 49 | PARTIAL |
 | `(global) TopBar — cloche de notifications (dropdown)` | composant / couche partagee — a porter | 39 | PARTIAL |
 | `/` | lib/features/auth/splash_screen.dart | 5 | DONE |
 | `/login` | lib/features/auth/login_screen.dart | 26 | PARTIAL |
-| `/register` | AUCUN | 34 | MISSING |
-| `/forgot-password` | AUCUN | 27 | MISSING |
-| `/reset-password` | AUCUN | 20 | MISSING |
-| `/verify-email` | AUCUN | 11 | MISSING |
-| `/pending-approval` | AUCUN | 13 | MISSING |
+| `/register` | lib/features/auth/register_screen.dart | 34 | DONE |
+| `/forgot-password` | lib/features/auth/forgot_password_screen.dart | 27 | DONE |
+| `/reset-password` | lib/features/auth/reset_password_screen.dart | 20 | DONE |
+| `/verify-email` | lib/features/auth/verify_email_screen.dart | 11 | DONE |
+| `/pending-approval` | lib/features/auth/pending_approval_screen.dart | 13 | DONE |
 | `/auth/pending-approval` | composant / couche partagee — a porter | 14 | PARTIAL |
 | `/logout` | lib/widgets/topbar.dart (action de deconnexion) | 9 | PARTIAL |
 | `/* (RootLayout — enveloppe TOUTES les pages, y compris /logi` | lib/main.dart + lib/core/router.dart (redirect global) | 19 | PARTIAL |

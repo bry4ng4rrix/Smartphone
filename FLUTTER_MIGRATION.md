@@ -28,33 +28,33 @@ Audit automatise par 20 agents lisant integralement les fichiers (aucun resume a
 | --- | --- | --- | --- |
 | `/orders` | Page unique servie a TOUS les roles authentifies (aucun guard de route : /orders est dans navigationItems du s… | lib/features/orders/orders_list_screen.dart + order_create_screen.dart + order_detail_screen.dart, lib/features/depot/depot_screen.dart, lib/features/tournee/tournee_screen.dart | PARTIAL |
 | `/products` | Gating 100% côté client via `useCurrentUser()` (GET /users/me/). Seul `isGerant` est utilisé dans la page prin… | lib/features/catalog/catalog_screen.dart | PARTIAL |
-| `/movements` | AUCUN guard dans la page elle-meme. (1) Guard global: /home/garrix/Dev/Smartphone/frontend/app/(app)/layout.ts… | AUCUN | MISSING |
+| `/movements` | lib/features/movements/movements_screen.dart | AUCUN | DONE |
 | `/chats` | AUCUN gating par role dans la page — accessible a TOUS les roles connectes (admin / magasin(GERANT) / employer… | lib/features/chats/chat_list_screen.dart + chat_conversation_screen.dart | PARTIAL |
 | `/users (libellé sidebar : "Super Admin", titre page : "Super Administr` | GATING EN 3 COUCHES. (1) Layout /home/garrix/Dev/Smartphone/frontend/app/(app)/layout.tsx : useEffect -> si !d… | lib/features/users/users_screen.dart | PARTIAL |
 | `/caisse` | GERANT uniquement en pratique (admin = role 'admin', gerant magasin = role 'magasin'). AUCUN guard explicite d… | lib/features/caisse/caisse_screen.dart | PARTIAL |
 | `/bilan` | LIVREUR EXCLUSIVEMENT. useCurrentUser() fournit { isLivreur, loading: userLoading } avec isLivreur = (role ===… | lib/features/tournee/bilan_screen.dart | DONE |
 | `/dashboard` | GERANT UNIQUEMENT (admin + magasin). Gating en 2 couches: (1) Sidebar (/home/garrix/Dev/Smartphone/frontend/co… | lib/features/dashboard/dashboard_screen.dart | PARTIAL |
-| `/reports` | Réservé au GERANT dans la navigation (sidebar item `Rapports` avec adminOnly:true -> visible seulement si isAd… | AUCUN | MISSING |
+| `/reports` | lib/features/reports/reports_screen.dart | AUCUN | DONE |
 | `/settings` | GATING = `const { user, isGerant, loading: userLoading } = useCurrentUser()` (/home/garrix/Dev/Smartphone/fron… | lib/features/settings/settings_screen.dart | PARTIAL |
 | `/stores` | GATING = `const { user, isAdmin } = useCurrentUser()` ; `isAdmin === (role === 'admin')`. AUCUN guard/redirect… | lib/features/stores/stores_screen.dart | PARTIAL |
 | `/suppliers` | GERANT (= admin OU magasin). ATTENTION: AUCUN gating dans la page elle-meme — pas de useCurrentUser, pas de gu… | lib/features/suppliers/suppliers_screen.dart + supplier_order_*.dart | PARTIAL |
 | `/transfers` | ADMIN UNIQUEMENT (superadmin/proprietaire de societe). Gating explicite dans la page: `const { isAdmin, loadin… | lib/features/transfers/transfers_screen.dart | PARTIAL |
 | `/transfers (composant partage TransferProductsPanel — coeur fonctionne` | Pas de gating interne au composant: il herite du gating de son hote (page /transfers = isAdmin uniquement; dia… | lib/features/transfers/transfers_screen.dart | PARTIAL |
 | `/stores (modal TransferProductsDialog — variante modale du meme flux)` | Aucun gating propre. Utilise par app/(app)/stores/page.tsx (entree sidebar superAdminOnly => role 'admin'). Le… | lib/features/stores/stores_screen.dart | PARTIAL |
-| `/alerts` | AUCUN gating dans la page elle-meme : le composant n'importe PAS useCurrentUser, aucun guard, aucun redirect. … | AUCUN | MISSING |
-| `/pickup` | GERANT uniquement. Gating explicite : const { isGerant, loading: userLoading } = useCurrentUser(); isGerant ==… | AUCUN | MISSING |
-| `/scanner` | AUCUN gating : pas de useCurrentUser, pas de guard, pas de redirect. Accessible a tout utilisateur authentifie… | AUCUN | MISSING |
-| `/sales` | Aucun role, aucun gating : la page ne fait que rediriger. Elle n'apparait dans aucun menu de la Sidebar. | AUCUN | MISSING |
-| `/superadmin` | SUPERADMIN uniquement, c'est-a-dire isSuperAdmin === (role === 'admin') dans useCurrentUser (attention : dans … | AUCUN | MISSING |
+| `/alerts` | lib/features/alerts/alerts_screen.dart | AUCUN | DONE |
+| `/pickup` | lib/features/pickup/pickup_screen.dart | AUCUN | DONE |
+| `/scanner` | lib/features/scanner/scanner_screen.dart | AUCUN | DONE |
+| `/sales` | Aucun role, aucun gating : la page ne fait que rediriger. Elle n'apparait dans aucun menu de la Sidebar. | redirection go_router vers /orders (lib/core/router.dart) | DONE |
+| `/superadmin` | lib/features/superadmin/superadmin_screen.dart | AUCUN | DONE |
 | `/notifications` | AUCUN guard dans la page elle-meme. Le composant est un 'use client' sans useCurrentUser, sans verification de… | lib/features/notifications/notifications_screen.dart | PARTIAL |
 | `(global) TopBar — cloche de notifications (dropdown)` | AUCUN gating de role. Le composant <Notifications /> est monte inconditionnellement dans /home/garrix/Dev/Smar… | composant / couche partagee — a porter | PARTIAL |
 | `/` | PUBLIC — aucun gating. Server Component pur, aucun appel a useCurrentUser ni a djangoClient. Ne verifie PAS si… | lib/features/auth/splash_screen.dart | DONE |
 | `/login` | PUBLIC — aucun guard, aucun useCurrentUser. Le role n'intervient qu'APRES login reussi pour choisir la destina… | lib/features/auth/login_screen.dart | PARTIAL |
-| `/register` | PUBLIC — aucun guard. C'est l'utilisateur qui CHOISIT son type de compte via un RadioGroup 3 options : 'admin'… | AUCUN | MISSING |
-| `/forgot-password` | PUBLIC (endpoints AllowAny). Gating METIER cote backend : le flux n'est disponible QUE pour les comptes role='… | AUCUN | MISSING |
-| `/reset-password` | AUTHENTIFIE REQUIS et, cote backend, RESERVE AU GERANT : ChangePasswordView refuse role not in ['admin','magas… | AUCUN | MISSING |
-| `/verify-email` | PUBLIC — Server Component 100% statique, aucun guard, aucun hook, aucun state, aucun appel API. | AUCUN | MISSING |
-| `/pending-approval` | PUBLIC — Server Component statique, aucun guard, aucun hook, aucun appel API. N'affiche AUCUNE donnee du compt… | AUCUN | MISSING |
+| `/register` | lib/features/auth/register_screen.dart | AUCUN | DONE |
+| `/forgot-password` | lib/features/auth/forgot_password_screen.dart | AUCUN | DONE |
+| `/reset-password` | lib/features/auth/reset_password_screen.dart | AUCUN | DONE |
+| `/verify-email` | lib/features/auth/verify_email_screen.dart | AUCUN | DONE |
+| `/pending-approval` | lib/features/auth/pending_approval_screen.dart | AUCUN | DONE |
 | `/auth/pending-approval` | PUBLIC — Server Component statique, aucun guard, aucun hook, aucun appel API. C'est la page d'arrivee REELLE a… | composant / couche partagee — a porter | PARTIAL |
 | `/logout` | Aucun gating. Client Component ('use client'). Accessible meme sans session (l'appel logout est tolerant aux e… | lib/widgets/topbar.dart (action de deconnexion) | PARTIAL |
 | `/* (RootLayout — enveloppe TOUTES les pages, y compris /login, /regist` | AUCUN gating. Layout racine serveur (pas de 'use client'), aucun appel a useCurrentUser, aucun guard. Il s'app… | lib/main.dart + lib/core/router.dart (redirect global) | PARTIAL |

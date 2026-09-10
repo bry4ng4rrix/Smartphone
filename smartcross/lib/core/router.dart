@@ -2,7 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../features/auth/forgot_password_screen.dart';
 import '../features/auth/login_screen.dart';
+import '../features/auth/pending_approval_screen.dart';
+import '../features/auth/register_screen.dart';
+import '../features/auth/reset_password_screen.dart';
+import '../features/auth/verify_email_screen.dart';
 import '../features/auth/server_setup_screen.dart';
 import '../features/auth/splash_screen.dart';
 import '../features/alerts/alerts_screen.dart';
@@ -14,8 +19,11 @@ import '../features/dashboard/dashboard_screen.dart';
 import '../features/depot/depot_screen.dart';
 import '../features/movements/movements_screen.dart';
 import '../features/notifications/notifications_screen.dart';
+import '../features/pickup/pickup_screen.dart';
 import '../features/reports/reports_screen.dart';
+import '../features/scanner/scanner_screen.dart';
 import '../features/settings/settings_screen.dart';
+import '../features/superadmin/superadmin_screen.dart';
 import '../features/orders/order_create_screen.dart';
 import '../features/orders/order_detail_screen.dart';
 import '../features/orders/orders_list_screen.dart';
@@ -33,7 +41,16 @@ import 'nav_items.dart';
 import 'permissions.dart';
 import '../state/auth_provider.dart';
 
-const _publicPrefixes = ['/login', '/server-setup', '/splash'];
+const _publicPrefixes = [
+  '/login',
+  '/server-setup',
+  '/splash',
+  '/register',
+  '/forgot-password',
+  '/verify-email',
+  '/pending-approval',
+  '/auth/pending-approval',
+];
 
 /// Ecran d'accueil apres connexion, par role. Un `employer` sans sous-role
 /// module Commande n'a ni depot ni tournee : on le pose sur /orders, la
@@ -85,6 +102,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/splash', builder: (context, state) => const SplashScreen()),
       GoRoute(path: '/server-setup', builder: (context, state) => const ServerSetupScreen()),
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
+      GoRoute(path: '/register', builder: (context, state) => const RegisterScreen()),
+      GoRoute(path: '/forgot-password', builder: (context, state) => const ForgotPasswordScreen()),
+      GoRoute(path: '/verify-email', builder: (context, state) => const VerifyEmailScreen()),
+      // Le web a deux pages distinctes (/pending-approval et
+      // /auth/pending-approval) au contenu quasi identique : elles sont
+      // fusionnees ici en un seul ecran, joignable par les deux chemins.
+      GoRoute(path: '/pending-approval', builder: (context, state) => const PendingApprovalScreen()),
+      GoRoute(path: '/auth/pending-approval', builder: (context, state) => const PendingApprovalScreen()),
       ShellRoute(
         builder: (context, state, child) => NavigationShell(currentPath: state.matchedLocation, child: child),
         routes: [
@@ -108,6 +133,15 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/movements', builder: (context, state) => const MovementsScreen()),
           GoRoute(path: '/alerts', builder: (context, state) => const AlertsScreen()),
           GoRoute(path: '/reports', builder: (context, state) => const ReportsScreen()),
+          GoRoute(path: '/pickup', builder: (context, state) => const PickupScreen()),
+          GoRoute(path: '/scanner', builder: (context, state) => const ScannerScreen()),
+          GoRoute(path: '/superadmin', builder: (context, state) => const SuperadminScreen()),
+          GoRoute(path: '/reset-password', builder: (context, state) => const ResetPasswordScreen()),
+          // Le module Ventes/Ticket a ete retire : le seul flux de vente
+          // est la Commande a 6 statuts. Meme redirection heritee que
+          // frontend/app/(app)/sales/page.tsx, pour que les anciens liens
+          // et raccourcis continuent de fonctionner.
+          GoRoute(path: '/sales', redirect: (context, state) => '/orders'),
           GoRoute(
             path: '/suppliers',
             builder: (context, state) => const SuppliersScreen(),
