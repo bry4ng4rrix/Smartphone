@@ -30,10 +30,15 @@ from .serializers import (
 
 # Statuts visibles par rôle sur leur module dédié (§7.2, §7.3 Smartreadme.md) —
 # uniquement parmi les commandes déjà assignées à SON nom (voir get_queryset,
-# § demande). Le livreur voit aussi "En préparation" (visibilité/planning —
-# pas encore actionnable pour lui, § demande), en plus de ses statuts habituels.
+# § demande).
+#
+# Le livreur voit TOUTES les commandes qui lui sont destinées, y compris
+# celles qui ne sont pas encore prêtes ("Nouvelle", "En préparation") : c'est
+# son planning (§ demande). Elles ne sont pas actionnables pour autant — le
+# bouton n'apparaît qu'une fois la commande "Prête" ET le jour J atteint
+# (voir orders/services.py::ouverture_actions et la page Commandes).
 PREPARATEUR_STATUTS = ["NOUVELLE", "EN_PREPARATION"]
-LIVREUR_STATUTS = ["EN_PREPARATION", "PRETE", "EN_LIVRAISON"]
+LIVREUR_STATUTS = ["NOUVELLE", "EN_PREPARATION", "PRETE", "EN_LIVRAISON"]
 
 
 # Défauts pour une société qui n'a encore aucune zone (nouvelle société —
@@ -171,8 +176,11 @@ class OrderViewSet(viewsets.ModelViewSet):
                     preparateur=self.request.user, statut_courant="PRETE", livraison_zone="RECUPERATION"
                 )
             else:
-                # Prêtes à récupérer + en livraison (§7.3 Smartreadme.md) — hors
-                # retrait sur place, qui ne passe jamais par un livreur.
+                # Tout le planning du livreur : les commandes ASSIGNÉES à
+                # son nom, quel que soit leur avancement — y compris celles
+                # encore "Nouvelle" ou "En préparation", qu'il voit sans
+                # pouvoir agir dessus (§ demande). Hors retrait sur place,
+                # qui ne passe jamais par un livreur.
                 base = qs.filter(livreur=self.request.user, statut_courant__in=LIVREUR_STATUTS).exclude(
                     statut_courant="PRETE", livraison_zone="RECUPERATION"
                 )

@@ -290,33 +290,26 @@ class _TourneeCardState extends ConsumerState<_TourneeCard> {
                   ),
                 ],
               )
+            // Hors jour J, AUCUN bouton n'est rendu — pas même grisé
+            // (§ demande) : seule une ligne muette annonce la date. La
+            // commande reste visible dans le planning.
+            else if (!dueToday)
+              _AttenteJourJ(order: order)
             else if (isPrete)
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed: dueToday ? () => _confirm(OrderStatus.enLivraison) : null,
+                  onPressed: () => _confirm(OrderStatus.enLivraison),
                   icon: const Icon(Icons.play_arrow),
-                  label: Text(
-                    dueToday || order.dateCommande == null
-                        ? 'Récupérer le colis'
-                        : 'Disponible le ${dueDateLabel(order.dateCommande!, UserRole.livreur)}',
-                  ),
+                  label: const Text('Récupérer le colis'),
                 ),
               )
-            else ...[
-              if (!dueToday && order.dateCommande != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Text(
-                    'Disponible le ${dueDateLabel(order.dateCommande!, UserRole.livreur)}',
-                    style: TextStyle(color: Theme.of(context).colorScheme.outline),
-                  ),
-                ),
+            else
               Row(
                 children: [
                   Expanded(
                     child: FilledButton.icon(
-                      onPressed: dueToday ? () => _confirm(OrderStatus.livre) : null,
+                      onPressed: () => _confirm(OrderStatus.livre),
                       icon: const Icon(Icons.check),
                       label: const Text('Livré'),
                     ),
@@ -324,7 +317,7 @@ class _TourneeCardState extends ConsumerState<_TourneeCard> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: dueToday ? () => _confirm(OrderStatus.retour) : null,
+                      onPressed: () => _confirm(OrderStatus.retour),
                       icon: const Icon(Icons.undo),
                       label: const Text('Retour'),
                       style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
@@ -332,10 +325,37 @@ class _TourneeCardState extends ConsumerState<_TourneeCard> {
                   ),
                 ],
               ),
-            ],
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Ligne muette affichée à la place des boutons tant que le jour J n'est pas
+/// atteint : le livreur voit la commande dans son planning et sait quand il
+/// pourra agir, sans bouton inerte à cliquer.
+class _AttenteJourJ extends StatelessWidget {
+  const _AttenteJourJ({required this.order});
+  final Order order;
+
+  @override
+  Widget build(BuildContext context) {
+    final couleur = Theme.of(context).colorScheme.outline;
+    return Row(
+      children: [
+        Icon(Icons.schedule, size: 16, color: couleur),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            order.dateCommande == null
+                ? 'Pas encore disponible'
+                : 'Disponible le '
+                    '${dueDateLabel(order.dateCommande!, UserRole.livreur)}',
+            style: TextStyle(color: couleur),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -1208,7 +1208,7 @@ export default function OrdersPage() {
                                   </SelectContent>
                                 </Select>
                               )}
-                            {!isGerant && action && (
+                            {!isGerant && action && !(isLivreur && notYetDue) && (
                               <IconAction
                                 label={
                                   notYetDue
@@ -1240,7 +1240,8 @@ export default function OrdersPage() {
                             )}
                             {(isLivreur || isGerant) &&
                               order.statut_courant === "EN_LIVRAISON" &&
-                              !isGerant && (
+                              !isGerant &&
+                              !(isLivreur && notYetDue) && (
                                 <IconAction
                                   label={
                                     notYetDue
@@ -1567,6 +1568,8 @@ export default function OrdersPage() {
                   const action = nextAction(detail);
                   if (!action) return null;
                   const notYetDue = !isJourJ(detail.date_commande);
+                  // Livreur hors jour J : aucun bouton, pas même grisé.
+                  if (isLivreur && notYetDue) return null;
                   return (
                     <Button
                       className="w-full"
