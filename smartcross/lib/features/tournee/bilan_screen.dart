@@ -20,18 +20,44 @@ final _dayFmt = DateFormat('dd/MM/yyyy');
 /// orders/serializers.py::OrderItemPublicSerializer).
 double _prixProduit(Order o) => (o.totalAPayer ?? 0) - (o.fraisLivraison ?? 0);
 
+/// Le client a-t-il réglé AVANT la livraison ?
+bool _estPrepayee(Order o) => o.modePaiement == PaymentMode.avant;
+
+/// Argent réellement encaissé par le livreur sur cette commande (§ demande).
+///
+/// Une commande déjà payée d'avance ne fait RIEN encaisser au livreur : elle
+/// vaut 0 Ar dans le bilan, même si son total est non nul. Sans ça le bilan
+/// réclamerait au livreur de l'argent qu'il n'a jamais reçu.
+double _argentEncaisse(Order o) => _estPrepayee(o) ? 0 : (o.totalAPayer ?? 0);
+
 class _Totaux {
-  const _Totaux({required this.count, required this.prix, required this.frais, required this.argent});
+  const _Totaux({
+    required this.count,
+    required this.prix,
+    required this.frais,
+    required this.argent,
+    required this.prepaye,
+    required this.prepayeCount,
+  });
   final int count;
   final double prix;
   final double frais;
+
+  /// Somme des montants réellement remis par le livreur.
   final double argent;
+
+  /// Montant des commandes prépayées — existe, mais n'a pas transité par le
+  /// livreur : affiché à part pour que l'écart soit explicable.
+  final double prepaye;
+  final int prepayeCount;
 
   factory _Totaux.of(List<Order> orders) => _Totaux(
     count: orders.length,
     prix: orders.fold<double>(0, (s, o) => s + _prixProduit(o)),
     frais: orders.fold<double>(0, (s, o) => s + (o.fraisLivraison ?? 0)),
-    argent: orders.fold<double>(0, (s, o) => s + (o.totalAPayer ?? 0)),
+    argent: orders.fold<double>(0, (s, o) => s + _argentEncaisse(o)),
+    prepaye: orders.where(_estPrepayee).fold<double>(0, (s, o) => s + (o.totalAPayer ?? 0)),
+    prepayeCount: orders.where(_estPrepayee).length,
   );
 }
 
@@ -164,7 +190,17 @@ class _BilanOrderCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(order.numero, style: const TextStyle(fontWeight: FontWeight.w700)),
-                Text(_ar(order.totalAPayer ?? 0), style: const TextStyle(fontWeight: FontWeight.w700)),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(_ar(_argentEncaisse(order)), style: const TextStyle(fontWeight: FontWeight.w700)),
+                    if (_estPrepayee(order))
+                      const Text(
+                        'déjà payé',
+                        style: TextStyle(fontSize: 11, color: Color(0xFF059669)),
+                      ),
+                  ],
+                ),
               ],
             ),
             const SizedBox(height: 4),
@@ -248,6 +284,12 @@ class _TicketCard extends StatelessWidget {
             ligne('Nombre', '${livrees.count}'),
             ligne('Total produits', _ar(livrees.prix)),
             ligne('Total frais livraison', _ar(livrees.frais)),
+            if (livrees.prepayeCount > 0)
+              ligne(
+                "Dont payé d'avance (${livrees.prepayeCount})",
+                '-${_ar(livrees.prepaye)}',
+                color: const Color(0xFF059669),
+              ),
             const Divider(height: 16),
             ligne('TOTAL ARGENT', _ar(livrees.argent), bold: true),
             const Divider(height: 24),
@@ -256,6 +298,12 @@ class _TicketCard extends StatelessWidget {
             ligne('Nombre', '${retours.count}'),
             ligne('Total produits', _ar(retours.prix)),
             ligne('Total frais livraison', _ar(retours.frais)),
+            if (retours.prepayeCount > 0)
+              ligne(
+                "Dont payé d'avance (${retours.prepayeCount})",
+                '-${_ar(retours.prepaye)}',
+                color: const Color(0xFF059669),
+              ),
             const Divider(height: 16),
             ligne(
               'TOTAL NON ENCAISSÉ',

@@ -31,7 +31,23 @@ import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/lib/auth/useCurrentUser";
 import { djangoClient } from "@/lib/django-client";
 
-const navigationItems = [
+type NavItem = {
+  label: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  /** Visible seulement par le rôle Django "admin". */
+  superAdminOnly?: boolean;
+  /** Visible par le gérant (admin ou magasin). */
+  adminOnly?: boolean;
+  /** Visible seulement par le livreur. */
+  livreurOnly?: boolean;
+  /** Visible par le livreur ET par le gérant. */
+  livreurOrGerant?: boolean;
+  hidePreparateur?: boolean;
+  hideLivreur?: boolean;
+};
+
+const navigationItems: NavItem[] = [
   {
     label: "Tableau de bord",
     href: "/dashboard",
@@ -51,10 +67,12 @@ const navigationItems = [
     adminOnly: true,
   },
   {
+    // Le livreur y voit SON bilan du jour ; le gérant y voit celui de
+    // chaque livreur, par onglet et par date (§ demande).
     label: "Bilan du jour",
     href: "/bilan",
     icon: Receipt,
-    livreurOnly: true,
+    livreurOrGerant: true,
   },
   {
     label: "Produits",
@@ -209,6 +227,8 @@ export function Sidebar() {
                 if (item.hidePreparateur && isPreparateur) return false;
                 if (item.hideLivreur && isLivreur) return false;
                 if (item.livreurOnly && !isLivreur) return false;
+                if (item.livreurOrGerant && !isLivreur && !isAdminOrSuperAdmin)
+                  return false;
                 return true;
               })
               .map((item) => {

@@ -6,6 +6,8 @@ import { useCurrentUser } from '@/lib/auth/useCurrentUser';
 import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -15,20 +17,20 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ShieldAlert, RefreshCw, Receipt, Undo2, PackageCheck } from 'lucide-react';
-import { APP_TIME_ZONE, appDayBounds } from '@/lib/timezone';
+import {
+  ShieldAlert,
+  RefreshCw,
+  Receipt,
+  Undo2,
+  PackageCheck,
+  Users,
+  ChevronRight,
+  ArrowLeft,
+} from 'lucide-react';
+import { APP_TIME_ZONE, appDayBounds, appToday, fmtAppDate } from '@/lib/timezone';
 
 const fmt = (n: number | string | null | undefined) =>
   new Intl.NumberFormat('fr-MG').format(Math.round(Number(n || 0))) + ' Ar';
-
-// Bornes du jour à l'heure d'ANTANANARIVO — l'historique du livreur (voir
-// orders/views.py::get_queryset, branche `historique`) est déjà scopé à ce
-// livreur, il ne reste qu'à borner la période à aujourd'hui. Le fuseau du
-// magasin (et non celui de l'appareil) fait foi, sinon le "bilan du jour"
-// bascule 3 h trop tôt/trop tard (voir lib/timezone.ts).
-function todayBounds() {
-  return appDayBounds();
-}
 
 // Prix produit seul = total à payer moins les frais de livraison — dérivé
 // sans avoir besoin du prix par article (jamais exposé au livreur, voir
@@ -36,70 +38,41 @@ function todayBounds() {
 const prixProduit = (order: any) =>
   Number(order.total_a_payer || 0) - Number(order.frais_livraison || 0);
 
+// Le client a-t-il réglé AVANT la livraison ? (Order.mode_paiement, cf.
+// orders/models.py::MODE_PAIEMENT_CHOICES).
+const estPrepayee = (order: any) => order.mode_paiement === 'AVANT';
+
+/**
+ * Argent réellement encaissé par le livreur sur cette commande (§ demande).
+ *
+ * Une commande déjà payée d'avance ne fait RIEN encaisser au livreur : elle
+ * vaut 0 Ar dans le bilan, même si son total est non nul. Sans ça le bilan
+ * réclamerait au livreur de l'argent qu'il n'a jamais reçu — et le total du
+ * gérant serait faux d'autant.
+ */
+const argentEncaisse = (order: any) =>
+  estPrepayee(order) ? 0 : Number(order.total_a_payer || 0);
+
 function sumTotals(orders: any[]) {
   return {
     count: orders.length,
     prix: orders.reduce((s, o) => s + prixProduit(o), 0),
     frais: orders.reduce((s, o) => s + Number(o.frais_livraison || 0), 0),
-    argent: orders.reduce((s, o) => s + Number(o.total_a_payer || 0), 0),
+    // Somme des montants réellement remis par le livreur.
+    argent: orders.reduce((s, o) => s + argentEncaisse(o), 0),
+    // Montant des commandes prépayées — existe, mais n'est pas encaissé par
+    // le livreur : affiché à part pour que l'écart soit explicable.
+    prepaye: orders
+      .filter(estPrepayee)
+      .reduce((s, o) => s + Number(o.total_a_payer || 0), 0),
+    prepayeCount: orders.filter(estPrepayee).length,
   };
 }
 
-export default function BilanPage() {
-  const { isLivreur, loading: userLoading } = useCurrentUser();
-  const [orders, setOrders] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+type Totals = ReturnType<typeof sumTotals>;
 
-  const fetchOrders = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    try {
-      const { start, end } = todayBounds();
-      const data = await djangoClient.orders.list({
-        historique: true,
-        date_from: start,
-        date_to: end,
-      });
-      setOrders(data);
-    } catch {
-      setOrders([]);
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }, []);
-
-  useRealtimeRefresh(['order', 'order_status_history'], () => fetchOrders(true));
-  useEffect(() => {
-    if (!userLoading && isLivreur) fetchOrders();
-  }, [userLoading, isLivreur, fetchOrders]);
-
-  // Les retours ne sont volontairement pas additionnés aux livrées (§ demande)
-  // — un colis retourné n'a rien fait encaisser au livreur.
-  const livrees = useMemo(
-    () => orders.filter((o) => o.statut_courant === 'LIVRE'),
-    [orders],
-  );
-  const retours = useMemo(
-    () => orders.filter((o) => o.statut_courant === 'RETOUR'),
-    [orders],
-  );
-  const totalLivrees = useMemo(() => sumTotals(livrees), [livrees]);
-  const totalRetours = useMemo(() => sumTotals(retours), [retours]);
-
-  if (!userLoading && !isLivreur) {
-    return (
-      <div className="p-6">
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-20 text-center">
-            <ShieldAlert className="h-12 w-12 text-red-500 mb-4" />
-            <h2 className="text-xl font-bold">Accès refusé</h2>
-            <p className="text-muted-foreground mt-2">Cette page est réservée au livreur.</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  const OrdersTable = ({ rows }: { rows: any[] }) => (
+function OrdersTable({ rows }: { rows: any[] }) {
+  return (
     <div className="overflow-x-auto">
       <Table>
         <TableHeader>
@@ -119,6 +92,7 @@ export default function BilanPage() {
         <TableBody>
           {rows.map((order) => {
             const firstItem = (order.items || [])[0];
+            const prepayee = estPrepayee(order);
             return (
               <TableRow key={order.id}>
                 <TableCell className="align-top font-medium">{order.numero}</TableCell>
@@ -126,7 +100,10 @@ export default function BilanPage() {
                 <TableCell className="align-top">{firstItem?.type_name || '-'}</TableCell>
                 <TableCell className="align-top max-w-[220px]">
                   {(order.items || [])
-                    .map((it: any) => `${it.reference_name}${it.couleur ? ` (${it.couleur})` : ''} x${it.quantite}`)
+                    .map(
+                      (it: any) =>
+                        `${it.reference_name}${it.couleur ? ` (${it.couleur})` : ''} x${it.quantite}`,
+                    )
                     .join(', ')}
                 </TableCell>
                 <TableCell className="align-top whitespace-nowrap text-xs text-muted-foreground">
@@ -146,8 +123,14 @@ export default function BilanPage() {
                 </TableCell>
                 <TableCell className="align-top text-right">{fmt(prixProduit(order))}</TableCell>
                 <TableCell className="align-top text-right">{fmt(order.frais_livraison)}</TableCell>
+                {/* Payée d'avance -> 0 Ar : le livreur n'a rien encaissé. */}
                 <TableCell className="align-top text-right font-medium">
-                  {fmt(order.total_a_payer)}
+                  {fmt(argentEncaisse(order))}
+                  {prepayee && (
+                    <span className="block text-[11px] font-normal text-emerald-600 dark:text-emerald-400">
+                      déjà payé
+                    </span>
+                  )}
                 </TableCell>
               </TableRow>
             );
@@ -156,6 +139,271 @@ export default function BilanPage() {
       </Table>
     </div>
   );
+}
+
+function TicketBloc({
+  titre,
+  totals,
+  variant,
+}: {
+  titre: string;
+  totals: Totals;
+  variant: 'livrees' | 'retours';
+}) {
+  return (
+    <div className={variant === 'retours' ? 'space-y-1.5 border-t border-dashed pt-3' : 'space-y-1.5'}>
+      <p className="text-xs font-semibold text-muted-foreground">{titre}</p>
+      <div className="flex justify-between">
+        <span>Nombre</span>
+        <span>{totals.count}</span>
+      </div>
+      <div className="flex justify-between">
+        <span>Total produits</span>
+        <span>{fmt(totals.prix)}</span>
+      </div>
+      <div className="flex justify-between">
+        <span>Total frais livraison</span>
+        <span>{fmt(totals.frais)}</span>
+      </div>
+      {totals.prepayeCount > 0 && (
+        <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
+          <span>Dont payé d&apos;avance ({totals.prepayeCount})</span>
+          <span>-{fmt(totals.prepaye)}</span>
+        </div>
+      )}
+      <div
+        className={`border-t border-dashed pt-1.5 flex justify-between font-bold ${
+          variant === 'retours' ? 'text-red-600' : ''
+        }`}
+      >
+        <span>{variant === 'retours' ? 'TOTAL NON ENCAISSÉ' : 'TOTAL ARGENT'}</span>
+        <span>{fmt(totals.argent)}</span>
+      </div>
+    </div>
+  );
+}
+
+/** Bilan d'un jour pour un périmètre donné (un livreur, ou tous). */
+function BilanJour({
+  orders,
+  loading,
+  jour,
+  titreTicket,
+}: {
+  orders: any[];
+  loading: boolean;
+  jour: string;
+  titreTicket: string;
+}) {
+  // Les retours ne sont volontairement pas additionnés aux livrées (§ demande)
+  // — un colis retourné n'a rien fait encaisser au livreur.
+  const livrees = useMemo(() => orders.filter((o) => o.statut_courant === 'LIVRE'), [orders]);
+  const retours = useMemo(() => orders.filter((o) => o.statut_courant === 'RETOUR'), [orders]);
+  const totalLivrees = useMemo(() => sumTotals(livrees), [livrees]);
+  const totalRetours = useMemo(() => sumTotals(retours), [retours]);
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6">
+      <div className="space-y-6 min-w-0">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <PackageCheck className="h-4 w-4" /> Livraisons effectuées ({livrees.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {loading ? (
+              <div className="p-6">
+                <Skeleton className="h-32 w-full" />
+              </div>
+            ) : livrees.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-10">
+                Aucune livraison effectuée ce jour-là.
+              </p>
+            ) : (
+              <OrdersTable rows={livrees} />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Undo2 className="h-4 w-4 text-red-600" /> Retours ({retours.length})
+            </CardTitle>
+            <CardDescription>
+              Colis rapportés — rien n&apos;a été encaissé, ces montants ne sont pas comptés dans le
+              total du ticket.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            {loading ? (
+              <div className="p-6">
+                <Skeleton className="h-24 w-full" />
+              </div>
+            ) : retours.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-10">
+                Aucun retour ce jour-là.
+              </p>
+            ) : (
+              <OrdersTable rows={retours} />
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="lg:sticky lg:top-6 self-start">
+        <Card className="font-mono">
+          <CardHeader className="text-center border-b border-dashed">
+            <Receipt className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
+            <CardTitle className="text-base tracking-wide">BILAN DU JOUR</CardTitle>
+            <CardDescription className="space-y-0.5">
+              {/* Offset explicite : sans lui la chaîne est lue dans le
+                  fuseau de l'appareil puis reconvertie, ce qui peut
+                  décaler l'affichage d'un jour. */}
+              <span className="block">{fmtAppDate(`${jour}T12:00:00+03:00`)}</span>
+              <span className="block font-semibold">{titreTicket}</span>
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm space-y-4 pt-4">
+            <TicketBloc titre="LIVRAISONS EFFECTUÉES" totals={totalLivrees} variant="livrees" />
+            <TicketBloc
+              titre="RETOURS (hors total ci-dessus)"
+              totals={totalRetours}
+              variant="retours"
+            />
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+/** Une ligne de la vue d'ensemble du gérant : un livreur et ses totaux du jour. */
+type LigneLivreur = {
+  key: string;
+  nom: string;
+  livrees: Totals;
+  retours: Totals;
+};
+
+export default function BilanPage() {
+  const { user, isLivreur, isGerant, loading: userLoading } = useCurrentUser();
+  const [orders, setOrders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  // Le gérant choisit le jour ; le livreur reste sur aujourd'hui.
+  const [jour, setJour] = useState(() => appToday());
+  const [livreurs, setLivreurs] = useState<{ id: number; full_name: string }[]>([]);
+  // Gérant : null = vue d'ensemble (liste des livreurs) ; sinon le livreur
+  // dont on regarde le détail. Le détail ne s'ouvre qu'au clic (§ demande).
+  const [detailLivreur, setDetailLivreur] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isGerant) return;
+    djangoClient.orders
+      .availableStaff('LIVREUR')
+      .then(setLivreurs)
+      .catch(() => setLivreurs([]));
+  }, [isGerant]);
+
+  // Changer de jour renvoie à la vue d'ensemble : le détail affiché ne
+  // correspondrait plus à ce que montre la liste.
+  useEffect(() => {
+    setDetailLivreur(null);
+  }, [jour]);
+
+  const fetchOrders = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true);
+      try {
+        // Le livreur passe par son historique personnel (déjà scopé à lui
+        // côté serveur) ; le gérant interroge toutes les commandes du jour.
+        const filters = isGerant
+          ? { date_debut: jour, date_fin: jour }
+          : (() => {
+              const { start, end } = appDayBounds(jour);
+              return { historique: true, date_from: start, date_to: end };
+            })();
+        const data = await djangoClient.orders.list(filters as any);
+        setOrders(data);
+      } catch {
+        setOrders([]);
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [isGerant, jour],
+  );
+
+  useRealtimeRefresh(['order', 'order_status_history'], () => fetchOrders(true));
+  useEffect(() => {
+    if (!userLoading && (isLivreur || isGerant)) fetchOrders();
+  }, [userLoading, isLivreur, isGerant, fetchOrders]);
+
+  // Seules les commandes terminées entrent dans un bilan.
+  const traitees = useMemo(
+    () => orders.filter((o) => o.statut_courant === 'LIVRE' || o.statut_courant === 'RETOUR'),
+    [orders],
+  );
+
+  const nomLivreur = useCallback(
+    (key: string) => {
+      if (key === 'SANS') return 'Retrait au comptoir (sans livreur)';
+      return (
+        livreurs.find((l) => String(l.id) === key)?.full_name ||
+        traitees.find((o) => String(o.livreur) === key)?.livreur_name ||
+        `Livreur #${key}`
+      );
+    },
+    [livreurs, traitees],
+  );
+
+  /** Une ligne par livreur ayant travaillé ce jour-là, la plus grosse recette d'abord. */
+  const lignes = useMemo<LigneLivreur[]>(() => {
+    const groupes = new Map<string, any[]>();
+    for (const o of traitees) {
+      const key = o.livreur == null ? 'SANS' : String(o.livreur);
+      const rows = groupes.get(key);
+      if (rows) rows.push(o);
+      else groupes.set(key, [o]);
+    }
+    return [...groupes.entries()]
+      .map(([key, rows]) => ({
+        key,
+        nom: nomLivreur(key),
+        livrees: sumTotals(rows.filter((o) => o.statut_courant === 'LIVRE')),
+        retours: sumTotals(rows.filter((o) => o.statut_courant === 'RETOUR')),
+      }))
+      .sort((a, b) => b.livrees.argent - a.livrees.argent);
+  }, [traitees, nomLivreur]);
+
+  const totalJour = useMemo(
+    () => ({
+      livrees: sumTotals(traitees.filter((o) => o.statut_courant === 'LIVRE')),
+      retours: sumTotals(traitees.filter((o) => o.statut_courant === 'RETOUR')),
+    }),
+    [traitees],
+  );
+
+  const ordersDuDetail = useMemo(
+    () => (detailLivreur ? traitees.filter((o) => (o.livreur == null ? 'SANS' : String(o.livreur)) === detailLivreur) : []),
+    [traitees, detailLivreur],
+  );
+
+  if (!userLoading && !isLivreur && !isGerant) {
+    return (
+      <div className="p-6">
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-20 text-center">
+            <ShieldAlert className="h-12 w-12 text-red-500 mb-4" />
+            <h2 className="text-xl font-bold">Accès refusé</h2>
+            <p className="text-muted-foreground mt-2">
+              Cette page est réservée au livreur et au gérant.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
@@ -163,125 +411,158 @@ export default function BilanPage() {
         <div>
           <h1 className="text-2xl font-bold">Bilan du jour</h1>
           <p className="text-sm text-muted-foreground">
-            Livraisons effectuées et retours d'aujourd'hui — voir le ticket récapitulatif.
+            {isGerant
+              ? 'Montant encaissé par chaque livreur. Cliquez sur un livreur pour voir le détail de ses commandes.'
+              : "Livraisons effectuées et retours d'aujourd'hui — voir le ticket récapitulatif."}
           </p>
         </div>
-        <Button variant="outline" size="icon" onClick={() => fetchOrders()}>
-          <RefreshCw className="h-4 w-4" />
-        </Button>
+        <div className="flex items-end gap-2">
+          {isGerant && (
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Jour</Label>
+              <Input
+                type="date"
+                value={jour}
+                onChange={(e) => setJour(e.target.value || appToday())}
+                className="w-auto"
+              />
+            </div>
+          )}
+          <Button variant="outline" size="icon" onClick={() => fetchOrders()}>
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6">
-        {/* Tableaux — livraisons effectuées puis retours, jamais mélangés dans les totaux */}
-        <div className="space-y-6 min-w-0">
+      {/* Livreur : son propre bilan, directement. */}
+      {!isGerant && (
+        <BilanJour
+          orders={traitees}
+          loading={loading}
+          jour={jour}
+          titreTicket={user?.full_name || 'Mon bilan'}
+        />
+      )}
+
+      {/* Gérant, vue d'ensemble : uniquement la liste des livreurs et leurs totaux. */}
+      {isGerant && !detailLivreur && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Livraisons effectuées</CardDescription>
+                <CardTitle className="text-2xl">{totalJour.livrees.count}</CardTitle>
+              </CardHeader>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Total encaissé</CardDescription>
+                <CardTitle className="text-2xl">{fmt(totalJour.livrees.argent)}</CardTitle>
+              </CardHeader>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Retours</CardDescription>
+                <CardTitle className="text-2xl text-red-600">{totalJour.retours.count}</CardTitle>
+              </CardHeader>
+            </Card>
+          </div>
+
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <PackageCheck className="h-4 w-4" /> Livraisons effectuées ({livrees.length})
+                <Users className="h-4 w-4" /> Livreurs du {fmtAppDate(`${jour}T12:00:00+03:00`)}
               </CardTitle>
+              <CardDescription>
+                Cliquez sur une ligne pour ouvrir le détail : toutes les commandes, tous les
+                produits et tous les totaux.
+              </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
               {loading ? (
                 <div className="p-6">
                   <Skeleton className="h-32 w-full" />
                 </div>
-              ) : livrees.length === 0 ? (
+              ) : lignes.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-10">
-                  Aucune livraison effectuée aujourd'hui.
+                  Aucune livraison ni retour ce jour-là.
                 </p>
               ) : (
-                <OrdersTable rows={livrees} />
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Undo2 className="h-4 w-4 text-red-600" /> Retours ({retours.length})
-              </CardTitle>
-              <CardDescription>
-                Colis rapportés — rien n'a été encaissé, ces montants ne sont pas comptés dans le
-                total du ticket.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              {loading ? (
-                <div className="p-6">
-                  <Skeleton className="h-24 w-full" />
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Livreur</TableHead>
+                        <TableHead className="text-right">Livraisons</TableHead>
+                        <TableHead className="text-right">Retours</TableHead>
+                        <TableHead className="text-right">Total produits</TableHead>
+                        <TableHead className="text-right">Total frais</TableHead>
+                        <TableHead className="text-right">Total encaissé</TableHead>
+                        <TableHead className="w-10" />
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {lignes.map((l) => (
+                        <TableRow
+                          key={l.key}
+                          className="cursor-pointer"
+                          onClick={() => setDetailLivreur(l.key)}
+                        >
+                          <TableCell className="font-medium">{l.nom}</TableCell>
+                          <TableCell className="text-right">{l.livrees.count}</TableCell>
+                          <TableCell className="text-right text-red-600">
+                            {l.retours.count || '-'}
+                          </TableCell>
+                          <TableCell className="text-right">{fmt(l.livrees.prix)}</TableCell>
+                          <TableCell className="text-right">{fmt(l.livrees.frais)}</TableCell>
+                          <TableCell className="text-right font-semibold">
+                            {fmt(l.livrees.argent)}
+                            {l.livrees.prepayeCount > 0 && (
+                              <span className="block text-[11px] font-normal text-emerald-600 dark:text-emerald-400">
+                                dont {fmt(l.livrees.prepaye)} déjà payé
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            <ChevronRight className="h-4 w-4" />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      <TableRow className="bg-muted/40 font-semibold">
+                        <TableCell>Total du jour</TableCell>
+                        <TableCell className="text-right">{totalJour.livrees.count}</TableCell>
+                        <TableCell className="text-right text-red-600">
+                          {totalJour.retours.count || '-'}
+                        </TableCell>
+                        <TableCell className="text-right">{fmt(totalJour.livrees.prix)}</TableCell>
+                        <TableCell className="text-right">{fmt(totalJour.livrees.frais)}</TableCell>
+                        <TableCell className="text-right">{fmt(totalJour.livrees.argent)}</TableCell>
+                        <TableCell />
+                      </TableRow>
+                    </TableBody>
+                  </Table>
                 </div>
-              ) : retours.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-10">
-                  Aucun retour aujourd'hui.
-                </p>
-              ) : (
-                <OrdersTable rows={retours} />
               )}
             </CardContent>
           </Card>
         </div>
+      )}
 
-        {/* Ticket récapitulatif */}
-        <div className="lg:sticky lg:top-6 self-start">
-          <Card className="font-mono">
-            <CardHeader className="text-center border-b border-dashed">
-              <Receipt className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-              <CardTitle className="text-base tracking-wide">BILAN DU JOUR</CardTitle>
-              <CardDescription>
-                {new Date().toLocaleDateString('fr-FR', {
-                  timeZone: APP_TIME_ZONE,
-                  day: '2-digit',
-                  month: '2-digit',
-                  year: 'numeric',
-                })}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="text-sm space-y-4 pt-4">
-              <div className="space-y-1.5">
-                <p className="text-xs font-semibold text-muted-foreground">LIVRAISONS EFFECTUÉES</p>
-                <div className="flex justify-between">
-                  <span>Nombre</span>
-                  <span>{totalLivrees.count}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Total produits</span>
-                  <span>{fmt(totalLivrees.prix)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Total frais livraison</span>
-                  <span>{fmt(totalLivrees.frais)}</span>
-                </div>
-                <div className="border-t border-dashed pt-1.5 flex justify-between font-bold">
-                  <span>TOTAL ARGENT</span>
-                  <span>{fmt(totalLivrees.argent)}</span>
-                </div>
-              </div>
-
-              <div className="space-y-1.5 border-t border-dashed pt-3">
-                <p className="text-xs font-semibold text-muted-foreground">
-                  RETOURS (hors total ci-dessus)
-                </p>
-                <div className="flex justify-between">
-                  <span>Nombre</span>
-                  <span>{totalRetours.count}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Total produits</span>
-                  <span>{fmt(totalRetours.prix)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Total frais livraison</span>
-                  <span>{fmt(totalRetours.frais)}</span>
-                </div>
-                <div className="border-t border-dashed pt-1.5 flex justify-between font-bold text-red-600">
-                  <span>TOTAL NON ENCAISSÉ</span>
-                  <span>{fmt(totalRetours.argent)}</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+      {/* Gérant, détail d'un livreur : tout le contenu, comme le voit le livreur. */}
+      {isGerant && detailLivreur && (
+        <div className="space-y-4">
+          <Button variant="outline" size="sm" onClick={() => setDetailLivreur(null)}>
+            <ArrowLeft className="h-4 w-4 mr-2" /> Tous les livreurs
+          </Button>
+          <h2 className="text-lg font-semibold">{nomLivreur(detailLivreur)}</h2>
+          <BilanJour
+            orders={ordersDuDetail}
+            loading={loading}
+            jour={jour}
+            titreTicket={nomLivreur(detailLivreur)}
+          />
         </div>
-      </div>
+      )}
     </div>
   );
 }
