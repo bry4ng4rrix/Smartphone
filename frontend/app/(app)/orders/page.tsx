@@ -261,6 +261,14 @@ export default function OrdersPage() {
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<any | null>(null);
+  // Mot à retaper avant d'annuler — vidé à chaque ouverture de la boîte.
+  const [cancelWord, setCancelWord] = useState("");
+  // Correction d'un état final saisi par erreur (§ demande).
+  const [correction, setCorrection] = useState<{
+    order: any;
+    cible: string;
+    label: string;
+  } | null>(null);
   const [cancelling, setCancelling] = useState(false);
   // Le préparateur suit séparément sa file "à préparer" (livraison) et ses
   // commandes "Récupération sur place" (qu'il peut créer lui-même).
@@ -608,6 +616,30 @@ export default function OrdersPage() {
     }
   };
 
+  /**
+   * Corrige un état final saisi par erreur — un « Retour » touché par
+   * accident alors que la livraison était faite, et l'inverse. Le serveur
+   * rétablit le stock : les articles ressortent (ou rentrent) selon le sens.
+   */
+  const doCorrigerStatut = async (note: string) => {
+    if (!correction) return;
+    try {
+      await djangoClient.orders.corrigerStatut(
+        correction.order.id,
+        correction.cible,
+        note,
+      );
+      toast.success(
+        `Commande ${correction.order.numero} corrigée → ${correction.label}`,
+      );
+      fetchOrders(true);
+      if (detail?.id === correction.order.id) await refreshDetail(detail.id);
+      setCorrection(null);
+    } catch (err: any) {
+      toast.error(err.message || "Correction impossible");
+    }
+  };
+
   const handleDeleteOrder = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -630,6 +662,7 @@ export default function OrdersPage() {
       await djangoClient.orders.cancel(cancelTarget.id);
       toast.success(`Commande ${cancelTarget.numero} annulée`);
       setCancelTarget(null);
+      setCancelWord("");
       fetchOrders(true);
     } catch (err: any) {
       toast.error(err.message || "Annulation impossible");
@@ -1555,6 +1588,13 @@ export default function OrdersPage() {
                         )}
                         <NoteForm
                           showPhoto={detailInline.showPhoto}
+                          // "Retour" est sans retour en arrière et se touche
+                          // vite par accident : on le fait retaper.
+                          confirmWord={
+                            detailInline.target === "RETOUR"
+                              ? "RETOUR"
+                              : undefined
+                          }
                           onCancel={() => setDetailInline(null)}
                           onSubmit={async (note, photo) => {
                             const ok = await doChangeStatus(
@@ -1656,6 +1696,31 @@ export default function OrdersPage() {
                           <Undo2 className="h-4 w-4 mr-2" /> Retour
                         </Button>
                       </div>
+                    );
+                  }
+
+                  // Commande close : plus de transition possible, mais le
+                  // gérant peut CORRIGER un état saisi par erreur — le
+                  // livreur touche vite « Retour » alors que la livraison
+                  // est faite (§ demande).
+                  if (
+                    isGerant &&
+                    ["LIVRE", "RETOUR"].includes(detail.statut_courant)
+                  ) {
+                    const cible =
+                      detail.statut_courant === "RETOUR" ? "LIVRE" : "RETOUR";
+                    const label = statutInfo(cible).label;
+                    return (
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        onClick={() =>
+                          setCorrection({ order: detail, cible, label })
+                        }
+                      >
+                        <Undo2 className="h-4 w-4 mr-2" />
+                        Corriger l&apos;état → {label}
+                      </Button>
                     );
                   }
 
@@ -1884,6 +1949,7 @@ export default function OrdersPage() {
           )}
           <NoteForm
             showPhoto={actionNote?.target === "PRETE"}
+            confirmWord={actionNote?.target === "RETOUR" ? "RETOUR" : undefined}
             onCancel={() => setActionNote(null)}
             onSubmit={(note, photo) =>
               actionNote &&
@@ -1899,10 +1965,48 @@ export default function OrdersPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Correction d'un état final saisi par erreur (gérant) */}
+      <Dialog
+        open={!!correction}
+        onOpenChange={(o) => !o && setCorrection(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Corriger la commande {correction?.order?.numero}
+            </DialogTitle>
+            <DialogDescription>
+              Son état passera de{" "}
+              <span className="font-semibold text-foreground">
+                {correction && statutInfo(correction.order.statut_courant).label}
+              </span>{" "}
+              à{" "}
+              <span className="font-semibold text-foreground">
+                {correction?.label}
+              </span>
+              . Le stock est rétabli en conséquence :{" "}
+              {correction?.cible === "LIVRE"
+                ? "les articles ressortent du stock, puisqu'ils n'ont jamais été rapportés."
+                : "les articles rentrent en stock, puisque le colis est revenu."}
+            </DialogDescription>
+          </DialogHeader>
+          <NoteForm
+            confirmWord={correction?.cible === "RETOUR" ? "RETOUR" : "LIVRE"}
+            onCancel={() => setCorrection(null)}
+            onSubmit={(note) => doCorrigerStatut(note)}
+          />
+        </DialogContent>
+      </Dialog>
+
       {/* Annulation commande (gérant) — restitue le stock si déjà déduit */}
       <Dialog
         open={!!cancelTarget}
-        onOpenChange={(o) => !o && setCancelTarget(null)}
+        onOpenChange={(o) => {
+          if (!o) {
+            setCancelTarget(null);
+            setCancelWord("");
+          }
+        }}
       >
         <DialogContent>
           <DialogHeader>
@@ -1923,6 +2027,20 @@ export default function OrdersPage() {
                 )}
             </DialogDescription>
           </DialogHeader>
+          {/* Annuler est irréversible : on fait retaper le mot pour rendre
+              le geste délibéré (§ demande). */}
+          <div className="space-y-2">
+            <Label className="text-sm">
+              Pour confirmer, tapez{" "}
+              <span className="font-semibold text-foreground">ANNULER</span>
+            </Label>
+            <Input
+              value={cancelWord}
+              onChange={(e) => setCancelWord(e.target.value)}
+              placeholder="ANNULER"
+              autoComplete="off"
+            />
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCancelTarget(null)}>
               Retour
@@ -1930,7 +2048,10 @@ export default function OrdersPage() {
             <Button
               variant="destructive"
               onClick={handleCancelOrder}
-              disabled={cancelling}
+              disabled={
+                cancelling ||
+                cancelWord.trim().toLocaleLowerCase("fr") !== "annuler"
+              }
             >
               {cancelling ? "Annulation..." : "Annuler la commande"}
             </Button>
@@ -2074,16 +2195,32 @@ function NoteForm({
   onSubmit,
   onCancel,
   showPhoto = false,
+  confirmWord,
 }: {
   onSubmit: (note: string, photo?: File) => void;
   onCancel?: () => void;
   // Preuve que la préparation est faite — proposé uniquement au passage
   // "Prête" (préparateur/gérant), voir OrderStatusHistory.photo.
   showPhoto?: boolean;
+  /**
+   * Mot à retaper pour débloquer la confirmation (§ demande). Réservé aux
+   * actions sans retour en arrière — Retour, Annulation : un livreur peut
+   * effleurer le bouton par accident, retaper le mot rend le geste
+   * délibéré. Volontairement PAS un mot de passe : on veut éviter une
+   * fausse manœuvre, pas ré-authentifier.
+   */
+  confirmWord?: string;
 }) {
   const [note, setNote] = useState("");
   const [photo, setPhoto] = useState<File | undefined>(undefined);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [saisie, setSaisie] = useState("");
+
+  // Comparaison tolérante : casse et espaces autour ne doivent pas bloquer.
+  const motValide =
+    !confirmWord ||
+    saisie.trim().toLocaleLowerCase("fr") ===
+      confirmWord.trim().toLocaleLowerCase("fr");
 
   return (
     <div className="space-y-4">
@@ -2115,13 +2252,31 @@ function NoteForm({
           )}
         </div>
       )}
+      {confirmWord && (
+        <div className="space-y-2">
+          <Label className="text-sm">
+            Pour confirmer, tapez{" "}
+            <span className="font-semibold text-foreground">
+              {confirmWord}
+            </span>
+          </Label>
+          <Input
+            value={saisie}
+            onChange={(e) => setSaisie(e.target.value)}
+            placeholder={confirmWord}
+            autoComplete="off"
+          />
+        </div>
+      )}
       <DialogFooter>
         {onCancel && (
           <Button variant="outline" onClick={onCancel}>
             Annuler
           </Button>
         )}
-        <Button onClick={() => onSubmit(note, photo)}>Confirmer</Button>
+        <Button disabled={!motValide} onClick={() => onSubmit(note, photo)}>
+          Confirmer
+        </Button>
       </DialogFooter>
     </div>
   );

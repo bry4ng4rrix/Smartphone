@@ -286,6 +286,70 @@ _EDITABLE_STATUSES = {"NOUVELLE", "EN_PREPARATION"}
 _TERMINAL_STATUSES = {"LIVRE", "RETOUR", "ANNULEE"}
 
 
+# Corrections possibles sur une commande déjà close (§ demande) : le livreur
+# peut toucher « Retour » par accident alors que la livraison est faite.
+# Ce n'est PAS une transition de workflow — c'est la réparation d'une saisie —
+# d'où un chemin distinct, réservé au gérant.
+_CORRECTIONS_STATUT = {
+    "LIVRE": {"RETOUR"},
+    "RETOUR": {"LIVRE"},
+}
+
+
+@transaction.atomic
+def corriger_statut(*, order, user, nouveau_statut, note=""):
+    """Corrige le statut final d'une commande close, en rétablissant le stock.
+
+    « Retour » remet les articles en rayon (voir change_order_status) : si la
+    livraison avait en réalité été faite, il faut les en ressortir — et
+    inversement. Le mouvement porte l'origine 'AJUSTEMENT', pour ne pas se
+    confondre avec une préparation, un retour ou une annulation réels.
+
+    La correction est tracée dans l'historique comme tout changement d'état :
+    on ne réécrit pas le passé en silence.
+    """
+    role = user_commande_role(user)
+    if role != "GERANT":
+        raise PermissionDenied("Seul le gérant peut corriger l'état d'une commande.")
+
+    ancien = order.statut_courant
+    if nouveau_statut not in _CORRECTIONS_STATUT.get(ancien, set()):
+        raise ValidationError(
+            f"Correction impossible : '{order.get_statut_courant_display()}' "
+            f"ne peut pas devenir '{dict(Order.STATUT_CHOICES).get(nouveau_statut, nouveau_statut)}'."
+        )
+
+    # Remise en cohérence du stock.
+    if ancien == "RETOUR" and nouveau_statut == "LIVRE":
+        # Le colis n'est jamais revenu : il doit ressortir du stock.
+        mouvement = "SORTIE"
+    else:
+        # LIVRE -> RETOUR : le colis est bien revenu, il rentre en stock.
+        mouvement = "ENTREE"
+    for item in order.items.select_related("product_variant"):
+        apply_stock_movement(
+            product_variant=item.product_variant,
+            movement_type=mouvement,
+            quantite=item.quantite,
+            origine="AJUSTEMENT",
+            user=user,
+            reference=order.numero,
+            note=f"Correction d'état : {ancien} -> {nouveau_statut}",
+        )
+
+    order.statut_courant = nouveau_statut
+    order.save(update_fields=["statut_courant", "updated_at"])
+
+    OrderStatusHistory.objects.create(
+        order=order,
+        ancien_statut=ancien,
+        nouveau_statut=nouveau_statut,
+        changed_by=user,
+        note=(note or "").strip() or "Correction d'état par le gérant",
+    )
+    return order
+
+
 @transaction.atomic
 def update_order(*, order, user, client_nom=None, telephone=None, livraison_zone=None, adresse_livraison=None,
                   mode_paiement=None, date_commande=None, note_preparateur=None, note_livreur=None, items=None):

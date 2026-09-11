@@ -114,7 +114,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_permissions(self):
-        if self.action in ("available_staff", "partial_update", "destroy"):
+        if self.action in ("available_staff", "partial_update", "destroy", "corriger_statut"):
             return [IsGerant()]
         return super().get_permissions()
 
@@ -318,6 +318,32 @@ class OrderViewSet(viewsets.ModelViewSet):
         except ValidationError as exc:
             raise DRFValidationError(str(exc))
 
+        return Response(self.get_serializer(order).data)
+
+    @action(detail=True, methods=["post"], url_path="corriger-statut")
+    def corriger_statut(self, request, pk=None):
+        """POST /api/orders/{id}/corriger-statut/ {statut, note} — corrige le
+        statut final d'une commande close (gérant uniquement).
+
+        Répare une erreur de saisie — typiquement un « Retour » touché par
+        accident alors que la livraison était faite — et rétablit le stock en
+        conséquence. Voir services.corriger_statut.
+        """
+        order = self.get_object()
+        statut = request.data.get("statut")
+        if not statut:
+            raise DRFValidationError("Le nouveau statut est requis.")
+        try:
+            order = services.corriger_statut(
+                order=order,
+                user=request.user,
+                nouveau_statut=statut,
+                note=request.data.get("note", ""),
+            )
+        except PermissionDenied as exc:
+            raise DRFPermissionDenied(str(exc))
+        except ValidationError as exc:
+            raise DRFValidationError(str(exc))
         return Response(self.get_serializer(order).data)
 
     @action(detail=True, methods=["post"], url_path="share-chat")

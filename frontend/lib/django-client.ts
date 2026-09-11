@@ -706,6 +706,14 @@ class DjangoAPIClient {
       return this.post<any>('/orders/', data)
     },
     /**
+     * Corrige le statut final d'une commande close (gérant uniquement) —
+     * typiquement un « Retour » touché par erreur alors que la livraison
+     * était faite. Le serveur rétablit le stock en conséquence.
+     */
+    corrigerStatut: async (id: number, statut: string, note?: string) => {
+      return this.post<any>(`/orders/${id}/corriger-statut/`, { statut, note })
+    },
+    /**
      * Partage la commande dans la messagerie, avec la photo de préparation
      * si elle existe. Le serveur compose le message et recopie la photo :
      * rien ne redescend puis ne remonte par le navigateur.
