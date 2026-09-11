@@ -24,22 +24,20 @@ const _tourneeStatutFilters = <({String? value, String label})>[
   (value: 'EN_LIVRAISON', label: 'En livraison'),
 ];
 
-/// Ordre d'affichage de la tournée (§ demande) : la commande la plus
-/// récemment CRÉÉE en haut, et les commandes du jour avant le planning à
-/// venir.
+/// Tournée du jour (§ demande) : le livreur ne voit QUE les commandes dont
+/// la fenêtre d'affichage est ouverte — le jour de livraison, et 5 h avant.
+/// Une commande du lundi n'apparaît donc qu'à partir du dimanche 19h00, heure
+/// de Madagascar ; les suivantes restent invisibles.
 ///
-/// Le regroupement suit l'AFFICHAGE, pas l'action : une commande du lendemain
-/// remonte dès 19h00 la veille (5 h d'avance), alors que son bouton ne se
-/// débloque qu'à minuit — voir core/app_time.dart.
-List<Order> _jourJDAbord(List<Order> orders) {
-  int rang(Order o) => affichageOuvert(o.dateCommande) ? 0 : 1;
+/// Le bouton d'action reste soumis à sa propre règle, plus stricte : minuit
+/// le jour de livraison (voir core/app_time.dart).
+///
+/// Les commandes retenues sont classées la plus récemment CRÉÉE en tête.
+List<Order> _tourneeDuJour(List<Order> orders) {
   int creeLe(Order o) => o.createdAt?.millisecondsSinceEpoch ?? 0;
-  final copie = [...orders];
-  copie.sort((a, b) {
-    final parRang = rang(a).compareTo(rang(b));
-    return parRang != 0 ? parRang : creeLe(b).compareTo(creeLe(a));
-  });
-  return copie;
+  final visibles = orders.where((o) => affichageOuvert(o.dateCommande)).toList();
+  visibles.sort((a, b) => creeLe(b).compareTo(creeLe(a)));
+  return visibles;
 }
 
 final _moneyFmt = NumberFormat.decimalPattern('fr_FR');
@@ -150,7 +148,7 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
                     child: switch (async) {
                       AsyncData(:final value) => Builder(
                         builder: (context) {
-                          final ordonnees = _jourJDAbord(value);
+                          final ordonnees = _tourneeDuJour(value);
                           if (ordonnees.isEmpty) {
                             return const EmptyState(
                               message: 'Aucune commande en tournée.',

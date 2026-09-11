@@ -740,21 +740,27 @@ export default function OrdersPage() {
    * Liste finalement affichée, pour les TROIS rôles : la commande la plus
    * récemment CRÉÉE en haut (§ demande).
    *
-   * Le livreur garde en plus son regroupement : les commandes du jour J
-   * passent avant le planning à venir. Ce regroupement suit l'AFFICHAGE, pas
-   * l'action : une commande du lendemain remonte dès 19h00 la veille (5 h
-   * d'avance), alors que son bouton, lui, ne se débloque qu'à minuit
-   * (§ demande). À l'intérieur de chaque groupe, la plus récente d'abord.
+   * Le livreur, sur sa tournée active, ne voit QUE les commandes dont la
+   * fenêtre d'affichage est ouverte (§ demande) : le jour de livraison, et
+   * 5 h avant — une commande du lundi n'apparaît qu'à partir du dimanche
+   * 19h00, heure de Madagascar. Les suivantes restent invisibles tant que
+   * leur fenêtre n'est pas ouverte : sa tournée ne montre que ce qui le
+   * concerne maintenant.
+   *
+   * Son onglet Historique, lui, n'est pas filtré : c'est un journal.
+   *
+   * Le bouton d'action reste soumis à sa propre règle, plus stricte :
+   * minuit le jour de livraison (voir lib/timezone.ts).
    */
   const displayedOrders = useMemo(() => {
     const creeLe = (o: any) =>
       o.created_at ? new Date(o.created_at).getTime() : 0;
-    const rang = (o: any) =>
-      isLivreur && !affichageOuvert(o.date_commande) ? 1 : 0;
-    return [...searchableOrders].sort(
-      (a, b) => rang(a) - rang(b) || creeLe(b) - creeLe(a),
-    );
-  }, [searchableOrders, isLivreur]);
+    const base =
+      isLivreur && viewMode === "ACTIF"
+        ? searchableOrders.filter((o: any) => affichageOuvert(o.date_commande))
+        : searchableOrders;
+    return [...base].sort((a, b) => creeLe(b) - creeLe(a));
+  }, [searchableOrders, isLivreur, viewMode]);
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
