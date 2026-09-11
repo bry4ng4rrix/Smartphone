@@ -150,7 +150,20 @@ class Order(models.Model):
         super().save(*args, **kwargs)
 
     def recompute_total(self):
-        items_total = sum((item.prix_unitaire * item.quantite for item in self.items.all()), start=0)
+        """Total à encaisser = articles effectivement remis + frais.
+
+        Un article rapporté par le livreur (`OrderItem.retourne`) n'est pas
+        facturé : le client ne paie que ce qu'il a reçu (§ demande). Les frais
+        de livraison, eux, restent dus — le déplacement a bien eu lieu.
+        """
+        items_total = sum(
+            (
+                item.prix_unitaire * item.quantite
+                for item in self.items.all()
+                if not item.retourne
+            ),
+            start=0,
+        )
         self.total_a_payer = items_total + self.frais_livraison
         self.save(update_fields=["total_a_payer"])
 
@@ -165,6 +178,11 @@ class OrderItem(models.Model):
     # même si le prix catalogue change ensuite (§11 Smartreadme.md).
     prix_unitaire = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
     quantite = models.PositiveIntegerField(default=1)
+    # Article rapporté par le livreur lors d'une livraison partielle
+    # (§ demande) : le client n'en a pas voulu, il repart en stock et sort du
+    # total à payer. Voir Order.recompute_total et
+    # services.change_order_status.
+    retourne = models.BooleanField(default=False)
 
     class Meta:
         verbose_name = "Article de commande"

@@ -567,6 +567,7 @@ export default function OrdersPage() {
       assigned_at?: string;
     },
     photo?: File,
+    itemsLivres?: number[],
   ) => {
     try {
       await djangoClient.orders.changeStatus(
@@ -575,6 +576,7 @@ export default function OrdersPage() {
         note,
         assignee,
         photo,
+        itemsLivres,
       );
       toast.success(`Commande ${order.numero} → ${statutInfo(target).label}`);
       fetchOrders(true);
@@ -1627,14 +1629,21 @@ export default function OrdersPage() {
                         <NoteForm
                           showPhoto={detailInline.showPhoto}
                           confirmWord={MOTS_CONFIRMATION[detailInline.target]}
+                          // Pointage des articles au moment de livrer.
+                          items={
+                            detailInline.target === "LIVRE"
+                              ? detail.items
+                              : undefined
+                          }
                           onCancel={() => setDetailInline(null)}
-                          onSubmit={async (note, photo) => {
+                          onSubmit={async (note, photo, itemsLivres) => {
                             const ok = await doChangeStatus(
                               detail,
                               detailInline.target,
                               note,
                               undefined,
                               photo,
+                              itemsLivres,
                             );
                             // En cas d'échec on reste sur le formulaire : la
                             // note et la photo saisies ne sont pas perdues.
@@ -1984,8 +1993,13 @@ export default function OrdersPage() {
             confirmWord={
               actionNote ? MOTS_CONFIRMATION[actionNote.target] : undefined
             }
+            items={
+              actionNote?.target === "LIVRE"
+                ? actionNote.order.items
+                : undefined
+            }
             onCancel={() => setActionNote(null)}
-            onSubmit={(note, photo) =>
+            onSubmit={(note, photo, itemsLivres) =>
               actionNote &&
               doChangeStatus(
                 actionNote.order,
@@ -1993,6 +2007,7 @@ export default function OrdersPage() {
                 note,
                 undefined,
                 photo,
+                itemsLivres,
               )
             }
           />
@@ -2231,8 +2246,9 @@ function NoteForm({
   onCancel,
   showPhoto = false,
   confirmWord,
+  items,
 }: {
-  onSubmit: (note: string, photo?: File) => void;
+  onSubmit: (note: string, photo?: File, itemsLivres?: number[]) => void;
   onCancel?: () => void;
   // Preuve que la préparation est faite — proposé uniquement au passage
   // "Prête" (préparateur/gérant), voir OrderStatusHistory.photo.
@@ -2245,11 +2261,23 @@ function NoteForm({
    * fausse manœuvre, pas ré-authentifier.
    */
   confirmWord?: string;
+  /**
+   * Articles à pointer avant de confirmer une livraison (§ demande).
+   *
+   * Le livreur coche ce qu'il a réellement remis : le décoché repart en
+   * stock et sort du total. Proposé seulement quand la commande compte
+   * plusieurs articles — pointer un article unique n'apporterait rien.
+   */
+  items?: { id: number; reference_name?: string; couleur?: string; quantite?: number }[];
 }) {
   const [note, setNote] = useState("");
   const [photo, setPhoto] = useState<File | undefined>(undefined);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [saisie, setSaisie] = useState("");
+  // Tout est coché au départ : le cas courant reste « tout a été remis ».
+  const [livres, setLivres] = useState<number[]>(() =>
+    (items || []).map((i) => i.id),
+  );
 
   // Comparaison tolérante : casse et espaces autour ne doivent pas bloquer.
   const motValide =
@@ -2287,6 +2315,48 @@ function NoteForm({
           )}
         </div>
       )}
+      {items && items.length > 1 && (
+        <div className="space-y-2 rounded-md border bg-muted/10 p-3">
+          <p className="text-sm font-medium">Articles remis au client</p>
+          <p className="text-xs text-muted-foreground">
+            Décochez ce que vous rapportez : ces articles repartent en stock
+            et sortent du total à encaisser.
+          </p>
+          {items.map((it) => {
+            const coche = livres.includes(it.id);
+            return (
+              <label
+                key={it.id}
+                className="flex items-center gap-2 text-sm cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-primary"
+                  checked={coche}
+                  onChange={(e) =>
+                    setLivres((prev) =>
+                      e.target.checked
+                        ? [...prev, it.id]
+                        : prev.filter((id) => id !== it.id),
+                    )
+                  }
+                />
+                <span className={coche ? "" : "line-through opacity-60"}>
+                  {it.reference_name || "Article"}
+                  {it.couleur ? ` (${it.couleur})` : ""}
+                  {it.quantite ? ` x${it.quantite}` : ""}
+                </span>
+              </label>
+            );
+          })}
+          {livres.length === 0 && (
+            <p className="text-xs text-red-600">
+              Aucun article remis : la commande sera enregistrée comme un
+              Retour.
+            </p>
+          )}
+        </div>
+      )}
       {confirmWord && (
         <div className="space-y-2">
           <Label className="text-sm">
@@ -2307,7 +2377,10 @@ function NoteForm({
             Annuler
           </Button>
         )}
-        <Button disabled={!motValide} onClick={() => onSubmit(note, photo)}>
+        <Button
+          disabled={!motValide}
+          onClick={() => onSubmit(note, photo, items ? livres : undefined)}
+        >
           Confirmer
         </Button>
       </DialogFooter>

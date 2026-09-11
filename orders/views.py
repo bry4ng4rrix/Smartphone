@@ -294,6 +294,7 @@ class OrderViewSet(viewsets.ModelViewSet):
                 livreur_id=serializer.validated_data.get("livreur_id"),
                 assigned_at=serializer.validated_data.get("assigned_at"),
                 photo=serializer.validated_data.get("photo"),
+                items_livres=serializer.validated_data.get("items_livres"),
             )
         except PermissionDenied as exc:
             raise DRFPermissionDenied(str(exc))

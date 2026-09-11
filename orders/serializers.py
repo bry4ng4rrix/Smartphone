@@ -46,7 +46,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
         model = OrderItem
         fields = [
             "id", "product_variant", "reference_name", "brand_name", "type_name", "category_name",
-            "couleur", "prix_unitaire", "quantite",
+            "couleur", "prix_unitaire", "quantite", "retourne",
         ]
 
 
@@ -63,6 +63,7 @@ class OrderItemPublicSerializer(serializers.ModelSerializer):
         model = OrderItem
         fields = [
             "id", "reference_name", "brand_name", "type_name", "category_name", "couleur", "quantite",
+            "retourne",
         ]
 
 
@@ -211,3 +212,9 @@ class OrderStatusChangeSerializer(serializers.Serializer):
     livreur_id = serializers.IntegerField(required=False, allow_null=True)
     # Heure manuelle optionnelle pour l'affectation (voir services.change_order_status).
     assigned_at = serializers.DateTimeField(required=False, allow_null=True)
+    # Livraison partielle (§ demande) : identifiants des OrderItem réellement
+    # remis au client. Absent = tout est remis. Liste vide = rien n'a été
+    # livré, la commande bascule en "Retour" (voir change_order_status).
+    items_livres = serializers.ListField(
+        child=serializers.IntegerField(), required=False, allow_empty=True
+    )

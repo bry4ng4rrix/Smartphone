@@ -476,11 +476,26 @@ def _resolve_assignee(*, order, role, requesting_user, requested_role, assignee_
 
 @transaction.atomic
 def change_order_status(*, order, new_status, user, note="", preparateur_id=None, livreur_id=None, assigned_at=None,
-                         photo=None):
+                         photo=None, items_livres=None):
     """`assigned_at` : heure manuelle optionnelle (le gérant peut consigner
     une heure passée pour l'affectation préparateur/livreur) — sans valeur,
-    l'historique prend l'heure réelle (maintenant), comme avant."""
+    l'historique prend l'heure réelle (maintenant), comme avant.
+
+    `items_livres` : au passage à "Livré", identifiants des OrderItem
+    RÉELLEMENT remis au client (§ demande — livraison partielle). Les autres
+    sont marqués rapportés, retournent en stock et sortent du total à payer.
+    Si AUCUN n'est remis, la commande devient un "Retour" : rien n'a été
+    livré, il n'y a pas lieu de la clore comme livrée. `None` = tout est
+    remis, comportement d'avant.
+    """
     role = user_commande_role(user)
+
+    # Une livraison partielle sans rien de remis EST un retour : on bascule
+    # avant les contrôles de transition, pour que la règle de workflow et le
+    # mouvement de stock soient ceux du retour.
+    if new_status == "LIVRE" and items_livres is not None and not items_livres:
+        new_status = "RETOUR"
+        items_livres = None
 
     # Cas spécial : retrait sur place ("Récupération") — aucun livreur
     # n'intervient, le gérant clôture directement Prête -> Livré au comptoir.
@@ -547,6 +562,42 @@ def change_order_status(*, order, new_status, user, note="", preparateur_id=None
             order=order, role=role, requesting_user=user, requested_role="LIVREUR",
             assignee_id=livreur_id, field_name="livreur",
         )
+
+    # Livraison partielle : les articles non remis repartent en stock et
+    # sortent du total. Appliqué AVANT l'enregistrement du statut, pour que
+    # la commande soit clôturée avec un total déjà juste.
+    articles_rapportes = []
+    if new_status == "LIVRE" and items_livres is not None:
+        ids_livres = {int(i) for i in items_livres}
+        for item in order.items.select_related("product_variant"):
+            if item.id in ids_livres:
+                continue
+            item.retourne = True
+            item.save(update_fields=["retourne"])
+            articles_rapportes.append(item)
+            apply_stock_movement(
+                product_variant=item.product_variant,
+                movement_type="ENTREE",
+                quantite=item.quantite,
+                origine="RETOUR",
+                user=user,
+                reference=order.numero,
+                note="Article rapporté — livraison partielle",
+            )
+        if articles_rapportes:
+            order.recompute_total()
+            order.refresh_from_db()
+
+    # La trace doit dire CE QUI est revenu : sans ça, un total plus bas que
+    # prévu serait inexplicable en relisant l'historique.
+    if articles_rapportes:
+        rapportes = ", ".join(
+            f"{i.product_variant.product_reference.reference_name}"
+            f" ({i.product_variant.couleur}) x{i.quantite}"
+            for i in articles_rapportes
+        )
+        note = f"{note} — " if note else ""
+        note = f"{note}Articles rapportés : {rapportes}"
 
     order.statut_courant = new_status
     order.save()

@@ -727,6 +727,12 @@ class DjangoAPIClient {
       note?: string,
       assignee?: { preparateur_id?: number; livreur_id?: number; assigned_at?: string },
       photo?: File,
+      /**
+       * Livraison partielle : identifiants des articles RÉELLEMENT remis au
+       * client. Omis = tout est remis. Tableau vide = rien n'a été livré, le
+       * serveur bascule la commande en « Retour ».
+       */
+      itemsLivres?: number[],
     ) => {
       if (photo) {
         const fd = new FormData()
@@ -735,10 +741,16 @@ class DjangoAPIClient {
         if (assignee?.preparateur_id != null) fd.append('preparateur_id', String(assignee.preparateur_id))
         if (assignee?.livreur_id != null) fd.append('livreur_id', String(assignee.livreur_id))
         if (assignee?.assigned_at) fd.append('assigned_at', assignee.assigned_at)
+        if (itemsLivres) itemsLivres.forEach((i) => fd.append('items_livres', String(i)))
         fd.append('photo', photo)
         return this.postFormData<any>(`/orders/${id}/status/`, fd)
       }
-      return this.post<any>(`/orders/${id}/status/`, { statut, note, ...assignee })
+      return this.post<any>(`/orders/${id}/status/`, {
+        statut,
+        note,
+        ...assignee,
+        ...(itemsLivres ? { items_livres: itemsLivres } : {}),
+      })
     },
     cancel: async (id: number, note?: string) => {
       return this.post<any>(`/orders/${id}/cancel/`, { note })
