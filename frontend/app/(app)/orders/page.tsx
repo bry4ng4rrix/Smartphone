@@ -237,7 +237,11 @@ export default function OrdersPage() {
   // Confirmation "Commande prête" jouée DANS le modal de détail : au lieu de
   // le refermer pour ouvrir la boîte de confirmation, on remplace le bas de
   // la fiche par le formulaire note + photo (§ demande).
-  const [detailPrete, setDetailPrete] = useState(false);
+  const [detailInline, setDetailInline] = useState<{
+    target: string;
+    label: string;
+    showPhoto: boolean;
+  } | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [actionNote, setActionNote] = useState<{
     order: any;
@@ -1317,7 +1321,7 @@ export default function OrdersPage() {
         onOpenChange={(o) => {
           if (!o) {
             setDetail(null);
-            setDetailPrete(false);
+            setDetailInline(null);
           }
         }}
       >
@@ -1504,40 +1508,41 @@ export default function OrdersPage() {
                   )}
                 </div>
 
-                {/* Passage "En préparation" -> "Prête" : gérant ET
-                    préparateur le jouent SANS quitter le détail (§ demande).
-                    Le bouton laisse place, dans le même modal, au formulaire
-                    note + photo de preuve, puis à la confirmation. */}
+                {/* Actions du détail, jouées SANS quitter le modal (§ demande) :
+                    le bouton laisse place, dans la même fenêtre, au
+                    formulaire de confirmation (note, et photo de preuve pour
+                    le passage "Prête"). Seule l'assignation part dans sa
+                    propre boîte, qui doit charger la liste du personnel. */}
                 {(() => {
-                  const peutRendrePrete =
-                    detail.statut_courant === "EN_PREPARATION" &&
-                    (isGerant || isPreparateur);
-
-                  if (peutRendrePrete && detailPrete) {
+                  // Confirmation en cours : elle remplace les boutons.
+                  if (detailInline) {
                     return (
                       <div className="space-y-3 rounded-md border bg-muted/10 p-3">
                         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                          Confirmer : commande prête
+                          Confirmer : {detailInline.label}
                         </p>
-                        <p className="text-sm text-muted-foreground">
-                          Ajoutez si besoin une note et une photo prouvant que
-                          la préparation est faite — le livreur les verra.
-                        </p>
+                        {detailInline.showPhoto && (
+                          <p className="text-sm text-muted-foreground">
+                            Ajoutez si besoin une note et une photo prouvant
+                            que la préparation est faite — le livreur les
+                            verra.
+                          </p>
+                        )}
                         <NoteForm
-                          showPhoto
-                          onCancel={() => setDetailPrete(false)}
+                          showPhoto={detailInline.showPhoto}
+                          onCancel={() => setDetailInline(null)}
                           onSubmit={async (note, photo) => {
                             const ok = await doChangeStatus(
                               detail,
-                              "PRETE",
+                              detailInline.target,
                               note,
                               undefined,
                               photo,
                             );
-                            // En cas d'échec on reste sur le formulaire :
-                            // la note et la photo saisies ne sont pas perdues.
+                            // En cas d'échec on reste sur le formulaire : la
+                            // note et la photo saisies ne sont pas perdues.
                             if (!ok) return;
-                            setDetailPrete(false);
+                            setDetailInline(null);
                             setDetail(null);
                           }}
                         />
@@ -1545,20 +1550,65 @@ export default function OrdersPage() {
                     );
                   }
 
-                  if (peutRendrePrete) {
-                    // Le préparateur reste soumis au jour J ; le gérant non.
-                    const notYetDue =
-                      isPreparateur && !isJourJ(detail.date_commande);
+                  // Le préparateur reste soumis au jour J ; le gérant non.
+                  const notYetDue =
+                    isPreparateur && !isJourJ(detail.date_commande);
+                  const dueLabel = `Disponible le ${fmtOuverture(detail.date_commande, roleCommande)}`;
+
+                  // Commande "Nouvelle" vue par le gérant : assigner un
+                  // préparateur, ou démarrer soi-même la préparation.
+                  if (isGerant && detail.statut_courant === "NOUVELLE") {
+                    return (
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <Button
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() => {
+                            // La sélection du personnel a sa propre boîte.
+                            const order = detail;
+                            setDetail(null);
+                            setAssignTarget({ order, role: "PREPARATEUR" });
+                          }}
+                        >
+                          <UserCheck className="h-4 w-4 mr-2" />
+                          Assigner un préparateur
+                        </Button>
+                        <Button
+                          className="flex-1"
+                          onClick={() =>
+                            setDetailInline({
+                              target: "EN_PREPARATION",
+                              label: "Commencer la préparation",
+                              showPhoto: false,
+                            })
+                          }
+                        >
+                          <Package className="h-4 w-4 mr-2" />
+                          Commencer la préparation
+                        </Button>
+                      </div>
+                    );
+                  }
+
+                  // "En préparation" -> "Prête" : gérant ET préparateur.
+                  if (
+                    detail.statut_courant === "EN_PREPARATION" &&
+                    (isGerant || isPreparateur)
+                  ) {
                     return (
                       <Button
                         className="w-full"
                         disabled={notYetDue}
-                        onClick={() => setDetailPrete(true)}
+                        onClick={() =>
+                          setDetailInline({
+                            target: "PRETE",
+                            label: "Commande prête",
+                            showPhoto: true,
+                          })
+                        }
                       >
                         <Package className="h-4 w-4 mr-2" />
-                        {notYetDue
-                          ? `Disponible le ${fmtOuverture(detail.date_commande, roleCommande)}`
-                          : "Commande prête"}
+                        {notYetDue ? dueLabel : "Commande prête"}
                       </Button>
                     );
                   }
@@ -1568,13 +1618,13 @@ export default function OrdersPage() {
                   if (isGerant) return null;
                   const action = nextAction(detail);
                   if (!action) return null;
-                  const notYetDue = !isJourJ(detail.date_commande);
+                  const bloque = !isJourJ(detail.date_commande);
                   // Livreur hors jour J : aucun bouton, pas même grisé.
-                  if (isLivreur && notYetDue) return null;
+                  if (isLivreur && bloque) return null;
                   return (
                     <Button
                       className="w-full"
-                      disabled={notYetDue}
+                      disabled={bloque}
                       onClick={() => {
                         setActionNote({
                           order: detail,
@@ -1585,9 +1635,7 @@ export default function OrdersPage() {
                       }}
                     >
                       <action.icon className="h-4 w-4 mr-2" />
-                      {notYetDue
-                        ? `Disponible le ${fmtOuverture(detail.date_commande, roleCommande)}`
-                        : action.label}
+                      {bloque ? dueLabel : action.label}
                     </Button>
                   );
                 })()}
