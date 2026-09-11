@@ -69,6 +69,7 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import {
+  MessageCircle,
   Plus,
   Trash2,
   Truck,
@@ -237,6 +238,9 @@ export default function OrdersPage() {
   // Confirmation "Commande prête" jouée DANS le modal de détail : au lieu de
   // le refermer pour ouvrir la boîte de confirmation, on remplace le bas de
   // la fiche par le formulaire note + photo (§ demande).
+  const [sharingChat, setSharingChat] = useState<"livreur" | "general" | null>(
+    null,
+  );
   const [detailInline, setDetailInline] = useState<{
     target: string;
     label: string;
@@ -575,6 +579,31 @@ export default function OrdersPage() {
       setDetail(fresh);
     } catch {
       setDetail(null);
+    }
+  };
+
+  /**
+   * Partage la commande dans la messagerie (§ demande) : résumé + photo de
+   * préparation, envoyés au livreur assigné ou au salon Général. Tout est
+   * composé côté serveur — la photo y est déjà, inutile de la faire
+   * redescendre puis remonter.
+   */
+  const shareOrderToChat = async (
+    order: any,
+    cible: "livreur" | "general",
+  ) => {
+    setSharingChat(cible);
+    try {
+      await djangoClient.orders.shareToChat(order.id, cible);
+      toast.success(
+        cible === "livreur"
+          ? `Commande envoyée à ${order.livreur_name}`
+          : "Commande envoyée au chat général",
+      );
+    } catch (err: any) {
+      toast.error(err.message || "Partage impossible");
+    } finally {
+      setSharingChat(null);
     }
   };
 
@@ -1638,6 +1667,42 @@ export default function OrdersPage() {
                     <p>{detail.note_livreur}</p>
                   </div>
                 )}
+
+                {/* Partage dans la messagerie — proposé dès qu'une photo de
+                    préparation existe, au gérant comme au préparateur, pour
+                    prévenir le livreur avec la preuve du colis (§ demande). */}
+                {(isGerant || isPreparateur) &&
+                  (detail.status_history || []).some((h: any) => h.photo) && (
+                    <div className="border-t pt-3 space-y-2">
+                      <p className="text-muted-foreground">
+                        Envoyer au chat (avec la photo)
+                      </p>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <Button
+                          variant="outline"
+                          className="flex-1"
+                          disabled={!detail.livreur || sharingChat !== null}
+                          onClick={() => shareOrderToChat(detail, "livreur")}
+                        >
+                          <MessageCircle className="h-4 w-4 mr-2" />
+                          {sharingChat === "livreur"
+                            ? "Envoi…"
+                            : detail.livreur_name
+                              ? `Au livreur (${detail.livreur_name})`
+                              : "Aucun livreur assigné"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="flex-1"
+                          disabled={sharingChat !== null}
+                          onClick={() => shareOrderToChat(detail, "general")}
+                        >
+                          <MessageCircle className="h-4 w-4 mr-2" />
+                          {sharingChat === "general" ? "Envoi…" : "Au chat général"}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
 
                 {detail.status_history && (
                   <>

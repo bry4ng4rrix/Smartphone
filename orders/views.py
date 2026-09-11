@@ -320,6 +320,124 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         return Response(self.get_serializer(order).data)
 
+    @action(detail=True, methods=["post"], url_path="share-chat")
+    def share_chat(self, request, pk=None):
+        """POST /api/orders/{id}/share-chat/ {cible: "livreur"|"general"} —
+        partage la commande dans la messagerie, avec la photo de préparation
+        si elle existe (§ demande).
+
+        Le partage se fait côté SERVEUR : la photo est déjà sur le serveur,
+        inutile de la faire redescendre puis remonter par le navigateur. Le
+        fichier est recopié dans le message (et non simplement référencé),
+        pour qu'une suppression ultérieure de l'historique de la commande ne
+        vide pas la conversation.
+        """
+        import os
+
+        from django.core.files.base import ContentFile
+
+        from users.models import ChatMessage
+        from users.permissions import chat_blocked_between
+        from users.serializers import ChatMessageSerializer
+        # Import différé : users/views.py importe orders.models au chargement,
+        # un import au niveau module créerait un cycle.
+        from users.views import get_company_id
+
+        order = self.get_object()
+        role = user_commande_role(request.user)
+        if role not in ("GERANT", "PREPARATEUR"):
+            raise DRFPermissionDenied(
+                "Seuls le gérant et le préparateur peuvent partager une commande."
+            )
+
+        cible = (request.data.get("cible") or "livreur").lower()
+        recipient = None
+
+        if cible == "livreur":
+            recipient = order.livreur
+            if recipient is None:
+                raise DRFValidationError(
+                    "Aucun livreur n'est assigné à cette commande."
+                )
+            if chat_blocked_between(request.user, recipient):
+                raise DRFPermissionDenied(
+                    "Vous ne pouvez pas écrire à ce livreur."
+                )
+            ids = sorted([request.user.id, recipient.id])
+            room_name = f"dm_{ids[0]}_{ids[1]}"
+        elif cible == "general":
+            company_id = get_company_id(request.user)
+            if not company_id:
+                raise DRFValidationError("Société introuvable.")
+            room_name = f"general_{company_id}"
+        else:
+            raise DRFValidationError("Cible inconnue : attendu 'livreur' ou 'general'.")
+
+        # Résumé textuel — mêmes informations que la fiche, sans donnée de
+        # coût/marge (jamais exposée au livreur, cf. serializers).
+        articles = ", ".join(
+            f"{i.product_variant.product_reference.reference_name}"
+            f" ({i.product_variant.couleur}) x{i.quantite}"
+            for i in order.items.all()
+        )
+        lignes = [f"📦 Commande {order.numero}", f"Client : {order.client_nom}"]
+        if order.telephone:
+            lignes.append(f"Téléphone : {order.telephone}")
+        if order.adresse_livraison:
+            lignes.append(f"Adresse : {order.adresse_livraison}")
+        if articles:
+            lignes.append(f"Articles : {articles}")
+        if order.total_a_payer is not None:
+            lignes.append(
+                "À encaisser : déjà payé"
+                if order.mode_paiement == "AVANT"
+                else f"À encaisser : {order.total_a_payer:.0f} Ar"
+            )
+
+        message = ChatMessage.objects.create(
+            sender=request.user,
+            recipient=recipient,
+            room_name=room_name,
+            content="\n".join(lignes),
+        )
+
+        # Photo de préparation : la plus récente de l'historique.
+        historique_photo = (
+            order.status_history.exclude(photo="")
+            .exclude(photo__isnull=True)
+            .order_by("-timestamp")
+            .first()
+        )
+        if historique_photo and historique_photo.photo:
+            try:
+                historique_photo.photo.open("rb")
+                message.image.save(
+                    os.path.basename(historique_photo.photo.name),
+                    ContentFile(historique_photo.photo.read()),
+                    save=True,
+                )
+            finally:
+                historique_photo.photo.close()
+
+        payload = ChatMessageSerializer(message, context={"request": request}).data
+
+        # Diffusion temps réel au même groupe que le consumer WebSocket.
+        # Best-effort : en cas d'indisponibilité le message reste enregistré.
+        try:
+            from asgiref.sync import async_to_sync
+            from channels.layers import get_channel_layer
+
+            channel_layer = get_channel_layer()
+            if channel_layer is not None:
+                async_to_sync(channel_layer.group_send)(
+                    f"chat_{room_name}",
+                    {"type": "chat_message", "message": payload},
+                )
+        except Exception:
+            pass
+
+        return Response(payload, status=status.HTTP_201_CREATED)
+
     @action(detail=True, methods=["post"], url_path="assign-preparateur")
     def assign_preparateur(self, request, pk=None):
         """POST /api/orders/{id}/assign-preparateur/ {preparateur_id} —

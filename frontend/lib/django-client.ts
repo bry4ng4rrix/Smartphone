@@ -705,6 +705,14 @@ class DjangoAPIClient {
     }) => {
       return this.post<any>('/orders/', data)
     },
+    /**
+     * Partage la commande dans la messagerie, avec la photo de préparation
+     * si elle existe. Le serveur compose le message et recopie la photo :
+     * rien ne redescend puis ne remonte par le navigateur.
+     */
+    shareToChat: async (id: number, cible: 'livreur' | 'general') => {
+      return this.post<any>(`/orders/${id}/share-chat/`, { cible })
+    },
     changeStatus: async (
       id: number,
       statut: string,
