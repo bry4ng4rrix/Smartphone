@@ -1,7 +1,7 @@
 from django.urls import path
 
 # Import view classes and viewsets
-from .views import (AddAdminView,RegisterView,ApproveUserView,Myprofile,RoleManagementView,EmployerCommandeRoleUpdateView,CaisseSessionViewSet,CaisseMovementViewSet,CaisseCategoryViewSet,CaisseSummaryView,AdminMagasinOverviewView,UsersByMagasinView,LogoutEventView,MagasinStatsView,DashboardView,ApiEndpointsListView,PendingUsersView,DeleteUserView,RejectUserView,ChangePasswordView,NotificationViewSet,MagasinViewSet,ChatUsersListView,ChatMessageHistoryView,TransferProductsView,BackupExportView,BackupImportView,PublicForgotPasswordRequestView,PublicForgotPasswordStatusView,PublicForgotPasswordConfirmView,EmployeePasswordResetListView,EmployeePasswordResetResolveView,
+from .views import (AddAdminView,RegisterView,ApproveUserView,Myprofile,RoleManagementView,EmployerCommandeRoleUpdateView,CaisseSessionViewSet,CaisseMovementViewSet,CaisseCategoryViewSet,CaisseSummaryView,AdminMagasinOverviewView,UsersByMagasinView,LogoutEventView,MagasinStatsView,DashboardView,ApiEndpointsListView,PendingUsersView,DeleteUserView,RejectUserView,ChangePasswordView,NotificationViewSet,MagasinViewSet,ChatUsersListView,ChatMessageHistoryView,ChatImageUploadView,TransferProductsView,BackupExportView,BackupImportView,PublicForgotPasswordRequestView,PublicForgotPasswordStatusView,PublicForgotPasswordConfirmView,EmployeePasswordResetListView,EmployeePasswordResetResolveView,
 )
 
 from rest_framework_simplejwt.views import TokenViewBase
@@ -63,6 +63,8 @@ urlpatterns = [
     # Chat endpoints
     path("chat/users/", ChatUsersListView.as_view()),
     path("chat/history/", ChatMessageHistoryView.as_view()),
+    # Envoi d'une image dans le chat (le WebSocket ne transporte que du JSON).
+    path("chat/upload/", ChatImageUploadView.as_view()),
     path('add-admin/', AddAdminView.as_view(), name='add-admin'),
     # Employee (magasin/employer) password reset requests — resolved by their admin
     path("password-reset-requests/", EmployeePasswordResetListView.as_view()),

@@ -331,7 +331,11 @@ class ChatMessage(models.Model):
     sender = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name="sent_chat_messages")
     recipient = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name="received_chat_messages", null=True, blank=True)
     room_name = models.CharField(max_length=100, default="general")
-    content = models.TextField()
+    content = models.TextField(blank=True)
+    # Pièce jointe image (§ demande — bouton "+" du chat : fichier image ou
+    # photo prise à l'appareil). Un message peut n'être QU'une image, d'où
+    # `content` devenu facultatif ; l'un des deux au moins est exigé côté vue.
+    image = models.ImageField(upload_to="chat/", null=True, blank=True)
     is_edited = models.BooleanField(default=False)
     edited_at = models.DateTimeField(null=True, blank=True)
     is_deleted = models.BooleanField(default=False)

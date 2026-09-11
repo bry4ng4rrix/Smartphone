@@ -1111,6 +1111,21 @@ class DjangoAPIClient {
     users: async () => {
       return this.get<any[]>('/users/chat/users/')
     },
+    /**
+     * Envoi d'une image dans le chat (bouton « + »).
+     *
+     * Le WebSocket ne transporte que du JSON : l'image passe donc par HTTP.
+     * Le serveur crée le message PUIS le diffuse au même groupe temps réel,
+     * si bien qu'il revient par le socket comme un message texte — rien à
+     * ajouter localement à la liste.
+     */
+    sendImage: async (image: File, content?: string, recipientId?: number) => {
+      const fd = new FormData()
+      fd.append('image', image)
+      if (content) fd.append('content', content)
+      if (recipientId) fd.append('recipient_id', String(recipientId))
+      return this.postFormData<any>('/users/chat/upload/', fd)
+    },
     history: async (params?: { recipient_id?: number; room_name?: string }) => {
       const urlParams = new URLSearchParams()
       if (params?.recipient_id) urlParams.append('recipient_id', params.recipient_id.toString())

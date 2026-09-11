@@ -263,6 +263,7 @@ class ChatMessageSerializer(serializers.ModelSerializer):
             "recipient_email",
             "room_name",
             "content",
+            "image",
             "is_edited",
             "edited_at",
             "is_deleted",

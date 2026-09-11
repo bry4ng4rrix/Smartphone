@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework import status, viewsets, serializers
 from rest_framework.decorators import action
-from rest_framework.parsers import MultiPartParser
+from rest_framework.parsers import FormParser, MultiPartParser
 from django.db.models import Sum, F, DecimalField, Avg, Count, Value, Q
 from django.db.models.functions import Coalesce
 from django.db import transaction
@@ -1981,8 +1981,94 @@ class ChatMessageHistoryView(APIView):
         # Take last 100 messages
         total_count = messages.count()
         messages = messages.select_related("sender", "recipient")[max(0, total_count - 100):]
-        serializer = ChatMessageSerializer(messages, many=True)
+        # `context={"request": ...}` : sans lui, l'ImageField renvoie une URL
+        # relative (/media/chat/...) que le frontend, servi depuis un autre
+        # hôte que l'API, ne saurait pas résoudre.
+        serializer = ChatMessageSerializer(
+            messages, many=True, context={"request": request}
+        )
         return Response(serializer.data)
+
+
+class ChatImageUploadView(APIView):
+    """Envoi d'une image dans le chat (§ demande — bouton « + »).
+
+    Le WebSocket ne transporte que du JSON : une image passe donc par HTTP.
+    Cette vue applique EXACTEMENT les mêmes contrôles d'accès que
+    `ChatMessageHistoryView` (même société, et deux livreurs ne peuvent pas se
+    contacter), crée le message, puis le diffuse elle-même au groupe de la
+    room pour que les autres participants le voient en direct — exactement
+    comme un message texte envoyé par le consumer.
+    """
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        from django.db.models import Q  # noqa: F401  (cohérence avec la vue ci-dessus)
+
+        image = request.FILES.get("image")
+        if not image:
+            return Response({"error": "Aucune image reçue."}, status=400)
+
+        my_magasins = get_company_magasins(request.user)
+        if not my_magasins.exists():
+            return Response({"error": "Aucun magasin associé."}, status=403)
+
+        recipient_id = request.data.get("recipient_id")
+        recipient = None
+
+        if recipient_id:
+            try:
+                recipient = CustomUser.objects.get(id=recipient_id)
+            except (CustomUser.DoesNotExist, ValueError, TypeError):
+                return Response({"error": "Destinataire introuvable"}, status=404)
+            recipient_magasins = get_company_magasins(recipient)
+            if not recipient_magasins.exists() or not my_magasins.filter(
+                id__in=recipient_magasins
+            ).exists():
+                return Response({"error": "Permission refusée"}, status=403)
+            if chat_blocked_between(request.user, recipient):
+                return Response(
+                    {"error": "Deux livreurs ne peuvent pas se contacter entre eux"},
+                    status=403,
+                )
+            # Même nom de room déterministe que le consumer.
+            ids = sorted([request.user.id, recipient.id])
+            room_name = f"dm_{ids[0]}_{ids[1]}"
+        else:
+            company_id = get_company_id(request.user)
+            if not company_id:
+                return Response({"error": "Société introuvable"}, status=403)
+            room_name = f"general_{company_id}"
+
+        message = ChatMessage.objects.create(
+            sender=request.user,
+            recipient=recipient,
+            room_name=room_name,
+            content=(request.data.get("content") or "").strip(),
+            image=image,
+        )
+
+        payload = ChatMessageSerializer(message, context={"request": request}).data
+
+        # Diffusion temps réel au même groupe que le consumer WebSocket.
+        # Best-effort : si le channel layer est indisponible, le message reste
+        # enregistré et apparaîtra au prochain chargement de l'historique.
+        try:
+            from asgiref.sync import async_to_sync
+            from channels.layers import get_channel_layer
+
+            channel_layer = get_channel_layer()
+            if channel_layer is not None:
+                async_to_sync(channel_layer.group_send)(
+                    f"chat_{room_name}",
+                    {"type": "chat_message", "message": payload},
+                )
+        except Exception:
+            pass
+
+        return Response(payload, status=201)
 
 class _TransferValidationError(Exception):
     def __init__(self, message, status=400):

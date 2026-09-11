@@ -211,6 +211,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
             "recipient_email": recipient.email if recipient else None,
             "room_name": room_name,
             "content": content,
+            # Un message envoyé par le WebSocket est toujours du texte : les
+            # images passent par users/views.py::ChatImageUploadView, qui
+            # diffuse la même forme de charge utile avec une URL ici.
+            "image": None,
             "is_edited": False,
             "is_deleted": False,
             "timestamp": msg.timestamp.isoformat(),

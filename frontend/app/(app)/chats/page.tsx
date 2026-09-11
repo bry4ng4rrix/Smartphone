@@ -14,6 +14,8 @@ import {
   Store,
   Shield,
   Loader2,
+  Image as ImageIcon,
+  Camera,
   AlertCircle,
   ArrowLeft,
   Plus,
@@ -70,6 +72,8 @@ interface ChatMessage {
   recipient_email: string | null;
   room_name: string;
   content: string;
+  /** URL absolue de l'image jointe, si le message en porte une. */
+  image?: string | null;
   product?: ChatProductSnapshot | null;
   is_edited?: boolean;
   edited_at?: string | null;
@@ -96,11 +100,8 @@ export default function ChatsPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingContent, setEditingContent] = useState('');
 
-  // Product picker state ("+" button)
-  const [productPickerOpen, setProductPickerOpen] = useState(false);
-  const [productSearch, setProductSearch] = useState('');
-  const [allProducts, setAllProducts] = useState<any[]>([]);
-  const [loadingProducts, setLoadingProducts] = useState(false);
+  // Bouton "+" : envoi d'image / photo (§ demande)
+  const [attachOpen, setAttachOpen] = useState(false);
 
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -372,43 +373,42 @@ export default function ChatsPage() {
   };
 
   // Product picker ("+" button) logic
-  const openProductPicker = async () => {
-    setProductPickerOpen(true);
-    if (allProducts.length === 0) {
-      setLoadingProducts(true);
-      try {
-        const data = await djangoClient.products.list();
-        setAllProducts(data);
-      } catch (err) {
-        console.error('Error fetching products:', err);
-        toast.error('Impossible de charger les produits.');
-      } finally {
-        setLoadingProducts(false);
-      }
+  // Bouton "+" du chat : envoi d'une image (§ demande). Le WebSocket ne
+  // transporte que du JSON, l'image passe donc par HTTP
+  // (users/views.py::ChatImageUploadView) qui la diffuse ensuite au même
+  // groupe temps réel — le message arrive donc par le socket comme un
+  // message texte, sans traitement particulier ici.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [sendingImage, setSendingImage] = useState(false);
+
+  const pickImage = (fromCamera: boolean) => {
+    const input = fileInputRef.current;
+    if (!input) return;
+    // `capture` ouvre directement l'appareil photo sur mobile ; sur desktop
+    // l'attribut est ignoré et la boîte de dialogue habituelle s'affiche.
+    if (fromCamera) input.setAttribute('capture', 'environment');
+    else input.removeAttribute('capture');
+    input.value = '';
+    input.click();
+    setAttachOpen(false);
+  };
+
+  const handleImageSelected = async (file?: File) => {
+    if (!file) return;
+    setSendingImage(true);
+    try {
+      await djangoClient.chat.sendImage(
+        file,
+        newMessage.trim(),
+        activeTab === 'direct' ? activeRecipient?.id : undefined,
+      );
+      setNewMessage('');
+    } catch (err: any) {
+      toast.error(err?.message || "Impossible d'envoyer l'image.");
+    } finally {
+      setSendingImage(false);
     }
   };
-
-  const handlePickProduct = (product: any) => {
-    if (!socketRef.current || socketStatus !== 'connected') return;
-    socketRef.current.send(JSON.stringify({
-      content: newMessage.trim(),
-      product_id: product.id,
-    }));
-    setNewMessage('');
-    setProductPickerOpen(false);
-    setProductSearch('');
-  };
-
-  const debouncedProductSearch = useDebouncedValue(productSearch);
-
-  const filteredProducts = allProducts.filter((p) => {
-    const term = debouncedProductSearch.toLowerCase();
-    return (
-      !term ||
-      p.name?.toLowerCase().includes(term) ||
-      p.reference?.toLowerCase().includes(term)
-    );
-  });
 
   // Suggestions list
   const quickSuggestions = [
@@ -933,6 +933,20 @@ export default function ChatsPage() {
                                         </div>
                                       </div>
                                     )}
+                                    {msg.image && (
+                                      <a
+                                        href={msg.image}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="block mb-1"
+                                      >
+                                        <img
+                                          src={msg.image}
+                                          alt="Image envoyée"
+                                          className="max-h-60 w-auto max-w-full rounded-lg border object-cover"
+                                        />
+                                      </a>
+                                    )}
                                     {msg.content && (
                                       <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                                     )}
@@ -988,60 +1002,59 @@ export default function ChatsPage() {
 
             {/* Input message form */}
             <form onSubmit={handleSendMessage} className="flex gap-2 items-end">
-              <Popover open={productPickerOpen} onOpenChange={setProductPickerOpen}>
+              {/* Input fichier masqué, piloté par les deux entrées du "+".
+                  `accept="image/*"` limite aux images ; `capture` est posé à
+                  la volée pour ouvrir l'appareil photo (voir pickImage). */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => handleImageSelected(e.target.files?.[0])}
+              />
+              <Popover open={attachOpen} onOpenChange={setAttachOpen}>
                 <PopoverTrigger asChild>
                   <Button
                     type="button"
                     variant="outline"
                     size="icon"
-                    disabled={socketStatus !== 'connected'}
-                    onClick={openProductPicker}
+                    disabled={socketStatus !== 'connected' || sendingImage}
                     className="rounded-2xl h-10 w-10 sm:h-11 sm:w-11 shrink-0"
                   >
-                    <Plus className="h-4 w-4" />
+                    {sendingImage ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Plus className="h-4 w-4" />
+                    )}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent align="start" side="top" className="w-80 p-0">
-                  <div className="p-2 border-b">
-                    <div className="relative">
-                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-                      <Input
-                        autoFocus
-                        placeholder="Rechercher un produit..."
-                        value={productSearch}
-                        onChange={(e) => setProductSearch(e.target.value)}
-                        className="pl-8 h-9 rounded-xl text-xs"
-                      />
+                <PopoverContent align="start" side="top" className="w-56 p-1">
+                  <button
+                    type="button"
+                    onClick={() => pickImage(false)}
+                    className="w-full flex items-center gap-2.5 p-2 rounded-lg hover:bg-muted text-left transition-colors"
+                  >
+                    <div className="p-1.5 rounded-lg bg-primary/10 shrink-0">
+                      <ImageIcon className="h-4 w-4 text-primary" />
                     </div>
-                  </div>
-                  <div className="max-h-64 overflow-y-auto p-1">
-                    {loadingProducts ? (
-                      <div className="flex items-center justify-center p-6">
-                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                      </div>
-                    ) : filteredProducts.length === 0 ? (
-                      <p className="text-xs text-muted-foreground text-center p-6">Aucun produit trouvé</p>
-                    ) : (
-                      filteredProducts.slice(0, 30).map((p) => (
-                        <button
-                          key={p.id}
-                          type="button"
-                          onClick={() => handlePickProduct(p)}
-                          className="w-full flex items-center gap-2.5 p-2 rounded-lg hover:bg-muted text-left transition-colors"
-                        >
-                          <div className="p-1.5 rounded-lg bg-primary/10 shrink-0">
-                            <Package className="h-4 w-4 text-primary" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-medium truncate">{p.name}</p>
-                            <p className="text-[10px] text-muted-foreground truncate">
-                              Réf. {p.reference} · {p.unit_price} Ar
-                            </p>
-                          </div>
-                        </button>
-                      ))
-                    )}
-                  </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium">Envoyer une image</p>
+                      <p className="text-[10px] text-muted-foreground">Depuis vos fichiers</p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => pickImage(true)}
+                    className="w-full flex items-center gap-2.5 p-2 rounded-lg hover:bg-muted text-left transition-colors"
+                  >
+                    <div className="p-1.5 rounded-lg bg-primary/10 shrink-0">
+                      <Camera className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium">Prendre une photo</p>
+                      <p className="text-[10px] text-muted-foreground">Avec l&apos;appareil photo</p>
+                    </div>
+                  </button>
                 </PopoverContent>
               </Popover>
               <Input
