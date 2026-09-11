@@ -46,6 +46,8 @@ import { toast } from 'sonner';
 interface ChatUser {
   /** Messages reçus de ce contact et pas encore lus — badge de la liste. */
   unread_count?: number;
+  /** Dernier message échangé, quel qu'en soit l'auteur — sert au classement. */
+  last_message_at?: string | null;
   id: number;
   full_name: string;
   email: string;
@@ -496,14 +498,34 @@ export default function ChatsPage() {
 
   // Filter users based on query
   const debouncedSearchQuery = useDebouncedValue(searchQuery);
-  const filteredUsers = users.filter((u) => {
-    const term = debouncedSearchQuery.toLowerCase();
-    return (
-      u.full_name.toLowerCase().includes(term) ||
-      u.email.toLowerCase().includes(term) ||
-      (u.shop_name && u.shop_name.toLowerCase().includes(term))
-    );
-  });
+  /**
+   * Liste des contacts, classée comme une messagerie (§ demande) :
+   *
+   * 1. les conversations avec des messages NON LUS d'abord — elles se voient
+   *    en premier, sans avoir à faire défiler ;
+   * 2. à l'intérieur de chaque groupe, la plus récemment active en tête ;
+   * 3. les contacts avec qui on n'a jamais échangé ferment la marche, par
+   *    ordre alphabétique.
+   */
+  const filteredUsers = users
+    .filter((u) => {
+      const term = debouncedSearchQuery.toLowerCase();
+      return (
+        u.full_name.toLowerCase().includes(term) ||
+        u.email.toLowerCase().includes(term) ||
+        (u.shop_name && u.shop_name.toLowerCase().includes(term))
+      );
+    })
+    .sort((a, b) => {
+      const rang = (u: ChatUser) => (u.unread_count ? 0 : 1);
+      const quand = (u: ChatUser) =>
+        u.last_message_at ? new Date(u.last_message_at).getTime() : 0;
+      const parRang = rang(a) - rang(b);
+      if (parRang !== 0) return parRang;
+      const parDate = quand(b) - quand(a);
+      if (parDate !== 0) return parDate;
+      return a.full_name.localeCompare(b.full_name, 'fr');
+    });
 
   // Statut de présence toujours à jour (le polling rafraîchit `users`, pas
   // l'objet figé au moment du clic dans `activeRecipient`).
@@ -545,41 +567,25 @@ export default function ChatsPage() {
   }
 
   return (
-    <div className="mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 h-[calc(100dvh-4rem)] sm:h-[calc(100vh-100px)] flex flex-col">
+    // `h-full` et non un calcul en vh : le <main> du gabarit applicatif
+    // (app/(app)/layout.tsx) fait déjà « hauteur d'écran moins la barre du
+    // haut ». Recalculer cette hauteur ICI, puis y ajouter les marges
+    // verticales, rendait la page plus haute que son conteneur : c'était la
+    // PAGE qui défilait, et la liste des collaborateurs se retrouvait coupée
+    // sans ascenseur. En pourcentage, les marges sont comprises dans la
+    // hauteur (box-border) et rien ne déborde.
+    <div className="mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 h-full min-h-0 flex flex-col">
       
-      {/* Title & Info */}
-      <div className={`flex flex-col md:flex-row justify-between items-start md:items-center mb-4 sm:mb-6 gap-3 sm:gap-4 ${mobileShowChat ? 'hidden md:flex' : ''}`}>
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
-            Messagerie Interne
-          </h1>
-          <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-            Collaborez en temps réel avec toute l&apos;équipe de l&apos;entreprise et de vos magasins.
-          </p>
-        </div>
-
-        {/* Current user micro card */}
-        <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 bg-card border rounded-2xl shadow-sm w-full md:w-auto">
-          <Avatar className="h-9 w-9 border-2 border-primary/20">
-            <AvatarFallback className="bg-primary/10 text-primary text-xs font-bold">
-              {getInitials(currentUser.full_name)}
-            </AvatarFallback>
-          </Avatar>
-          <div className="text-left">
-            <p className="text-xs font-semibold leading-none">{currentUser.full_name}</p>
-            <p className="text-[10px] text-muted-foreground mt-0.5 max-w-[150px] truncate">{currentUser.email}</p>
-          </div>
-          <Badge className={`text-[10px] py-0 px-2 font-semibold border ${getRoleBadgeColor(currentUser.role)}`}>
-            {getRoleLabel(currentUser.role)}
-          </Badge>
-        </div>
-      </div>
+      {/* Le titre, le sous-titre et la carte du compte connecté ont été
+          retirés (§ demande) : ils mangeaient de la hauteur au détriment de
+          la conversation, et l'identité du compte figure déjà dans la barre
+          supérieure. */}
 
       {/* Main chat box container */}
       <div className="flex-1 min-h-0 bg-card border rounded-2xl sm:rounded-3xl overflow-hidden shadow-md flex">
         
         {/* Left Side: Sidebar */}
-        <div className={`${mobileShowChat ? 'hidden md:flex' : 'flex'} w-full md:w-80 border-r flex-col bg-muted/30 shrink-0 select-none`}>
+        <div className={`${mobileShowChat ? 'hidden md:flex' : 'flex'} w-full md:w-80 min-h-0 border-r flex-col bg-muted/30 shrink-0 select-none`}>
           
           {/* En-tête de la liste — le sélecteur Général/Direct a disparu
               avec le salon Général (§ demande) : il ne reste qu'une seule
@@ -605,7 +611,14 @@ export default function ChatsPage() {
           )}
 
           {/* Users/Rooms List */}
-          <ScrollArea className="flex-1">
+          {/* Défilement natif plutôt que le composant ScrollArea : il ne
+              dépend d'aucune chaîne de hauteurs en pourcentage, et
+              fonctionne au doigt comme à la molette. `min-h-0` est
+              indispensable EN PLUS de `flex-1` — un élément flex garde
+              `min-height: auto`, ce qui l'empêche de se réduire sous la
+              hauteur de son contenu : sans lui la liste grandissait au
+              lieu de défiler. */}
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
             <div className="p-2 space-y-1">
               {(
                 // Direct Messaging Users List
@@ -706,11 +719,11 @@ export default function ChatsPage() {
                 </>
               )}
             </div>
-          </ScrollArea>
+          </div>
         </div>
 
         {/* Right Side: Conversation window */}
-        <div className={`${!mobileShowChat ? 'hidden md:flex' : 'flex'} flex-1 flex-col bg-background relative min-w-0`}>
+        <div className={`${!mobileShowChat ? 'hidden md:flex' : 'flex'} flex-1 flex-col bg-background relative min-w-0 min-h-0`}>
           
           {/* Main conversation Header */}
           <div className="p-3 sm:p-4 border-b flex justify-between items-center shadow-sm shrink-0 bg-card select-none gap-2">

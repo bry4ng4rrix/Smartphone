@@ -11,7 +11,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework import status, viewsets, serializers
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
-from django.db.models import Sum, F, DecimalField, Avg, Count, Value, Q
+from django.db.models import Sum, F, DecimalField, Avg, Count, Max, Value, Q
 from django.db.models.functions import Coalesce
 from django.db import transaction
 from django.utils import timezone
@@ -1930,6 +1930,27 @@ class ChatUsersListView(APIView):
             .values_list("sender", "total")
         )
 
+        # Date du dernier message échangé avec chacun — sert à remonter les
+        # conversations les plus récentes en tête de liste (§ demande). Deux
+        # requêtes groupées (messages reçus / envoyés), fusionnées au plus
+        # récent : une conversation compte quel que soit le sens du dernier
+        # message.
+        derniers = {}
+        for champ, filtre in (
+            ("sender", {"recipient": request.user}),
+            ("recipient", {"sender": request.user}),
+        ):
+            for autre, quand in (
+                ChatMessage.objects.filter(is_deleted=False, **filtre)
+                .values(champ)
+                .annotate(dernier=Max("timestamp"))
+                .values_list(champ, "dernier")
+            ):
+                if autre is None:
+                    continue  # message du salon Général : pas de contact
+                if autre not in derniers or quand > derniers[autre]:
+                    derniers[autre] = quand
+
         now = timezone.now()
         data = []
         for u in users:
@@ -1942,6 +1963,9 @@ class ChatUsersListView(APIView):
                 "is_online": is_online,
                 "last_seen_at": u.last_seen_at.isoformat() if u.last_seen_at else None,
                 "unread_count": non_lus.get(u.id, 0),
+                "last_message_at": (
+                    derniers[u.id].isoformat() if u.id in derniers else None
+                ),
             }
             if u.role == "magasin":
                 try:
