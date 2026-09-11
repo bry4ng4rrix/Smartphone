@@ -1366,6 +1366,34 @@ export default function OrdersPage() {
                                   }}
                                 />
                               )}
+                            {/* Commande close : le gérant peut corriger un
+                                état saisi par erreur — le livreur touche
+                                vite « Retour » alors que la livraison est
+                                faite (§ demande). Directement accessible
+                                depuis la ligne, sans ouvrir le détail. */}
+                            {isGerant &&
+                              ["LIVRE", "RETOUR"].includes(
+                                order.statut_courant,
+                              ) &&
+                              (() => {
+                                const cible =
+                                  order.statut_courant === "RETOUR"
+                                    ? "LIVRE"
+                                    : "RETOUR";
+                                const label = statutInfo(cible).label;
+                                return (
+                                  <IconAction
+                                    label={`Corriger → ${label}`}
+                                    icon={Undo2}
+                                    variant="outline"
+                                    showLabel
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setCorrection({ order, cible, label });
+                                    }}
+                                  />
+                                );
+                              })()}
                             {canEdit && (
                               <IconAction
                                 label="Modifier"
@@ -1629,6 +1657,31 @@ export default function OrdersPage() {
                       showPhoto: target === "PRETE",
                     });
 
+                  // Commande close : plus de transition possible, mais le
+                  // gérant peut CORRIGER un état saisi par erreur — le
+                  // livreur touche vite « Retour » alors que la livraison
+                  // est faite (§ demande).
+                  if (
+                    isGerant &&
+                    ["LIVRE", "RETOUR"].includes(detail.statut_courant)
+                  ) {
+                    const cible =
+                      detail.statut_courant === "RETOUR" ? "LIVRE" : "RETOUR";
+                    const label = statutInfo(cible).label;
+                    return (
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        onClick={() =>
+                          setCorrection({ order: detail, cible, label })
+                        }
+                      >
+                        <Undo2 className="h-4 w-4 mr-2" />
+                        Corriger l&apos;état → {label}
+                      </Button>
+                    );
+                  }
+
                   // GÉRANT : toutes les actions du statut courant, en
                   // boutons. Elles se remplacent au fil du workflow, la
                   // fenêtre restant ouverte jusqu'au statut terminal.
@@ -1696,31 +1749,6 @@ export default function OrdersPage() {
                           <Undo2 className="h-4 w-4 mr-2" /> Retour
                         </Button>
                       </div>
-                    );
-                  }
-
-                  // Commande close : plus de transition possible, mais le
-                  // gérant peut CORRIGER un état saisi par erreur — le
-                  // livreur touche vite « Retour » alors que la livraison
-                  // est faite (§ demande).
-                  if (
-                    isGerant &&
-                    ["LIVRE", "RETOUR"].includes(detail.statut_courant)
-                  ) {
-                    const cible =
-                      detail.statut_courant === "RETOUR" ? "LIVRE" : "RETOUR";
-                    const label = statutInfo(cible).label;
-                    return (
-                      <Button
-                        variant="outline"
-                        className="w-full"
-                        onClick={() =>
-                          setCorrection({ order: detail, cible, label })
-                        }
-                      >
-                        <Undo2 className="h-4 w-4 mr-2" />
-                        Corriger l&apos;état → {label}
-                      </Button>
                     );
                   }
 
