@@ -611,10 +611,7 @@ export default function OrdersPage() {
    * composé côté serveur — la photo y est déjà, inutile de la faire
    * redescendre puis remonter.
    */
-  const shareOrderToChat = async (
-    order: any,
-    cible: "livreur" | "general",
-  ) => {
+  const shareOrderToChat = async (order: any, cible: "livreur" | "general") => {
     setSharingChat(cible);
     try {
       await djangoClient.orders.shareToChat(order.id, cible);
@@ -1485,17 +1482,17 @@ export default function OrdersPage() {
                     !["LIVRE", "RETOUR", "ANNULEE"].includes(
                       detail.statut_courant,
                     ) && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setEditTarget(detail);
-                        setDetail(null);
-                      }}
-                    >
-                      <Pencil className="h-4 w-4 mr-2" /> Modifier
-                    </Button>
-                  )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setEditTarget(detail);
+                          setDetail(null);
+                        }}
+                      >
+                        <Pencil className="h-4 w-4 mr-2" /> Modifier
+                      </Button>
+                    )}
                 </div>
               </DialogHeader>
               <div className="space-y-3 text-sm">
@@ -1518,9 +1515,9 @@ export default function OrdersPage() {
                         </div>
                         <div className="text-xs text-muted-foreground">
                           {[
-                            it.category_name && `Type : ${it.category_name}`,
-                            it.type_name && `Sous-type : ${it.type_name}`,
-                            it.brand_name && `Marque : ${it.brand_name}`,
+                            it.category_name && ` ${it.category_name}`,
+                            it.type_name && ` ${it.type_name}`,
+                            it.brand_name && ` ${it.brand_name}`,
                             it.quantite && `Quantité : ${it.quantite}`,
                           ]
                             .filter(Boolean)
@@ -1623,9 +1620,8 @@ export default function OrdersPage() {
                         </p>
                         {detailInline.showPhoto && (
                           <p className="text-sm text-muted-foreground">
-                            Ajoutez si besoin une note et une photo prouvant
-                            que la préparation est faite — le livreur les
-                            verra.
+                            Ajoutez si besoin une note et une photo prouvant que
+                            la préparation est faite — le livreur les verra.
                           </p>
                         )}
                         <NoteForm
@@ -2016,7 +2012,8 @@ export default function OrdersPage() {
             <DialogDescription>
               Son état passera de{" "}
               <span className="font-semibold text-foreground">
-                {correction && statutInfo(correction.order.statut_courant).label}
+                {correction &&
+                  statutInfo(correction.order.statut_courant).label}
               </span>{" "}
               à{" "}
               <span className="font-semibold text-foreground">
@@ -2294,9 +2291,7 @@ function NoteForm({
         <div className="space-y-2">
           <Label className="text-sm">
             Pour confirmer, tapez{" "}
-            <span className="font-semibold text-foreground">
-              {confirmWord}
-            </span>
+            <span className="font-semibold text-foreground">{confirmWord}</span>
           </Label>
           <Input
             value={saisie}
@@ -2451,8 +2446,7 @@ function EditOrderDialog({
   // commande déjà en tournée). Même règle que le serveur —
   // orders/services.py::update_order, qui refuserait le reste de toute façon.
   const paiementSeul =
-    !!order &&
-    !["NOUVELLE", "EN_PREPARATION"].includes(order.statut_courant);
+    !!order && !["NOUVELLE", "EN_PREPARATION"].includes(order.statut_courant);
 
   useEffect(() => {
     if (!order) return;
@@ -2596,86 +2590,85 @@ function EditOrderDialog({
             de toute façon (orders/services.py::update_order). */}
         {!paiementSeul && (
           <>
-          <OrderItemsEditor items={items} setItems={setItems} showPrices />
+            <OrderItemsEditor items={items} setItems={setItems} showPrices />
 
-          <div className="space-y-2">
-            <Label>Type de commande</Label>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant={zone !== "RECUPERATION" ? "default" : "outline"}
-                className="flex-1"
-                onClick={() =>
-                  setZone(
-                    zoneOptions.find((z) => z.value !== "RECUPERATION")?.value ||
-                      "",
-                  )
-                }
-              >
-                <Truck className="h-4 w-4 mr-2" /> À livrer
-              </Button>
-              <Button
-                type="button"
-                variant={zone === "RECUPERATION" ? "default" : "outline"}
-                className="flex-1"
-                onClick={() => setZone("RECUPERATION")}
-              >
-                <Package className="h-4 w-4 mr-2" /> Récupération sur place
-              </Button>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Date et heure de livraison</Label>
-            <DateTimeInput value={dateCommande} onChange={setDateCommande} />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Nom client</Label>
-              <Input
-                value={clientNom}
-                onChange={(e) => setClientNom(e.target.value)}
-              />
+              <Label>Type de commande</Label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={zone !== "RECUPERATION" ? "default" : "outline"}
+                  className="flex-1"
+                  onClick={() =>
+                    setZone(
+                      zoneOptions.find((z) => z.value !== "RECUPERATION")
+                        ?.value || "",
+                    )
+                  }
+                >
+                  <Truck className="h-4 w-4 mr-2" /> À livrer
+                </Button>
+                <Button
+                  type="button"
+                  variant={zone === "RECUPERATION" ? "default" : "outline"}
+                  className="flex-1"
+                  onClick={() => setZone("RECUPERATION")}
+                >
+                  <Package className="h-4 w-4 mr-2" /> Récupération sur place
+                </Button>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Téléphone</Label>
-              <Input
-                value={telephone}
-                onChange={(e) => setTelephone(e.target.value)}
-              />
-            </div>
-          </div>
 
-          {zone !== "RECUPERATION" && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>Date et heure de livraison</Label>
+              <DateTimeInput value={dateCommande} onChange={setDateCommande} />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Zone de livraison</Label>
-                <Select value={zone} onValueChange={setZone}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {zoneOptions
-                      .filter((z) => z.value !== "RECUPERATION")
-                      .map((z) => (
-                        <SelectItem key={z.value} value={z.value}>
-                          {z.label}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
+                <Label>Nom client</Label>
+                <Input
+                  value={clientNom}
+                  onChange={(e) => setClientNom(e.target.value)}
+                />
               </div>
               <div className="space-y-2">
-                <Label>Adresse de livraison</Label>
+                <Label>Téléphone</Label>
                 <Input
-                  value={adresseLivraison}
-                  onChange={(e) => setAdresseLivraison(e.target.value)}
+                  value={telephone}
+                  onChange={(e) => setTelephone(e.target.value)}
                 />
               </div>
             </div>
-          )}
 
+            {zone !== "RECUPERATION" && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label>Zone de livraison</Label>
+                  <Select value={zone} onValueChange={setZone}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {zoneOptions
+                        .filter((z) => z.value !== "RECUPERATION")
+                        .map((z) => (
+                          <SelectItem key={z.value} value={z.value}>
+                            {z.label}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Adresse de livraison</Label>
+                  <Input
+                    value={adresseLivraison}
+                    onChange={(e) => setAdresseLivraison(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
           </>
         )}
 
@@ -2699,60 +2692,58 @@ function EditOrderDialog({
 
         {!paiementSeul && (
           <>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label>Préparateur</Label>
-              <Select value={preparateurId} onValueChange={setPreparateurId}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Non assigné" />
-                </SelectTrigger>
-                <SelectContent>
-                  {preparateurs.map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.full_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {zone !== "RECUPERATION" && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label>Livreur</Label>
-                <Select value={livreurId} onValueChange={setLivreurId}>
+                <Label>Préparateur</Label>
+                <Select value={preparateurId} onValueChange={setPreparateurId}>
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Non assigné" />
                   </SelectTrigger>
                   <SelectContent>
-                    {livreurs.map((l) => (
-                      <SelectItem key={l.id} value={String(l.id)}>
-                        {l.full_name}
+                    {preparateurs.map((p) => (
+                      <SelectItem key={p.id} value={String(p.id)}>
+                        {p.full_name}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-            )}
-          </div>
+              {zone !== "RECUPERATION" && (
+                <div className="space-y-2">
+                  <Label>Livreur</Label>
+                  <Select value={livreurId} onValueChange={setLivreurId}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Non assigné" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {livreurs.map((l) => (
+                        <SelectItem key={l.id} value={String(l.id)}>
+                          {l.full_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
 
-          <div className="space-y-2">
-            <Label>Note pour le préparateur (optionnel)</Label>
-            <Textarea
-              value={notePreparateur}
-              onChange={(e) => setNotePreparateur(e.target.value)}
-            />
-          </div>
-
-          {zone !== "RECUPERATION" && (
             <div className="space-y-2">
-              <Label>Note pour le livreur (optionnel)</Label>
+              <Label>Note pour le préparateur (optionnel)</Label>
               <Textarea
-                value={noteLivreur}
-                onChange={(e) => setNoteLivreur(e.target.value)}
+                value={notePreparateur}
+                onChange={(e) => setNotePreparateur(e.target.value)}
               />
             </div>
-          )}
 
+            {zone !== "RECUPERATION" && (
+              <div className="space-y-2">
+                <Label>Note pour le livreur (optionnel)</Label>
+                <Textarea
+                  value={noteLivreur}
+                  onChange={(e) => setNoteLivreur(e.target.value)}
+                />
+              </div>
+            )}
           </>
         )}
 
