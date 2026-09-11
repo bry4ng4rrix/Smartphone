@@ -176,6 +176,20 @@ const STATUTS = [
 const statutInfo = (s: string) =>
   STATUTS.find((x) => x.value === s) || STATUTS[0];
 
+/**
+ * Mot à retaper avant de confirmer une transition (§ demande).
+ *
+ * « Livré » et « Retour » ferment la commande : elles sont irréversibles
+ * dans le workflow normal — seul le gérant peut ensuite les corriger — et le
+ * bouton se touche vite par accident sur un téléphone en tournée. Retaper le
+ * mot rend le geste délibéré. Sans accent, pour rester tapable au clavier
+ * comme au pavé tactile.
+ */
+const MOTS_CONFIRMATION: Record<string, string> = {
+  LIVRE: "LIVRE",
+  RETOUR: "RETOUR",
+};
+
 // Filtres de statut de la page Livreur (§ demande) : le livreur ne filtre
 // que sur les deux états qui le concernent — celles qu'il doit aller
 // chercher, et celles qu'il a livrées. "À récupérer" = commande prête au
@@ -1616,13 +1630,7 @@ export default function OrdersPage() {
                         )}
                         <NoteForm
                           showPhoto={detailInline.showPhoto}
-                          // "Retour" est sans retour en arrière et se touche
-                          // vite par accident : on le fait retaper.
-                          confirmWord={
-                            detailInline.target === "RETOUR"
-                              ? "RETOUR"
-                              : undefined
-                          }
+                          confirmWord={MOTS_CONFIRMATION[detailInline.target]}
                           onCancel={() => setDetailInline(null)}
                           onSubmit={async (note, photo) => {
                             const ok = await doChangeStatus(
@@ -1977,7 +1985,9 @@ export default function OrdersPage() {
           )}
           <NoteForm
             showPhoto={actionNote?.target === "PRETE"}
-            confirmWord={actionNote?.target === "RETOUR" ? "RETOUR" : undefined}
+            confirmWord={
+              actionNote ? MOTS_CONFIRMATION[actionNote.target] : undefined
+            }
             onCancel={() => setActionNote(null)}
             onSubmit={(note, photo) =>
               actionNote &&
