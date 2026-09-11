@@ -47,6 +47,16 @@ export default function SettingsPage() {
 
   useEffect(loadDeliveryZones, [isGerant]);
 
+  // Types de dépense proposés aux livreurs (§ demande).
+  const [expenseTypes, setExpenseTypes] = useState<any[]>([]);
+
+  const loadExpenseTypes = () => {
+    if (!isGerant) return;
+    djangoClient.expenseTypes.list().then(setExpenseTypes).catch(() => {});
+  };
+
+  useEffect(loadExpenseTypes, [isGerant]);
+
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [adresse, setAdresse] = useState('');
@@ -383,6 +393,28 @@ export default function SettingsPage() {
                 <ExpenseCategoriesCrudList categories={expenseCategories} onChanged={loadExpenseCategories} />
               </CardContent>
             </Card>
+
+            {/* Dépenses que les livreurs déclarent depuis leur bilan du jour
+                (§ demande) — repas, carburant, enveloppes… Distinctes des
+                catégories de caisse ci-dessus : celles-ci sont des frais de
+                tournée, soumis à la validation du gérant. */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Dépenses des livreurs</CardTitle>
+                <CardDescription>
+                  Types proposés au livreur quand il déclare une dépense depuis
+                  son bilan du jour. Le prix sert de valeur par défaut ; cochez
+                  « à l&apos;unité » pour une dépense qui se compte (enveloppes,
+                  sacs…), le livreur saisira alors une quantité.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <LivreurExpenseTypesCrudList
+                  types={expenseTypes}
+                  onChanged={loadExpenseTypes}
+                />
+              </CardContent>
+            </Card>
           </TabsContent>
         )}
 
@@ -546,6 +578,113 @@ function ExpenseCategoriesCrudList({ categories, onChanged }: { categories: any[
 }
 
 const arFmt = (n: number | string) => `${new Intl.NumberFormat('fr-MG').format(Math.round(Number(n || 0)))} Ar`;
+
+/** CRUD des types de dépense proposés aux livreurs (§ demande). */
+function LivreurExpenseTypesCrudList({
+  types,
+  onChanged,
+}: {
+  types: any[];
+  onChanged: () => void;
+}) {
+  const [nom, setNom] = useState('');
+  const [prix, setPrix] = useState('');
+  const [parUnite, setParUnite] = useState(false);
+
+  const ajouter = async () => {
+    if (!nom.trim()) return;
+    try {
+      await djangoClient.expenseTypes.create({
+        nom: nom.trim(),
+        prix_unitaire: Number(prix) || 0,
+        par_unite: parUnite,
+      });
+      toast.success('Type de dépense ajouté');
+      setNom('');
+      setPrix('');
+      setParUnite(false);
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur');
+    }
+  };
+
+  const basculerActif = async (t: any) => {
+    try {
+      await djangoClient.expenseTypes.update(t.id, { actif: !t.actif });
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur');
+    }
+  };
+
+  const supprimer = async (t: any) => {
+    try {
+      await djangoClient.expenseTypes.delete(t.id);
+      toast.success('Type supprimé');
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur lors de la suppression');
+    }
+  };
+
+  return (
+    <div>
+      <p className="text-sm font-medium mb-2">Types ({types.length})</p>
+      <div className="space-y-2 max-h-96 overflow-y-auto">
+        {types.map((t) => (
+          <div key={t.id} className="flex items-center gap-2 border rounded-md px-3 py-2">
+            <span
+              className={`flex-1 text-sm ${!t.actif ? 'text-muted-foreground line-through' : ''}`}
+            >
+              {t.nom}
+            </span>
+            <Badge variant="secondary">
+              {arFmt(t.prix_unitaire)}
+              {t.par_unite ? ' / unité' : ''}
+            </Badge>
+            <Switch
+              checked={t.actif}
+              onCheckedChange={() => basculerActif(t)}
+              title="Type actif"
+            />
+            <Button size="icon" variant="ghost" onClick={() => supprimer(t)}>
+              <Trash2 className="h-4 w-4 text-red-500" />
+            </Button>
+          </div>
+        ))}
+        {types.length === 0 && (
+          <p className="text-sm text-muted-foreground text-center py-4">
+            Aucun type de dépense.
+          </p>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 mt-3">
+        <Input
+          placeholder="Nouveau type (ex: Repas)"
+          value={nom}
+          onChange={(e) => setNom(e.target.value)}
+          className="flex-1 min-w-[160px]"
+        />
+        <Input
+          type="number"
+          min={0}
+          placeholder="Montant (Ar)"
+          value={prix}
+          onChange={(e) => setPrix(e.target.value)}
+          className="w-32"
+        />
+        <label className="flex items-center gap-2 text-sm">
+          <Switch checked={parUnite} onCheckedChange={setParUnite} />
+          à l&apos;unité
+        </label>
+        <Button onClick={ajouter}>
+          <Plus className="h-4 w-4 mr-2" /> Ajouter
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 function DeliveryZonesCrudList({ zones, onChanged }: { zones: any[]; onChanged: () => void }) {
   const [editingId, setEditingId] = useState<number | null>(null);

@@ -17,9 +17,11 @@ from users.permissions import (
 from users.subscriptions import get_company_owner
 
 from . import services
-from .models import DeliveryZoneOption, Order
+from .models import DeliveryZoneOption, ExpenseType, LivreurExpense, Order
 from .serializers import (
     DeliveryZoneOptionSerializer,
+    ExpenseTypeSerializer,
+    LivreurExpenseSerializer,
     OrderCreateSerializer,
     OrderGerantSerializer,
     OrderLivreurSerializer,
@@ -541,3 +543,155 @@ class OrderViewSet(viewsets.ModelViewSet):
             }
             for ep in employers
         ])
+
+
+class ExpenseTypeViewSet(viewsets.ModelViewSet):
+    """Types de dépense du livreur — CRUD dans Paramètres (§ demande), même
+    schéma que DeliveryZoneOptionViewSet : lecture ouverte à tous (le livreur
+    en a besoin pour peupler son formulaire), écriture réservée au gérant."""
+
+    serializer_class = ExpenseTypeSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    def get_permissions(self):
+        if self.action in ("create", "partial_update", "update", "destroy"):
+            return [IsGerant()]
+        return super().get_permissions()
+
+    def _admin_profile(self):
+        owner = get_company_owner(self.request.user)
+        return getattr(owner, "admin_profile", None) if owner else None
+
+    def get_queryset(self):
+        admin_profile = self._admin_profile()
+        if not admin_profile:
+            return ExpenseType.objects.none()
+        return admin_profile.expense_types.all()
+
+    def perform_create(self, serializer):
+        admin_profile = self._admin_profile()
+        if not admin_profile:
+            raise DRFValidationError("Aucune société associée à ce compte.")
+        serializer.save(admin_profile=admin_profile)
+
+    def destroy(self, request, *args, **kwargs):
+        """Un type déjà utilisé par une dépense est désactivé plutôt que
+        supprimé : les dépenses passées gardent leur libellé, mais on ne veut
+        pas perdre le lien ni rouvrir le type à la saisie."""
+        expense_type = self.get_object()
+        if expense_type.expenses.exists():
+            expense_type.actif = False
+            expense_type.save(update_fields=["actif"])
+            return Response(self.get_serializer(expense_type).data)
+        return super().destroy(request, *args, **kwargs)
+
+
+class LivreurExpenseViewSet(viewsets.ModelViewSet):
+    """Dépenses déclarées par les livreurs (§ demande).
+
+    * LIVREUR — crée ses propres dépenses et ne voit que les siennes.
+    * GÉRANT — voit celles de tous ses magasins, et les accepte ou les rejette.
+
+    Une dépense n'entre dans aucun bilan tant qu'elle n'est pas acceptée.
+    """
+
+    serializer_class = LivreurExpenseSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    def get_queryset(self):
+        qs = LivreurExpense.objects.filter(
+            magasin__in=get_accessible_magasins(self.request.user)
+        ).select_related("livreur", "resolved_by", "type_depense")
+
+        if user_commande_role(self.request.user) == "LIVREUR":
+            qs = qs.filter(livreur=self.request.user)
+
+        statut = self.request.query_params.get("statut")
+        if statut:
+            qs = qs.filter(statut__in=[s for s in statut.split(",") if s])
+        date_debut = self.request.query_params.get("date_debut")
+        date_fin = self.request.query_params.get("date_fin")
+        if date_debut:
+            qs = qs.filter(date__gte=date_debut)
+        if date_fin:
+            qs = qs.filter(date__lte=date_fin)
+        livreur_id = self.request.query_params.get("livreur_id")
+        if livreur_id:
+            qs = qs.filter(livreur_id=livreur_id)
+        return qs
+
+    def perform_create(self, serializer):
+        if user_commande_role(self.request.user) != "LIVREUR":
+            raise DRFPermissionDenied("Seul un livreur peut déclarer une dépense.")
+        magasin = resolve_magasin_for_request(self.request)
+        expense = serializer.save(livreur=self.request.user, magasin=magasin)
+
+        # Le gérant doit savoir qu'il a une dépense à trancher : sans
+        # notification, elle resterait en attente indéfiniment.
+        from users.models import Notification
+
+        Notification.objects.create(
+            notif_type="order",
+            magasin=magasin,
+            message=(
+                f"Dépense à valider : {expense.libelle} — "
+                f"{expense.montant:.0f} Ar, déclarée par {self.request.user.full_name}"
+            ),
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        """Une dépense ne se modifie que tant qu'elle est en attente, et
+        seulement par son auteur : une fois tranchée elle est entrée (ou non)
+        dans un bilan."""
+        expense = self.get_object()
+        if expense.statut != "EN_ATTENTE":
+            raise DRFValidationError("Cette dépense a déjà été traitée.")
+        if expense.livreur_id != request.user.id:
+            raise DRFPermissionDenied("Vous ne pouvez modifier que vos propres dépenses.")
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        expense = self.get_object()
+        if expense.statut != "EN_ATTENTE":
+            raise DRFValidationError("Cette dépense a déjà été traitée.")
+        if expense.livreur_id != request.user.id and user_commande_role(request.user) != "GERANT":
+            raise DRFPermissionDenied("Vous ne pouvez supprimer que vos propres dépenses.")
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsGerant])
+    def resoudre(self, request, pk=None):
+        """POST /api/orders/expenses/{id}/resoudre/ {statut, motif_rejet} —
+        le gérant accepte ou rejette. Une dépense acceptée est déduite du
+        bilan du jour de son livreur."""
+        from django.utils import timezone as _tz
+
+        expense = self.get_object()
+        if expense.statut != "EN_ATTENTE":
+            raise DRFValidationError("Cette dépense a déjà été traitée.")
+
+        statut = request.data.get("statut")
+        if statut not in ("ACCEPTE", "REJETE"):
+            raise DRFValidationError("Statut attendu : 'ACCEPTE' ou 'REJETE'.")
+
+        expense.statut = statut
+        expense.motif_rejet = (request.data.get("motif_rejet") or "").strip()
+        expense.resolved_by = request.user
+        expense.resolved_at = _tz.now()
+        expense.save(
+            update_fields=["statut", "motif_rejet", "resolved_by", "resolved_at"]
+        )
+
+        from users.models import Notification
+
+        Notification.objects.create(
+            notif_type="order",
+            magasin=expense.magasin,
+            user=expense.livreur,
+            message=(
+                f"Dépense {expense.get_statut_display().lower()} : {expense.libelle} — "
+                f"{expense.montant:.0f} Ar"
+            ),
+        )
+        return Response(self.get_serializer(expense).data)

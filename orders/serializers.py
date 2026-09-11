@@ -3,7 +3,14 @@ from rest_framework import serializers
 from catalog.models import ProductVariant
 from users.subscriptions import get_company_owner
 
-from .models import DeliveryZoneOption, Order, OrderItem, OrderStatusHistory
+from .models import (
+    DeliveryZoneOption,
+    ExpenseType,
+    LivreurExpense,
+    Order,
+    OrderItem,
+    OrderStatusHistory,
+)
 
 
 def _validate_zone_code(value, user):
@@ -218,3 +225,48 @@ class OrderStatusChangeSerializer(serializers.Serializer):
     items_livres = serializers.ListField(
         child=serializers.IntegerField(), required=False, allow_empty=True
     )
+
+
+class ExpenseTypeSerializer(serializers.ModelSerializer):
+    """Type de dépense configurable — CRUD dans Paramètres (§ demande)."""
+
+    class Meta:
+        model = ExpenseType
+        fields = ["id", "nom", "prix_unitaire", "par_unite", "actif", "created_at"]
+        read_only_fields = ["id", "created_at"]
+
+
+class LivreurExpenseSerializer(serializers.ModelSerializer):
+    """Dépense déclarée par un livreur. Lecture seule sur les champs décidés
+    par le serveur : montant calculé, statut, et qui a tranché."""
+
+    livreur_name = serializers.CharField(source="livreur.full_name", read_only=True)
+    resolved_by_name = serializers.CharField(source="resolved_by.full_name", read_only=True)
+    type_nom = serializers.CharField(source="type_depense.nom", read_only=True)
+
+    class Meta:
+        model = LivreurExpense
+        fields = [
+            "id", "livreur", "livreur_name", "type_depense", "type_nom",
+            "libelle", "prix_unitaire", "quantite", "montant", "motif",
+            "date", "statut", "motif_rejet",
+            "resolved_by", "resolved_by_name", "resolved_at", "created_at",
+        ]
+        read_only_fields = [
+            "id", "livreur", "livreur_name", "type_nom", "montant", "statut",
+            "motif_rejet", "resolved_by", "resolved_by_name", "resolved_at",
+            "created_at",
+        ]
+
+    def validate(self, attrs):
+        """Le montant doit être positif : une dépense à 0 Ar n'a rien à faire
+        dans un bilan, et un montant négatif viendrait l'augmenter."""
+        prix = attrs.get("prix_unitaire", getattr(self.instance, "prix_unitaire", 0))
+        quantite = attrs.get("quantite", getattr(self.instance, "quantite", 1))
+        if prix is None or prix <= 0:
+            raise serializers.ValidationError(
+                {"prix_unitaire": "Le montant doit être supérieur à 0."}
+            )
+        if quantite < 1:
+            raise serializers.ValidationError({"quantite": "Quantité minimale : 1."})
+        return attrs

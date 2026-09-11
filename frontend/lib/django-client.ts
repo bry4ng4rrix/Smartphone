@@ -827,6 +827,70 @@ class DjangoAPIClient {
     },
   }
 
+  /** Types de dépense du livreur — configurables dans Paramètres. */
+  expenseTypes = {
+    list: async () => {
+      return this.get<
+        { id: number; nom: string; prix_unitaire: number; par_unite: boolean; actif: boolean }[]
+      >('/orders/expense-types/')
+    },
+    create: async (data: { nom: string; prix_unitaire: number; par_unite?: boolean }) => {
+      return this.post<any>('/orders/expense-types/', data)
+    },
+    update: async (
+      id: number,
+      data: { nom?: string; prix_unitaire?: number; par_unite?: boolean; actif?: boolean },
+    ) => {
+      return this.patch<any>(`/orders/expense-types/${id}/`, data)
+    },
+    // Un type déjà utilisé est désactivé, pas supprimé (voir ExpenseTypeViewSet).
+    delete: async (id: number) => {
+      return this.delete<void>(`/orders/expense-types/${id}/`)
+    },
+  }
+
+  /**
+   * Dépenses déclarées par les livreurs. Le livreur ne voit et ne crée que
+   * les siennes ; le gérant voit celles de ses magasins et les tranche.
+   * Une dépense n'est déduite d'un bilan qu'une fois ACCEPTÉE.
+   */
+  expenses = {
+    list: async (filters?: {
+      statut?: string
+      date_debut?: string
+      date_fin?: string
+      livreur_id?: number
+    }) => {
+      const params = new URLSearchParams()
+      if (filters?.statut) params.append('statut', filters.statut)
+      if (filters?.date_debut) params.append('date_debut', filters.date_debut)
+      if (filters?.date_fin) params.append('date_fin', filters.date_fin)
+      if (filters?.livreur_id) params.append('livreur_id', String(filters.livreur_id))
+      const query = params.toString() ? `?${params.toString()}` : ''
+      return this.get<any[]>(`/orders/expenses/${query}`)
+    },
+    create: async (data: {
+      type_depense?: number | null
+      libelle: string
+      prix_unitaire: number
+      quantite?: number
+      motif?: string
+      date?: string
+    }) => {
+      return this.post<any>('/orders/expenses/', data)
+    },
+    delete: async (id: number) => {
+      return this.delete<void>(`/orders/expenses/${id}/`)
+    },
+    /** Gérant : accepte ou rejette une dépense en attente. */
+    resoudre: async (id: number, statut: 'ACCEPTE' | 'REJETE', motifRejet?: string) => {
+      return this.post<any>(`/orders/expenses/${id}/resoudre/`, {
+        statut,
+        motif_rejet: motifRejet,
+      })
+    },
+  }
+
   // ==================== Movements Service (historique stock, §7.4/§10) ====================
   movements = {
     list: async (filters?: { variant_id?: number }) => {

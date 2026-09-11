@@ -221,3 +221,97 @@ class OrderStatusHistory(models.Model):
 
     def __str__(self):
         return f"{self.order.numero}: {self.ancien_statut} -> {self.nouveau_statut}"
+
+
+class ExpenseType(models.Model):
+    """Type de dépense du livreur, configurable dans Paramètres (§ demande) —
+    repas, carburant, enveloppe… Même principe que DeliveryZoneOption : le
+    catalogue appartient à la société, pas à un magasin.
+
+    `prix_unitaire` n'est qu'une valeur par défaut proposée à la saisie : le
+    montant réellement retenu est figé sur la dépense (voir
+    LivreurExpense.prix_unitaire), pour qu'une révision de tarif ne réécrive
+    pas les bilans déjà validés.
+    """
+
+    admin_profile = models.ForeignKey(
+        "users.AdminProfile", on_delete=models.CASCADE, related_name="expense_types"
+    )
+    nom = models.CharField(max_length=100)
+    prix_unitaire = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    # Vrai pour une dépense qui se compte (enveloppes…) : la saisie propose
+    # alors une quantité, et le montant vaut prix_unitaire x quantite.
+    par_unite = models.BooleanField(default=False)
+    actif = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Type de dépense"
+        verbose_name_plural = "Types de dépense"
+        unique_together = ("admin_profile", "nom")
+        ordering = ["nom"]
+
+    def __str__(self):
+        return self.nom
+
+
+class LivreurExpense(models.Model):
+    """Dépense déclarée par un livreur sur sa journée (§ demande).
+
+    Elle n'entre dans aucun bilan tant que le gérant ne l'a pas acceptée :
+    une dépense en attente ou refusée ne doit pas venir diminuer l'argent
+    remis. Une fois acceptée, elle est déduite du bilan du jour de CE
+    livreur.
+
+    Le libellé et le prix unitaire sont recopiés depuis le type au moment de
+    la déclaration : modifier ou supprimer un type plus tard ne réécrit pas
+    les dépenses passées.
+    """
+
+    STATUT_CHOICES = (
+        ("EN_ATTENTE", "En attente"),
+        ("ACCEPTE", "Acceptée"),
+        ("REJETE", "Rejetée"),
+    )
+
+    magasin = models.ForeignKey(
+        "users.MagasinProfile", on_delete=models.CASCADE, related_name="livreur_expenses"
+    )
+    livreur = models.ForeignKey(
+        "users.CustomUser", on_delete=models.CASCADE, related_name="expenses"
+    )
+    # Null pour une dépense libre, saisie hors catalogue ("ou autre").
+    type_depense = models.ForeignKey(
+        ExpenseType, on_delete=models.SET_NULL, null=True, blank=True, related_name="expenses"
+    )
+    libelle = models.CharField(max_length=100)
+    prix_unitaire = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    quantite = models.PositiveIntegerField(default=1)
+    montant = models.DecimalField(max_digits=12, decimal_places=2, default=0, editable=False)
+    motif = models.TextField(blank=True)
+
+    # Jour auquel la dépense se rattache — c'est ce champ qui la fait entrer
+    # dans un bilan, pas created_at : une dépense saisie tard le soir reste
+    # celle de sa journée de travail.
+    date = models.DateField(default=timezone.localdate)
+
+    statut = models.CharField(max_length=12, choices=STATUT_CHOICES, default="EN_ATTENTE")
+    motif_rejet = models.TextField(blank=True)
+    resolved_by = models.ForeignKey(
+        "users.CustomUser", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="resolved_expenses",
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Dépense livreur"
+        verbose_name_plural = "Dépenses livreur"
+        ordering = ["-created_at"]
+
+    def save(self, *args, **kwargs):
+        self.montant = self.prix_unitaire * self.quantite
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.libelle} — {self.montant} Ar ({self.get_statut_display()})"

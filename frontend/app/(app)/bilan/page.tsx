@@ -1,14 +1,20 @@
-'use client';
+"use client";
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { djangoClient } from '@/lib/django-client';
-import { useCurrentUser } from '@/lib/auth/useCurrentUser';
-import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Skeleton } from '@/components/ui/skeleton';
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { djangoClient } from "@/lib/django-client";
+import { useCurrentUser } from "@/lib/auth/useCurrentUser";
+import { useRealtimeRefresh } from "@/lib/hooks/useRealtimeRefresh";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -16,7 +22,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
+} from "@/components/ui/table";
 import {
   ShieldAlert,
   RefreshCw,
@@ -26,11 +32,21 @@ import {
   Users,
   ChevronRight,
   ArrowLeft,
-} from 'lucide-react';
-import { APP_TIME_ZONE, appDayBounds, appToday, fmtAppDate } from '@/lib/timezone';
+  Wallet,
+  Plus,
+  Check,
+  X,
+} from "lucide-react";
+import { toast } from "sonner";
+import {
+  APP_TIME_ZONE,
+  appDayBounds,
+  appToday,
+  fmtAppDate,
+} from "@/lib/timezone";
 
 const fmt = (n: number | string | null | undefined) =>
-  new Intl.NumberFormat('fr-MG').format(Math.round(Number(n || 0))) + ' Ar';
+  new Intl.NumberFormat("fr-MG").format(Math.round(Number(n || 0))) + " Ar";
 
 // Prix produit seul = total à payer moins les frais de livraison — dérivé
 // sans avoir besoin du prix par article (jamais exposé au livreur, voir
@@ -40,7 +56,7 @@ const prixProduit = (order: any) =>
 
 // Le client a-t-il réglé AVANT la livraison ? (Order.mode_paiement, cf.
 // orders/models.py::MODE_PAIEMENT_CHOICES).
-const estPrepayee = (order: any) => order.mode_paiement === 'AVANT';
+const estPrepayee = (order: any) => order.mode_paiement === "AVANT";
 
 /**
  * Argent réellement encaissé par le livreur sur cette commande (§ demande).
@@ -77,7 +93,6 @@ function OrdersTable({ rows }: { rows: any[] }) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>N° commande</TableHead>
             <TableHead>Type</TableHead>
             <TableHead>Sous-type</TableHead>
             <TableHead>Produit</TableHead>
@@ -95,34 +110,41 @@ function OrdersTable({ rows }: { rows: any[] }) {
             const prepayee = estPrepayee(order);
             return (
               <TableRow key={order.id}>
-                <TableCell className="align-top font-medium">{order.numero}</TableCell>
-                <TableCell className="align-top">{firstItem?.category_name || '-'}</TableCell>
-                <TableCell className="align-top">{firstItem?.type_name || '-'}</TableCell>
+                <TableCell className="align-top">
+                  {firstItem?.category_name || "-"}
+                </TableCell>
+                <TableCell className="align-top">
+                  {firstItem?.type_name || "-"}
+                </TableCell>
                 <TableCell className="align-top max-w-[220px]">
                   {(order.items || [])
                     .map(
                       (it: any) =>
-                        `${it.reference_name}${it.couleur ? ` (${it.couleur})` : ''} x${it.quantite}`,
+                        `${it.reference_name}${it.couleur ? ` (${it.couleur})` : ""} x${it.quantite}`,
                     )
-                    .join(', ')}
+                    .join(", ")}
                 </TableCell>
                 <TableCell className="align-top whitespace-nowrap text-xs text-muted-foreground">
                   {order.date_commande
-                    ? new Date(order.date_commande).toLocaleString('fr-FR', {
+                    ? new Date(order.date_commande).toLocaleString("fr-FR", {
                         timeZone: APP_TIME_ZONE,
-                        day: '2-digit',
-                        month: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit',
+                        day: "2-digit",
+                        month: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
                       })
-                    : '-'}
+                    : "-"}
                 </TableCell>
                 <TableCell className="align-top">{order.client_nom}</TableCell>
                 <TableCell className="align-top max-w-[180px] truncate">
-                  {order.adresse_livraison || '-'}
+                  {order.adresse_livraison || "-"}
                 </TableCell>
-                <TableCell className="align-top text-right">{fmt(prixProduit(order))}</TableCell>
-                <TableCell className="align-top text-right">{fmt(order.frais_livraison)}</TableCell>
+                <TableCell className="align-top text-right">
+                  {fmt(prixProduit(order))}
+                </TableCell>
+                <TableCell className="align-top text-right">
+                  {fmt(order.frais_livraison)}
+                </TableCell>
                 {/* Payée d'avance -> 0 Ar : le livreur n'a rien encaissé. */}
                 <TableCell className="align-top text-right font-medium">
                   {fmt(argentEncaisse(order))}
@@ -148,10 +170,16 @@ function TicketBloc({
 }: {
   titre: string;
   totals: Totals;
-  variant: 'livrees' | 'retours';
+  variant: "livrees" | "retours";
 }) {
   return (
-    <div className={variant === 'retours' ? 'space-y-1.5 border-t border-dashed pt-3' : 'space-y-1.5'}>
+    <div
+      className={
+        variant === "retours"
+          ? "space-y-1.5 border-t border-dashed pt-3"
+          : "space-y-1.5"
+      }
+    >
       <p className="text-xs font-semibold text-muted-foreground">{titre}</p>
       <div className="flex justify-between">
         <span>Nombre</span>
@@ -173,13 +201,279 @@ function TicketBloc({
       )}
       <div
         className={`border-t border-dashed pt-1.5 flex justify-between font-bold ${
-          variant === 'retours' ? 'text-red-600' : ''
+          variant === "retours" ? "text-red-600" : ""
         }`}
       >
-        <span>{variant === 'retours' ? 'TOTAL NON ENCAISSÉ' : 'TOTAL ARGENT'}</span>
+        <span>
+          {variant === "retours" ? "TOTAL NON ENCAISSÉ" : "TOTAL ARGENT"}
+        </span>
         <span>{fmt(totals.argent)}</span>
       </div>
     </div>
+  );
+}
+
+const STATUT_DEPENSE: Record<string, { label: string; classe: string }> = {
+  EN_ATTENTE: {
+    label: "En attente",
+    classe: "text-amber-600 dark:text-amber-400",
+  },
+  ACCEPTE: {
+    label: "Acceptée",
+    classe: "text-emerald-600 dark:text-emerald-400",
+  },
+  REJETE: { label: "Rejetée", classe: "text-red-600" },
+};
+
+/**
+ * Dépenses de la journée (§ demande).
+ *
+ * Le LIVREUR en déclare (repas, carburant, enveloppes…) depuis les types
+ * configurés dans Paramètres, ou en saisie libre. Elles partent en attente :
+ * le gérant est notifié et tranche. Le GÉRANT, lui, voit ici les dépenses du
+ * livreur consulté et les accepte ou les rejette. Seules les acceptées
+ * viennent diminuer l'argent à remettre.
+ */
+function DepensesDuJour({
+  depenses,
+  jour,
+  peutDeclarer,
+  peutTrancher,
+  onChanged,
+}: {
+  depenses: any[];
+  jour: string;
+  peutDeclarer: boolean;
+  peutTrancher: boolean;
+  onChanged: () => void;
+}) {
+  const [types, setTypes] = useState<any[]>([]);
+  const [typeId, setTypeId] = useState<string>("LIBRE");
+  const [libelle, setLibelle] = useState("");
+  const [montant, setMontant] = useState("");
+  const [quantite, setQuantite] = useState("1");
+  const [motif, setMotif] = useState("");
+  const [envoi, setEnvoi] = useState(false);
+
+  useEffect(() => {
+    if (!peutDeclarer) return;
+    djangoClient.expenseTypes
+      .list()
+      .then((l) => setTypes(l.filter((t: any) => t.actif)))
+      .catch(() => setTypes([]));
+  }, [peutDeclarer]);
+
+  // Choisir un type pré-remplit le libellé et le montant, qui restent
+  // modifiables : le prix du catalogue n'est qu'une valeur par défaut.
+  const choisirType = (value: string) => {
+    setTypeId(value);
+    const t = types.find((x) => String(x.id) === value);
+    if (t) {
+      setLibelle(t.nom);
+      setMontant(String(t.prix_unitaire));
+      setQuantite("1");
+    }
+  };
+
+  const typeChoisi = types.find((x) => String(x.id) === typeId);
+  const total = (Number(montant) || 0) * (Number(quantite) || 1);
+
+  const declarer = async () => {
+    if (!libelle.trim()) {
+      toast.error("Indiquez la nature de la dépense.");
+      return;
+    }
+    if (!(Number(montant) > 0)) {
+      toast.error("Le montant doit être supérieur à 0.");
+      return;
+    }
+    setEnvoi(true);
+    try {
+      await djangoClient.expenses.create({
+        type_depense: typeChoisi ? typeChoisi.id : null,
+        libelle: libelle.trim(),
+        prix_unitaire: Number(montant),
+        quantite: Number(quantite) || 1,
+        motif: motif.trim(),
+        date: jour,
+      });
+      toast.success("Dépense envoyée au gérant pour validation");
+      setTypeId("LIBRE");
+      setLibelle("");
+      setMontant("");
+      setQuantite("1");
+      setMotif("");
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || "Envoi impossible");
+    } finally {
+      setEnvoi(false);
+    }
+  };
+
+  const trancher = async (d: any, statut: "ACCEPTE" | "REJETE") => {
+    try {
+      await djangoClient.expenses.resoudre(d.id, statut);
+      toast.success(
+        statut === "ACCEPTE" ? "Dépense acceptée" : "Dépense rejetée",
+      );
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || "Action impossible");
+    }
+  };
+
+  const supprimer = async (d: any) => {
+    try {
+      await djangoClient.expenses.delete(d.id);
+      toast.success("Dépense retirée");
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || "Suppression impossible");
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Wallet className="h-4 w-4" /> Dépenses ({depenses.length})
+        </CardTitle>
+        <CardDescription>
+          {peutDeclarer
+            ? "Déclarez vos frais de tournée : ils seront déduits de l'argent à remettre une fois validés par le gérant."
+            : "Frais déclarés par le livreur. Seuls ceux que vous acceptez sont déduits de son bilan."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {depenses.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">
+            Aucune dépense ce jour-là.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {depenses.map((d) => {
+              const st = STATUT_DEPENSE[d.statut] || STATUT_DEPENSE.EN_ATTENTE;
+              return (
+                <div key={d.id} className="border rounded-md px-3 py-2 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium truncate">
+                      {d.libelle}
+                      {d.quantite > 1 ? ` x${d.quantite}` : ""}
+                    </span>
+                    <span className="font-semibold whitespace-nowrap">
+                      {fmt(d.montant)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 mt-1">
+                    <span className="text-xs text-muted-foreground truncate">
+                      {d.motif || "Sans motif"}
+                    </span>
+                    <span className={`text-xs font-medium ${st.classe}`}>
+                      {st.label}
+                    </span>
+                  </div>
+                  {d.statut === "EN_ATTENTE" && (
+                    <div className="flex gap-2 mt-2">
+                      {peutTrancher && (
+                        <>
+                          <Button
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => trancher(d, "ACCEPTE")}
+                          >
+                            <Check className="h-4 w-4 mr-1" /> Accepter
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1 text-red-600"
+                            onClick={() => trancher(d, "REJETE")}
+                          >
+                            <X className="h-4 w-4 mr-1" /> Rejeter
+                          </Button>
+                        </>
+                      )}
+                      {peutDeclarer && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-red-600"
+                          onClick={() => supprimer(d)}
+                        >
+                          Retirer
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {peutDeclarer && (
+          <div className="space-y-2 border-t pt-3">
+            <Label className="text-xs text-muted-foreground">
+              Nouvelle dépense
+            </Label>
+            <div className="flex flex-wrap gap-2">
+              <select
+                value={typeId}
+                onChange={(e) => choisirType(e.target.value)}
+                className="h-9 rounded-md border bg-background px-2 text-sm flex-1 min-w-[140px]"
+              >
+                <option value="LIBRE">Autre (saisie libre)</option>
+                {types.map((t) => (
+                  <option key={t.id} value={String(t.id)}>
+                    {t.nom} — {fmt(t.prix_unitaire)}
+                    {t.par_unite ? " /u" : ""}
+                  </option>
+                ))}
+              </select>
+              <Input
+                placeholder="Nature (ex: Repas)"
+                value={libelle}
+                onChange={(e) => setLibelle(e.target.value)}
+                className="flex-1 min-w-[140px]"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Input
+                type="number"
+                min={0}
+                placeholder="Montant (Ar)"
+                value={montant}
+                onChange={(e) => setMontant(e.target.value)}
+                className="w-32"
+              />
+              {(typeChoisi?.par_unite || typeId === "LIBRE") && (
+                <Input
+                  type="number"
+                  min={1}
+                  placeholder="Quantité"
+                  value={quantite}
+                  onChange={(e) => setQuantite(e.target.value)}
+                  className="w-28"
+                />
+              )}
+              <span className="flex items-center text-sm text-muted-foreground">
+                = {fmt(total)}
+              </span>
+            </div>
+            <Input
+              placeholder="Motif (pourquoi cette dépense ?)"
+              value={motif}
+              onChange={(e) => setMotif(e.target.value)}
+            />
+            <Button className="w-full" disabled={envoi} onClick={declarer}>
+              <Plus className="h-4 w-4 mr-2" />
+              {envoi ? "Envoi…" : "Envoyer au gérant"}
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -189,16 +483,36 @@ function BilanJour({
   loading,
   jour,
   titreTicket,
+  depenses = [],
 }: {
   orders: any[];
   loading: boolean;
   jour: string;
   titreTicket: string;
+  /** Dépenses du livreur pour ce jour, tous statuts confondus. */
+  depenses?: any[];
 }) {
+  // Seules les dépenses ACCEPTÉES par le gérant viennent diminuer l'argent
+  // remis (§ demande) : une dépense en attente ou refusée ne doit pas
+  // fausser le compte.
+  const depensesAcceptees = useMemo(
+    () => depenses.filter((d) => d.statut === "ACCEPTE"),
+    [depenses],
+  );
+  const totalDepenses = useMemo(
+    () => depensesAcceptees.reduce((s, d) => s + Number(d.montant || 0), 0),
+    [depensesAcceptees],
+  );
   // Les retours ne sont volontairement pas additionnés aux livrées (§ demande)
   // — un colis retourné n'a rien fait encaisser au livreur.
-  const livrees = useMemo(() => orders.filter((o) => o.statut_courant === 'LIVRE'), [orders]);
-  const retours = useMemo(() => orders.filter((o) => o.statut_courant === 'RETOUR'), [orders]);
+  const livrees = useMemo(
+    () => orders.filter((o) => o.statut_courant === "LIVRE"),
+    [orders],
+  );
+  const retours = useMemo(
+    () => orders.filter((o) => o.statut_courant === "RETOUR"),
+    [orders],
+  );
   const totalLivrees = useMemo(() => sumTotals(livrees), [livrees]);
   const totalRetours = useMemo(() => sumTotals(retours), [retours]);
 
@@ -208,7 +522,8 @@ function BilanJour({
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <PackageCheck className="h-4 w-4" /> Livraisons effectuées ({livrees.length})
+              <PackageCheck className="h-4 w-4" /> Livraisons effectuées (
+              {livrees.length})
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
@@ -229,11 +544,12 @@ function BilanJour({
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Undo2 className="h-4 w-4 text-red-600" /> Retours ({retours.length})
+              <Undo2 className="h-4 w-4 text-red-600" /> Retours (
+              {retours.length})
             </CardTitle>
             <CardDescription>
-              Colis rapportés — rien n&apos;a été encaissé, ces montants ne sont pas comptés dans le
-              total du ticket.
+              Colis rapportés — rien n&apos;a été encaissé, ces montants ne sont
+              pas comptés dans le total du ticket.
             </CardDescription>
           </CardHeader>
           <CardContent className="p-0">
@@ -256,17 +572,45 @@ function BilanJour({
         <Card className="font-mono">
           <CardHeader className="text-center border-b border-dashed">
             <Receipt className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-            <CardTitle className="text-base tracking-wide">BILAN DU JOUR</CardTitle>
+            <CardTitle className="text-base tracking-wide">
+              BILAN DU JOUR
+            </CardTitle>
             <CardDescription className="space-y-0.5">
               {/* Offset explicite : sans lui la chaîne est lue dans le
                   fuseau de l'appareil puis reconvertie, ce qui peut
                   décaler l'affichage d'un jour. */}
-              <span className="block">{fmtAppDate(`${jour}T12:00:00+03:00`)}</span>
+              <span className="block">
+                {fmtAppDate(`${jour}T12:00:00+03:00`)}
+              </span>
               <span className="block font-semibold">{titreTicket}</span>
             </CardDescription>
           </CardHeader>
           <CardContent className="text-sm space-y-4 pt-4">
-            <TicketBloc titre="LIVRAISONS EFFECTUÉES" totals={totalLivrees} variant="livrees" />
+            <TicketBloc
+              titre="LIVRAISONS EFFECTUÉES"
+              totals={totalLivrees}
+              variant="livrees"
+            />
+            {depensesAcceptees.length > 0 && (
+              <div className="space-y-1.5 border-t border-dashed pt-3">
+                <p className="text-xs font-semibold text-muted-foreground">
+                  DÉPENSES VALIDÉES
+                </p>
+                {depensesAcceptees.map((d) => (
+                  <div key={d.id} className="flex justify-between">
+                    <span className="truncate pr-2">
+                      {d.libelle}
+                      {d.quantite > 1 ? ` x${d.quantite}` : ""}
+                    </span>
+                    <span>-{fmt(d.montant)}</span>
+                  </div>
+                ))}
+                <div className="border-t border-dashed pt-1.5 flex justify-between font-bold">
+                  <span>NET À REMETTRE</span>
+                  <span>{fmt(totalLivrees.argent - totalDepenses)}</span>
+                </div>
+              </div>
+            )}
             <TicketBloc
               titre="RETOURS (hors total ci-dessus)"
               totals={totalRetours}
@@ -292,7 +636,9 @@ export default function BilanPage() {
   const [loading, setLoading] = useState(true);
   // Le gérant choisit le jour ; le livreur reste sur aujourd'hui.
   const [jour, setJour] = useState(() => appToday());
-  const [livreurs, setLivreurs] = useState<{ id: number; full_name: string }[]>([]);
+  const [livreurs, setLivreurs] = useState<{ id: number; full_name: string }[]>(
+    [],
+  );
   // Gérant : null = vue d'ensemble (liste des livreurs) ; sinon le livreur
   // dont on regarde le détail. Le détail ne s'ouvre qu'au clic (§ demande).
   const [detailLivreur, setDetailLivreur] = useState<string | null>(null);
@@ -300,7 +646,7 @@ export default function BilanPage() {
   useEffect(() => {
     if (!isGerant) return;
     djangoClient.orders
-      .availableStaff('LIVREUR')
+      .availableStaff("LIVREUR")
       .then(setLivreurs)
       .catch(() => setLivreurs([]));
   }, [isGerant]);
@@ -334,20 +680,44 @@ export default function BilanPage() {
     [isGerant, jour],
   );
 
-  useRealtimeRefresh(['order', 'order_status_history'], () => fetchOrders(true));
+  // Dépenses du jour — le livreur ne reçoit que les siennes, le gérant
+  // celles de tous ses magasins (filtrage côté serveur).
+  const [depenses, setDepenses] = useState<any[]>([]);
+
+  const fetchDepenses = useCallback(async () => {
+    try {
+      const data = await djangoClient.expenses.list({
+        date_debut: jour,
+        date_fin: jour,
+      });
+      setDepenses(data);
+    } catch {
+      setDepenses([]);
+    }
+  }, [jour]);
+
+  useRealtimeRefresh(["order", "order_status_history"], () =>
+    fetchOrders(true),
+  );
   useEffect(() => {
-    if (!userLoading && (isLivreur || isGerant)) fetchOrders();
-  }, [userLoading, isLivreur, isGerant, fetchOrders]);
+    if (!userLoading && (isLivreur || isGerant)) {
+      fetchOrders();
+      fetchDepenses();
+    }
+  }, [userLoading, isLivreur, isGerant, fetchOrders, fetchDepenses]);
 
   // Seules les commandes terminées entrent dans un bilan.
   const traitees = useMemo(
-    () => orders.filter((o) => o.statut_courant === 'LIVRE' || o.statut_courant === 'RETOUR'),
+    () =>
+      orders.filter(
+        (o) => o.statut_courant === "LIVRE" || o.statut_courant === "RETOUR",
+      ),
     [orders],
   );
 
   const nomLivreur = useCallback(
     (key: string) => {
-      if (key === 'SANS') return 'Retrait au comptoir (sans livreur)';
+      if (key === "SANS") return "Retrait au comptoir (sans livreur)";
       return (
         livreurs.find((l) => String(l.id) === key)?.full_name ||
         traitees.find((o) => String(o.livreur) === key)?.livreur_name ||
@@ -361,7 +731,7 @@ export default function BilanPage() {
   const lignes = useMemo<LigneLivreur[]>(() => {
     const groupes = new Map<string, any[]>();
     for (const o of traitees) {
-      const key = o.livreur == null ? 'SANS' : String(o.livreur);
+      const key = o.livreur == null ? "SANS" : String(o.livreur);
       const rows = groupes.get(key);
       if (rows) rows.push(o);
       else groupes.set(key, [o]);
@@ -370,22 +740,37 @@ export default function BilanPage() {
       .map(([key, rows]) => ({
         key,
         nom: nomLivreur(key),
-        livrees: sumTotals(rows.filter((o) => o.statut_courant === 'LIVRE')),
-        retours: sumTotals(rows.filter((o) => o.statut_courant === 'RETOUR')),
+        livrees: sumTotals(rows.filter((o) => o.statut_courant === "LIVRE")),
+        retours: sumTotals(rows.filter((o) => o.statut_courant === "RETOUR")),
       }))
       .sort((a, b) => b.livrees.argent - a.livrees.argent);
   }, [traitees, nomLivreur]);
 
   const totalJour = useMemo(
     () => ({
-      livrees: sumTotals(traitees.filter((o) => o.statut_courant === 'LIVRE')),
-      retours: sumTotals(traitees.filter((o) => o.statut_courant === 'RETOUR')),
+      livrees: sumTotals(traitees.filter((o) => o.statut_courant === "LIVRE")),
+      retours: sumTotals(traitees.filter((o) => o.statut_courant === "RETOUR")),
     }),
     [traitees],
   );
 
+  const depensesDuDetail = useMemo(
+    () =>
+      detailLivreur
+        ? depenses.filter((d) => String(d.livreur) === detailLivreur)
+        : [],
+    [depenses, detailLivreur],
+  );
+
   const ordersDuDetail = useMemo(
-    () => (detailLivreur ? traitees.filter((o) => (o.livreur == null ? 'SANS' : String(o.livreur)) === detailLivreur) : []),
+    () =>
+      detailLivreur
+        ? traitees.filter(
+            (o) =>
+              (o.livreur == null ? "SANS" : String(o.livreur)) ===
+              detailLivreur,
+          )
+        : [],
     [traitees, detailLivreur],
   );
 
@@ -412,7 +797,7 @@ export default function BilanPage() {
           <h1 className="text-2xl font-bold">Bilan du jour</h1>
           <p className="text-sm text-muted-foreground">
             {isGerant
-              ? 'Montant encaissé par chaque livreur. Cliquez sur un livreur pour voir le détail de ses commandes.'
+              ? "Montant encaissé par chaque livreur. Cliquez sur un livreur pour voir le détail de ses commandes."
               : "Livraisons effectuées et retours d'aujourd'hui — voir le ticket récapitulatif."}
           </p>
         </div>
@@ -428,7 +813,14 @@ export default function BilanPage() {
               />
             </div>
           )}
-          <Button variant="outline" size="icon" onClick={() => fetchOrders()}>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => {
+              fetchOrders();
+              fetchDepenses();
+            }}
+          >
             <RefreshCw className="h-4 w-4" />
           </Button>
         </div>
@@ -436,12 +828,22 @@ export default function BilanPage() {
 
       {/* Livreur : son propre bilan, directement. */}
       {!isGerant && (
-        <BilanJour
-          orders={traitees}
-          loading={loading}
-          jour={jour}
-          titreTicket={user?.full_name || 'Mon bilan'}
-        />
+        <div className="space-y-6">
+          <BilanJour
+            orders={traitees}
+            loading={loading}
+            jour={jour}
+            titreTicket={user?.full_name || "Mon bilan"}
+            depenses={depenses}
+          />
+          <DepensesDuJour
+            depenses={depenses}
+            jour={jour}
+            peutDeclarer
+            peutTrancher={false}
+            onChanged={fetchDepenses}
+          />
+        </div>
       )}
 
       {/* Gérant, vue d'ensemble : uniquement la liste des livreurs et leurs totaux. */}
@@ -451,19 +853,25 @@ export default function BilanPage() {
             <Card>
               <CardHeader className="pb-2">
                 <CardDescription>Livraisons effectuées</CardDescription>
-                <CardTitle className="text-2xl">{totalJour.livrees.count}</CardTitle>
+                <CardTitle className="text-2xl">
+                  {totalJour.livrees.count}
+                </CardTitle>
               </CardHeader>
             </Card>
             <Card>
               <CardHeader className="pb-2">
                 <CardDescription>Total encaissé</CardDescription>
-                <CardTitle className="text-2xl">{fmt(totalJour.livrees.argent)}</CardTitle>
+                <CardTitle className="text-2xl">
+                  {fmt(totalJour.livrees.argent)}
+                </CardTitle>
               </CardHeader>
             </Card>
             <Card>
               <CardHeader className="pb-2">
                 <CardDescription>Retours</CardDescription>
-                <CardTitle className="text-2xl text-red-600">{totalJour.retours.count}</CardTitle>
+                <CardTitle className="text-2xl text-red-600">
+                  {totalJour.retours.count}
+                </CardTitle>
               </CardHeader>
             </Card>
           </div>
@@ -471,11 +879,12 @@ export default function BilanPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <Users className="h-4 w-4" /> Livreurs du {fmtAppDate(`${jour}T12:00:00+03:00`)}
+                <Users className="h-4 w-4" /> Livreurs du{" "}
+                {fmtAppDate(`${jour}T12:00:00+03:00`)}
               </CardTitle>
               <CardDescription>
-                Cliquez sur une ligne pour ouvrir le détail : toutes les commandes, tous les
-                produits et tous les totaux.
+                Cliquez sur une ligne pour ouvrir le détail : toutes les
+                commandes, tous les produits et tous les totaux.
               </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
@@ -495,9 +904,16 @@ export default function BilanPage() {
                         <TableHead>Livreur</TableHead>
                         <TableHead className="text-right">Livraisons</TableHead>
                         <TableHead className="text-right">Retours</TableHead>
-                        <TableHead className="text-right">Total produits</TableHead>
-                        <TableHead className="text-right">Total frais</TableHead>
-                        <TableHead className="text-right">Total encaissé</TableHead>
+                        <TableHead className="text-right">
+                          Total produits
+                        </TableHead>
+                        <TableHead className="text-right">
+                          Total frais
+                        </TableHead>
+                        <TableHead className="text-right">Dépenses</TableHead>
+                        <TableHead className="text-right">
+                          Total encaissé
+                        </TableHead>
                         <TableHead className="w-10" />
                       </TableRow>
                     </TableHeader>
@@ -509,12 +925,50 @@ export default function BilanPage() {
                           onClick={() => setDetailLivreur(l.key)}
                         >
                           <TableCell className="font-medium">{l.nom}</TableCell>
-                          <TableCell className="text-right">{l.livrees.count}</TableCell>
-                          <TableCell className="text-right text-red-600">
-                            {l.retours.count || '-'}
+                          <TableCell className="text-right">
+                            {l.livrees.count}
                           </TableCell>
-                          <TableCell className="text-right">{fmt(l.livrees.prix)}</TableCell>
-                          <TableCell className="text-right">{fmt(l.livrees.frais)}</TableCell>
+                          <TableCell className="text-right text-red-600">
+                            {l.retours.count || "-"}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {fmt(l.livrees.prix)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {fmt(l.livrees.frais)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {(() => {
+                              const sien = depenses.filter(
+                                (d) => String(d.livreur) === l.key,
+                              );
+                              const attente = sien.filter(
+                                (d) => d.statut === "EN_ATTENTE",
+                              ).length;
+                              const valide = sien
+                                .filter((d) => d.statut === "ACCEPTE")
+                                .reduce(
+                                  (s, d) => s + Number(d.montant || 0),
+                                  0,
+                                );
+                              if (!sien.length)
+                                return (
+                                  <span className="text-muted-foreground">
+                                    -
+                                  </span>
+                                );
+                              return (
+                                <>
+                                  {valide > 0 && <span>-{fmt(valide)}</span>}
+                                  {attente > 0 && (
+                                    <span className="block text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                                      {attente} à valider
+                                    </span>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </TableCell>
                           <TableCell className="text-right font-semibold">
                             {fmt(l.livrees.argent)}
                             {l.livrees.prepayeCount > 0 && (
@@ -530,13 +984,29 @@ export default function BilanPage() {
                       ))}
                       <TableRow className="bg-muted/40 font-semibold">
                         <TableCell>Total du jour</TableCell>
-                        <TableCell className="text-right">{totalJour.livrees.count}</TableCell>
-                        <TableCell className="text-right text-red-600">
-                          {totalJour.retours.count || '-'}
+                        <TableCell className="text-right">
+                          {totalJour.livrees.count}
                         </TableCell>
-                        <TableCell className="text-right">{fmt(totalJour.livrees.prix)}</TableCell>
-                        <TableCell className="text-right">{fmt(totalJour.livrees.frais)}</TableCell>
-                        <TableCell className="text-right">{fmt(totalJour.livrees.argent)}</TableCell>
+                        <TableCell className="text-right text-red-600">
+                          {totalJour.retours.count || "-"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {fmt(totalJour.livrees.prix)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {fmt(totalJour.livrees.frais)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {(() => {
+                            const valide = depenses
+                              .filter((d) => d.statut === "ACCEPTE")
+                              .reduce((s, d) => s + Number(d.montant || 0), 0);
+                            return valide > 0 ? `-${fmt(valide)}` : "-";
+                          })()}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {fmt(totalJour.livrees.argent)}
+                        </TableCell>
                         <TableCell />
                       </TableRow>
                     </TableBody>
@@ -551,7 +1021,11 @@ export default function BilanPage() {
       {/* Gérant, détail d'un livreur : tout le contenu, comme le voit le livreur. */}
       {isGerant && detailLivreur && (
         <div className="space-y-4">
-          <Button variant="outline" size="sm" onClick={() => setDetailLivreur(null)}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setDetailLivreur(null)}
+          >
             <ArrowLeft className="h-4 w-4 mr-2" /> Tous les livreurs
           </Button>
           <h2 className="text-lg font-semibold">{nomLivreur(detailLivreur)}</h2>
@@ -560,6 +1034,14 @@ export default function BilanPage() {
             loading={loading}
             jour={jour}
             titreTicket={nomLivreur(detailLivreur)}
+            depenses={depensesDuDetail}
+          />
+          <DepensesDuJour
+            depenses={depensesDuDetail}
+            jour={jour}
+            peutDeclarer={false}
+            peutTrancher
+            onChanged={fetchDepenses}
           />
         </div>
       )}
