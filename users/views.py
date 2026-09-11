@@ -1990,6 +1990,26 @@ class ChatMessageHistoryView(APIView):
         return Response(serializer.data)
 
 
+class ChatUnreadCountView(APIView):
+    """Nombre de messages non lus destinés à l'utilisateur courant.
+
+    Alimente le badge de l'entrée « Chats » du menu. Seuls les messages
+    DIRECTS portent un statut « lu » : un message du salon Général a
+    plusieurs destinataires, donc pas de `read_at` unique possible (voir
+    ChatMessage.read_at et ChatConsumer.mark_read).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        count = ChatMessage.objects.filter(
+            recipient=request.user,
+            read_at__isnull=True,
+            is_deleted=False,
+        ).count()
+        return Response({"count": count})
+
+
 class ChatImageUploadView(APIView):
     """Envoi d'une image dans le chat (§ demande — bouton « + »).
 

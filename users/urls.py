@@ -1,7 +1,7 @@
 from django.urls import path
 
 # Import view classes and viewsets
-from .views import (AddAdminView,RegisterView,ApproveUserView,Myprofile,RoleManagementView,EmployerCommandeRoleUpdateView,CaisseSessionViewSet,CaisseMovementViewSet,CaisseCategoryViewSet,CaisseSummaryView,AdminMagasinOverviewView,UsersByMagasinView,LogoutEventView,MagasinStatsView,DashboardView,ApiEndpointsListView,PendingUsersView,DeleteUserView,RejectUserView,ChangePasswordView,NotificationViewSet,MagasinViewSet,ChatUsersListView,ChatMessageHistoryView,ChatImageUploadView,TransferProductsView,BackupExportView,BackupImportView,PublicForgotPasswordRequestView,PublicForgotPasswordStatusView,PublicForgotPasswordConfirmView,EmployeePasswordResetListView,EmployeePasswordResetResolveView,
+from .views import (AddAdminView,RegisterView,ApproveUserView,Myprofile,RoleManagementView,EmployerCommandeRoleUpdateView,CaisseSessionViewSet,CaisseMovementViewSet,CaisseCategoryViewSet,CaisseSummaryView,AdminMagasinOverviewView,UsersByMagasinView,LogoutEventView,MagasinStatsView,DashboardView,ApiEndpointsListView,PendingUsersView,DeleteUserView,RejectUserView,ChangePasswordView,NotificationViewSet,MagasinViewSet,ChatUsersListView,ChatMessageHistoryView,ChatImageUploadView,ChatUnreadCountView,TransferProductsView,BackupExportView,BackupImportView,PublicForgotPasswordRequestView,PublicForgotPasswordStatusView,PublicForgotPasswordConfirmView,EmployeePasswordResetListView,EmployeePasswordResetResolveView,
 )
 
 from rest_framework_simplejwt.views import TokenViewBase
@@ -65,6 +65,8 @@ urlpatterns = [
     path("chat/history/", ChatMessageHistoryView.as_view()),
     # Envoi d'une image dans le chat (le WebSocket ne transporte que du JSON).
     path("chat/upload/", ChatImageUploadView.as_view()),
+    # Badge "Chats" du menu : compteur de messages non lus.
+    path("chat/unread-count/", ChatUnreadCountView.as_view()),
     path('add-admin/', AddAdminView.as_view(), name='add-admin'),
     # Employee (magasin/employer) password reset requests — resolved by their admin
     path("password-reset-requests/", EmployeePasswordResetListView.as_view()),

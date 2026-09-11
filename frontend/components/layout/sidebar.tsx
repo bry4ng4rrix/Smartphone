@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import {
@@ -166,6 +166,29 @@ export function Sidebar() {
     loading,
   } = useCurrentUser();
 
+  // Badge "Chats" : nombre de messages non lus (§ demande).
+  //
+  // Le chat a son propre WebSocket, ouvert seulement sur la page Chats : le
+  // menu, lui, est monté partout. On interroge donc un compteur léger — une
+  // simple requête COUNT côté serveur — périodiquement, et immédiatement à
+  // chaque changement de page pour que le badge retombe dès qu'on vient de
+  // lire la conversation.
+  const [unreadChats, setUnreadChats] = useState(0);
+
+  const refreshUnread = useCallback(() => {
+    if (!djangoClient.isAuthenticated()) return;
+    djangoClient.chat
+      .unreadCount()
+      .then(setUnreadChats)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshUnread();
+    const id = setInterval(refreshUnread, 30000);
+    return () => clearInterval(id);
+  }, [refreshUnread, pathname]);
+
   const handleLogout = async () => {
     await djangoClient.auth.logout();
     router.push("/login");
@@ -254,8 +277,22 @@ export function Sidebar() {
                       )}
                     />
                     <span className="text-sm font-medium">{item.label}</span>
-                    {isActive && (
-                      <div className="ml-auto h-2 w-2 rounded-full bg-white shadow-lg" />
+                    {item.href === "/chats" && unreadChats > 0 ? (
+                      <span
+                        className={cn(
+                          "ml-auto min-w-5 h-5 px-1.5 inline-flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums",
+                          isActive
+                            ? "bg-white text-blue-600"
+                            : "bg-red-500 text-white",
+                        )}
+                        aria-label={`${unreadChats} message${unreadChats > 1 ? "s" : ""} non lu${unreadChats > 1 ? "s" : ""}`}
+                      >
+                        {unreadChats > 99 ? "99+" : unreadChats}
+                      </span>
+                    ) : (
+                      isActive && (
+                        <div className="ml-auto h-2 w-2 rounded-full bg-white shadow-lg" />
+                      )
                     )}
                   </Link>
                 );

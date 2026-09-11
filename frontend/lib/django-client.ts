@@ -1111,6 +1111,11 @@ class DjangoAPIClient {
     users: async () => {
       return this.get<any[]>('/users/chat/users/')
     },
+    /** Nombre de messages non lus — badge de l'entrée « Chats » du menu. */
+    unreadCount: async () => {
+      const data = await this.get<{ count: number }>('/users/chat/unread-count/')
+      return data?.count ?? 0
+    },
     /**
      * Envoi d'une image dans le chat (bouton « + »).
      *
