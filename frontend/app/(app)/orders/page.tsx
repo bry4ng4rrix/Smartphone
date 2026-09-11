@@ -132,7 +132,6 @@ function IconAction({
   );
 }
 
-
 // Tous les horodatages sont affichés à l'heure d'Antananarivo (fuseau du
 // magasin), quel que soit le réglage de l'appareil — cohérent avec la règle
 // du jour J et avec le serveur.
@@ -207,8 +206,6 @@ const HISTORIQUE_STATUT_FILTERS = [
 // part : pas de livreur, pas de frais). `buildZoneOptions` retrouve la même
 // forme {value,label,frais} que l'ancienne liste figée, pour que tous les
 // .find()/.filter() existants restent inchangés.
-
-
 
 export default function OrdersPage() {
   const {
@@ -978,7 +975,8 @@ export default function OrdersPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>N° commande</TableHead>
+                    <TableHead>Statut</TableHead>
+
                     {/* Type, Sous-type et Date ne sont plus des colonnes :
                         ils allongeaient le tableau au point de le faire
                         défiler horizontalement. Ils restent consultables
@@ -988,7 +986,6 @@ export default function OrdersPage() {
                     {isLivreur && <TableHead>Adresse</TableHead>}
                     {isLivreur && <TableHead>Téléphone</TableHead>}
                     <TableHead>{isLivreur ? "Zone" : "Adresse"}</TableHead>
-                    <TableHead>Statut</TableHead>
                     {!isPreparateur && <TableHead>Total</TableHead>}
                     {isGerant && <TableHead>Assigné à</TableHead>}
                     <TableHead className="text-right">Action</TableHead>
@@ -1036,9 +1033,14 @@ export default function OrdersPage() {
                         className="cursor-pointer"
                         onClick={() => setDetail(order)}
                       >
-                        <TableCell className="align-top font-medium">
-                          {order.numero}
+                        <TableCell className="align-top">
+                          <Badge
+                            className={statutInfo(order.statut_courant).color}
+                          >
+                            {statutInfo(order.statut_courant).label}
+                          </Badge>
                         </TableCell>
+
                         <TableCell className="align-top max-w-[280px]">
                           <div className="space-y-1.5">
                             {(order.items || []).map((it: any) => (
@@ -1103,13 +1105,7 @@ export default function OrdersPage() {
                                 ?.label.split(" (")[0] ||
                               order.livraison_zone}
                         </TableCell>
-                        <TableCell className="align-top">
-                          <Badge
-                            className={statutInfo(order.statut_courant).color}
-                          >
-                            {statutInfo(order.statut_courant).label}
-                          </Badge>
-                        </TableCell>
+
                         {!isPreparateur && (
                           <TableCell className="align-top">
                             {/* Rien à encaisser : le client a déjà payé
@@ -1208,36 +1204,38 @@ export default function OrdersPage() {
                                   </SelectContent>
                                 </Select>
                               )}
-                            {!isGerant && action && !(isLivreur && notYetDue) && (
-                              <IconAction
-                                label={
-                                  notYetDue
-                                    ? `Disponible le ${dueDateLabel}`
-                                    : action.label
-                                }
-                                icon={action.icon}
-                                disabled={notYetDue}
-                                showLabel
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (isGerant && action.assign) {
-                                    setAssignTarget({
-                                      order,
-                                      role:
-                                        action.target === "EN_PREPARATION"
-                                          ? "PREPARATEUR"
-                                          : "LIVREUR",
-                                    });
-                                  } else {
-                                    setActionNote({
-                                      order,
-                                      target: action.target,
-                                      label: action.label,
-                                    });
+                            {!isGerant &&
+                              action &&
+                              !(isLivreur && notYetDue) && (
+                                <IconAction
+                                  label={
+                                    notYetDue
+                                      ? `Disponible le ${dueDateLabel}`
+                                      : action.label
                                   }
-                                }}
-                              />
-                            )}
+                                  icon={action.icon}
+                                  disabled={notYetDue}
+                                  showLabel
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (isGerant && action.assign) {
+                                      setAssignTarget({
+                                        order,
+                                        role:
+                                          action.target === "EN_PREPARATION"
+                                            ? "PREPARATEUR"
+                                            : "LIVREUR",
+                                      });
+                                    } else {
+                                      setActionNote({
+                                        order,
+                                        target: action.target,
+                                        label: action.label,
+                                      });
+                                    }
+                                  }}
+                                />
+                              )}
                             {(isLivreur || isGerant) &&
                               order.statut_courant === "EN_LIVRAISON" &&
                               !isGerant &&
@@ -1383,7 +1381,10 @@ export default function OrdersPage() {
                           </SelectTrigger>
                           <SelectContent>
                             {gerantActionOptions(detail).map((option) => (
-                              <SelectItem key={option.value} value={option.value}>
+                              <SelectItem
+                                key={option.value}
+                                value={option.value}
+                              >
                                 {option.label}
                               </SelectItem>
                             ))}
