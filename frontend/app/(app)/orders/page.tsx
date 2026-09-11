@@ -1393,7 +1393,7 @@ export default function OrdersPage() {
           }
         }}
       >
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg lg:max-w-2xl">
           {detail && (
             <>
               <DialogHeader>
@@ -2387,7 +2387,7 @@ function EditOrderDialog({
 
   return (
     <Dialog open={!!order} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Modifier la commande {order?.numero}</DialogTitle>
           <DialogDescription>
