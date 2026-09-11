@@ -278,19 +278,60 @@ def create_order(*, magasin, client_nom, telephone, livraison_zone, items, note_
 # (§ demande). Au-delà, la commande est trop engagée (livreur en tournée...).
 _EDITABLE_STATUSES = {"NOUVELLE", "EN_PREPARATION"}
 
+# Le MODE DE PAIEMENT, lui, reste modifiable tant que la commande n'est pas
+# terminée (§ demande) : un client peut régler d'avance alors que le livreur
+# est déjà en tournée, et il faut pouvoir le noter — sinon le livreur
+# réclamerait une somme déjà encaissée, et le bilan serait faux. Il ne touche
+# ni au stock, ni aux frais, ni au total : seul l'encaissement change.
+_TERMINAL_STATUSES = {"LIVRE", "RETOUR", "ANNULEE"}
+
 
 @transaction.atomic
 def update_order(*, order, user, client_nom=None, telephone=None, livraison_zone=None, adresse_livraison=None,
                   mode_paiement=None, date_commande=None, note_preparateur=None, note_livreur=None, items=None):
-    """Modification d'une commande "Nouvelle" ou "En préparation" (gérant
-    uniquement, voir views.py::get_permissions). Si les articles changent
-    alors que le stock a déjà été déduit (statut "En préparation"), l'ancien
-    stock est restitué et le nouveau déduit — mouvement 'AJUSTEMENT', pour ne
-    pas se confondre avec une préparation ou un retour normaux."""
+    """Modification d'une commande (gérant uniquement, voir
+    views.py::get_permissions).
+
+    Deux régimes :
+
+    * "Nouvelle" / "En préparation" — tout est modifiable. Si les articles
+      changent alors que le stock a déjà été déduit (statut "En préparation"),
+      l'ancien stock est restitué et le nouveau déduit — mouvement
+      'AJUSTEMENT', pour ne pas se confondre avec une préparation ou un retour
+      normaux.
+    * "Prête" / "En livraison" — seul le MODE DE PAIEMENT reste modifiable
+      (§ demande) : le client peut régler d'avance une commande déjà partie.
+      Toute autre modification est refusée, la commande étant trop engagée.
+
+    Une commande terminée (livrée, retour, annulée) n'est plus modifiable du
+    tout : son paiement est soldé et compté dans les bilans."""
+    # Hors fenêtre d'édition, seule reste permise la mise à jour du mode de
+    # paiement, et uniquement sur une commande non terminée.
     if order.statut_courant not in _EDITABLE_STATUSES:
-        raise ValidationError(
-            f"Cette commande est '{order.get_statut_courant_display()}' — trop engagée pour être modifiée."
-        )
+        if order.statut_courant in _TERMINAL_STATUSES:
+            raise ValidationError(
+                f"Cette commande est '{order.get_statut_courant_display()}' — elle ne peut plus être modifiée."
+            )
+        autres = {
+            "client_nom": client_nom,
+            "telephone": telephone,
+            "livraison_zone": livraison_zone,
+            "adresse_livraison": adresse_livraison,
+            "date_commande": date_commande,
+            "note_preparateur": note_preparateur,
+            "note_livreur": note_livreur,
+            "items": items,
+        }
+        if any(v is not None for v in autres.values()):
+            raise ValidationError(
+                f"Cette commande est '{order.get_statut_courant_display()}' — "
+                "seul le mode de paiement peut encore être modifié."
+            )
+        if mode_paiement is None:
+            raise ValidationError("Aucune modification demandée.")
+        order.mode_paiement = mode_paiement
+        order.save()
+        return order
 
     for field, value in {
         "client_nom": client_nom,

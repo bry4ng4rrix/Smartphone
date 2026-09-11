@@ -24,6 +24,20 @@ const _tourneeStatutFilters = <({String? value, String label})>[
   (value: 'EN_LIVRAISON', label: 'En livraison'),
 ];
 
+/// Remonte les commandes du JOUR J en tête de liste (§ demande) : ce sont
+/// les seules sur lesquelles le livreur peut agir, le reste n'étant que du
+/// planning à venir. À l'intérieur de chaque groupe, la plus proche d'abord.
+List<Order> _jourJDAbord(List<Order> orders) {
+  int rang(Order o) => isJourJ(o.dateCommande, UserRole.livreur) ? 0 : 1;
+  int quand(Order o) => o.dateCommande?.millisecondsSinceEpoch ?? 0;
+  final copie = [...orders];
+  copie.sort((a, b) {
+    final parRang = rang(a).compareTo(rang(b));
+    return parRang != 0 ? parRang : quand(a).compareTo(quand(b));
+  });
+  return copie;
+}
+
 final _moneyFmt = NumberFormat.decimalPattern('fr_FR');
 String _ar(num v) => '${_moneyFmt.format(v.round())} Ar';
 final _tourneeDateFmt = DateFormat('dd/MM/yyyy');
@@ -130,17 +144,22 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
                   child: RefreshIndicator(
                     onRefresh: () => ref.read(ordersProvider.notifier).refresh(),
                     child: switch (async) {
-                      AsyncData(:final value) =>
-                        value.isEmpty
-                            ? const EmptyState(
-                                message: 'Aucune commande en tournée.',
-                                icon: Icons.local_shipping_outlined,
-                              )
-                            : ListView.builder(
-                                padding: const EdgeInsets.all(12),
-                                itemCount: value.length,
-                                itemBuilder: (context, i) => _TourneeCard(order: value[i]),
-                              ),
+                      AsyncData(:final value) => Builder(
+                        builder: (context) {
+                          final ordonnees = _jourJDAbord(value);
+                          if (ordonnees.isEmpty) {
+                            return const EmptyState(
+                              message: 'Aucune commande en tournée.',
+                              icon: Icons.local_shipping_outlined,
+                            );
+                          }
+                          return ListView.builder(
+                            padding: const EdgeInsets.all(12),
+                            itemCount: ordonnees.length,
+                            itemBuilder: (context, i) => _TourneeCard(order: ordonnees[i]),
+                          );
+                        },
+                      ),
                       AsyncError(:final error) => ErrorState(
                         message: ApiClient.messageFromError(error),
                         onRetry: () => ref.read(ordersProvider.notifier).refresh(),

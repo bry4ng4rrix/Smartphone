@@ -689,6 +689,24 @@ export default function OrdersPage() {
     });
   }, [visibleOrders, searchQuery]);
 
+  /**
+   * Liste finalement affichée. Pour le LIVREUR, les commandes du jour J
+   * passent en tête (§ demande) : ce sont les seules sur lesquelles il peut
+   * agir, le reste n'est que du planning à venir. À l'intérieur de chaque
+   * groupe, la plus proche d'abord — la plus urgente.
+   *
+   * Les autres rôles gardent l'ordre renvoyé par le serveur.
+   */
+  const displayedOrders = useMemo(() => {
+    if (!isLivreur) return searchableOrders;
+    const rang = (o: any) => (isJourJ(o.date_commande) ? 0 : 1);
+    const quand = (o: any) =>
+      o.date_commande ? new Date(o.date_commande).getTime() : 0;
+    return [...searchableOrders].sort(
+      (a, b) => rang(a) - rang(b) || quand(a) - quand(b),
+    );
+  }, [searchableOrders, isLivreur, isJourJ]);
+
   return (
     <div className="p-4 sm:p-6 space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1017,7 +1035,7 @@ export default function OrdersPage() {
             <div className="p-6">
               <Skeleton className="h-64 w-full" />
             </div>
-          ) : searchableOrders.length === 0 ? (
+          ) : displayedOrders.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-12">
               Aucune commande trouvée pour cette recherche.
             </p>
@@ -1043,7 +1061,7 @@ export default function OrdersPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {searchableOrders.map((order) => {
+                  {displayedOrders.map((order) => {
                     const action = nextAction(order);
                     const preparedAt = historyAt(order, "EN_PREPARATION");
                     // Tant que la commande n'est pas Livrée, on affiche la date de
@@ -1378,11 +1396,17 @@ export default function OrdersPage() {
               <DialogHeader>
                 <div className="flex items-center justify-between gap-2 pr-6">
                   <DialogTitle>Commande {detail.numero}</DialogTitle>
-                  {/* "Modifier" tant que rien n'a commencé (Nouvelle).
-                      Toutes les transitions de statut, elles, sont désormais
-                      des boutons EN BAS de la fiche : ils se remplacent au fil
-                      du workflow et ne ferment pas la fenêtre (§ demande). */}
-                  {isGerant && detail.statut_courant === "NOUVELLE" && (
+                  {/* "Modifier" reste proposé tant que la commande n'est pas
+                      terminée (§ demande) : au-delà de "En préparation" le
+                      formulaire se limite au mode de paiement, un client
+                      pouvant régler d'avance une commande déjà en tournée.
+                      Les transitions de statut, elles, sont les boutons EN BAS
+                      de la fiche : ils se remplacent au fil du workflow et ne
+                      ferment pas la fenêtre. */}
+                  {isGerant &&
+                    !["LIVRE", "RETOUR", "ANNULEE"].includes(
+                      detail.statut_courant,
+                    ) && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -2234,6 +2258,14 @@ function EditOrderDialog({
     { id: number; full_name: string; available: boolean }[]
   >([]);
 
+  // Au-delà de "En préparation" la commande est trop engagée : seul le mode
+  // de paiement reste modifiable (le client peut régler d'avance une
+  // commande déjà en tournée). Même règle que le serveur —
+  // orders/services.py::update_order, qui refuserait le reste de toute façon.
+  const paiementSeul =
+    !!order &&
+    !["NOUVELLE", "EN_PREPARATION"].includes(order.statut_courant);
+
   useEffect(() => {
     if (!order) return;
     setClientNom(order.client_nom || "");
@@ -2280,20 +2312,29 @@ function EditOrderDialog({
 
   const submit = async () => {
     if (!order) return;
-    if (!clientNom.trim()) {
+    // En régime restreint on ne valide rien d'autre : seul le paiement part.
+    if (!paiementSeul && !clientNom.trim()) {
       toast.error("Nom du client requis");
       return;
     }
-    if (!/^\+261\d{9}$/.test(telephone)) {
+    if (!paiementSeul && !/^\+261\d{9}$/.test(telephone)) {
       toast.error("Téléphone au format +261XXXXXXXXX");
       return;
     }
-    if (items.length === 0) {
+    if (!paiementSeul && items.length === 0) {
       toast.error("Ajoutez au moins un article");
       return;
     }
     setSubmitting(true);
     try {
+      if (paiementSeul) {
+        await djangoClient.orders.update(order.id, {
+          mode_paiement: modePaiement as any,
+        });
+        toast.success(`Commande ${order.numero} — paiement mis à jour`);
+        onSaved();
+        return;
+      }
       await djangoClient.orders.update(order.id, {
         client_nom: clientNom.trim(),
         telephone,
@@ -2355,91 +2396,102 @@ function EditOrderDialog({
         <DialogHeader>
           <DialogTitle>Modifier la commande {order?.numero}</DialogTitle>
           <DialogDescription>
-            Possible tant que la commande n'est pas encore "Prête".
+            {paiementSeul
+              ? "Commande déjà engagée : seul le mode de paiement reste modifiable."
+              : 'Possible tant que la commande n\'est pas encore "Prête".'}
           </DialogDescription>
         </DialogHeader>
 
-        <OrderItemsEditor items={items} setItems={setItems} showPrices />
+        {/* Régime restreint : au-delà de "En préparation" seul le
+            mode de paiement reste modifiable (§ demande). Tout le
+            reste du formulaire est masqué — le serveur le refuserait
+            de toute façon (orders/services.py::update_order). */}
+        {!paiementSeul && (
+          <>
+          <OrderItemsEditor items={items} setItems={setItems} showPrices />
 
-        <div className="space-y-2">
-          <Label>Type de commande</Label>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant={zone !== "RECUPERATION" ? "default" : "outline"}
-              className="flex-1"
-              onClick={() =>
-                setZone(
-                  zoneOptions.find((z) => z.value !== "RECUPERATION")?.value ||
-                    "",
-                )
-              }
-            >
-              <Truck className="h-4 w-4 mr-2" /> À livrer
-            </Button>
-            <Button
-              type="button"
-              variant={zone === "RECUPERATION" ? "default" : "outline"}
-              className="flex-1"
-              onClick={() => setZone("RECUPERATION")}
-            >
-              <Package className="h-4 w-4 mr-2" /> Récupération sur place
-            </Button>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label>Date et heure de livraison</Label>
-          <DateTimeInput value={dateCommande} onChange={setDateCommande} />
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label>Nom client</Label>
-            <Input
-              value={clientNom}
-              onChange={(e) => setClientNom(e.target.value)}
-            />
+            <Label>Type de commande</Label>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={zone !== "RECUPERATION" ? "default" : "outline"}
+                className="flex-1"
+                onClick={() =>
+                  setZone(
+                    zoneOptions.find((z) => z.value !== "RECUPERATION")?.value ||
+                      "",
+                  )
+                }
+              >
+                <Truck className="h-4 w-4 mr-2" /> À livrer
+              </Button>
+              <Button
+                type="button"
+                variant={zone === "RECUPERATION" ? "default" : "outline"}
+                className="flex-1"
+                onClick={() => setZone("RECUPERATION")}
+              >
+                <Package className="h-4 w-4 mr-2" /> Récupération sur place
+              </Button>
+            </div>
           </div>
-          <div className="space-y-2">
-            <Label>Téléphone</Label>
-            <Input
-              value={telephone}
-              onChange={(e) => setTelephone(e.target.value)}
-            />
-          </div>
-        </div>
 
-        {zone !== "RECUPERATION" && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-2">
+            <Label>Date et heure de livraison</Label>
+            <DateTimeInput value={dateCommande} onChange={setDateCommande} />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Zone de livraison</Label>
-              <Select value={zone} onValueChange={setZone}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {zoneOptions
-                    .filter((z) => z.value !== "RECUPERATION")
-                    .map((z) => (
-                      <SelectItem key={z.value} value={z.value}>
-                        {z.label}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
+              <Label>Nom client</Label>
+              <Input
+                value={clientNom}
+                onChange={(e) => setClientNom(e.target.value)}
+              />
             </div>
             <div className="space-y-2">
-              <Label>Adresse de livraison</Label>
+              <Label>Téléphone</Label>
               <Input
-                value={adresseLivraison}
-                onChange={(e) => setAdresseLivraison(e.target.value)}
+                value={telephone}
+                onChange={(e) => setTelephone(e.target.value)}
               />
             </div>
           </div>
+
+          {zone !== "RECUPERATION" && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Zone de livraison</Label>
+                <Select value={zone} onValueChange={setZone}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {zoneOptions
+                      .filter((z) => z.value !== "RECUPERATION")
+                      .map((z) => (
+                        <SelectItem key={z.value} value={z.value}>
+                          {z.label}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Adresse de livraison</Label>
+                <Input
+                  value={adresseLivraison}
+                  onChange={(e) => setAdresseLivraison(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
+          </>
         )}
 
-        {zone !== "RECUPERATION" && (
+        {(paiementSeul || zone !== "RECUPERATION") && (
           <div className="space-y-2">
             <Label>Paiement</Label>
             <Select value={modePaiement} onValueChange={setModePaiement}>
@@ -2457,57 +2509,63 @@ function EditOrderDialog({
           </div>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="space-y-2">
-            <Label>Préparateur</Label>
-            <Select value={preparateurId} onValueChange={setPreparateurId}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Non assigné" />
-              </SelectTrigger>
-              <SelectContent>
-                {preparateurs.map((p) => (
-                  <SelectItem key={p.id} value={String(p.id)}>
-                    {p.full_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          {zone !== "RECUPERATION" && (
+        {!paiementSeul && (
+          <>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label>Livreur</Label>
-              <Select value={livreurId} onValueChange={setLivreurId}>
+              <Label>Préparateur</Label>
+              <Select value={preparateurId} onValueChange={setPreparateurId}>
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Non assigné" />
                 </SelectTrigger>
                 <SelectContent>
-                  {livreurs.map((l) => (
-                    <SelectItem key={l.id} value={String(l.id)}>
-                      {l.full_name}
+                  {preparateurs.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>
+                      {p.full_name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-          )}
-        </div>
+            {zone !== "RECUPERATION" && (
+              <div className="space-y-2">
+                <Label>Livreur</Label>
+                <Select value={livreurId} onValueChange={setLivreurId}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Non assigné" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {livreurs.map((l) => (
+                      <SelectItem key={l.id} value={String(l.id)}>
+                        {l.full_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
 
-        <div className="space-y-2">
-          <Label>Note pour le préparateur (optionnel)</Label>
-          <Textarea
-            value={notePreparateur}
-            onChange={(e) => setNotePreparateur(e.target.value)}
-          />
-        </div>
-
-        {zone !== "RECUPERATION" && (
           <div className="space-y-2">
-            <Label>Note pour le livreur (optionnel)</Label>
+            <Label>Note pour le préparateur (optionnel)</Label>
             <Textarea
-              value={noteLivreur}
-              onChange={(e) => setNoteLivreur(e.target.value)}
+              value={notePreparateur}
+              onChange={(e) => setNotePreparateur(e.target.value)}
             />
           </div>
+
+          {zone !== "RECUPERATION" && (
+            <div className="space-y-2">
+              <Label>Note pour le livreur (optionnel)</Label>
+              <Textarea
+                value={noteLivreur}
+                onChange={(e) => setNoteLivreur(e.target.value)}
+              />
+            </div>
+          )}
+
+          </>
         )}
 
         <DialogFooter>
