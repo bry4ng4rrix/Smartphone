@@ -1173,7 +1173,7 @@ export default function OrdersPage() {
                                 </div>
                                 <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                                   {it.brand_name && (
-                                    <span>Marque: {it.brand_name}</span>
+                                    <span> {it.type_name}</span>
                                   )}
                                   {it.couleur && (
                                     <span className="inline-flex items-center rounded-full border border-border bg-background px-1.5 py-0.5 text-[10px] text-foreground">
