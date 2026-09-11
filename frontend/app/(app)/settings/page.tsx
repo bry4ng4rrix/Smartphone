@@ -591,6 +591,35 @@ function LivreurExpenseTypesCrudList({
   const [prix, setPrix] = useState('');
   const [parUnite, setParUnite] = useState(false);
 
+  // Édition en place, même schéma que les zones de livraison.
+  const [editionId, setEditionId] = useState<number | null>(null);
+  const [editionNom, setEditionNom] = useState('');
+  const [editionPrix, setEditionPrix] = useState('');
+  const [editionParUnite, setEditionParUnite] = useState(false);
+
+  const ouvrirEdition = (t: any) => {
+    setEditionId(t.id);
+    setEditionNom(t.nom);
+    setEditionPrix(String(t.prix_unitaire));
+    setEditionParUnite(!!t.par_unite);
+  };
+
+  const enregistrerEdition = async () => {
+    if (!editionId || !editionNom.trim()) return;
+    try {
+      await djangoClient.expenseTypes.update(editionId, {
+        nom: editionNom.trim(),
+        prix_unitaire: Number(editionPrix) || 0,
+        par_unite: editionParUnite,
+      });
+      toast.success('Type mis à jour');
+      setEditionId(null);
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur');
+    }
+  };
+
   const ajouter = async () => {
     if (!nom.trim()) return;
     try {
@@ -633,24 +662,64 @@ function LivreurExpenseTypesCrudList({
       <p className="text-sm font-medium mb-2">Types ({types.length})</p>
       <div className="space-y-2 max-h-96 overflow-y-auto">
         {types.map((t) => (
-          <div key={t.id} className="flex items-center gap-2 border rounded-md px-3 py-2">
-            <span
-              className={`flex-1 text-sm ${!t.actif ? 'text-muted-foreground line-through' : ''}`}
-            >
-              {t.nom}
-            </span>
-            <Badge variant="secondary">
-              {arFmt(t.prix_unitaire)}
-              {t.par_unite ? ' / unité' : ''}
-            </Badge>
-            <Switch
-              checked={t.actif}
-              onCheckedChange={() => basculerActif(t)}
-              title="Type actif"
-            />
-            <Button size="icon" variant="ghost" onClick={() => supprimer(t)}>
-              <Trash2 className="h-4 w-4 text-red-500" />
-            </Button>
+          <div
+            key={t.id}
+            className="flex flex-wrap items-center gap-2 border rounded-md px-3 py-2"
+          >
+            {editionId === t.id ? (
+              <>
+                <Input
+                  value={editionNom}
+                  onChange={(e) => setEditionNom(e.target.value)}
+                  className="h-8 flex-1 min-w-[140px]"
+                  autoFocus
+                />
+                <Input
+                  type="number"
+                  min={0}
+                  value={editionPrix}
+                  onChange={(e) => setEditionPrix(e.target.value)}
+                  className="h-8 w-28"
+                  placeholder="Montant (Ar)"
+                />
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch
+                    checked={editionParUnite}
+                    onCheckedChange={setEditionParUnite}
+                  />
+                  à l&apos;unité
+                </label>
+                <Button size="sm" onClick={enregistrerEdition}>
+                  OK
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setEditionId(null)}>
+                  Annuler
+                </Button>
+              </>
+            ) : (
+              <>
+                <span
+                  className={`flex-1 text-sm ${!t.actif ? 'text-muted-foreground line-through' : ''}`}
+                >
+                  {t.nom}
+                </span>
+                <Badge variant="secondary">
+                  {arFmt(t.prix_unitaire)}
+                  {t.par_unite ? ' / unité' : ''}
+                </Badge>
+                <Switch
+                  checked={t.actif}
+                  onCheckedChange={() => basculerActif(t)}
+                  title="Type actif"
+                />
+                <Button size="icon" variant="ghost" onClick={() => ouvrirEdition(t)}>
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button size="icon" variant="ghost" onClick={() => supprimer(t)}>
+                  <Trash2 className="h-4 w-4 text-red-500" />
+                </Button>
+              </>
+            )}
           </div>
         ))}
         {types.length === 0 && (

@@ -179,14 +179,15 @@ const statutInfo = (s: string) =>
 /**
  * Mot à retaper avant de confirmer une transition (§ demande).
  *
- * « Livré » et « Retour » ferment la commande : elles sont irréversibles
- * dans le workflow normal — seul le gérant peut ensuite les corriger — et le
- * bouton se touche vite par accident sur un téléphone en tournée. Retaper le
- * mot rend le geste délibéré. Sans accent, pour rester tapable au clavier
- * comme au pavé tactile.
+ * Réservé à « Retour » déclaré directement : la commande se ferme sans rien
+ * livrer, et le bouton se touche vite par accident sur un téléphone en
+ * tournée. Sans accent, pour rester tapable au pavé tactile.
+ *
+ * « Livré » n'en fait PAS partie : le pointage des articles y tient lieu de
+ * confirmation délibérée — oui/non pour un article unique, cases à cocher
+ * au-delà (voir NoteForm).
  */
 const MOTS_CONFIRMATION: Record<string, string> = {
-  LIVRE: "LIVRE",
   RETOUR: "RETOUR",
 };
 
@@ -2318,6 +2319,41 @@ function NoteForm({
               alt="Aperçu"
               className="h-20 w-20 object-cover rounded border"
             />
+          )}
+        </div>
+      )}
+      {items && items.length === 1 && (
+        <div className="space-y-3 rounded-md border bg-muted/10 p-3">
+          <p className="text-sm font-medium">
+            L&apos;article a-t-il été remis au client ?
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {items[0].reference_name || "Article"}
+            {items[0].couleur ? ` (${items[0].couleur})` : ""}
+            {items[0].quantite ? ` x${items[0].quantite}` : ""}
+          </p>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              className="flex-1"
+              variant={livres.length > 0 ? "default" : "outline"}
+              onClick={() => setLivres([items[0].id])}
+            >
+              Oui, livré
+            </Button>
+            <Button
+              type="button"
+              className="flex-1"
+              variant={livres.length === 0 ? "default" : "outline"}
+              onClick={() => setLivres([])}
+            >
+              Non, retour
+            </Button>
+          </div>
+          {livres.length === 0 && (
+            <p className="text-xs text-red-600">
+              La commande sera enregistrée comme un Retour.
+            </p>
           )}
         </div>
       )}
