@@ -1917,6 +1917,19 @@ class ChatUsersListView(APIView):
         # (§ demande) — sans effet sur les autres paires (gérant/préparateur).
         users = [u for u in users if not chat_blocked_between(request.user, u)]
 
+        # Messages non lus reçus de chacun — badge par contact (§ demande).
+        # Une seule requête groupée plutôt qu'un COUNT par utilisateur.
+        non_lus = dict(
+            ChatMessage.objects.filter(
+                recipient=request.user,
+                read_at__isnull=True,
+                is_deleted=False,
+            )
+            .values("sender")
+            .annotate(total=Count("id"))
+            .values_list("sender", "total")
+        )
+
         now = timezone.now()
         data = []
         for u in users:
@@ -1928,6 +1941,7 @@ class ChatUsersListView(APIView):
                 "role": u.role,
                 "is_online": is_online,
                 "last_seen_at": u.last_seen_at.isoformat() if u.last_seen_at else None,
+                "unread_count": non_lus.get(u.id, 0),
             }
             if u.role == "magasin":
                 try:

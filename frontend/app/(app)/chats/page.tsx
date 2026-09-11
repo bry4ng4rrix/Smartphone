@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useCallback, useState, useEffect, useRef } from 'react';
 import { useCurrentUser } from '@/lib/auth/useCurrentUser';
 import { djangoClient } from '@/lib/django-client';
 import { useDebouncedValue } from '@/lib/hooks/useDebouncedValue';
@@ -44,6 +44,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { toast } from 'sonner';
 
 interface ChatUser {
+  /** Messages reçus de ce contact et pas encore lus — badge de la liste. */
+  unread_count?: number;
   id: number;
   full_name: string;
   email: string;
@@ -88,7 +90,11 @@ export default function ChatsPage() {
   const [loadingUsers, setLoadingUsers] = useState(true);
   
   // Chat Room state
-  const [activeTab, setActiveTab] = useState<'general' | 'direct'>('general');
+  // Le salon « Général » a été retiré (§ demande) : la messagerie ne
+  // comporte plus que des conversations directes. `activeTab` est conservé
+  // parce que de nombreuses conditions s'en servent pour distinguer un DM
+  // (statut « vu », destinataire...) — il vaut désormais toujours 'direct'.
+  const [activeTab] = useState<'general' | 'direct'>('direct');
   const [activeRecipient, setActiveRecipient] = useState<ChatUser | null>(null);
   
   // Message state
@@ -119,10 +125,9 @@ export default function ChatsPage() {
   // 1. Fetch chat users list — reinterrogé périodiquement pour rafraîchir le
   // statut "En ligne" de chacun (calculé côté serveur à partir de
   // last_seen_at, voir ChatUsersListView).
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const fetchUsers = async (silent = false) => {
+  const fetchUsers = useCallback(
+    async (silent = false) => {
+      if (!currentUser) return;
       try {
         if (!silent) setLoadingUsers(true);
         const data = await djangoClient.chat.users();
@@ -133,12 +138,23 @@ export default function ChatsPage() {
       } finally {
         if (!silent) setLoadingUsers(false);
       }
-    };
+    },
+    [currentUser],
+  );
 
+  useEffect(() => {
+    if (!currentUser) return;
     fetchUsers();
     const interval = setInterval(() => fetchUsers(true), 20000);
     return () => clearInterval(interval);
-  }, [currentUser]);
+  }, [currentUser, fetchUsers]);
+
+  // Ouvrir une conversation la marque comme lue côté serveur : on relit la
+  // liste tout de suite pour que le badge de non-lus retombe sans attendre
+  // le prochain rafraîchissement périodique.
+  useEffect(() => {
+    if (activeRecipient) fetchUsers(true);
+  }, [activeRecipient, fetchUsers]);
 
   // 2. Fetch message history & connect WebSocket when active recipient or room tab changes
   useEffect(() => {
@@ -507,16 +523,6 @@ export default function ChatsPage() {
     openChatView();
   };
 
-  const handleTabChange = (val: string) => {
-    setActiveTab(val as 'general' | 'direct');
-    setMobileShowChat(false);
-    if (val === 'general') {
-      setActiveRecipient(null);
-    } else if (filteredUsers.length > 0) {
-      setActiveRecipient(filteredUsers[0]);
-    }
-  };
-
   if (authLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
@@ -575,24 +581,12 @@ export default function ChatsPage() {
         {/* Left Side: Sidebar */}
         <div className={`${mobileShowChat ? 'hidden md:flex' : 'flex'} w-full md:w-80 border-r flex-col bg-muted/30 shrink-0 select-none`}>
           
-          {/* Tab Switcher */}
-          <div className="p-3 sm:p-4 border-b">
-            <Tabs 
-              value={activeTab} 
-              onValueChange={handleTabChange}
-              className="w-full"
-            >
-              <TabsList className="grid grid-cols-2 rounded-2xl p-1 bg-muted/80">
-                <TabsTrigger value="general" className="rounded-xl py-2 text-xs font-semibold">
-                  <Hash className="h-3.5 w-3.5 mr-1.5" />
-                  Général
-                </TabsTrigger>
-                <TabsTrigger value="direct" className="rounded-xl py-2 text-xs font-semibold">
-                  <Users className="h-3.5 w-3.5 mr-1.5" />
-                  Direct
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
+          {/* En-tête de la liste — le sélecteur Général/Direct a disparu
+              avec le salon Général (§ demande) : il ne reste qu'une seule
+              destination possible. */}
+          <div className="p-3 sm:p-4 border-b flex items-center gap-2">
+            <Users className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-semibold">Conversations</span>
           </div>
 
           {/* Search box for Direct Messages */}
@@ -613,31 +607,7 @@ export default function ChatsPage() {
           {/* Users/Rooms List */}
           <ScrollArea className="flex-1">
             <div className="p-2 space-y-1">
-              {activeTab === 'general' ? (
-                // General Chat Channel Row
-                <button
-                  onClick={handleSelectGeneral}
-                  className={`w-full text-left p-3 rounded-2xl flex items-center gap-3 transition-all ${
-                    activeRecipient === null
-                      ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20'
-                      : 'hover:bg-accent/60'
-                  }`}
-                >
-                  <div className={`p-2.5 rounded-xl ${
-                    activeRecipient === null ? 'bg-primary-foreground/10 text-primary-foreground' : 'bg-primary/10 text-primary'
-                  }`}>
-                    <Hash className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-sm">Discussion Générale</h4>
-                    <p className={`text-xs mt-0.5 ${
-                      activeRecipient === null ? 'text-primary-foreground/70' : 'text-muted-foreground'
-                    }`}>
-                      Canal de diffusion global
-                    </p>
-                  </div>
-                </button>
-              ) : (
+              {(
                 // Direct Messaging Users List
                 <>
                   {loadingUsers ? (
@@ -681,7 +651,24 @@ export default function ChatsPage() {
 
                         <div className="flex-1 min-w-0">
                           <div className="flex justify-between items-center">
-                            <h4 className="font-semibold text-xs truncate max-w-[120px]">{u.full_name}</h4>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <h4 className="font-semibold text-xs truncate max-w-[110px]">{u.full_name}</h4>
+                              {/* Messages reçus de ce contact et pas encore
+                                  lus (§ demande) — même compteur que le badge
+                                  du menu, mais détaillé par expéditeur. */}
+                              {!!u.unread_count && u.unread_count > 0 && (
+                                <span
+                                  className={`min-w-4 h-4 px-1 inline-flex items-center justify-center rounded-full text-[9px] font-bold tabular-nums shrink-0 ${
+                                    activeRecipient?.id === u.id
+                                      ? 'bg-primary-foreground text-primary'
+                                      : 'bg-red-500 text-white'
+                                  }`}
+                                  aria-label={`${u.unread_count} message${u.unread_count > 1 ? 's' : ''} non lu${u.unread_count > 1 ? 's' : ''}`}
+                                >
+                                  {u.unread_count > 99 ? '99+' : u.unread_count}
+                                </span>
+                              )}
+                            </div>
                             <Badge className={`text-[8px] py-0 px-1 border uppercase font-bold scale-90 ${
                               activeRecipient?.id === u.id
                                 ? 'bg-primary-foreground/20 text-primary-foreground border-transparent'
@@ -737,17 +724,7 @@ export default function ChatsPage() {
               >
                 <ArrowLeft className="h-4 w-4" />
               </Button>
-              {activeTab === 'general' ? (
-                <>
-                  <div className="p-2.5 rounded-xl bg-primary/10 text-primary shrink-0">
-                    <Hash className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-sm">Discussion Générale</h3>
-                    <p className="text-[10px] text-muted-foreground">Tout le personnel de l'entreprise</p>
-                  </div>
-                </>
-              ) : liveActiveRecipient ? (
+              {liveActiveRecipient ? (
                 <>
                   <div className="relative shrink-0">
                     <Avatar className="h-10 w-10 border">

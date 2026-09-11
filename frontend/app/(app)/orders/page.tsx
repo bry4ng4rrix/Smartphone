@@ -1701,30 +1701,22 @@ export default function OrdersPage() {
                       <p className="text-muted-foreground">
                         Envoyer au chat (avec la photo)
                       </p>
-                      <div className="flex flex-col sm:flex-row gap-2">
-                        <Button
-                          variant="outline"
-                          className="flex-1"
-                          disabled={!detail.livreur || sharingChat !== null}
-                          onClick={() => shareOrderToChat(detail, "livreur")}
-                        >
-                          <MessageCircle className="h-4 w-4 mr-2" />
-                          {sharingChat === "livreur"
-                            ? "Envoi…"
-                            : detail.livreur_name
-                              ? `Au livreur (${detail.livreur_name})`
-                              : "Aucun livreur assigné"}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          className="flex-1"
-                          disabled={sharingChat !== null}
-                          onClick={() => shareOrderToChat(detail, "general")}
-                        >
-                          <MessageCircle className="h-4 w-4 mr-2" />
-                          {sharingChat === "general" ? "Envoi…" : "Au chat général"}
-                        </Button>
-                      </div>
+                      {/* Une seule destination : le salon Général a été
+                          retiré de la messagerie (§ demande), l'y envoyer
+                          n'aurait plus de lecteur. */}
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        disabled={!detail.livreur || sharingChat !== null}
+                        onClick={() => shareOrderToChat(detail, "livreur")}
+                      >
+                        <MessageCircle className="h-4 w-4 mr-2" />
+                        {sharingChat === "livreur"
+                          ? "Envoi…"
+                          : detail.livreur_name
+                            ? `Au livreur (${detail.livreur_name})`
+                            : "Aucun livreur assigné"}
+                      </Button>
                     </div>
                   )}
 
