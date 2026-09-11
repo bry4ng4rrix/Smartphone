@@ -92,6 +92,23 @@ bool actionOuverte(DateTime? dateCommande, UserRole role) {
   return !DateTime.now().toUtc().isBefore(ouvertureActions(dateCommande, role));
 }
 
+/// La commande est-elle déjà « du jour » pour l'AFFICHAGE ?
+///
+/// À distinguer de [actionOuverte], qui gouverne les boutons :
+///
+/// * ACTION — le livreur ne peut agir qu'à partir de minuit, le jour de
+///   livraison. C'est la règle métier, vérifiée par le serveur.
+/// * AFFICHAGE — la commande remonte en tête de sa liste dès l'ouverture du
+///   préparateur, soit [kAvancePreparateur] avant minuit (19h00 la veille) :
+///   le livreur la voit arriver et prépare sa tournée, sans pouvoir encore la
+///   traiter (§ demande).
+///
+/// Cette avance est la même pour tous les rôles, d'où l'absence de paramètre.
+bool affichageOuvert(DateTime? dateCommande) {
+  if (dateCommande == null) return true;
+  return actionOuverte(dateCommande, UserRole.preparateur);
+}
+
 /// Dernier jour de livraison dont les commandes sont DÉJÀ actionnables par ce
 /// rôle. Pour le préparateur, à partir de 19h00 les commandes du lendemain
 /// s'ouvrent : sans cette borne elles seraient débloquées mais invisibles.

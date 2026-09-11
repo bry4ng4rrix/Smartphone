@@ -174,6 +174,25 @@ export function fmtOuverture(
   })}`;
 }
 
+/**
+ * La commande est-elle déjà « du jour » pour l'AFFICHAGE ?
+ *
+ * À distinguer de `actionOuverte`, qui gouverne les boutons :
+ *
+ * - ACTION : le livreur ne peut agir qu'à partir de minuit, le jour de
+ *   livraison. C'est la règle métier, vérifiée par le serveur.
+ * - AFFICHAGE : la commande remonte en tête de sa liste dès l'ouverture du
+ *   préparateur, soit 5 h avant minuit (19h00 la veille) — il la voit
+ *   arriver et prépare sa tournée, sans pouvoir encore la traiter (§ demande).
+ *
+ * Cette avance est la même pour tous les rôles, d'où l'absence de paramètre.
+ */
+export function affichageOuvert(dateCommande?: string | null): boolean {
+  if (!dateCommande) return true;
+  // Même instant que l'ouverture du préparateur : minuit moins l'avance.
+  return Date.now() >= ouvertureActions(dateCommande, 'PREPARATEUR').getTime();
+}
+
 /** Heure courante (0-23) à Antananarivo. */
 export function appHeure(): number {
   const h = Number(

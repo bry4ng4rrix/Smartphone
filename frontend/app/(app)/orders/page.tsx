@@ -21,6 +21,7 @@ import {
   appDatetimeLocalValue,
   appDatetimeLocalToIso,
   actionOuverte,
+  affichageOuvert,
   fmtOuverture,
   dernierJourOuvert,
   type RoleCommande,
@@ -690,22 +691,24 @@ export default function OrdersPage() {
   }, [visibleOrders, searchQuery]);
 
   /**
-   * Liste finalement affichée. Pour le LIVREUR, les commandes du jour J
-   * passent en tête (§ demande) : ce sont les seules sur lesquelles il peut
-   * agir, le reste n'est que du planning à venir. À l'intérieur de chaque
-   * groupe, la plus proche d'abord — la plus urgente.
+   * Liste finalement affichée, pour les TROIS rôles : la commande la plus
+   * récemment CRÉÉE en haut (§ demande).
    *
-   * Les autres rôles gardent l'ordre renvoyé par le serveur.
+   * Le livreur garde en plus son regroupement : les commandes du jour J
+   * passent avant le planning à venir. Ce regroupement suit l'AFFICHAGE, pas
+   * l'action : une commande du lendemain remonte dès 19h00 la veille (5 h
+   * d'avance), alors que son bouton, lui, ne se débloque qu'à minuit
+   * (§ demande). À l'intérieur de chaque groupe, la plus récente d'abord.
    */
   const displayedOrders = useMemo(() => {
-    if (!isLivreur) return searchableOrders;
-    const rang = (o: any) => (isJourJ(o.date_commande) ? 0 : 1);
-    const quand = (o: any) =>
-      o.date_commande ? new Date(o.date_commande).getTime() : 0;
+    const creeLe = (o: any) =>
+      o.created_at ? new Date(o.created_at).getTime() : 0;
+    const rang = (o: any) =>
+      isLivreur && !affichageOuvert(o.date_commande) ? 1 : 0;
     return [...searchableOrders].sort(
-      (a, b) => rang(a) - rang(b) || quand(a) - quand(b),
+      (a, b) => rang(a) - rang(b) || creeLe(b) - creeLe(a),
     );
-  }, [searchableOrders, isLivreur, isJourJ]);
+  }, [searchableOrders, isLivreur]);
 
   return (
     <div className="p-4 sm:p-6 space-y-6">

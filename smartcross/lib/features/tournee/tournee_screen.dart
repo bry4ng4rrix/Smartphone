@@ -24,16 +24,20 @@ const _tourneeStatutFilters = <({String? value, String label})>[
   (value: 'EN_LIVRAISON', label: 'En livraison'),
 ];
 
-/// Remonte les commandes du JOUR J en tête de liste (§ demande) : ce sont
-/// les seules sur lesquelles le livreur peut agir, le reste n'étant que du
-/// planning à venir. À l'intérieur de chaque groupe, la plus proche d'abord.
+/// Ordre d'affichage de la tournée (§ demande) : la commande la plus
+/// récemment CRÉÉE en haut, et les commandes du jour avant le planning à
+/// venir.
+///
+/// Le regroupement suit l'AFFICHAGE, pas l'action : une commande du lendemain
+/// remonte dès 19h00 la veille (5 h d'avance), alors que son bouton ne se
+/// débloque qu'à minuit — voir core/app_time.dart.
 List<Order> _jourJDAbord(List<Order> orders) {
-  int rang(Order o) => isJourJ(o.dateCommande, UserRole.livreur) ? 0 : 1;
-  int quand(Order o) => o.dateCommande?.millisecondsSinceEpoch ?? 0;
+  int rang(Order o) => affichageOuvert(o.dateCommande) ? 0 : 1;
+  int creeLe(Order o) => o.createdAt?.millisecondsSinceEpoch ?? 0;
   final copie = [...orders];
   copie.sort((a, b) {
     final parRang = rang(a).compareTo(rang(b));
-    return parRang != 0 ? parRang : quand(a).compareTo(quand(b));
+    return parRang != 0 ? parRang : creeLe(b).compareTo(creeLe(a));
   });
   return copie;
 }

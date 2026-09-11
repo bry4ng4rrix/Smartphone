@@ -100,8 +100,8 @@ final ordersFilterProvider = NotifierProvider<OrdersFilterNotifier, OrdersFilter
 class OrdersNotifier extends AsyncNotifier<List<Order>> {
   late final _repo = ref.read(ordersRepositoryProvider);
 
-  Future<List<Order>> _fetch(OrdersFilter filter) {
-    return _repo.list(
+  Future<List<Order>> _fetch(OrdersFilter filter) async {
+    final commandes = await _repo.list(
       statut: filter.statut,
       dateDebut: filter.dateDebut,
       dateFin: filter.dateFin,
@@ -110,6 +110,15 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
       dateFrom: filter.dateFrom,
       dateTo: filter.dateTo,
     );
+    // Ordre d'affichage commun aux trois rôles (§ demande) : la commande la
+    // plus récemment CRÉÉE en haut. La tournée du livreur y ajoute son propre
+    // regroupement (jour J d'abord — voir tournee_screen.dart).
+    commandes.sort((a, b) {
+      final ac = a.createdAt?.millisecondsSinceEpoch ?? 0;
+      final bc = b.createdAt?.millisecondsSinceEpoch ?? 0;
+      return bc.compareTo(ac);
+    });
+    return commandes;
   }
 
   @override
