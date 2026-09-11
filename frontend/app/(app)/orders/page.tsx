@@ -560,6 +560,24 @@ export default function OrdersPage() {
     }
   };
 
+  /**
+   * Recharge la commande affichée dans le modal, sans le fermer.
+   *
+   * Le détail doit suivre le workflow : après « Commande prête », la fiche
+   * montre le statut Prête, la chronologie complétée et le bouton suivant
+   * (§ demande). Si le rechargement échoue — ou si le rôle courant n'a plus
+   * le droit de voir la commande à son nouveau statut — on referme, faute de
+   * quoi la fiche resterait figée sur un état périmé.
+   */
+  const refreshDetail = async (orderId: number) => {
+    try {
+      const fresh = await djangoClient.orders.getById(orderId);
+      setDetail(fresh);
+    } catch {
+      setDetail(null);
+    }
+  };
+
   const handleDeleteOrder = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -1331,71 +1349,22 @@ export default function OrdersPage() {
               <DialogHeader>
                 <div className="flex items-center justify-between gap-2 pr-6">
                   <DialogTitle>Commande {detail.numero}</DialogTitle>
-                  {/* Le gérant ne voit "Modifier" que tant que rien n'a
-                      commencé (Nouvelle). Dès que la préparation démarre, ce
-                      bouton laisse la place au sélecteur d'actions, le même
-                      que dans le tableau (§ demande) : à ce stade on fait
-                      avancer la commande, on ne la retouche plus. Les
-                      statuts terminaux n'ont ni l'un ni l'autre —
-                      gerantActionOptions renvoie une liste vide. */}
-                  {isGerant &&
-                    (detail.statut_courant === "NOUVELLE" ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setEditTarget(detail);
-                          setDetail(null);
-                        }}
-                      >
-                        <Pencil className="h-4 w-4 mr-2" /> Modifier
-                      </Button>
-                    ) : (
-                      // "En préparation" est traité par le bouton du bas, qui
-                      // ouvre le formulaire note + photo sans fermer le
-                      // modal : pas de second chemin dans l'en-tête.
-                      detail.statut_courant !== "EN_PREPARATION" &&
-                      gerantActionOptions(detail).length > 0 && (
-                        <Select
-                          onValueChange={(value) => {
-                            const option = gerantActionOptions(detail).find(
-                              (item) => item.value === value,
-                            );
-                            if (!option) return;
-                            // On referme le détail : la confirmation
-                            // s'ouvre à sa place, jamais par-dessus.
-                            const order = detail;
-                            setDetail(null);
-                            if (option.kind === "assign") {
-                              setAssignTarget({
-                                order,
-                                role: option.role || "LIVREUR",
-                              });
-                              return;
-                            }
-                            setActionNote({
-                              order,
-                              target: option.target,
-                              label: option.label,
-                            });
-                          }}
-                        >
-                          <SelectTrigger className="h-8 w-[180px] text-xs">
-                            <SelectValue placeholder="Action" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {gerantActionOptions(detail).map((option) => (
-                              <SelectItem
-                                key={option.value}
-                                value={option.value}
-                              >
-                                {option.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )
-                    ))}
+                  {/* "Modifier" tant que rien n'a commencé (Nouvelle).
+                      Toutes les transitions de statut, elles, sont désormais
+                      des boutons EN BAS de la fiche : ils se remplacent au fil
+                      du workflow et ne ferment pas la fenêtre (§ demande). */}
+                  {isGerant && detail.statut_courant === "NOUVELLE" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setEditTarget(detail);
+                        setDetail(null);
+                      }}
+                    >
+                      <Pencil className="h-4 w-4 mr-2" /> Modifier
+                    </Button>
+                  )}
                 </div>
               </DialogHeader>
               <div className="space-y-3 text-sm">
@@ -1543,79 +1512,99 @@ export default function OrdersPage() {
                             // note et la photo saisies ne sont pas perdues.
                             if (!ok) return;
                             setDetailInline(null);
-                            setDetail(null);
+                            // On NE ferme PAS : on recharge la commande pour
+                            // que la fiche affiche le nouveau statut, la
+                            // chronologie à jour et l'action suivante.
+                            await refreshDetail(detail.id);
                           }}
                         />
                       </div>
                     );
                   }
 
-                  // Le préparateur reste soumis au jour J ; le gérant non.
-                  const notYetDue =
-                    isPreparateur && !isJourJ(detail.date_commande);
                   const dueLabel = `Disponible le ${fmtOuverture(detail.date_commande, roleCommande)}`;
 
-                  // Commande "Nouvelle" vue par le gérant : assigner un
-                  // préparateur, ou démarrer soi-même la préparation.
-                  if (isGerant && detail.statut_courant === "NOUVELLE") {
+                  // Ouvre la confirmation intégrée pour une transition.
+                  const ouvrir = (target: string, label: string) =>
+                    setDetailInline({
+                      target,
+                      label,
+                      // La photo ne sert de preuve qu'au passage "Prête".
+                      showPhoto: target === "PRETE",
+                    });
+
+                  // GÉRANT : toutes les actions du statut courant, en
+                  // boutons. Elles se remplacent au fil du workflow, la
+                  // fenêtre restant ouverte jusqu'au statut terminal.
+                  if (isGerant) {
+                    const options = gerantActionOptions(detail);
+                    if (options.length === 0) return null;
+                    return (
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        {options.map((option) => (
+                          <Button
+                            key={option.value}
+                            className="flex-1"
+                            variant={
+                              option.kind === "assign" ||
+                              option.target === "RETOUR"
+                                ? "outline"
+                                : "default"
+                            }
+                            onClick={() => {
+                              if (option.kind === "assign") {
+                                // Choisir une personne demande de charger la
+                                // liste du personnel : seule action qui garde
+                                // sa propre boîte.
+                                const order = detail;
+                                setDetail(null);
+                                setAssignTarget({
+                                  order,
+                                  role: option.role || "PREPARATEUR",
+                                });
+                                return;
+                              }
+                              ouvrir(option.target, option.label);
+                            }}
+                          >
+                            {option.icon && (
+                              <option.icon className="h-4 w-4 mr-2" />
+                            )}
+                            {option.label}
+                          </Button>
+                        ))}
+                      </div>
+                    );
+                  }
+
+                  // LIVREUR en cours de livraison : "Livré" et "Retour" sont
+                  // deux issues possibles, pas une succession.
+                  if (
+                    isLivreur &&
+                    detail.statut_courant === "EN_LIVRAISON" &&
+                    isJourJ(detail.date_commande)
+                  ) {
                     return (
                       <div className="flex flex-col sm:flex-row gap-2">
                         <Button
-                          variant="outline"
                           className="flex-1"
-                          onClick={() => {
-                            // La sélection du personnel a sa propre boîte.
-                            const order = detail;
-                            setDetail(null);
-                            setAssignTarget({ order, role: "PREPARATEUR" });
-                          }}
+                          onClick={() => ouvrir("LIVRE", "Livré")}
                         >
-                          <UserCheck className="h-4 w-4 mr-2" />
-                          Assigner un préparateur
+                          <Truck className="h-4 w-4 mr-2" /> Livré
                         </Button>
                         <Button
-                          className="flex-1"
-                          onClick={() =>
-                            setDetailInline({
-                              target: "EN_PREPARATION",
-                              label: "Commencer la préparation",
-                              showPhoto: false,
-                            })
-                          }
+                          variant="outline"
+                          className="flex-1 text-red-600"
+                          onClick={() => ouvrir("RETOUR", "Retour")}
                         >
-                          <Package className="h-4 w-4 mr-2" />
-                          Commencer la préparation
+                          <Undo2 className="h-4 w-4 mr-2" /> Retour
                         </Button>
                       </div>
                     );
                   }
 
-                  // "En préparation" -> "Prête" : gérant ET préparateur.
-                  if (
-                    detail.statut_courant === "EN_PREPARATION" &&
-                    (isGerant || isPreparateur)
-                  ) {
-                    return (
-                      <Button
-                        className="w-full"
-                        disabled={notYetDue}
-                        onClick={() =>
-                          setDetailInline({
-                            target: "PRETE",
-                            label: "Commande prête",
-                            showPhoto: true,
-                          })
-                        }
-                      >
-                        <Package className="h-4 w-4 mr-2" />
-                        {notYetDue ? dueLabel : "Commande prête"}
-                      </Button>
-                    );
-                  }
-
-                  // Autres transitions du préparateur/livreur : inchangées,
-                  // elles passent par la boîte de confirmation dédiée.
-                  if (isGerant) return null;
+                  // Préparateur et livreur : leur action du moment, jouée
+                  // elle aussi sans quitter la fenêtre.
                   const action = nextAction(detail);
                   if (!action) return null;
                   const bloque = !isJourJ(detail.date_commande);
@@ -1625,14 +1614,7 @@ export default function OrdersPage() {
                     <Button
                       className="w-full"
                       disabled={bloque}
-                      onClick={() => {
-                        setActionNote({
-                          order: detail,
-                          target: action.target,
-                          label: action.label,
-                        });
-                        setDetail(null);
-                      }}
+                      onClick={() => ouvrir(action.target, action.label)}
                     >
                       <action.icon className="h-4 w-4 mr-2" />
                       {bloque ? dueLabel : action.label}
