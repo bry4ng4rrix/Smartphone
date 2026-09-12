@@ -1,70 +1,63 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
-import '../../core/api_client.dart';
-import '../../core/constants.dart';
+import '../../core/app_time.dart';
+import '../../data/repositories/catalog_repository.dart' show catalogErrorMessage;
 import '../../models/supplier.dart';
 import '../../state/suppliers_provider.dart';
 import '../../widgets/async_state_widgets.dart';
-import '../../widgets/status_badge.dart';
+import 'supplier_status.dart';
 
-final _moneyFmt = NumberFormat.decimalPattern('fr_FR');
-String _ar(num v) => '${_moneyFmt.format(v.round())} Ar';
 final _dateFmt = DateFormat('dd/MM/yyyy');
+final _dateTimeFmt = DateFormat("dd/MM/yyyy 'à' HH'h'mm");
 
-class SupplierOrderDetailScreen extends ConsumerWidget {
+/// Fiche d'une commande fournisseur — équivalent du dialog « Commande
+/// fournisseur `numero` » de frontend/app/(app)/suppliers/page.tsx :
+/// description, Prix fournisseur / Fret/import / Douane, « Coût total (N
+/// u.) », « Coût unitaire », lignes « `référence (couleur) xqté` » avec
+/// leur marge unitaire, et le bouton « Réceptionner (entrée stock) » tant que
+/// le statut n'est pas RECU.
+///
+/// Contrairement au dialog web (instantané figé de la ligne du tableau), la
+/// fiche est rechargée à chaque événement temps réel.
+class SupplierOrderDetailScreen extends ConsumerStatefulWidget {
   const SupplierOrderDetailScreen({super.key, required this.orderId});
   final int orderId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(supplierOrderDetailProvider(orderId));
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('Commande fournisseur')),
-      body: switch (async) {
-        AsyncData(:final value) => _Body(order: value),
-        AsyncError(:final error) => ErrorState(
-            message: ApiClient.messageFromError(error),
-            onRetry: () => ref.invalidate(supplierOrderDetailProvider(orderId)),
-          ),
-        _ => const LoadingState(),
-      },
-    );
-  }
+  ConsumerState<SupplierOrderDetailScreen> createState() => _SupplierOrderDetailScreenState();
 }
 
-class _Body extends ConsumerStatefulWidget {
-  const _Body({required this.order});
-  final SupplierOrder order;
-
-  @override
-  ConsumerState<_Body> createState() => _BodyState();
-}
-
-class _BodyState extends ConsumerState<_Body> {
+class _SupplierOrderDetailScreenState extends ConsumerState<SupplierOrderDetailScreen> {
   bool _receiving = false;
 
-  Future<void> _receive() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Confirmer la réception'),
-        content: const Text('Le stock sera incrémenté automatiquement pour chaque ligne de cette commande.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Annuler')),
-          FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Confirmer')),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
+  void _snack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// `receive(detail)` du web : POST receive -> toast « Commande `numero`
+  /// reçue — stock mis à jour » -> liste rechargée -> fermeture du détail.
+  Future<void> _receive(SupplierOrder order) async {
+    if (_receiving) return;
+    if (!await confirmSupplierReceive(context, order.numero)) return;
     setState(() => _receiving = true);
     try {
-      await ref.read(supplierOrdersProvider.notifier).receive(widget.order.id);
-      ref.invalidate(supplierOrderDetailProvider(widget.order.id));
+      await ref.read(supplierOrdersProvider.notifier).receive(order.id);
+      ref.invalidate(supplierOrderDetailProvider(order.id));
+      if (!mounted) return;
+      _snack('Commande ${order.numero} reçue — stock mis à jour');
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go('/suppliers');
+      }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      _snack(catalogErrorMessage(e, 'Réception impossible'));
     } finally {
       if (mounted) setState(() => _receiving = false);
     }
@@ -72,36 +65,73 @@ class _BodyState extends ConsumerState<_Body> {
 
   @override
   Widget build(BuildContext context) {
-    final order = widget.order;
+    final async = ref.watch(supplierOrderDetailProvider(widget.orderId));
+    final order = async.value;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(order == null ? 'Commande fournisseur' : 'Commande fournisseur ${order.numero}'),
+      ),
+      body: order != null
+          ? _Body(order: order, receiving: _receiving, onReceive: () => _receive(order))
+          : async.hasError
+              ? ErrorState(
+                  message: catalogErrorMessage(async.error!, 'Erreur de chargement'),
+                  onRetry: () => ref.invalidate(supplierOrderDetailProvider(widget.orderId)),
+                )
+              : const LoadingState(),
+    );
+  }
+}
+
+class _Body extends StatelessWidget {
+  const _Body({required this.order, required this.receiving, required this.onReceive});
+
+  final SupplierOrder order;
+  final bool receiving;
+  final VoidCallback onReceive;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final muted = TextStyle(color: scheme.onSurfaceVariant, fontSize: 12);
+    final description = (order.description ?? '').trim();
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(order.numero, style: Theme.of(context).textTheme.headlineSmall),
-            StatusChip(label: order.statut.label, color: order.isReceived ? Colors.green : Colors.orange),
+            Expanded(child: Text(order.numero, style: Theme.of(context).textTheme.headlineSmall)),
+            SupplierStatusBadge(statut: order.statut),
           ],
         ),
-        if (order.description != null && order.description!.isNotEmpty) ...[
+        if (description.isNotEmpty) ...[
           const SizedBox(height: 6),
-          Text(order.description!, style: Theme.of(context).textTheme.bodyMedium),
+          Text(description, style: TextStyle(color: scheme.onSurfaceVariant)),
         ],
         const SizedBox(height: 16),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _Row('Date', order.date != null ? _dateFmt.format(order.date!) : '—'),
-                _Row('Prix fournisseur', _ar(order.prixFournisseur)),
-                _Row('Fret / import', _ar(order.fretImport)),
-                _Row('Douane', _ar(order.douane)),
-                _Row('Pub Meta Ads', _ar(order.metaAds)),
-                const Divider(height: 20),
-                _Row('Coût total', _ar(order.coutTotal), emphasize: true),
-                _Row('Coût unitaire moyen', _ar(order.coutUnitaire)),
+                Wrap(
+                  spacing: 24,
+                  runSpacing: 10,
+                  children: [
+                    _Cell(label: 'Prix fournisseur', value: supplierAr(order.prixFournisseur), muted: muted),
+                    _Cell(label: 'Fret/import', value: supplierAr(order.fretImport), muted: muted),
+                    _Cell(label: 'Douane', value: supplierAr(order.douane), muted: muted),
+                    if (order.date != null) _Cell(label: 'Date', value: _dateFmt.format(order.date!), muted: muted),
+                    if (order.receivedAt != null)
+                      _Cell(label: 'Reçue le', value: _dateTimeFmt.format(appLocal(order.receivedAt!)), muted: muted),
+                  ],
+                ),
+                const Divider(height: 24),
+                _Row('Coût total (${order.totalQty} u.)', supplierAr(order.coutTotal), emphasize: true),
+                _Row('Coût unitaire', supplierAr(order.coutUnitaire)),
               ],
             ),
           ),
@@ -110,27 +140,67 @@ class _BodyState extends ConsumerState<_Body> {
         Text('Lignes', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
         Card(
-          child: Column(
-            children: [
-              for (final line in order.lines)
-                ListTile(
-                  title: Text('${line.referenceName} — ${line.couleur}'),
-                  subtitle: Text('${line.quantite} × ${_ar(line.coutUnitaireCalcule)} · marge unitaire ${_ar(line.margeUnitaire)}'),
-                  trailing: Text(_ar(line.totalLigne)),
+          child: order.lines.isEmpty
+              ? Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text('Aucune ligne', style: TextStyle(color: scheme.onSurfaceVariant)),
+                )
+              : Column(
+                  children: [
+                    for (final line in order.lines)
+                      ListTile(
+                        title: Text('${line.referenceName} (${line.couleur}) x${line.quantite}'),
+                        subtitle: Text(
+                          'Coût unitaire ${supplierAr(line.coutUnitaireCalcule)} · total ligne ${supplierAr(line.totalLigne)}',
+                          style: muted,
+                        ),
+                        trailing: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text('Marge unitaire', style: muted),
+                            Text(
+                              supplierAr(line.margeUnitaire),
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: line.margeUnitaire < 0 ? scheme.error : null,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
-            ],
-          ),
         ),
         if (!order.isReceived) ...[
           const SizedBox(height: 20),
           FilledButton.icon(
-            onPressed: _receiving ? null : _receive,
-            icon: _receiving
+            onPressed: receiving ? null : onReceive,
+            icon: receiving
                 ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.inventory_outlined),
-            label: const Text('Marquer reçue (entrée stock auto.)'),
+            label: const Text('Réceptionner (entrée stock)'),
           ),
         ],
+      ],
+    );
+  }
+}
+
+class _Cell extends StatelessWidget {
+  const _Cell({required this.label, required this.value, required this.muted});
+  final String label;
+  final String value;
+  final TextStyle muted;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(label, style: muted),
+        Text(value),
       ],
     );
   }
@@ -144,10 +214,15 @@ class _Row extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final style = emphasize ? Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700) : Theme.of(context).textTheme.bodyMedium;
+    final style = emphasize
+        ? Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)
+        : Theme.of(context).textTheme.bodyMedium;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(label, style: style), Text(value, style: style)]),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [Text(label, style: style), Text(value, style: style)],
+      ),
     );
   }
 }

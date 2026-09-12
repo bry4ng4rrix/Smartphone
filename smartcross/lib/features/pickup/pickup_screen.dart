@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -11,30 +14,61 @@ import '../../state/auth_provider.dart';
 import '../../state/orders_provider.dart';
 import '../../state/realtime_provider.dart';
 import '../../widgets/async_state_widgets.dart';
-import '../../widgets/order_confirm_dialog.dart';
+import '../../widgets/order_confirm_dialog.dart' show arFmt;
 import '../../widgets/status_badge.dart';
+
+/// Délai de regroupement des événements temps réel avant refetch —
+/// `useRealtimeRefresh(..., { debounceMs: 400 })` du web.
+const Duration _kRealtimeDebounce = Duration(milliseconds: 400);
 
 /// File d'attente des retraits au comptoir — équivalent exact de
 /// `GET /orders/?statut=PRETE&livraison_zone=RECUPERATION` (le seul appel de
-/// liste de `frontend/app/(app)/pickup/page.tsx`).
+/// liste de `frontend/app/(app)/pickup/page.tsx`) : le filtrage est figé côté
+/// requête, aucun filtre/tri/pagination côté client, l'ordre est celui de
+/// l'API.
 ///
-/// Le filtre `livraison_zone` existe côté serveur (orders/views.py::
-/// get_queryset, branche gérant) mais n'est pas exposé par
-/// `OrdersRepository.list()` — et le portage n'a pas le droit de modifier un
-/// fichier existant. On filtre donc la zone côté client sur le résultat de
-/// `statut=PRETE` : le prédicat serveur est `livraison_zone == 'RECUPERATION'`,
-/// strictement le même que celui appliqué ici, donc la liste obtenue est
-/// identique (seul l'ensemble transféré est un peu plus large, et il reste
-/// petit puisque limité aux commandes déjà prêtes).
-///
-/// `realtimeTickProvider` remplace `useRealtimeRefresh(['order',
-/// 'order_status_history'], ...)` du web : une commande passée « Prête » par
-/// un préparateur apparaît ici sans action de l'utilisateur (§9 README).
-final pickupOrdersProvider = FutureProvider.autoDispose<List<Order>>((ref) async {
-  ref.watch(realtimeTickProvider);
-  final orders = await ref.read(ordersRepositoryProvider).list(statut: OrderStatus.prete.apiValue);
-  return orders.where((o) => o.livraisonZone == kRecuperationCode).toList();
+/// Temps réel : `useRealtimeRefresh(['order', 'order_status_history'], () =>
+/// fetchOrders(true))` du web = refetch SILENCIEUX (la liste reste affichée)
+/// à chaque événement WebSocket, regroupés sur 400 ms. Ici `ref.listen` sur
+/// [realtimeTickProvider] (chaque notification poussée sur /ws/notifications/
+/// — dont « Commande {numero} prête à récupérer sur place », créée au
+/// passage PRETE d'une commande RECUPERATION) puis `invalidateSelf()`, qui
+/// conserve la valeur précédente pendant le rechargement. Une commande passée
+/// « Prête » par un préparateur apparaît donc sans action de l'utilisateur.
+final pickupOrdersProvider = FutureProvider.autoDispose<List<Order>>((ref) {
+  Timer? debounce;
+  ref.onDispose(() => debounce?.cancel());
+  ref.listen(realtimeTickProvider, (previous, next) {
+    debounce?.cancel();
+    debounce = Timer(_kRealtimeDebounce, () {
+      if (ref.mounted) ref.invalidateSelf();
+    });
+  });
+  return ref.read(ordersRepositoryProvider).list(
+        statut: OrderStatus.prete.apiValue,
+        livraisonZone: kRecuperationCode,
+      );
 });
+
+/// `err.message || fallback` du web : le message serveur s'il existe, sinon
+/// le libellé générique de la page.
+String _messageOr(Object error, String fallback) {
+  final message = ApiClient.messageFromError(error).trim();
+  return message.isEmpty ? fallback : message;
+}
+
+/// Compose le numéro (`<a href="tel:…">` du web). Sans application capable
+/// de téléphoner (tablette, émulateur), on le dit plutôt que d'échouer en
+/// silence.
+Future<void> _appeler(BuildContext context, String numero) async {
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    final ok = await launchUrl(Uri.parse('tel:$numero'));
+    if (!ok) messenger.showSnackBar(SnackBar(content: Text("Impossible d'appeler le $numero sur cet appareil.")));
+  } catch (_) {
+    messenger.showSnackBar(SnackBar(content: Text("Impossible d'appeler le $numero sur cet appareil.")));
+  }
+}
 
 /// Page `/pickup` du web (`frontend/app/(app)/pickup/page.tsx`) : commandes
 /// prêtes à retirer au comptoir (zone « Récupération », donc sans livreur).
@@ -46,6 +80,10 @@ final pickupOrdersProvider = FutureProvider.autoDispose<List<Order>>((ref) async
 /// données tant que l'utilisateur n'est pas gérant. Le serveur applique la
 /// même règle (orders/services.py : « Seul le gérant peut valider une
 /// récupération sur place. »).
+///
+/// Aucun bouton d'annulation, aucun détail/expansion, aucun lien vers la
+/// fiche commande, aucun menu contextuel, aucune sélection multiple, aucun
+/// onglet/switch/toggle — comme le web.
 class PickupScreen extends ConsumerStatefulWidget {
   const PickupScreen({super.key});
 
@@ -55,8 +93,10 @@ class PickupScreen extends ConsumerStatefulWidget {
 
 class _PickupScreenState extends ConsumerState<PickupScreen> {
   /// `confirming` du web : id de la commande en cours de validation (une
-  /// seule à la fois) — désactive son bouton et affiche « Confirmation... ».
-  int? _confirming;
+  /// seule à la fois, `number | null`). Observé à la fois par le bouton de la
+  /// carte et par le bouton « Confirmer » de la modale — tous deux désactivés
+  /// avec le libellé « Confirmation... » pendant l'appel.
+  final ValueNotifier<int?> _confirming = ValueNotifier<int?>(null);
 
   /// Rechargement NON silencieux déclenché par le bouton « Rafraîchir » :
   /// le web réaffiche ses skeletons (`fetchOrders()` sans `silent`).
@@ -66,6 +106,15 @@ class _PickupScreenState extends ConsumerState<PickupScreen> {
   /// SnackBar à chaque reconstruction.
   Object? _reportedError;
 
+  @override
+  void dispose() {
+    _confirming.dispose();
+    super.dispose();
+  }
+
+  /// `fetchOrders(silent)` du web. Non silencieux : repasse par l'état de
+  /// chargement ; silencieux : la liste courante reste affichée pendant
+  /// l'appel (Riverpod conserve la valeur précédente).
   Future<void> _refresh({bool silent = false}) async {
     if (!silent) setState(() => _reloading = true);
     try {
@@ -85,42 +134,52 @@ class _PickupScreenState extends ConsumerState<PickupScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  /// Bouton « Marquer comme récupérée » : ouvre la confirmation, puis
-  /// `POST /orders/{id}/status/ {statut: 'LIVRE'}` — exactement
-  /// `confirmPickup(order)` du web.
-  Future<void> _confirmPickup(Order order) async {
-    // Dialogue partagé du projet (widgets/order_confirm_dialog.dart) : il
-    // porte le titre dynamique du web et, en plus, le récapitulatif complet
-    // (client, téléphone, zone, articles, total) ainsi qu'une note
-    // optionnelle envoyée avec le changement de statut. Aucune photo n'est
-    // demandée pour un retrait sur place (`showPhoto` reste false), comme le
-    // web. « Annuler » (ou Échap / clic extérieur) renvoie null : aucune API
-    // appelée.
-    final result = await showOrderConfirmDialog(
-      context,
-      title: 'Confirmer la récupération de ${order.numero} ?',
-      order: order,
+  /// Bouton « Marquer comme récupérée » : ouvre la modale de confirmation
+  /// (`setPickupTarget(order)`) — jamais l'API directement.
+  ///
+  /// Comme la `Dialog` du web, elle se ferme par Échap / clic extérieur /
+  /// « Annuler » à tout moment, même pendant l'envoi (l'appel en cours se
+  /// poursuit et aboutit à son toast + refetch) ; « Annuler » n'appelle
+  /// aucune API.
+  Future<void> _openPickupDialog(Order order) {
+    return showDialog<void>(
+      context: context,
+      builder: (_) => _PickupConfirmDialog(
+        order: order,
+        confirming: _confirming,
+        onConfirm: () => _confirmPickup(order),
+      ),
     );
-    if (result == null) return;
+  }
 
-    setState(() => _confirming = order.id);
+  /// `confirmPickup(order)` du web : `POST /orders/{id}/status/ {statut:
+  /// 'LIVRE'}` — sans note, sans photo, sans `items_livres` (absent = tout
+  /// est remis). Renvoie vrai si la récupération est enregistrée (la modale
+  /// se ferme), faux sinon (toast d'erreur, la modale RESTE OUVERTE pour
+  /// réessayer).
+  Future<bool> _confirmPickup(Order order) async {
+    _confirming.value = order.id;
     try {
-      await ref.read(ordersRepositoryProvider).changeStatus(
-            order.id,
-            OrderStatus.livre.apiValue,
-            note: result.note,
-          );
+      await ref.read(ordersRepositoryProvider).changeStatus(order.id, OrderStatus.livre.apiValue);
+      // Web : toast.success(`Commande ${order.numero} récupérée`).
       _snack('Commande ${order.numero} récupérée');
-      // Refetch silencieux : la carte disparaît de la liste puisque la
-      // commande n'est plus PRETE. `ordersProvider` est invalidé pour que la
-      // page Commandes reflète le changement si elle est ouverte.
-      ref.invalidate(pickupOrdersProvider);
-      ref.invalidate(ordersProvider);
+      if (mounted) {
+        // Refetch silencieux (`fetchOrders(true)`) : la carte disparaît de la
+        // liste puisque la commande n'est plus PRETE. `ordersProvider` est
+        // invalidé pour que la page Commandes reflète le changement si elle
+        // est ouverte.
+        ref.invalidate(ordersProvider);
+        unawaited(_refresh(silent: true));
+      }
+      return true;
     } catch (e) {
       // Web : toast.error(err.message || 'Action impossible').
-      _snack(ApiClient.messageFromError(e));
+      _snack(_messageOr(e, 'Action impossible'));
+      return false;
     } finally {
-      if (mounted) setState(() => _confirming = null);
+      // Ne relâche que SA propre commande : une autre validation lancée entre
+      // temps garde son état.
+      if (mounted && _confirming.value == order.id) _confirming.value = null;
     }
   }
 
@@ -153,13 +212,15 @@ class _PickupScreenState extends ConsumerState<PickupScreen> {
       if (error == null || !next.hasValue) return;
       if (identical(error, _reportedError)) return;
       _reportedError = error;
-      _snack(ApiClient.messageFromError(error));
+      _snack(_messageOr(error, 'Erreur de chargement des commandes'));
     });
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Récupération sur place'),
         actions: [
+          // Web : bouton icône seul (RefreshCw), ni désactivé ni animé
+          // pendant le chargement — refetch NON silencieux.
           IconButton(
             tooltip: 'Rafraîchir',
             icon: const Icon(Icons.refresh),
@@ -200,10 +261,15 @@ class _PickupScreenState extends ConsumerState<PickupScreen> {
 
   Widget _buildBody(AsyncValue<List<Order>> async) {
     // Web : `loading` -> 3 skeletons. Ici l'état de chargement partagé du
-    // projet (widgets/async_state_widgets.dart).
+    // projet (widgets/async_state_widgets.dart). Un rechargement silencieux
+    // (temps réel, après action, tirer-pour-rafraîchir) conserve la valeur
+    // précédente : `hasValue` reste vrai et la liste reste affichée.
     if (_reloading || (!async.hasValue && async.isLoading)) return const LoadingState();
     if (!async.hasValue) {
-      return ErrorState(message: ApiClient.messageFromError(async.error!), onRetry: _refresh);
+      return ErrorState(
+        message: _messageOr(async.error!, 'Erreur de chargement des commandes'),
+        onRetry: _refresh,
+      );
     }
 
     final orders = async.value!;
@@ -243,9 +309,10 @@ class _PickupScreenState extends ConsumerState<PickupScreen> {
                         SizedBox(
                           width: cardWidth,
                           child: _PickupCard(
+                            key: ValueKey(order.id),
                             order: order,
-                            confirming: _confirming == order.id,
-                            onConfirm: () => _confirmPickup(order),
+                            confirming: _confirming,
+                            onConfirm: () => _openPickupDialog(order),
                           ),
                         ),
                     ],
@@ -253,6 +320,60 @@ class _PickupScreenState extends ConsumerState<PickupScreen> {
                 );
               },
             ),
+    );
+  }
+}
+
+/// Modale de confirmation du retrait — la `Dialog` shadcn du web, à
+/// l'identique : titre et description dynamiques, AUCUN champ de saisie
+/// (pas de note, pas de photo, pas de mot à retaper), « Annuler » /
+/// « Confirmer ».
+///
+/// « Confirmer » est désactivé (libellé « Confirmation... ») tant que CETTE
+/// commande est en cours d'envoi ; « Annuler », Échap et le clic extérieur
+/// restent possibles à tout moment. En cas d'échec la modale reste ouverte ;
+/// elle ne se ferme que sur succès (`setPickupTarget(null)` n'est appelé que
+/// dans le chemin succès côté web).
+class _PickupConfirmDialog extends StatelessWidget {
+  const _PickupConfirmDialog({required this.order, required this.confirming, required this.onConfirm});
+
+  final Order order;
+  final ValueListenable<int?> confirming;
+
+  /// Lance l'appel API ; vrai = récupération enregistrée.
+  final Future<bool> Function() onConfirm;
+
+  Future<void> _confirm(BuildContext context) async {
+    final ok = await onConfirm();
+    // Fermée entre temps (Échap / clic extérieur) : plus rien à fermer.
+    if (ok && context.mounted) Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int?>(
+      valueListenable: confirming,
+      builder: (context, confirmingId, _) {
+        final busy = confirmingId == order.id;
+        return AlertDialog(
+          title: Text('Confirmer la récupération de ${order.numero} ?'),
+          content: Text(
+            'La commande de ${order.clientNom} sera marquée comme livrée (récupérée sur place).',
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+          ),
+          actions: [
+            // Web : variant='outline', setPickupTarget(null) — aucune API.
+            OutlinedButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Annuler'),
+            ),
+            FilledButton(
+              onPressed: busy ? null : () => _confirm(context),
+              child: Text(busy ? 'Confirmation...' : 'Confirmer'),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -300,10 +421,15 @@ class _AccesRefuse extends StatelessWidget {
 /// Une `Card` de la grille web : numéro + client + badge « Prête », téléphone
 /// cliquable, articles, puis pied « total / bouton d'action ».
 class _PickupCard extends StatelessWidget {
-  const _PickupCard({required this.order, required this.confirming, required this.onConfirm});
+  const _PickupCard({super.key, required this.order, required this.confirming, required this.onConfirm});
 
   final Order order;
-  final bool confirming;
+
+  /// `confirming` de la page : le bouton est désactivé, avec le libellé
+  /// « Confirmation... », tant que c'est CETTE commande qui est en cours.
+  final ValueListenable<int?> confirming;
+
+  /// Ouvre la modale de confirmation (jamais l'API directement).
   final VoidCallback onConfirm;
 
   /// Web : `(order.items || []).map(it => `${it.reference_name}
@@ -347,9 +473,10 @@ class _PickupCard extends StatelessWidget {
             ),
             if (phone != null && phone.isNotEmpty) ...[
               const SizedBox(height: 8),
-              // Web : <a href="tel:..."> — ici l'appel natif via url_launcher.
+              // Web : <a href="tel:..."> — ici l'appel natif via url_launcher
+              // (rappeler le client qui ne vient pas).
               InkWell(
-                onTap: () => launchUrl(Uri.parse('tel:$phone')),
+                onTap: () => _appeler(context, phone),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 2),
                   child: Row(
@@ -383,19 +510,26 @@ class _PickupCard extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
+                // Web : fmt(order.total_a_payer) — arrondi à l'entier + ' Ar'.
                 Text(
                   arFmt(order.totalAPayer ?? 0),
                   style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
                 ),
-                FilledButton.icon(
-                  // Ouvre la modale de confirmation — jamais l'API
-                  // directement (comme le web). Désactivé pendant l'envoi de
-                  // CETTE commande, avec le libellé « Confirmation... ».
-                  onPressed: confirming ? null : onConfirm,
-                  icon: confirming
-                      ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.check_circle_outline, size: 18),
-                  label: Text(confirming ? 'Confirmation...' : 'Marquer comme récupérée'),
+                ValueListenableBuilder<int?>(
+                  valueListenable: confirming,
+                  builder: (context, confirmingId, _) {
+                    final busy = confirmingId == order.id;
+                    return FilledButton.icon(
+                      // Ouvre la modale de confirmation — jamais l'API
+                      // directement (comme le web). Désactivé pendant l'envoi
+                      // de CETTE commande, avec le libellé « Confirmation... ».
+                      onPressed: busy ? null : onConfirm,
+                      icon: busy
+                          ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.check_circle_outline, size: 18),
+                      label: Text(busy ? 'Confirmation...' : 'Marquer comme récupérée'),
+                    );
+                  },
                 ),
               ],
             ),

@@ -74,7 +74,7 @@ AUTRES PAGES
 - Alertes : produits en rupture ou sous le seuil.
 - Récupération : commandes à retirer au comptoir (zone "Récupération", sans livreur ni frais).
 - Caisse : sessions d'ouverture/fermeture et mouvements d'espèces.
-- Rapports : chiffre d'affaires, dépenses, résultat, produits les plus et moins vendus, performance des livreurs et des préparateurs.
+- Tableau de bord : centre de rapports en 8 sections (vue d'ensemble, ventes, finances, dépenses, stock, commandes, livraisons, marketing), filtres de période, impression PDF. La page Rapports n'existe plus : tout est dans le Tableau de bord.
 - Discussions : messagerie interne entre collaborateurs. Deux livreurs ne peuvent pas se contacter entre eux.
 - Paramètres : profil, sécurité, catégories de dépenses, types de dépense des livreurs, zones de livraison (nom + prix).
 

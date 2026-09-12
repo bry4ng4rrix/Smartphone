@@ -5,8 +5,9 @@ import '../core/secure_storage.dart';
 import '../data/repositories/auth_repository.dart';
 import '../models/user.dart';
 import 'caisse_provider.dart';
+import 'campaigns_provider.dart';
 import 'catalog_provider.dart';
-import 'dashboard_provider.dart';
+import 'expenses_provider.dart';
 import 'notifications_provider.dart';
 import 'orders_provider.dart';
 import 'stock_provider.dart';
@@ -31,7 +32,6 @@ void _invalidateDataProviders(Ref ref) {
   ref.invalidate(colorsProvider);
   ref.invalidate(referencesProvider);
   ref.invalidate(referenceAutocompleteProvider);
-  ref.invalidate(dashboardProvider);
   ref.invalidate(rupturesProvider);
   ref.invalidate(movementsProvider);
   ref.invalidate(supplierOrdersProvider);
@@ -44,6 +44,14 @@ void _invalidateDataProviders(Ref ref) {
   ref.invalidate(storesProvider);
   ref.invalidate(superadminProvider);
   ref.invalidate(reportsProvider);
+  ref.invalidate(campaignsProvider);
+  // Dépenses des livreurs (types et déclarations) et zones de livraison :
+  // rattachées à la société, jamais autoDispose — sans ceci un autre compte
+  // sur le même appareil verrait le cache du précédent.
+  ref.invalidate(expenseTypesProvider);
+  ref.invalidate(expensesProvider);
+  ref.invalidate(deliveryZonesProvider);
+  ref.invalidate(preparateurFilterListProvider);
 }
 
 enum AuthStatus { loading, unauthenticated, authenticated }

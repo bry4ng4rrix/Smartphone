@@ -213,3 +213,62 @@ class ColorOption {
     );
   }
 }
+
+/// Note produit : un produit repéré mais pas encore au catalogue (ni prix
+/// ni stock), à commander au fournisseur — même hiérarchie que la référence
+/// (catégorie, sous-type, marque, couleurs) pour créer la vraie référence
+/// plus tard sans ressaisie. `couleurs` : noms libres, liste vide = sans
+/// couleur (catalog/models.py::ProductNote, `ProductNoteSerializer`).
+class ProductNote {
+  ProductNote({
+    required this.id,
+    required this.magasinId,
+    required this.nom,
+    required this.categoryId,
+    required this.categoryName,
+    required this.typeId,
+    required this.typeName,
+    this.brandId,
+    required this.brandName,
+    required this.couleurs,
+    required this.createdByName,
+    this.createdAt,
+  });
+
+  final int id;
+  final int magasinId;
+  final String nom;
+  final int categoryId;
+  final String categoryName;
+  final int typeId;
+  final String typeName;
+
+  /// Marque facultative : `null` = aucune / inconnue.
+  final int? brandId;
+
+  /// Vide quand la note n'a pas de marque (`brand_name` vaut "" par défaut).
+  final String brandName;
+  final List<String> couleurs;
+
+  /// Nom complet (ou identifiant) de l'auteur ; vide si le compte a été
+  /// supprimé.
+  final String createdByName;
+  final DateTime? createdAt;
+
+  factory ProductNote.fromJson(Map<String, dynamic> json) {
+    return ProductNote(
+      id: asInt(json['id']),
+      magasinId: asInt(json['magasin']),
+      nom: asString(json['nom']),
+      categoryId: asInt(json['category']),
+      categoryName: asString(json['category_name']),
+      typeId: asInt(json['type']),
+      typeName: asString(json['type_name']),
+      brandId: asIntOrNull(json['brand']),
+      brandName: asString(json['brand_name']),
+      couleurs: (json['couleurs'] as List? ?? []).map((e) => e.toString()).toList(),
+      createdByName: asString(json['created_by_name']),
+      createdAt: asDateOrNull(json['created_at']),
+    );
+  }
+}

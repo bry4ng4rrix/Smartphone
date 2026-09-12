@@ -15,7 +15,6 @@ import {
   Bell,
   Users,
   AlertCircle,
-  FileBarChart,
   Shield,
   Store,
   QrCode,
@@ -124,12 +123,6 @@ const navigationItems: NavItem[] = [
     label: "Notifications",
     href: "/notifications",
     icon: Bell,
-    adminOnly: true,
-  },
-  {
-    label: "Rapports",
-    href: "/reports",
-    icon: FileBarChart,
     adminOnly: true,
   },
   {

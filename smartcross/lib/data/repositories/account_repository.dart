@@ -29,11 +29,24 @@ extension RegisterAccountTypeX on RegisterAccountType {
         RegisterAccountType.employee => 'Employé',
       };
 
-  /// Message de succès du toast web, qui diffère pour l'admin (il n'a pas de
-  /// responsable au-dessus de lui) — cf. `handleRegister`.
+  /// Message de succès du toast après inscription.
+  ///
+  /// Manager / Employé : libellé EXACT du web (`handleRegister`), le compte
+  /// part en attente d'approbation (`is_confirmed=False`).
+  ///
+  /// Admin : le web affiche « Compte créé ! En attente d'approbation. » et
+  /// envoie sur la page d'attente, alors que `RegisterSerializer` crée
+  /// l'admin avec `is_confirmed=True` (et son magasin « Stock Local ») : il
+  /// peut se connecter tout de suite, personne n'a à l'approuver. La doc de
+  /// migration (règle métier cachée n°1) demande de corriger ce message
+  /// trompeur et de renvoyer l'admin directement vers la connexion.
   String get successMessage => this == RegisterAccountType.admin
-      ? "Compte créé ! En attente d'approbation."
+      ? 'Compte créé ! Vous pouvez vous connecter.'
       : "Compte créé ! En attente d'approbation par un administrateur.";
+
+  /// Vrai quand le serializer confirme le compte d'office (aucune étape
+  /// d'approbation) — voir [successMessage].
+  bool get isAutoConfirmed => this == RegisterAccountType.admin;
 }
 
 /// Réponse de `POST users/register/` : `{"message": "Inscription réussie",
@@ -56,7 +69,20 @@ class RegisterResult {
 /// reste `is_confirmed=False` jusqu'à l'approbation par l'administrateur
 /// (sauf `role='admin'`, confirmé d'office par le serializer).
 class AccountRepository {
-  Dio get _dio => ApiClient.instance.dio;
+  /// `users/register/` est PUBLIC et appelé alors que personne n'est
+  /// connecté. On ne passe donc PAS par `ApiClient.instance.dio` : son
+  /// intercepteur collerait un `Authorization: Bearer <jeton périmé>` laissé
+  /// par une session précédente (expirée sans déconnexion explicite), que
+  /// `JWTAuthentication` rejetterait en 401 AVANT d'atteindre la vue — et
+  /// l'intercepteur émettrait un `sessionExpired` parasite. Même technique
+  /// que `PasswordRepository` et `ApiClient._tryRefresh` : un Dio nu sur la
+  /// même base URL (relue à chaque appel, l'URL serveur étant configurable).
+  Dio get _publicDio => Dio(BaseOptions(
+        baseUrl: ApiClient.instance.dio.options.baseUrl,
+        connectTimeout: const Duration(seconds: 20),
+        receiveTimeout: const Duration(seconds: 30),
+        headers: const {'Accept': 'application/json'},
+      ));
 
   /// Crée un compte. [username] vide -> partie locale de l'email, exactement
   /// comme le web (`username || email.split('@')[0]`).
@@ -86,7 +112,7 @@ class AccountRepository {
     final resolvedUsername =
         trimmedUsername.isNotEmpty ? trimmedUsername : trimmedEmail.split('@').first;
 
-    final response = await _dio.post('users/register/', data: {
+    final response = await _publicDio.post('users/register/', data: {
       'email': trimmedEmail,
       'username': resolvedUsername,
       'password': password,

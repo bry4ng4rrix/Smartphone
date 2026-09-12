@@ -11,6 +11,7 @@ import 'permissions.dart';
 /// - `adminOnly`      -> visible si `isAdminOrSuperAdmin` (= admin OU magasin)
 /// - `superAdminOnly` -> visible si `isSuperAdmin` (= admin uniquement)
 /// - `livreurOnly`    -> visible uniquement par le livreur
+/// - `livreurOrGerant` -> visible par le livreur ET par le gerant (bilan)
 /// - `hidePreparateur`/`hideLivreur` -> masque ces sous-roles
 class NavItem {
   const NavItem({
@@ -20,6 +21,7 @@ class NavItem {
     this.adminOnly = false,
     this.superAdminOnly = false,
     this.livreurOnly = false,
+    this.livreurOrGerant = false,
     this.hidePreparateur = false,
     this.hideLivreur = false,
   });
@@ -31,12 +33,14 @@ class NavItem {
   final bool adminOnly;
   final bool superAdminOnly;
   final bool livreurOnly;
+  final bool livreurOrGerant;
   final bool hidePreparateur;
   final bool hideLivreur;
 
   /// Meme sequence de tests que le `.filter()` du sidebar web.
   bool visibleFor(AppUser user) {
     if (livreurOnly && !user.isLivreur) return false;
+    if (livreurOrGerant && !user.isLivreur && !user.isGerant) return false;
     if (superAdminOnly && !user.isSuperAdmin) return false;
     if (adminOnly && !user.isGerant) return false;
     if (hidePreparateur && user.isPreparateur) return false;
@@ -66,7 +70,7 @@ const List<NavItem> kPrimaryNavItems = [
     path: '/bilan',
     label: 'Bilan du jour',
     icon: Icons.receipt_outlined,
-    livreurOnly: true,
+    livreurOrGerant: true,
   ),
   NavItem(
     path: '/catalog',
@@ -81,7 +85,7 @@ const List<NavItem> kPrimaryNavItems = [
     hidePreparateur: true,
     hideLivreur: true,
   ),
-  NavItem(path: '/chats', label: 'Discussions', icon: Icons.chat_bubble_outline),
+  NavItem(path: '/chats', label: 'Chats', icon: Icons.chat_bubble_outline),
   NavItem(
     path: '/movements',
     label: 'Mouvements',
@@ -110,12 +114,6 @@ const List<NavItem> kPrimaryNavItems = [
     path: '/notifications',
     label: 'Notifications',
     icon: Icons.notifications_outlined,
-    adminOnly: true,
-  ),
-  NavItem(
-    path: '/reports',
-    label: 'Rapports',
-    icon: Icons.insert_chart_outlined,
     adminOnly: true,
   ),
   NavItem(
@@ -177,6 +175,17 @@ List<NavItem> navItemsFor(AppUser user) {
 bool canAccessPath(AppUser user, String path) {
   if (path == '/depot') return user.isPreparateur || user.isGerant;
   if (path == '/tournee') return user.isLivreur || user.isGerant;
+  // Le menu web reserve l'entree au gerant, mais la PAGE /notifications
+  // accepte tous les roles (lien « Voir toutes les notifications » de la
+  // cloche) : meme regle ici.
+  if (path == '/notifications') return true;
+  // « Mon profil » de la TopBar web mene tout le monde sur /settings (la
+  // page se degrade en lecture seule pour un non-gerant) ; le menu, lui,
+  // reste reserve a l'admin comme le sidebar.
+  if (path == '/settings') return true;
+  // La page /users accepte tout gerant (isManager : admin OU magasin) meme
+  // si le sidebar ne la propose qu'a l'admin.
+  if (path == '/users' || path.startsWith('/users/')) return user.isGerant;
   final match = kPrimaryNavItems
       .where((i) => path == i.path || path.startsWith('${i.path}/'))
       .toList();

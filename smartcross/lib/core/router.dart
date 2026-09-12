@@ -20,7 +20,6 @@ import '../features/depot/depot_screen.dart';
 import '../features/movements/movements_screen.dart';
 import '../features/notifications/notifications_screen.dart';
 import '../features/pickup/pickup_screen.dart';
-import '../features/reports/reports_screen.dart';
 import '../features/scanner/scanner_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/superadmin/superadmin_screen.dart';
@@ -132,7 +131,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/catalog', builder: (context, state) => const CatalogScreen()),
           GoRoute(path: '/movements', builder: (context, state) => const MovementsScreen()),
           GoRoute(path: '/alerts', builder: (context, state) => const AlertsScreen()),
-          GoRoute(path: '/reports', builder: (context, state) => const ReportsScreen()),
+          // La page Rapports n'existe plus : le centre de rapports EST le
+          // tableau de bord (frontend/app/(app)/dashboard/page.tsx). Les
+          // anciens liens /reports arrivent au même endroit.
+          GoRoute(path: '/reports', redirect: (context, state) => '/dashboard'),
           GoRoute(path: '/pickup', builder: (context, state) => const PickupScreen()),
           GoRoute(path: '/scanner', builder: (context, state) => const ScannerScreen()),
           GoRoute(path: '/superadmin', builder: (context, state) => const SuperadminScreen()),
@@ -160,7 +162,6 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/chats',
             builder: (context, state) => const ChatListScreen(),
             routes: [
-              GoRoute(path: 'room/:room', builder: (context, state) => const ChatConversationScreen()),
               GoRoute(
                 path: 'dm/:id',
                 builder: (context, state) => ChatConversationScreen(

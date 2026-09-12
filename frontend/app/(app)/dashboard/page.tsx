@@ -1,282 +1,98 @@
-"use client";
+'use client';
 
-import { useEffect, useState, useCallback } from "react";
-import { djangoClient } from "@/lib/django-client";
-import { useCurrentUser } from "@/lib/auth/useCurrentUser";
+import { Suspense, useCallback, useMemo, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useCurrentUser } from '@/lib/auth/useCurrentUser';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Printer } from 'lucide-react';
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  Cell,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-} from "recharts";
-import {
-  Package,
-  AlertTriangle,
-  TrendingUp,
-  DollarSign,
-  Users,
-  ArrowUp,
-  ArrowDown,
-  CheckCircle2,
-  ShieldAlert,
-  Wallet,
-  Eye,
-  EyeOff,
-} from "lucide-react";
-import { useRealtimeRefresh } from "@/lib/hooks/useRealtimeRefresh";
+  SECTIONS,
+  granulariteAuto,
+  periodeDepuisPreset,
+  type Section,
+} from '@/lib/reports';
+import { ReportFilters, type Filtres } from '@/components/reports/report-filters';
+import { ReportTabs } from '@/components/reports/report-tabs';
+import { invalidateReports } from '@/components/reports/use-report';
+import { SectionOverview } from '@/components/reports/section-overview';
+import { SectionSales } from '@/components/reports/section-sales';
+import { SectionFinancial } from '@/components/reports/section-financial';
+import { SectionExpenses } from '@/components/reports/section-expenses';
+import { SectionStock } from '@/components/reports/section-stock';
+import { SectionOrders } from '@/components/reports/section-orders';
+import { SectionDeliveries } from '@/components/reports/section-deliveries';
+import { SectionMarketing } from '@/components/reports/section-marketing';
 
-const CHART_COLORS = [
-  "#3b82f6",
-  "#8b5cf6",
-  "#ec4899",
-  "#f59e0b",
-  "#10b981",
-  "#ef4444",
-  "#6366f1",
-  "#f97316",
-];
-
-const fmt = (n: number) =>
-  new Intl.NumberFormat("fr-MG", { minimumFractionDigits: 0 }).format(
-    Math.round(n),
-  );
-
+/**
+ * Tableau de bord du gérant = le centre de rapports (§ demande : la page
+ * Rapports remplace l'ancien tableau de bord, et /reports n'existe plus).
+ * 8 rapports dans une seule page, un seul affiché à la fois (onglets / menu
+ * « Liste des rapports » sur mobile), filtres de période communs, données
+ * agrégées côté serveur (orders/reporting.py) et mises en cache par section.
+ */
 export default function DashboardPage() {
-  const { user, isGerant, loading: userLoading } = useCurrentUser();
-  const [loading, setLoading] = useState(true);
-  const [role, setRole] = useState<string>("employee");
-  const [hiddenMetrics, setHiddenMetrics] = useState<Record<string, boolean>>({
-    ca: true,
-    totalProfit: true,
-    totalValue: true,
-    beneficeEstimeStock: true,
-    totalSalesAllStores: true,
-  });
+  return (
+    <Suspense fallback={<div className="p-6"><Skeleton className="h-64 w-full" /></div>}>
+      <ReportsCenter />
+    </Suspense>
+  );
+}
 
-  // KPIs
-  const [kpis, setKpis] = useState({
-    ca: 0,
-    beneficeEstimeStock: 0,
-    totalProducts: 0,
-    totalQuantity: 0,
-    totalValue: 0,
-    totalEmployees: 0,
-    lowStockCount: 0,
-    outOfStockCount: 0,
-    mySalesToday: 0,
-    totalAmountSold: 0,
-    totalSalesAllStores: 0,
-    clientsCount: 0,
-    totalProfit: 0,
-  });
+const SECTION_KEYS = new Set<string>(SECTIONS.map((s) => s.key));
 
-  // Charts
-  const [weeklyTrend, setWeeklyTrend] = useState<any[]>([]);
-  const [categoryChart, setCategoryChart] = useState<any[]>([]);
-  const [recentMovements, setRecentMovements] = useState<any[]>([]);
-  const [lowStockProducts, setLowStockProducts] = useState<any[]>([]);
+function ReportsCenter() {
+  const { isGerant, loading: userLoading } = useCurrentUser();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
-  const fetchDashboard = useCallback(async (silent = false) => {
-    try {
-      if (!silent) setLoading(true);
-
-      // Fetch from Django REST API
-      const dashboardData = await djangoClient.get<any>("/users/dashboard/");
-      const products = await djangoClient.products.list();
-
-      const userRole = dashboardData.role || "employee";
-      setRole(userRole);
-
-      const rKpis = dashboardData.kpis || {};
-      const rLists = dashboardData.lists || {};
-
-      // Compute statistics and category mapping from products
-      let totalQuantity = 0;
-      let totalValue = 0;
-      let lowStockCount = 0;
-      let outOfStockCount = 0;
-      const categoryMap: Record<string, number> = {};
-      const lowProducts: any[] = [];
-
-      products.forEach((p: any) => {
-        const qty = p.initial_quantity ?? 0;
-        totalQuantity += qty;
-        totalValue += qty * (p.unit_price ?? 0);
-
-        const alertThreshold = p.alert_threshold ?? 5;
-        if (qty === 0) {
-          outOfStockCount++;
-          lowProducts.push({ ...p, status: "out_of_stock", quantity: qty });
-        } else if (qty <= alertThreshold) {
-          lowStockCount++;
-          lowProducts.push({ ...p, status: "low", quantity: qty });
-        }
-
-        categoryMap[p.category || "Autre"] =
-          (categoryMap[p.category || "Autre"] || 0) + qty;
-      });
-
-      // Weekly trend computed from recent sales
-      const days = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
-      const last7Days: {
-        fullDate: string;
-        label: string;
-        entrées: number;
-        sorties: number;
-      }[] = [];
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        last7Days.push({
-          fullDate: d.toISOString().split("T")[0],
-          label: days[d.getDay()],
-          entrées: 0,
-          sorties: 0,
-        });
-      }
-
-      const salesList = rLists.recent_sales || [];
-      salesList.forEach((sale: any) => {
-        const soldDateStr = sale.sold_at?.split("T")[0];
-        const dayMatch = last7Days.find((d) => d.fullDate === soldDateStr);
-        if (dayMatch) {
-          dayMatch.sorties += sale.quantity || 0;
-        }
-      });
-
-      setWeeklyTrend(last7Days);
-
-      const stockValue =
-        rKpis.total_stock_value ?? rKpis.stock_value ?? totalValue;
-
-      setKpis({
-        ca: rKpis.ca || 0,
-        beneficeEstimeStock: rKpis.benefice_estime_stock || 0,
-        totalProducts: products.length,
-        totalQuantity,
-        totalValue: stockValue,
-        totalEmployees: rKpis.total_employers || rKpis.total_magasins || 0,
-        lowStockCount: rKpis.low_stock_count || lowStockCount,
-        outOfStockCount,
-        mySalesToday: rKpis.my_sales_today || rKpis.sales_today || 0,
-        totalAmountSold: rKpis.total_amount_sold || rKpis.total_revenue || 0,
-        totalSalesAllStores: rKpis.total_revenue || 0,
-        clientsCount: rKpis.clients_count || rKpis.total_sales || 0,
-        totalProfit: rKpis.total_profit || 0,
-      });
-
-      setCategoryChart(
-        Object.entries(categoryMap)
-          .map(([name, value]) => ({ name, value }))
-          .sort((a, b) => b.value - a.value),
-      );
-
-      setLowStockProducts(lowProducts.slice(0, 8));
-      setRecentMovements(salesList.slice(0, 8));
-    } catch (err) {
-      console.error("Dashboard error:", err);
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }, []);
-
-  useRealtimeRefresh(["product_variant", "order", "stock_movement"], () =>
-    fetchDashboard(true),
+  const tabUrl = searchParams.get('tab');
+  const actif: Section = tabUrl && SECTION_KEYS.has(tabUrl) ? (tabUrl as Section) : 'overview';
+  const changerOnglet = useCallback(
+    (s: Section) => {
+      const q = new URLSearchParams(searchParams.toString());
+      q.set('tab', s);
+      router.replace(`${pathname}?${q.toString()}`, { scroll: false });
+    },
+    [router, pathname, searchParams],
   );
 
-  useEffect(() => {
-    fetchDashboard();
-  }, [fetchDashboard]);
+  const [filtres, setFiltres] = useState<Filtres>({
+    preset: 'month',
+    custom: { from: '', to: '' },
+    granularity: 'auto',
+  });
+  const [rechargement, setRechargement] = useState(0);
 
-  const toggleMetric = (key: string) => {
-    setHiddenMetrics((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
+  const period = useMemo(() => periodeDepuisPreset(filtres.preset, filtres.custom), [filtres.preset, filtres.custom]);
+  const granularity = filtres.granularity === 'auto' ? granulariteAuto(period) : filtres.granularity;
 
-  // ── KPI Card helper ───────────────────────────────────────────
-  const KpiCard = ({
-    title,
-    value,
-    sub,
-    icon: Icon,
-    color = "text-muted-foreground",
-    accent,
-    metricKey,
-  }: {
-    title: string;
-    value: string | number;
-    sub: string;
-    icon: any;
-    color?: string;
-    accent?: string;
-    metricKey?: string;
-  }) => {
-    const isHidden = metricKey ? hiddenMetrics[metricKey] : false;
-    const displayValue = isHidden ? "••••••" : value;
+  // Paramètres communs à toutes les sections — même clé de cache tant
+  // qu'ils ne changent pas. `_r` force un rechargement manuel.
+  const params = useMemo(
+    () => ({
+      date_from: period.from,
+      date_to: period.to,
+      prev_from: period.prevFrom,
+      prev_to: period.prevTo,
+      granularity,
+      _r: rechargement || undefined,
+    }),
+    [period, granularity, rechargement],
+  );
 
-    return (
-      <Card className={accent}>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">{title}</CardTitle>
-          <div className="flex items-center gap-2">
-            {metricKey && (
-              <button
-                type="button"
-                aria-label={isHidden ? `Afficher ${title}` : `Masquer ${title}`}
-                onClick={() => toggleMetric(metricKey)}
-                className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-              >
-                {isHidden ? (
-                  <EyeOff className="h-4 w-4" />
-                ) : (
-                  <Eye className="h-4 w-4" />
-                )}
-              </button>
-            )}
-            <Icon className={`h-4 w-4 ${color}`} />
-          </div>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <Skeleton className="h-8 w-32" />
-          ) : (
-            <>
-              <div
-                className={`text-2xl font-bold ${color !== "text-muted-foreground" ? color : ""}`}
-              >
-                {displayValue}
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">{sub}</p>
-            </>
-          )}
-        </CardContent>
-      </Card>
-    );
+  const recharger = () => {
+    invalidateReports();
+    setRechargement((n) => n + 1);
   };
 
   if (userLoading) {
     return (
-      <div className="p-6 space-y-4">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton key={i} className="h-16 w-full" />
-        ))}
+      <div className="p-4 sm:p-6 space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-64 w-full" />
       </div>
     );
   }
@@ -284,373 +100,44 @@ export default function DashboardPage() {
   if (!isGerant) {
     return (
       <div className="p-6">
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-20 text-center">
-            <ShieldAlert className="h-12 w-12 text-red-500 mb-4" />
-            <h2 className="text-xl font-bold">Accès refusé</h2>
-            <p className="text-muted-foreground mt-2">
-              Le tableau de bord est réservé au gérant.
-            </p>
-          </CardContent>
-        </Card>
+        <h1 className="text-2xl font-bold">Tableau de bord</h1>
+        <p className="text-sm text-muted-foreground mt-2">Accès refusé — le tableau de bord est réservé au gérant.</p>
       </div>
     );
   }
 
+  const section = SECTIONS.find((s) => s.key === actif)!;
+
   return (
-    <div className="p-6 space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Tableau de bord</h1>
-        <p className="text-muted-foreground mt-1">
-          {user?.store_name
-            ? `Magasin : ${user.store_name}`
-            : "Gestion des stocks cosmétiques"}
-        </p>
+    <div className="p-4 sm:p-6 space-y-4 print:p-0">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Tableau de bord</h1>
+          <p className="text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">{section.label}</span> — {section.description}
+          </p>
+        </div>
+        <Button variant="outline" size="sm" className="print:hidden self-start" onClick={() => window.print()}>
+          <Printer className="h-4 w-4 mr-2" /> Imprimer / PDF
+        </Button>
       </div>
 
-      {/* ── KPI Cards ─────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        {role === "employer" ? (
-          <>
-            <div className="xl:col-span-2">
-              <KpiCard
-                title="Mes ventes du jour"
-                value={`${kpis.mySalesToday} ventes`}
-                sub="Transactions effectuées aujourd'hui"
-                icon={TrendingUp}
-                color="text-green-600"
-              />
-            </div>
-            <div className="xl:col-span-2">
-              <KpiCard
-                title="Chiffre d'affaires personnel"
-                value={`${fmt(kpis.totalAmountSold)} Ar`}
-                sub="Montant total vendu par vous"
-                icon={DollarSign}
-                color="text-blue-600"
-              />
-            </div>
-            <div className="xl:col-span-2">
-              <KpiCard
-                title="Clients servis"
-                value={kpis.clientsCount}
-                sub="Nombre total de transactions"
-                icon={Users}
-              />
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="xl:col-span-2">
-              <KpiCard
-                title="CA"
-                value={`${fmt(kpis.ca)} Ar`}
-                sub="Valeur du stock + entrées de caisse"
-                icon={Wallet}
-                color="text-blue-600"
-                metricKey="ca"
-              />
-            </div>
-            <div className="xl:col-span-2">
-              <KpiCard
-                title="Bénéfice total"
-                value={`${fmt(kpis.totalProfit)} Ar`}
-                sub="Produits vendus (vente - achat)"
-                icon={CheckCircle2}
-                color="text-emerald-600"
-                metricKey="totalProfit"
-              />
-            </div>
-            <div className="xl:col-span-2">
-              <KpiCard
-                title="Valeur du stock"
-                value={`${fmt(kpis.totalValue)} Ar`}
-                sub="Valeur totale de l'inventaire"
-                icon={DollarSign}
-                metricKey="totalValue"
-              />
-            </div>
-            <div className="xl:col-span-2">
-              <KpiCard
-                title="Bénéfice estimé"
-                value={`${fmt(kpis.beneficeEstimeStock)} Ar`}
-                sub="Potentiel si tout le stock est vendu"
-                icon={TrendingUp}
-                color="text-emerald-600"
-                metricKey="beneficeEstimeStock"
-              />
-            </div>
-            <div className="xl:col-span-2">
-              <KpiCard
-                title="Ventes livrées"
-                value={`${fmt(kpis.totalSalesAllStores)} Ar`}
-                sub="Chiffre d'affaires des commandes livrées"
-                icon={TrendingUp}
-                color="text-green-600"
-                metricKey="totalSalesAllStores"
-              />
-            </div>
+      <ReportFilters filtres={filtres} period={period} onChange={setFiltres} onReload={recharger} />
+      <ReportTabs actif={actif} onChange={changerOnglet} />
 
-            <div className="xl:col-span-2">
-              <KpiCard
-                title="Produits"
-                value={`${fmt(kpis.totalQuantity)} unité${kpis.totalQuantity > 1 ? "s" : ""} sur ${kpis.totalProducts} produit${kpis.totalProducts > 1 ? "s" : ""}`}
-                sub="Stock total du catalogue"
-                icon={Package}
-              />
-            </div>
-
-            {role === "admin" && (
-              <KpiCard
-                title="Admins/Magasins"
-                value={kpis.totalEmployees}
-                sub="Personnel enregistré"
-                icon={Users}
-              />
-            )}
-
-            <KpiCard
-              title="Alertes stock"
-              value={kpis.lowStockCount + kpis.outOfStockCount}
-              sub={`${kpis.outOfStockCount} rupture(s), ${kpis.lowStockCount} faible(s)`}
-              icon={AlertTriangle}
-              color="text-orange-600"
-              accent={
-                kpis.lowStockCount + kpis.outOfStockCount > 0
-                  ? "border-orange-200 bg-orange-50 dark:bg-orange-950/20"
-                  : ""
-              }
-            />
-          </>
-        )}
+      <div className="hidden print:block text-xs text-muted-foreground">
+        Période du {period.from} au {period.to} (comparée à {period.prevFrom} → {period.prevTo})
       </div>
 
-      {/* ── Charts ────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Weekly trend */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Ventes — 7 derniers jours</CardTitle>
-            <CardDescription>Évolution journalière des sorties</CardDescription>
-          </CardHeader>
-          <CardContent className="pt-4">
-            {loading ? (
-              <Skeleton className="h-64 w-full" />
-            ) : (
-              <ResponsiveContainer width="100%" height={260}>
-                <LineChart data={weeklyTrend}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="label" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Line
-                    type="monotone"
-                    dataKey="sorties"
-                    name="Quantités vendues"
-                    stroke="#ef4444"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Category distribution */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Stock par catégorie</CardTitle>
-            <CardDescription>Unités par famille de produits</CardDescription>
-          </CardHeader>
-          <CardContent className="pt-4">
-            {loading ? (
-              <Skeleton className="h-64 w-full" />
-            ) : categoryChart.length === 0 ? (
-              <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
-                Aucune donnée
-              </div>
-            ) : categoryChart.length <= 5 ? (
-              <ResponsiveContainer width="100%" height={260}>
-                <PieChart>
-                  <Pie
-                    data={categoryChart}
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={90}
-                    dataKey="value"
-                    label={({ name, value }) => `${name}: ${value}`}
-                    labelLine={false}
-                  >
-                    {categoryChart.map((_, i) => (
-                      <Cell
-                        key={i}
-                        fill={CHART_COLORS[i % CHART_COLORS.length]}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={categoryChart} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis type="number" />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    width={100}
-                    tick={{ fontSize: 12 }}
-                  />
-                  <Tooltip />
-                  <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* ── Recent Sales + Low Stock ─────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent Sales */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <TrendingUp className="h-5 w-5" />
-              Ventes récentes
-            </CardTitle>
-            <CardDescription>
-              8 dernières transactions enregistrées
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="space-y-3">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <Skeleton key={i} className="h-14 w-full" />
-                ))}
-              </div>
-            ) : recentMovements.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">
-                Aucune vente enregistrée
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {recentMovements.map((m, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-3 p-3 rounded-lg border"
-                  >
-                    <div className="flex-shrink-0 p-1.5 rounded-full bg-red-100 text-red-700">
-                      <ArrowDown className="h-4 w-4" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate">
-                        {m.product_name ?? "Produit inconnu"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(m.sold_at).toLocaleDateString("fr-FR", {
-                          day: "2-digit",
-                          month: "2-digit",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                        {m.seller_name && (
-                          <span className="ml-1">· {m.seller_name}</span>
-                        )}
-                        {m.shop_name && (
-                          <span className="ml-1">· ({m.shop_name})</span>
-                        )}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-sm font-semibold text-red-600">
-                        -{m.quantity}
-                      </span>
-                      <p className="text-[10px] text-muted-foreground font-mono">
-                        {fmt(m.total_price || 0)} Ar
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Low Stock */}
-        <Card
-          className={lowStockProducts.length > 0 ? "border-orange-200" : ""}
-        >
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <AlertTriangle
-                className={`h-5 w-5 ${lowStockProducts.length > 0 ? "text-orange-500" : "text-muted-foreground"}`}
-              />
-              Alertes de stock
-            </CardTitle>
-            <CardDescription>Produits à réapprovisionner</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="space-y-3">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <Skeleton key={i} className="h-12 w-full" />
-                ))}
-              </div>
-            ) : lowStockProducts.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <CheckCircle2 className="h-10 w-10 text-green-500 mb-2" />
-                <p className="text-sm font-medium text-green-700">
-                  Tous les stocks sont OK
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Aucun produit en alerte
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {lowStockProducts.map((p) => (
-                  <div
-                    key={p.id}
-                    className="flex items-center justify-between p-3 rounded-lg border bg-card"
-                  >
-                    <div className="min-w-0">
-                      <p className="font-medium text-sm truncate">{p.name}</p>
-                      <p className="text-xs text-muted-foreground font-mono">
-                        {p.sku}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span
-                        className={`text-sm font-semibold ${
-                          p.status === "out_of_stock"
-                            ? "text-red-600"
-                            : "text-orange-600"
-                        }`}
-                      >
-                        {p.quantity ?? 0} u.
-                      </span>
-                      <Badge
-                        className={
-                          p.status === "out_of_stock"
-                            ? "bg-red-100 text-red-800"
-                            : "bg-orange-100 text-orange-800"
-                        }
-                      >
-                        {p.status === "out_of_stock" ? "Rupture" : "Faible"}
-                      </Badge>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      {/* Une seule section montée à la fois : rien n'est chargé pour les autres. */}
+      {actif === 'overview' && <SectionOverview params={params} enabled />}
+      {actif === 'sales' && <SectionSales params={params} enabled />}
+      {actif === 'financial' && <SectionFinancial params={params} enabled />}
+      {actif === 'expenses' && <SectionExpenses params={params} enabled />}
+      {actif === 'stock' && <SectionStock params={params} enabled />}
+      {actif === 'orders' && <SectionOrders params={params} enabled />}
+      {actif === 'deliveries' && <SectionDeliveries params={params} enabled />}
+      {actif === 'marketing' && <SectionMarketing params={params} enabled />}
     </div>
   );
 }

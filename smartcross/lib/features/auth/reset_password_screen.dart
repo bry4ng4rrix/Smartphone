@@ -94,9 +94,12 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
       // obtenir le MÊME résultat visible (retour à l'écran de connexion),
       // avec en prime un vrai contrôle du nouveau mot de passe. Le message
       // sous le bouton prévient l'utilisateur avant qu'il ne valide.
+      final email = ref.read(authProvider).user?.email.trim() ?? '';
       await ref.read(authProvider.notifier).logout();
       if (!mounted) return;
-      context.go('/login');
+      // `?email=` de la page de login web : l'utilisateur n'a plus qu'à
+      // saisir son nouveau mot de passe.
+      context.go(email.isEmpty ? '/login' : '/login?email=${Uri.encodeQueryComponent(email)}');
     } catch (e) {
       final message = ApiClient.messageFromError(e).trim();
       _snack(message.isEmpty ? 'Erreur lors du changement' : message, error: true);

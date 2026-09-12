@@ -232,6 +232,44 @@ class CatalogRepository {
   }
 
   // ---------------------------------------------------------------------------
+  // Notes produit — produits à commander, pas encore au catalogue
+  // ---------------------------------------------------------------------------
+
+  /// `GET catalog/notes/` (`djangoClient.catalog.notes.list`) — lecture pour
+  /// tout utilisateur du magasin (catalog/views.py::ProductNoteViewSet).
+  Future<List<ProductNote>> notes() async {
+    final response = await _dio.get('catalog/notes/');
+    return (response.data as List).map((e) => ProductNote.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  /// `POST catalog/notes/` (gérant) — même payload que
+  /// `djangoClient.catalog.notes.create` : `brand` explicitement `null`
+  /// quand la marque est inconnue, `couleurs` vide = sans couleur. Le
+  /// serveur vérifie que le sous-type appartient bien à la catégorie
+  /// (« Ce sous-type n'appartient pas à la catégorie choisie. »).
+  Future<ProductNote> createNote({
+    required String nom,
+    required int categoryId,
+    required int typeId,
+    int? brandId,
+    List<String> couleurs = const [],
+  }) async {
+    final response = await _dio.post('catalog/notes/', data: {
+      'nom': nom,
+      'category': categoryId,
+      'type': typeId,
+      'brand': brandId,
+      'couleurs': couleurs,
+    });
+    return ProductNote.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  /// `DELETE catalog/notes/{id}/` (gérant).
+  Future<void> deleteNote(int id) async {
+    await _dio.delete('catalog/notes/$id/');
+  }
+
+  // ---------------------------------------------------------------------------
   // Références
   // ---------------------------------------------------------------------------
 

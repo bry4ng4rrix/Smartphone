@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/api_client.dart';
+import '../../core/app_time.dart';
 import '../../core/constants.dart';
 import '../../core/permissions.dart';
 import '../../models/catalog.dart';
@@ -20,10 +21,12 @@ import '../../widgets/async_state_widgets.dart';
 import '../../widgets/order_confirm_dialog.dart' show arFmt;
 import '../../widgets/status_badge.dart';
 import 'import_export.dart';
+import 'product_note_dialog.dart';
 import 'reference_dialogs.dart';
 import 'stock_adjust_dialog.dart';
 
 final _dateFmt = DateFormat('dd/MM/yyyy HH:mm');
+final _dayFmt = DateFormat('dd/MM/yyyy');
 
 void _toast(BuildContext context, String message) {
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
@@ -32,8 +35,8 @@ void _toast(BuildContext context, String message) {
 /// Module Produits — réplique de `/products` (app/(app)/products/page.tsx) :
 /// catalogue Catégorie → Sous-type → Marque → Référence → Couleur (§8 du
 /// cahier des charges), CRUD des références/variantes, ajustement de stock,
-/// import/export Excel, paramètres du catalogue, prix par sous-type et
-/// « Nouvelle commande ».
+/// import/export Excel, paramètres du catalogue, prix par sous-type,
+/// « Nouvelle commande » et notes de produits à commander.
 ///
 /// Le gérant garde en plus deux onglets propres à l'app (Ruptures /
 /// Mouvements — raccourcis des écrans Alertes et Mouvements, réservés au
@@ -170,6 +173,21 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> with AutomaticKe
     if (created && mounted) await _refresh();
   }
 
+  /// « Nouvelle note » : un produit à commander au fournisseur, pas encore
+  /// au catalogue — `onCreated → fetchAll(true)` côté web.
+  Future<void> _newNote() async {
+    final created = await showProductNoteDialog(context);
+    if (created && mounted) await _refreshSilent();
+  }
+
+  /// Dialog « Supprimer la note « … » ? » : la suppression est faite dans le
+  /// dialog lui-même, qui reste ouvert en cas d'erreur (comme le web) ; puis
+  /// rechargement silencieux (`fetchAll(true)`).
+  Future<void> _confirmDeleteNote(ProductNote note) async {
+    final deleted = await showDialog<bool>(context: context, builder: (_) => _DeleteNoteDialog(note: note));
+    if (deleted == true && mounted) await _refreshSilent();
+  }
+
   Future<void> _bulkPrice() async {
     await showDialog<void>(context: context, builder: (_) => _BulkPriceDialog(initialTypeId: _typeFilter));
   }
@@ -184,15 +202,23 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> with AutomaticKe
   }
 
   /// Menu « ⋮ » (à droite du FAB « Nouvelle référence ») : les actions
-  /// secondaires de la barre d'outils web — Nouvelle commande, Export/Import
-  /// Excel, Modifier prix par sous-type, Paramètres — regroupées ici plutôt
-  /// qu'éparpillées dans l'AppBar (§ demande).
+  /// secondaires de la barre d'outils web — Nouvelle note, Nouvelle
+  /// commande, Export/Import Excel, Modifier prix par sous-type, Paramètres
+  /// — regroupées ici plutôt qu'éparpillées dans l'AppBar (§ demande).
   void _showMoreMenu() {
     showModalBottomSheet<void>(
       context: context,
       builder: (sheetContext) => SafeArea(
         child: Wrap(
           children: [
+            ListTile(
+              leading: const Icon(Icons.sticky_note_2_outlined),
+              title: const Text('Nouvelle note'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _newNote();
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.shopping_cart_outlined),
               title: const Text('Nouvelle commande'),
@@ -318,6 +344,10 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> with AutomaticKe
     final categories = ref.watch(categoriesProvider).value ?? const <ProductCategory>[];
     final types = ref.watch(typesProvider).value ?? const <ProductType>[];
     final brands = ref.watch(brandsProvider).value ?? const <Brand>[];
+    // Une erreur sur les notes n'est jamais remontée : liste vide, comme le
+    // `notes.list().catch(() => [])` du web — le catalogue s'affiche quand
+    // même.
+    final notes = ref.watch(productNotesProvider).value ?? const <ProductNote>[];
     final typesForCategory = _categoryFilter == null ? types : types.where((t) => t.categoryId == _categoryFilter).toList();
     final busy = _exporting || _importing;
 
@@ -443,7 +473,7 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> with AutomaticKe
               ),
             ),
           const Divider(height: 1),
-          Expanded(child: _buildBody(async, types, isGerant)),
+          Expanded(child: _buildBody(async, types, isGerant, notes)),
         ],
       ),
       floatingActionButton: isGerant
@@ -469,7 +499,12 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> with AutomaticKe
     );
   }
 
-  Widget _buildBody(AsyncValue<List<ProductReference>> async, List<ProductType> types, bool isGerant) {
+  Widget _buildBody(
+    AsyncValue<List<ProductReference>> async,
+    List<ProductType> types,
+    bool isGerant,
+    List<ProductNote> notes,
+  ) {
     // Chargement NON silencieux (premier chargement, bouton Rafraîchir,
     // suppression) : état de chargement à la place de la liste, comme le
     // skeleton du web. Un refetch silencieux ne passe jamais ici.
@@ -481,15 +516,22 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> with AutomaticKe
         onRetry: _refresh,
       );
     }
+    // Carte « Notes — produits à commander » sous la liste des références :
+    // rendue si des notes existent ou pour le gérant (qui peut en créer),
+    // `(notes.length > 0 || isGerant)` côté web.
+    final showNotes = notes.isNotEmpty || isGerant;
+    Widget notesCard() => _ProductNotesCard(notes: notes, isGerant: isGerant, onDelete: _confirmDeleteNote);
     final filtered = _filter(references, types);
     if (filtered.isEmpty) {
       return RefreshIndicator(
         onRefresh: _refreshSilent,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          children: const [
-            SizedBox(height: 48),
-            EmptyState(message: 'Aucune référence.', icon: Icons.style_outlined),
+          padding: const EdgeInsets.only(bottom: 96),
+          children: [
+            const SizedBox(height: 48),
+            const EmptyState(message: 'Aucune référence.', icon: Icons.style_outlined),
+            if (showNotes) Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: notesCard()),
           ],
         ),
       );
@@ -501,13 +543,16 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> with AutomaticKe
       onRefresh: _refreshSilent,
       child: ListView.builder(
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
-        itemCount: filtered.length,
-        itemBuilder: (context, i) => _ReferenceCard(
-          reference: filtered[i],
-          isGerant: isGerant,
-          onOpen: () => showProductDetailDialog(context, filtered[i].id),
-          onDelete: () => _confirmDelete(filtered[i]),
-        ),
+        itemCount: filtered.length + (showNotes ? 1 : 0),
+        itemBuilder: (context, i) {
+          if (i == filtered.length) return notesCard();
+          return _ReferenceCard(
+            reference: filtered[i],
+            isGerant: isGerant,
+            onOpen: () => showProductDetailDialog(context, filtered[i].id),
+            onDelete: () => _confirmDelete(filtered[i]),
+          );
+        },
       ),
     );
   }
@@ -665,6 +710,227 @@ class _PriceStat extends StatelessWidget {
       children: [
         Text(label, style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
         Text(value, style: TextStyle(fontWeight: FontWeight.w600, color: color)),
+      ],
+    );
+  }
+}
+
+// =============================================================================
+// Notes — produits à commander (pas encore au catalogue)
+// =============================================================================
+
+/// Carte « Notes — produits à commander » (products/page.tsx) : produits
+/// repérés mais pas encore au catalogue, sans prix ni stock. En-tête (icône,
+/// titre, compteur, sous-titre), état vide, sinon le tableau du web — Nom /
+/// Catégorie / Sous-type / Marque / Couleurs / Ajoutée le / Actions (gérant).
+///
+/// Adaptation mobile : le tableau garde ses colonnes et défile
+/// horizontalement (`overflow-x-auto` côté web) ; le sous-titre, masqué sur
+/// petit écran par le web (`hidden sm:block`), passe sous le titre.
+class _ProductNotesCard extends StatelessWidget {
+  const _ProductNotesCard({required this.notes, required this.isGerant, required this.onDelete});
+
+  final List<ProductNote> notes;
+  final bool isGerant;
+  final void Function(ProductNote note) onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    return Card(
+      margin: const EdgeInsets.only(top: 12, bottom: 4),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.sticky_note_2_outlined, size: 16, color: muted),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text('Notes — produits à commander', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                    ),
+                    const SizedBox(width: 8),
+                    _CountBadge(count: notes.length),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Produits repérés mais pas encore au catalogue (sans prix ni stock).',
+                  style: theme.textTheme.labelSmall?.copyWith(color: muted),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          if (notes.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
+              child: Text(
+                'Aucune note. Utilisez « Nouvelle note » pour noter un produit à commander au fournisseur.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(color: muted),
+              ),
+            )
+          else
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                columnSpacing: 20,
+                horizontalMargin: 12,
+                headingRowHeight: 40,
+                dataRowMinHeight: 44,
+                // Les couleurs peuvent occuper plusieurs lignes : la hauteur
+                // de ligne suit le contenu.
+                dataRowMaxHeight: double.infinity,
+                headingTextStyle: theme.textTheme.labelMedium?.copyWith(color: muted, fontWeight: FontWeight.w600),
+                columns: [
+                  const DataColumn(label: Text('Nom')),
+                  const DataColumn(label: Text('Catégorie')),
+                  const DataColumn(label: Text('Sous-type')),
+                  const DataColumn(label: Text('Marque')),
+                  const DataColumn(label: Text('Couleurs')),
+                  const DataColumn(label: Text('Ajoutée le')),
+                  if (isGerant) const DataColumn(label: Text('Actions'), headingRowAlignment: MainAxisAlignment.end),
+                ],
+                rows: [
+                  for (final n in notes)
+                    DataRow(
+                      cells: [
+                        DataCell(Text(n.nom, style: const TextStyle(fontWeight: FontWeight.w500))),
+                        DataCell(Text(n.categoryName)),
+                        DataCell(Text(n.typeName)),
+                        DataCell(n.brandName.isEmpty ? Text('—', style: TextStyle(color: muted)) : Text(n.brandName)),
+                        DataCell(
+                          n.couleurs.isEmpty
+                              ? Text('Sans couleur', style: TextStyle(color: muted))
+                              : ConstrainedBox(
+                                  constraints: const BoxConstraints(maxWidth: 220),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 6),
+                                    child: Wrap(
+                                      spacing: 4,
+                                      runSpacing: 4,
+                                      children: [for (final c in n.couleurs) _OutlineBadge(label: c)],
+                                    ),
+                                  ),
+                                ),
+                        ),
+                        DataCell(Text(_noteAddedLabel(n), style: TextStyle(color: muted))),
+                        if (isGerant)
+                          DataCell(
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: IconButton(
+                                tooltip: 'Supprimer la note',
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                                onPressed: () => onDelete(n),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// « JJ/MM/AAAA · auteur » — `toLocaleDateString("fr-FR")` + ` · created_by_name`
+  /// (date lue à l'heure d'Antananarivo, le fuseau métier de l'application).
+  static String _noteAddedLabel(ProductNote n) {
+    final date = n.createdAt == null ? '' : _dayFmt.format(appLocal(n.createdAt!));
+    return n.createdByName.isEmpty ? date : '$date · ${n.createdByName}';
+  }
+}
+
+/// `<Badge variant="secondary">` : compteur de notes.
+class _CountBadge extends StatelessWidget {
+  const _CountBadge({required this.count});
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(color: scheme.secondaryContainer, borderRadius: BorderRadius.circular(999)),
+      child: Text(
+        '$count',
+        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSecondaryContainer),
+      ),
+    );
+  }
+}
+
+/// `<Badge variant="outline">` : une couleur d'une note.
+class _OutlineBadge extends StatelessWidget {
+  const _OutlineBadge({required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        border: Border.all(color: scheme.outline),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurface)),
+    );
+  }
+}
+
+/// « Supprimer la note « {nom} » ? » — Annuler / Supprimer (destructif).
+/// Le DELETE est fait ici : succès → toast « Note supprimée » et fermeture
+/// (`true`) ; erreur → toast, le dialog reste ouvert (comme le web).
+class _DeleteNoteDialog extends ConsumerStatefulWidget {
+  const _DeleteNoteDialog({required this.note});
+
+  final ProductNote note;
+
+  @override
+  ConsumerState<_DeleteNoteDialog> createState() => _DeleteNoteDialogState();
+}
+
+class _DeleteNoteDialogState extends ConsumerState<_DeleteNoteDialog> {
+  bool _deleting = false;
+
+  Future<void> _delete() async {
+    setState(() => _deleting = true);
+    try {
+      await ref.read(productNotesProvider.notifier).delete(widget.note.id);
+      if (!mounted) return;
+      _toast(context, 'Note supprimée');
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (mounted) _toast(context, catalogErrorMessage(e, 'Erreur'));
+    } finally {
+      if (mounted) setState(() => _deleting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Supprimer la note « ${widget.note.nom} » ?'),
+      actions: [
+        TextButton(onPressed: _deleting ? null : () => Navigator.of(context).pop(false), child: const Text('Annuler')),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+          onPressed: _deleting ? null : _delete,
+          child: const Text('Supprimer'),
+        ),
       ],
     );
   }

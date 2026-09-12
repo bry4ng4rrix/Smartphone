@@ -246,7 +246,9 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
       if (!mounted) return;
       _stopPolling();
       _snack('Mot de passe défini avec succès. Vous pouvez vous connecter.');
-      context.go('/login');
+      // `router.push('/login')` — avec l'email pré-rempli (`?email=` de la
+      // page de login web), puisqu'il vient d'être validé par le serveur.
+      context.go('/login?email=${Uri.encodeQueryComponent(_emailCtrl.text.trim())}');
     } catch (e) {
       _snack(_errorMessage(e, 'Erreur lors de la définition du mot de passe'), error: true);
     } finally {

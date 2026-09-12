@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/api_client.dart';
@@ -23,8 +24,9 @@ final realtimeTickProvider = NotifierProvider<RealtimeTickNotifier, int>(Realtim
 /// Établit/ferme la connexion WebSocket en fonction de l'état d'auth, et
 /// relaie chaque message vers [realtimeTickProvider]. À instancier une seule
 /// fois à la racine de l'app (voir `main.dart`).
-class RealtimeBootstrap {
+class RealtimeBootstrap with WidgetsBindingObserver {
   RealtimeBootstrap(this.ref) {
+    WidgetsBinding.instance.addObserver(this);
     ref.listen(authProvider, (previous, next) {
       if (next.status == AuthStatus.authenticated && previous?.status != AuthStatus.authenticated) {
         _connect();
@@ -49,7 +51,20 @@ class RealtimeBootstrap {
     });
   }
 
+  /// Retour au premier plan : la connexion est rouverte sans délai si le
+  /// système l'a coupée en arrière-plan, et les données temps réel
+  /// (notifications, messages non lus, commandes) sont relues — les
+  /// événements manqués pendant la coupure n'ont pas pu être poussés.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    if (ref.read(authProvider).status != AuthStatus.authenticated) return;
+    NotificationsSocketService.instance.ensureConnected();
+    ref.read(realtimeTickProvider.notifier).bump();
+  }
+
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _sub?.cancel();
     NotificationsSocketService.instance.disconnect();
   }

@@ -42,8 +42,10 @@ const _green600 = Color(0xFF16A34A); // toast de succès
 /// L'utilisateur choisit lui-même son type de compte (Admin / Manager /
 /// Employé) et le formulaire change de champs en conséquence. Aucune
 /// connexion automatique, aucun token stocké : le compte part en attente
-/// d'approbation (`is_confirmed=False`) — sauf `admin`, confirmé d'office par
-/// le serializer Django — et l'écran renvoie vers `/pending-approval`.
+/// d'approbation (`is_confirmed=False`) et l'écran renvoie vers
+/// `/pending-approval` — sauf `admin`, confirmé d'office par le serializer
+/// Django, qui est renvoyé directement vers la connexion (email pré-rempli),
+/// conformément à la règle métier cachée n°1 de la doc de migration.
 ///
 /// Fidélité au web assumée sur deux points « bizarres » :
 /// - l'email du compte n'est JAMAIS validé côté client (ni présence ni
@@ -155,12 +157,20 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       if (!mounted) return;
       _toast(_type.successMessage, isError: false);
       // Web : `router.push('/auth/pending-approval')`. Le formulaire n'est
-      // volontairement PAS réinitialisé et aucun token n'est posé.
-      context.go('/pending-approval');
+      // volontairement PAS réinitialisé et aucun token n'est posé. L'email
+      // est transmis en paramètre pour pré-remplir la connexion (`?email=`
+      // de la page de login web) — et l'admin, confirmé d'office par le
+      // serializer, va directement s'y connecter (voir
+      // `RegisterAccountTypeX.successMessage`).
+      final email = Uri.encodeQueryComponent(_emailController.text.trim());
+      context.go(_type.isAutoConfirmed ? '/login?email=$email' : '/pending-approval?email=$email');
     } catch (e) {
       if (!mounted) return;
       // On reste sur le formulaire, les valeurs saisies sont conservées.
-      _toast(_friendlyError(ApiClient.messageFromError(e)), isError: true);
+      // Web : `error instanceof Error ? error.message : 'Erreur lors de
+      // l'inscription'`.
+      final raw = ApiClient.messageFromError(e).trim();
+      _toast(_friendlyError(raw.isEmpty ? "Erreur lors de l'inscription" : raw), isError: true);
     } finally {
       if (mounted) setState(() => _loading = false);
     }

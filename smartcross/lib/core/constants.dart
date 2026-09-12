@@ -122,7 +122,9 @@ extension PaymentModeX on PaymentMode {
 
   String get apiValue => this == PaymentMode.avant ? 'AVANT' : 'LIVRAISON';
 
-  String get label => this == PaymentMode.avant ? 'Paiement avant la livraison' : 'Paiement à la livraison';
+  /// Libellés de `MODE_PAIEMENT` du web (create-order-dialog.tsx), repris
+  /// partout : « Payé » (payé d'avance) / « Paiement à la livraison ».
+  String get label => this == PaymentMode.avant ? 'Payé' : 'Paiement à la livraison';
 }
 
 enum StockMovementType { entree, sortie }

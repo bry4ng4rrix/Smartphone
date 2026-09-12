@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Notifications système (messages privés, commandes…) : permission
+         d'exécution sur Android 13+ (demandée après connexion), vibration. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
+    <!-- Connexion temps réel (WebSocket) et API. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="smartcross"
         android:name="${applicationName}"

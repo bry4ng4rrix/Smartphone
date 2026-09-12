@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 /// Connexion WebSocket authentifiée par token en query string, avec
@@ -32,7 +33,12 @@ abstract class WsManager {
     Uri? uri;
     try {
       uri = await builder();
-      final channel = WebSocketChannel.connect(uri);
+      // Ping toutes les 30 s (mobile) : une connexion tuée en silence par le
+      // système (appli en arrière-plan, changement de réseau) est détectée
+      // et rouverte, au lieu de rester « connectée » sans plus rien recevoir.
+      final WebSocketChannel channel = kIsWeb
+          ? WebSocketChannel.connect(uri)
+          : IOWebSocketChannel.connect(uri, pingInterval: const Duration(seconds: 30));
       await channel.ready;
       _channel = channel;
       onStatusChange(true);
@@ -74,6 +80,14 @@ abstract class WsManager {
   /// Envoie une trame texte brute sur la connexion active (no-op si fermée).
   void send(String data) {
     _channel?.sink.add(data);
+  }
+
+  /// Rouvre immédiatement la connexion si elle est tombée (retour de
+  /// l'application au premier plan) — sans attendre le délai de reconnexion.
+  void ensureConnected() {
+    if (_closedByUser || _buildUri == null || _connecting || isConnected) return;
+    _reconnectTimer?.cancel();
+    _doConnect();
   }
 
   void disconnect() {

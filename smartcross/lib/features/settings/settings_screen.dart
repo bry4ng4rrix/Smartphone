@@ -1,63 +1,260 @@
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/api_client.dart';
-import '../../core/constants.dart';
+import '../../core/permissions.dart';
 import '../../data/repositories/auth_repository.dart';
-import '../../models/catalog.dart';
+import '../../models/delivery_zone.dart';
+import '../../models/json_utils.dart';
+import '../../models/user.dart';
 import '../../state/auth_provider.dart';
-import '../../state/catalog_provider.dart';
+import '../../state/expenses_provider.dart';
+import '../../state/orders_provider.dart';
+import '../../widgets/order_confirm_dialog.dart' show arFmt;
+import 'expense_types_crud.dart';
 
-/// Marques courantes malgaches/internationales — même liste que le web
-/// (`app/(app)/settings/page.tsx`), pour ajouter une marque en un clic
-/// plutôt que de retaper son nom depuis le module Catalogue.
-const _kSuggestedBrands = [
-  'Samsung',
-  'iPhone',
-  'Huawei',
-  'Redmi',
-  'Xiaomi',
-  'Tecno',
-  'Infinix',
-  'Itel',
-  'Oppo',
-  'Realme',
-  'Google Pixel',
-  'Poco',
-  'Vivo',
-  'Honor',
-];
-
-/// Profil et sécurité du compte connecté — infrastructure conservée du
-/// backend générique (indépendante du cahier des charges Smartphone.Mg).
-class SettingsScreen extends ConsumerStatefulWidget {
+/// Page « Paramètres » — réplique de `/settings` (app/(app)/settings/page.tsx).
+///
+/// Quatre onglets au plus : « Mon profil » et « Sécurité » (toujours),
+/// « Dépenses » et « Zones de livraison » (gérant uniquement). Aucun écran
+/// 403 : un non-gérant (préparateur / livreur) voit la page dégradée en
+/// lecture seule — champs désactivés, bouton Enregistrer et formulaire de
+/// mot de passe non rendus, textes explicatifs dans les descriptions — et le
+/// serveur ré-applique la règle (PATCH /users/me/ et /users/change-password/
+/// répondent 403 hors admin/magasin, écriture zones/catégories = IsGerant).
+///
+/// L'onglet actif n'est pas persisté (ni URL, ni stockage), comme sur le web.
+class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
   @override
-  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final auth = ref.watch(authProvider);
+    final user = auth.user;
+
+    // `if (userLoading)` du web : 3 blocs squelette, pas de spinner.
+    if (user == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Paramètres')),
+        body: const _SkeletonList(),
+      );
+    }
+
+    final isGerant = user.isGerant;
+    final tabs = <Widget>[
+      const _IconTab(icon: Icons.person_outline, label: 'Mon profil'),
+      const _IconTab(icon: Icons.lock_outline, label: 'Sécurité'),
+      if (isGerant) const _IconTab(icon: Icons.account_balance_wallet_outlined, label: 'Dépenses'),
+      if (isGerant) const _IconTab(icon: Icons.location_on_outlined, label: 'Zones de livraison'),
+    ];
+    final views = <Widget>[
+      const _ProfileTab(),
+      const _SecurityTab(),
+      if (isGerant) const _DepensesTab(),
+      if (isGerant) const _ZonesTab(),
+    ];
+
+    return DefaultTabController(
+      // Le nombre d'onglets dépend du rôle : un changement de compte sur le
+      // même appareil recrée le contrôleur.
+      key: ValueKey(isGerant),
+      length: tabs.length,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Paramètres'),
+              Text(
+                'Gérez votre profil et vos préférences',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+              ),
+            ],
+          ),
+          bottom: TabBar(isScrollable: true, tabAlignment: TabAlignment.start, tabs: tabs),
+        ),
+        body: TabBarView(children: views),
+      ),
+    );
+  }
 }
 
-class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+/// Onglet icône + libellé (`<TabsTrigger><Icon/>Libellé</TabsTrigger>`).
+class _IconTab extends StatelessWidget {
+  const _IconTab({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tab(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [Icon(icon, size: 18), const SizedBox(width: 6), Text(label)],
+      ),
+    );
+  }
+}
+
+/// `<Skeleton className="h-24 w-full" />` × 3.
+class _SkeletonList extends StatelessWidget {
+  const _SkeletonList();
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.surfaceContainerHighest;
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        for (var i = 0; i < 3; i++)
+          Container(
+            height: 96,
+            margin: const EdgeInsets.only(bottom: 16),
+            decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(12)),
+          ),
+      ],
+    );
+  }
+}
+
+/// `roleLabel` du web : libellé FR du rôle Django brut, repli sur la valeur
+/// brute.
+String _roleLabel(AppUser user) {
+  switch (user.rawRole) {
+    case 'admin':
+      return 'Administrateur';
+    case 'magasin':
+      return 'Gérant de magasin';
+    case 'employer':
+      return 'Commercial';
+    default:
+      return user.rawRole ?? '';
+  }
+}
+
+/// Sélecteur d'image (`<input type="file" accept="image/*">`) : galerie ou
+/// appareil photo.
+Future<XFile?> _pickImage(BuildContext context) async {
+  final source = await showModalBottomSheet<ImageSource>(
+    context: context,
+    builder: (sheetContext) => SafeArea(
+      child: Wrap(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.photo_library_outlined),
+            title: const Text('Choisir dans la galerie'),
+            onTap: () => Navigator.of(sheetContext).pop(ImageSource.gallery),
+          ),
+          ListTile(
+            leading: const Icon(Icons.photo_camera_outlined),
+            title: const Text('Prendre une photo'),
+            onTap: () => Navigator.of(sheetContext).pop(ImageSource.camera),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (source == null) return null;
+  return ImagePicker().pickImage(source: source, imageQuality: 85, maxWidth: 1600);
+}
+
+// =============================================================================
+// Société / magasin — nom + logo (`handleUpdateDetails` du web)
+// =============================================================================
+
+/// Bloc édité par le Dialog « Modifier l'entreprise » / « Modifier le
+/// magasin » : `company_name` + `logo` pour un admin, `shop_name` +
+/// `shop_logo` pour un gérant de magasin (users/views.py::Myprofile.patch).
+enum _CompanyKind { entreprise, magasin }
+
+extension _CompanyKindX on _CompanyKind {
+  String get dialogTitle => this == _CompanyKind.entreprise ? "Modifier l'entreprise" : 'Modifier le magasin';
+  String get dialogDescription => this == _CompanyKind.entreprise
+      ? 'Mettez à jour le nom et le logo de votre entreprise'
+      : 'Mettez à jour le nom et le logo de votre magasin';
+  String get nameLabel => this == _CompanyKind.entreprise ? "Nom de l'entreprise" : 'Nom du magasin';
+  String get logoLabel => this == _CompanyKind.entreprise ? "Logo de l'entreprise" : 'Logo du magasin';
+  String get nameField => this == _CompanyKind.entreprise ? 'company_name' : 'shop_name';
+  String get logoField => this == _CompanyKind.entreprise ? 'logo' : 'shop_logo';
+}
+
+/// Champs de `GET /users/me/` que le modèle [AppUser] ne porte pas
+/// (`company_name`, `logo`, `shop_logo`) — nécessaires au bloc
+/// « Entreprise » et au Dialog de modification.
+class _ProfileDetails {
+  const _ProfileDetails({this.companyName, this.logo, this.shopName, this.shopLogo});
+
+  final String? companyName;
+  final String? logo;
+  final String? shopName;
+  final String? shopLogo;
+
+  factory _ProfileDetails.fromJson(Map<String, dynamic> json) => _ProfileDetails(
+    companyName: asStringOrNull(json['company_name']),
+    logo: asStringOrNull(json['logo']),
+    shopName: asStringOrNull(json['shop_name']),
+    shopLogo: asStringOrNull(json['shop_logo']),
+  );
+}
+
+/// Accès `/users/me/` propres à cette page — le portage ne pouvant créer que
+/// les fichiers listés, ils étendent [AuthRepository] ici, sur le même
+/// client HTTP.
+extension _SettingsAuthRepository on AuthRepository {
+  Future<_ProfileDetails> profileDetails() async {
+    final response = await ApiClient.instance.dio.get('users/me/');
+    return _ProfileDetails.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  /// `djangoClient.patchFormData('/users/me/', formData)` : nom + logo
+  /// facultatif, en multipart.
+  Future<void> updateCompanyDetails({required _CompanyKind kind, required String name, String? logoPath}) async {
+    final formData = FormData.fromMap({
+      kind.nameField: name,
+      if (logoPath != null) kind.logoField: await MultipartFile.fromFile(logoPath),
+    });
+    await ApiClient.instance.dio.patch('users/me/', data: formData);
+  }
+}
+
+final _profileDetailsProvider = FutureProvider.autoDispose<_ProfileDetails>((ref) {
+  ref.watch(authProvider.select((a) => a.user?.id));
+  return ref.read(authRepositoryProvider).profileDetails();
+});
+
+// =============================================================================
+// Onglet « Mon profil »
+// =============================================================================
+
+class _ProfileTab extends ConsumerStatefulWidget {
+  const _ProfileTab();
+
+  @override
+  ConsumerState<_ProfileTab> createState() => _ProfileTabState();
+}
+
+class _ProfileTabState extends ConsumerState<_ProfileTab> with AutomaticKeepAliveClientMixin {
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _adresseController = TextEditingController();
-  XFile? _photoFile;
-  bool _savingProfile = false;
-  String? _profileError;
+  XFile? _avatarFile;
+  bool _saving = false;
 
-  final _oldPwController = TextEditingController();
-  final _newPwController = TextEditingController();
-  final _confirmPwController = TextEditingController();
-  bool _savingPassword = false;
-  String? _passwordError;
-  String? _passwordSuccess;
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
     super.initState();
+    // `useEffect(() => { setFullName(user.full_name || '') … }, [user])`.
     final user = ref.read(authProvider).user;
     _nameController.text = user?.fullName ?? '';
     _phoneController.text = user?.phone ?? '';
@@ -69,92 +266,80 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _nameController.dispose();
     _phoneController.dispose();
     _adresseController.dispose();
-    _oldPwController.dispose();
-    _newPwController.dispose();
-    _confirmPwController.dispose();
     super.dispose();
   }
 
-  Future<void> _pickPhoto() async {
-    final file = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 85,
-    );
-    if (file != null) setState(() => _photoFile = file);
+  Future<void> _pickAvatar() async {
+    final file = await _pickImage(context);
+    if (file != null && mounted) setState(() => _avatarFile = file);
   }
 
-  Future<void> _saveProfile() async {
-    setState(() {
-      _savingProfile = true;
-      _profileError = null;
-    });
+  /// `handleUpdateProfile` : PATCH JSON {full_name, phone, adresse} puis, si
+  /// une photo a été choisie, second PATCH multipart {photo}. Aucune
+  /// validation client. Le formulaire n'est pas réinitialisé.
+  Future<void> _save() async {
+    setState(() => _saving = true);
     try {
-      await AuthRepository().updateProfile(
-        fullName: _nameController.text.trim(),
-        phone: _phoneController.text.trim(),
-        adresse: _adresseController.text.trim(),
+      final repo = ref.read(authRepositoryProvider);
+      await repo.updateProfile(
+        fullName: _nameController.text,
+        phone: _phoneController.text,
+        adresse: _adresseController.text,
       );
-      if (_photoFile != null) {
-        await AuthRepository().uploadProfilePhoto(_photoFile!.path);
-        _photoFile = null;
+      final avatar = _avatarFile;
+      if (avatar != null) {
+        await repo.uploadProfilePhoto(avatar.path);
+        if (mounted) setState(() => _avatarFile = null);
       }
+      // Le web garde l'aperçu local ; l'app recharge l'utilisateur pour que
+      // la barre du haut et l'aperçu reflètent la photo enregistrée.
       await ref.read(authProvider.notifier).refreshUser();
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Profil mis à jour')));
+      if (mounted) crudToast(context, 'Profil mis à jour');
     } catch (e) {
-      setState(() => _profileError = ApiClient.messageFromError(e));
+      if (mounted) crudToast(context, crudErrorMessage(e, 'Erreur lors de la mise à jour'));
     } finally {
-      if (mounted) setState(() => _savingProfile = false);
+      if (mounted) setState(() => _saving = false);
     }
   }
 
-  Future<void> _changePassword() async {
-    final user = ref.read(authProvider).user;
-    if (user?.role != UserRole.gerant) {
-      setState(
-        () => _passwordError = 'Seul le gérant peut modifier le mot de passe.',
-      );
-      return;
-    }
-    if (_newPwController.text.length < 6) {
-      setState(() => _passwordError = '6 caractères minimum');
-      return;
-    }
-    if (_newPwController.text != _confirmPwController.text) {
-      setState(() => _passwordError = 'Les mots de passe ne correspondent pas');
-      return;
-    }
-    setState(() {
-      _savingPassword = true;
-      _passwordError = null;
-      _passwordSuccess = null;
-    });
-    try {
-      await AuthRepository().changePassword(
-        oldPassword: _oldPwController.text,
-        newPassword: _newPwController.text,
-      );
-      _oldPwController.clear();
-      _newPwController.clear();
-      _confirmPwController.clear();
-      setState(() => _passwordSuccess = 'Mot de passe changé avec succès');
-    } catch (e) {
-      setState(() => _passwordError = ApiClient.messageFromError(e));
-    } finally {
-      if (mounted) setState(() => _savingPassword = false);
-    }
+  Future<void> _openCompanyDialog(_CompanyKind kind, String initialName) async {
+    final updated = await showDialog<bool>(
+      context: context,
+      builder: (_) => _CompanyDetailsDialog(kind: kind, initialName: initialName),
+    );
+    if (updated != true || !mounted) return;
+    crudToast(context, 'Informations mises à jour avec succès');
+    // `window.location.reload()` du web : on recharge l'utilisateur courant
+    // et les détails société/magasin.
+    ref.invalidate(_profileDetailsProvider);
+    await ref.read(authProvider.notifier).refreshUser();
+  }
+
+  Future<void> _refresh() async {
+    ref.invalidate(_profileDetailsProvider);
+    await ref.read(authProvider.notifier).refreshUser();
   }
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final user = ref.watch(authProvider).user;
-    final isGerant = user?.role == UserRole.gerant;
+    if (user == null) return const _SkeletonList();
+    final isGerant = user.isGerant;
+    final details = ref.watch(_profileDetailsProvider).value;
+    final companyName = details?.companyName ?? '';
+    final shopName = user.shopName ?? details?.shopName ?? '';
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Paramètres')),
-      body: ListView(
+    final avatar = _avatarFile;
+    final ImageProvider? avatarImage = avatar != null
+        ? FileImage(File(avatar.path))
+        : (user.photo != null && user.photo!.isNotEmpty ? NetworkImage(user.photo!) : null);
+
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           Card(
@@ -163,97 +348,122 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Text('Informations personnelles', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 4),
                   Text(
-                    'Mon profil',
-                    style: Theme.of(context).textTheme.titleMedium,
+                    isGerant
+                        ? 'Mettez à jour vos informations'
+                        : 'Seul le gérant peut modifier ces informations. Contactez votre gérant pour toute correction.',
+                    style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
+                  Text('Photo de profil', style: theme.textTheme.labelLarge),
+                  const SizedBox(height: 8),
                   Row(
                     children: [
-                      CircleAvatar(
-                        radius: 32,
-                        backgroundImage: _photoFile != null
-                            ? FileImage(File(_photoFile!.path))
-                            : (user?.photo != null
-                                      ? NetworkImage(user!.photo!)
-                                      : null)
-                                  as ImageProvider?,
-                        child: (_photoFile == null && user?.photo == null)
-                            ? Text(
-                                user?.fullName.isNotEmpty == true
-                                    ? user!.fullName[0].toUpperCase()
-                                    : '?',
-                              )
-                            : null,
+                      Container(
+                        width: 64,
+                        height: 64,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: scheme.surfaceContainerHighest,
+                          border: Border.all(color: scheme.outlineVariant),
+                          image: avatarImage == null ? null : DecorationImage(image: avatarImage, fit: BoxFit.cover),
+                        ),
+                        child: avatarImage == null ? Icon(Icons.person_outline, color: scheme.onSurfaceVariant) : null,
                       ),
                       const SizedBox(width: 16),
-                      if (isGerant)
-                        OutlinedButton.icon(
-                          onPressed: _pickPhoto,
-                          icon: const Icon(Icons.photo_outlined, size: 18),
-                          label: const Text('Changer la photo'),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: isGerant ? _pickAvatar : null,
+                              icon: const Icon(Icons.upload_file_outlined, size: 18),
+                              label: const Text('Choisir une image'),
+                            ),
+                            if (avatar != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  avatar.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                                ),
+                              ),
+                          ],
                         ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 16),
-                  if (!isGerant) ...[
-                    Text(
-                      'Seul le gérant peut modifier ces informations. Contactez votre gérant pour toute correction.',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                  ],
-                  TextField(
-                    controller: TextEditingController(text: user?.email),
-                    decoration: const InputDecoration(labelText: 'Email'),
+                  TextFormField(
+                    key: ValueKey('email-${user.email}'),
+                    initialValue: user.email,
                     enabled: false,
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    decoration: InputDecoration(labelText: 'Rôle'),
-                    controller: TextEditingController(
-                      text: user?.role.label ?? '',
+                    decoration: const InputDecoration(
+                      labelText: 'Email',
+                      helperText: "L'email ne peut pas être modifié",
                     ),
-                    enabled: false,
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 16),
+                  Text('Rôle', style: theme.textTheme.labelLarge),
+                  const SizedBox(height: 6),
+                  Align(alignment: Alignment.centerLeft, child: _OutlineBadge(_roleLabel(user))),
+                  const SizedBox(height: 16),
                   TextField(
                     controller: _nameController,
                     enabled: isGerant,
-                    decoration: const InputDecoration(labelText: 'Nom complet'),
+                    textCapitalization: TextCapitalization.words,
+                    decoration: const InputDecoration(labelText: 'Nom complet', hintText: 'Votre nom'),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 12),
                   TextField(
                     controller: _phoneController,
                     enabled: isGerant,
-                    decoration: const InputDecoration(labelText: 'Téléphone'),
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(labelText: 'Téléphone', hintText: '+261 XX XXX XX XX'),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 12),
                   TextField(
                     controller: _adresseController,
                     enabled: isGerant,
-                    decoration: const InputDecoration(labelText: 'Adresse'),
+                    decoration: const InputDecoration(
+                      labelText: 'Adresse',
+                      hintText: 'Ex: Lot II A 45, Antanimena, Antananarivo',
+                    ),
                   ),
-                  if (_profileError != null) ...[
+                  if (user.isMagasin && shopName.isNotEmpty) ...[
+                    const Divider(height: 32),
+                    Text('Magasin', style: theme.textTheme.labelLarge),
                     const SizedBox(height: 8),
-                    Text(
-                      _profileError!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
+                    _CompanyBlock(name: shopName, onEdit: () => _openCompanyDialog(_CompanyKind.magasin, shopName)),
+                  ],
+                  if (user.isAdmin && companyName.isNotEmpty) ...[
+                    const Divider(height: 32),
+                    Text('Entreprise', style: theme.textTheme.labelLarge),
+                    const SizedBox(height: 8),
+                    _CompanyBlock(
+                      name: companyName,
+                      // Le serveur n'applique le nom/logo société qu'au
+                      // propriétaire (AdminProfile) : un co-administrateur
+                      // partage les données, pas cette action de propriété.
+                      onEdit: user.canManageCompany
+                          ? () => _openCompanyDialog(_CompanyKind.entreprise, companyName)
+                          : null,
+                      lockedHint: user.canManageCompany
+                          ? null
+                          : 'Seul le propriétaire de la société peut modifier ces informations.',
                     ),
                   ],
                   if (isGerant) ...[
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 20),
                     Align(
                       alignment: Alignment.centerRight,
                       child: FilledButton(
-                        onPressed: _savingProfile ? null : _saveProfile,
-                        child: Text(
-                          _savingProfile ? 'Enregistrement…' : 'Enregistrer',
-                        ),
+                        onPressed: _saving ? null : _save,
+                        child: Text(_saving ? 'Enregistrement...' : 'Enregistrer'),
                       ),
                     ),
                   ],
@@ -261,88 +471,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 16),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Changer le mot de passe',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 12),
-                  if (!isGerant)
-                    Text(
-                      'Seul le gérant peut modifier le mot de passe. Contactez votre gérant.',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    )
-                  else ...[
-                    TextField(
-                      controller: _oldPwController,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Mot de passe actuel',
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: _newPwController,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Nouveau mot de passe',
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: _confirmPwController,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Confirmer le nouveau mot de passe',
-                      ),
-                    ),
-                    if (_passwordError != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        _passwordError!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
-                    ],
-                    if (_passwordSuccess != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        _passwordSuccess!,
-                        style: const TextStyle(color: Colors.green),
-                      ),
-                    ],
-                    const SizedBox(height: 12),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: FilledButton(
-                        onPressed: _savingPassword ? null : _changePassword,
-                        child: Text(
-                          _savingPassword ? 'Enregistrement…' : 'Changer',
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          if (user?.role == UserRole.gerant) ...[
-            const SizedBox(height: 16),
-            const _CatalogueBrandsCard(),
-            const SizedBox(height: 16),
-            const _CatalogueTypesCard(),
-            const SizedBox(height: 16),
-            const _CatalogueColorsCard(),
-          ],
           const SizedBox(height: 16),
           Card(
             child: ListTile(
@@ -357,687 +485,576 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 }
 
-/// Onglet "Catalogue" (gérant uniquement) : ajout rapide d'une marque
-/// courante en un clic, en plus du CRUD complet déjà disponible dans le
-/// module Produits (`ManageBrandsDialog`/`BrandsNotifier`).
-class _CatalogueBrandsCard extends ConsumerStatefulWidget {
-  const _CatalogueBrandsCard();
+/// `<Badge variant="outline">` (rôle).
+class _OutlineBadge extends StatelessWidget {
+  const _OutlineBadge(this.label);
 
-  @override
-  ConsumerState<_CatalogueBrandsCard> createState() =>
-      _CatalogueBrandsCardState();
-}
-
-class _CatalogueBrandsCardState extends ConsumerState<_CatalogueBrandsCard> {
-  String? _adding;
-
-  Future<void> _addBrand(String nom) async {
-    setState(() => _adding = nom);
-    try {
-      await ref.read(brandsProvider.notifier).create(nom);
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Marque "$nom" ajoutée')));
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
-    } finally {
-      if (mounted) setState(() => _adding = null);
-    }
-  }
-
-  Future<void> _rename(Brand b) async {
-    final controller = TextEditingController(text: b.nom);
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Renommer la marque'),
-        content: TextField(controller: controller, autofocus: true),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('Enregistrer'),
-          ),
-        ],
-      ),
-    );
-    if (name == null || name.isEmpty || name == b.nom) return;
-    try {
-      await ref.read(brandsProvider.notifier).rename(b.id, name);
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
-    }
-  }
-
-  Future<void> _delete(Brand b) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Supprimer la marque'),
-        content: Text(
-          'Supprimer "${b.nom}" ? Impossible si des références l\'utilisent déjà.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-            child: const Text('Supprimer'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    try {
-      await ref.read(brandsProvider.notifier).delete(b.id);
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
-    }
-  }
+  final String label;
 
   @override
   Widget build(BuildContext context) {
-    final brands = ref.watch(brandsProvider).value ?? [];
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      decoration: BoxDecoration(
+        border: Border.all(color: scheme.outline),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+    );
+  }
+}
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Marques', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 4),
-            Text(
-              'Ajoutez une marque courante en un clic, ou gérez la liste complète ci-dessous.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final nom in _kSuggestedBrands)
-                  _BrandChip(
-                    nom: nom,
-                    already: brands.any(
-                      (b) => b.nom.toLowerCase() == nom.toLowerCase(),
-                    ),
-                    loading: _adding == nom,
-                    onTap: () => _addBrand(nom),
-                  ),
-              ],
-            ),
-            const Divider(height: 24),
-            Text(
-              'Toutes les marques (${brands.length})',
-              style: Theme.of(context).textTheme.labelLarge,
-            ),
-            for (final b in brands)
-              ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: Text(b.nom),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.edit_outlined, size: 18),
-                      onPressed: () => _rename(b),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline, size: 18),
-                      onPressed: () => _delete(b),
-                    ),
-                  ],
-                ),
+/// Encadré « Magasin » / « Entreprise » : icône Building2 + nom en gras +
+/// bouton « Modifier » (outline, small).
+class _CompanyBlock extends StatelessWidget {
+  const _CompanyBlock({required this.name, required this.onEdit, this.lockedHint});
+
+  final String name;
+  final VoidCallback? onEdit;
+  final String? lockedHint;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        border: Border.all(color: scheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.business_outlined, size: 16, color: scheme.onSurfaceVariant),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
               ),
-          ],
-        ),
+              if (onEdit != null) ...[
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: onEdit,
+                  style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
+                  child: const Text('Modifier'),
+                ),
+              ],
+            ],
+          ),
+          if (lockedHint != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(lockedHint!, style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+            ),
+        ],
       ),
     );
   }
 }
 
-class _BrandChip extends StatelessWidget {
-  const _BrandChip({
-    required this.nom,
-    required this.already,
-    required this.loading,
-    required this.onTap,
-  });
-  final String nom;
-  final bool already;
-  final bool loading;
-  final VoidCallback onTap;
+/// Dialog « Modifier l'entreprise » / « Modifier le magasin » : nom (requis)
+/// + logo facultatif avec aperçu 80×80 après sélection. Renvoie `true`
+/// après enregistrement.
+class _CompanyDetailsDialog extends ConsumerStatefulWidget {
+  const _CompanyDetailsDialog({required this.kind, required this.initialName});
+
+  final _CompanyKind kind;
+  final String initialName;
 
   @override
-  Widget build(BuildContext context) {
-    return ActionChip(
-      avatar: already
-          ? const Icon(Icons.check, size: 16)
-          : (loading
-                ? const SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.add, size: 16)),
-      label: Text(nom),
-      onPressed: already || loading ? null : onTap,
-    );
-  }
+  ConsumerState<_CompanyDetailsDialog> createState() => _CompanyDetailsDialogState();
 }
 
-/// CRUD des sous-types (le niveau entre la catégorie — ex. Housse, Cache
-/// écran — et la marque, ex. Flip cover, Privacy, Chargeur, Écouteur).
-/// Reflète le catalogue réellement en base (`catalog/categories`/`types`) —
-/// mêmes endpoints que le module Produits → Configuration, dupliqué ici
-/// pour un accès rapide depuis Paramètres (parité avec le web).
-class _CatalogueTypesCard extends ConsumerStatefulWidget {
-  const _CatalogueTypesCard();
-
-  @override
-  ConsumerState<_CatalogueTypesCard> createState() =>
-      _CatalogueTypesCardState();
-}
-
-class _CatalogueTypesCardState extends ConsumerState<_CatalogueTypesCard> {
-  final _newCategoryController = TextEditingController();
-  final Map<int, TextEditingController> _newTypeControllers = {};
+class _CompanyDetailsDialogState extends ConsumerState<_CompanyDetailsDialog> {
+  late final _nameController = TextEditingController(text: widget.initialName);
+  XFile? _logoFile;
+  bool _saving = false;
 
   @override
   void dispose() {
-    _newCategoryController.dispose();
-    for (final c in _newTypeControllers.values) {
-      c.dispose();
-    }
+    _nameController.dispose();
     super.dispose();
   }
 
-  TextEditingController _controllerFor(int categoryId) {
-    return _newTypeControllers.putIfAbsent(
-      categoryId,
-      () => TextEditingController(),
-    );
+  Future<void> _pickLogo() async {
+    final file = await _pickImage(context);
+    if (file != null && mounted) setState(() => _logoFile = file);
   }
 
-  Future<void> _renameCategory(ProductCategory c) async {
-    final controller = TextEditingController(text: c.nom);
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Renommer la catégorie'),
-        content: TextField(controller: controller, autofocus: true),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('Enregistrer'),
-          ),
-        ],
-      ),
-    );
-    if (name == null || name.isEmpty || name == c.nom) return;
-    try {
-      await ref.read(categoriesProvider.notifier).rename(c.id, name);
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+  Future<void> _submit() async {
+    final name = _nameController.text.trim();
+    // Attribut `required` de l'input web.
+    if (name.isEmpty) {
+      crudToast(context, '${widget.kind.nameLabel} : champ requis');
+      return;
     }
-  }
-
-  Future<void> _deleteCategory(ProductCategory c) async {
-    final confirmed = await _confirmDialog(
-      context,
-      'Supprimer la catégorie "${c.nom}" ? Impossible si des sous-types en dépendent.',
-    );
-    if (!confirmed) return;
-    try {
-      await ref.read(categoriesProvider.notifier).delete(c.id);
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
-    }
-  }
-
-  Future<void> _addCategory() async {
-    final name = _newCategoryController.text.trim();
-    if (name.isEmpty) return;
+    setState(() => _saving = true);
     try {
       await ref
-          .read(categoriesProvider.notifier)
-          .create(name, ref.read(categoriesProvider).value?.length ?? 0);
-      _newCategoryController.clear();
+          .read(authRepositoryProvider)
+          .updateCompanyDetails(kind: widget.kind, name: name, logoPath: _logoFile?.path);
+      if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
-    }
-  }
-
-  Future<void> _renameType(ProductType t) async {
-    final controller = TextEditingController(text: t.nom);
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Renommer le sous-type'),
-        content: TextField(controller: controller, autofocus: true),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('Enregistrer'),
-          ),
-        ],
-      ),
-    );
-    if (name == null || name.isEmpty || name == t.nom) return;
-    try {
-      await ref.read(typesProvider.notifier).rename(t.id, name);
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
-    }
-  }
-
-  Future<void> _deleteType(ProductType t) async {
-    final confirmed = await _confirmDialog(
-      context,
-      'Supprimer le sous-type "${t.nom}" ? Impossible si des références en dépendent.',
-    );
-    if (!confirmed) return;
-    try {
-      await ref.read(typesProvider.notifier).delete(t.id);
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
-    }
-  }
-
-  Future<void> _addType(int categoryId) async {
-    final controller = _controllerFor(categoryId);
-    final name = controller.text.trim();
-    if (name.isEmpty) return;
-    try {
-      await ref.read(typesProvider.notifier).create(categoryId, name);
-      controller.clear();
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      if (mounted) {
+        crudToast(context, crudErrorMessage(e, 'Erreur lors de la mise à jour'));
+        setState(() => _saving = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final categories = ref.watch(categoriesProvider).value ?? [];
-    final types = ref.watch(typesProvider).value ?? [];
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final kind = widget.kind;
+    final logo = _logoFile;
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
+    return AlertDialog(
+      title: Text(kind.dialogTitle),
+      content: SingleChildScrollView(
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Sous-types (catégories produit)',
-              style: Theme.of(context).textTheme.titleMedium,
+            Text(kind.dialogDescription, style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _nameController,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              decoration: InputDecoration(labelText: kind.nameLabel, hintText: kind.nameLabel),
             ),
-            const SizedBox(height: 4),
-            Text(
-              'Le niveau entre la catégorie (ex. Housse, Cache écran) et la marque — ex. Flip cover, '
-              'Privacy, Chargeur, Écouteur. Analysé depuis le catalogue actuel : renommez, supprimez ou '
-              'ajoutez-en de nouveaux.',
-              style: Theme.of(context).textTheme.bodySmall,
+            const SizedBox(height: 16),
+            Text(kind.logoLabel, style: theme.textTheme.labelLarge),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _saving ? null : _pickLogo,
+              icon: const Icon(Icons.upload_file_outlined, size: 18),
+              label: Text(logo == null ? 'Choisir une image' : logo.name, overflow: TextOverflow.ellipsis),
             ),
-            const SizedBox(height: 12),
-            for (final c in categories) ...[
-              Container(
-                margin: const EdgeInsets.only(bottom: 10),
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Theme.of(context).dividerColor),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.sell_outlined, size: 16),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            c.nom,
-                            style: Theme.of(context).textTheme.titleSmall,
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.edit_outlined, size: 18),
-                          onPressed: () => _renameCategory(c),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline, size: 18),
-                          onPressed: () => _deleteCategory(c),
-                        ),
-                      ],
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(left: 20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          for (final t in types.where(
-                            (t) => t.categoryId == c.id,
-                          ))
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    t.nom,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.bodySmall,
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.edit_outlined,
-                                    size: 16,
-                                  ),
-                                  onPressed: () => _renameType(t),
-                                ),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.delete_outline,
-                                    size: 16,
-                                  ),
-                                  onPressed: () => _deleteType(t),
-                                ),
-                              ],
-                            ),
-                          if (!types.any((t) => t.categoryId == c.id))
-                            Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Text(
-                                'Aucun sous-type.',
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ),
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: _controllerFor(c.id),
-                                    decoration: const InputDecoration(
-                                      isDense: true,
-                                      hintText:
-                                          'Nouveau sous-type (ex. Chargeur)',
-                                    ),
-                                    onSubmitted: (_) => _addType(c.id),
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.add_circle_outline,
-                                    size: 20,
-                                  ),
-                                  onPressed: () => _addType(c.id),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+            if (logo != null) ...[
+              const SizedBox(height: 12),
+              Center(
+                child: Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: scheme.outlineVariant),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Image.file(File(logo.path), fit: BoxFit.contain),
                 ),
               ),
             ],
-            if (categories.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Text(
-                  'Aucune catégorie.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ),
-            const Divider(height: 20),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _newCategoryController,
-                    decoration: const InputDecoration(
-                      isDense: true,
-                      labelText: 'Nouvelle catégorie (ex. Accessoires)',
-                    ),
-                    onSubmitted: (_) => _addCategory(),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: _addCategory,
-                  child: const Text('Ajouter'),
-                ),
-              ],
-            ),
           ],
         ),
       ),
+      actions: [
+        TextButton(onPressed: _saving ? null : () => Navigator.of(context).pop(false), child: const Text('Annuler')),
+        FilledButton(
+          onPressed: _saving ? null : _submit,
+          child: _saving
+              ? const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                    SizedBox(width: 8),
+                    Text('Enregistrement...'),
+                  ],
+                )
+              : const Text('Enregistrer'),
+        ),
+      ],
     );
   }
 }
 
-Future<bool> _confirmDialog(BuildContext context, String message) async {
-  final result = await showDialog<bool>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('Confirmer'),
-      content: Text(message),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('Annuler'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(true),
-          style: FilledButton.styleFrom(
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-          child: const Text('Supprimer'),
-        ),
-      ],
-    ),
-  );
-  return result ?? false;
-}
+// =============================================================================
+// Onglet « Sécurité »
+// =============================================================================
 
-/// CRUD des couleurs (§8 README) — alimente le Select du module Produits
-/// (création de référence/variante), analysé depuis les couleurs déjà
-/// utilisées dans le catalogue actuel.
-class _CatalogueColorsCard extends ConsumerStatefulWidget {
-  const _CatalogueColorsCard();
+class _SecurityTab extends ConsumerStatefulWidget {
+  const _SecurityTab();
 
   @override
-  ConsumerState<_CatalogueColorsCard> createState() =>
-      _CatalogueColorsCardState();
+  ConsumerState<_SecurityTab> createState() => _SecurityTabState();
 }
 
-class _CatalogueColorsCardState extends ConsumerState<_CatalogueColorsCard> {
-  final _newColorController = TextEditingController();
-  bool _adding = false;
+class _SecurityTabState extends ConsumerState<_SecurityTab> with AutomaticKeepAliveClientMixin {
+  final _oldPwController = TextEditingController();
+  final _newPwController = TextEditingController();
+  final _confirmPwController = TextEditingController();
+  bool _changing = false;
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void dispose() {
-    _newColorController.dispose();
+    _oldPwController.dispose();
+    _newPwController.dispose();
+    _confirmPwController.dispose();
     super.dispose();
   }
 
-  Future<void> _addColor() async {
-    if (_newColorController.text.trim().isEmpty) return;
-    setState(() => _adding = true);
+  /// `handleChangePassword` : correspondance puis longueur ≥ 6, tout en
+  /// toasts (aucun message sous les champs) ; succès = toast + champs vidés,
+  /// sans déconnexion.
+  Future<void> _changePassword() async {
+    final oldPw = _oldPwController.text;
+    final newPw = _newPwController.text;
+    final confirmPw = _confirmPwController.text;
+    // Attributs `required` des trois inputs web.
+    if (oldPw.isEmpty || newPw.isEmpty || confirmPw.isEmpty) {
+      crudToast(context, 'Veuillez remplir tous les champs');
+      return;
+    }
+    if (newPw != confirmPw) {
+      crudToast(context, 'Les mots de passe ne correspondent pas');
+      return;
+    }
+    if (newPw.length < 6) {
+      crudToast(context, 'Le mot de passe doit contenir au moins 6 caractères');
+      return;
+    }
+    setState(() => _changing = true);
     try {
-      await ref
-          .read(colorsProvider.notifier)
-          .create(_newColorController.text.trim());
-      _newColorController.clear();
+      await ref.read(authRepositoryProvider).changePassword(oldPassword: oldPw, newPassword: newPw);
+      if (!mounted) return;
+      crudToast(context, 'Mot de passe changé avec succès');
+      _oldPwController.clear();
+      _newPwController.clear();
+      _confirmPwController.clear();
     } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      if (mounted) crudToast(context, crudErrorMessage(e, 'Erreur lors du changement de mot de passe'));
     } finally {
-      if (mounted) setState(() => _adding = false);
-    }
-  }
-
-  Future<void> _rename(ProductColor c) async {
-    final controller = TextEditingController(text: c.nom);
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Renommer la couleur'),
-        content: TextField(controller: controller, autofocus: true),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('Enregistrer'),
-          ),
-        ],
-      ),
-    );
-    if (name == null || name.isEmpty || name == c.nom) return;
-    try {
-      await ref.read(colorsProvider.notifier).rename(c.id, name);
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
-    }
-  }
-
-  Future<void> _delete(ProductColor c) async {
-    final confirmed = await _confirmDialog(
-      context,
-      'Supprimer la couleur "${c.nom}" ?',
-    );
-    if (!confirmed) return;
-    try {
-      await ref.read(colorsProvider.notifier).delete(c.id);
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      if (mounted) setState(() => _changing = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final colors = ref.watch(colorsProvider).value ?? [];
+    super.build(context);
+    final theme = Theme.of(context);
+    final isGerant = ref.watch(authProvider.select((a) => a.user?.isGerant ?? false));
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Couleurs', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 4),
-            Text(
-              'Liste des couleurs proposées dans le sélecteur de variante (module Produits).',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 12),
-            for (final c in colors)
-              ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: Text(c.nom),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.edit_outlined, size: 18),
-                      onPressed: () => _rename(c),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline, size: 18),
-                      onPressed: () => _delete(c),
-                    ),
-                  ],
-                ),
-              ),
-            if (colors.isEmpty)
-              Text(
-                'Aucune couleur.',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            const Divider(height: 20),
-            Row(
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: TextField(
-                    controller: _newColorController,
-                    decoration: const InputDecoration(
-                      isDense: true,
-                      labelText: 'Nouvelle couleur (ex: Bleu)',
-                    ),
-                    onSubmitted: (_) => _addColor(),
+                Text('Changer le mot de passe', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 4),
+                Text(
+                  isGerant
+                      ? 'Sécurisez votre compte'
+                      : 'Seul le gérant peut modifier le mot de passe. Contactez votre gérant.',
+                  style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                ),
+                // Le formulaire entier n'est rendu que pour un gérant.
+                if (isGerant) ...[
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _oldPwController,
+                    obscureText: true,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    decoration: const InputDecoration(labelText: 'Mot de passe actuel', hintText: '••••••••'),
                   ),
-                ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: _adding ? null : _addColor,
-                  child: const Text('Ajouter'),
-                ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _newPwController,
+                    obscureText: true,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    decoration: const InputDecoration(labelText: 'Nouveau mot de passe', hintText: '••••••••'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _confirmPwController,
+                    obscureText: true,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    decoration: const InputDecoration(labelText: 'Confirmer le mot de passe', hintText: '••••••••'),
+                    onSubmitted: (_) => _changing ? null : _changePassword(),
+                  ),
+                  const SizedBox(height: 20),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: FilledButton(
+                      onPressed: _changing ? null : _changePassword,
+                      child: Text(_changing ? 'Changement...' : 'Changer le mot de passe'),
+                    ),
+                  ),
+                ],
               ],
             ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// =============================================================================
+// Onglet « Dépenses » (gérant)
+// =============================================================================
+
+class _DepensesTab extends ConsumerWidget {
+  const _DepensesTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return RefreshIndicator(
+      onRefresh: () => Future.wait<void>([
+        ref.read(expenseCategoriesCrudProvider.notifier).refresh(),
+        ref.read(expenseTypesProvider.notifier).refresh(),
+      ]),
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: const [ExpenseCategoriesCrudCard(), SizedBox(height: 16), LivreurExpenseTypesCrudCard()],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// Onglet « Zones de livraison » (gérant)
+// =============================================================================
+
+class _ZonesTab extends ConsumerWidget {
+  const _ZonesTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    return RefreshIndicator(
+      onRefresh: () => ref.read(deliveryZonesProvider.notifier).refresh(),
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Zones de livraison', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 4),
+                  Text(
+                    "Zones proposées à la création d'une commande (nom + frais de livraison). "
+                    'Le retrait sur place ("Récupération") reste toujours disponible séparément et n\'est pas géré ici. '
+                    'Ajoutez-en, renommez ou changez le prix selon vos besoins — pensez à garder au moins une zone gratuite (0 Ar).',
+                    style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 16),
+                  const _DeliveryZonesCrudList(),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// `DeliveryZonesCrudList` du web : compteur « Toutes les zones (N) »,
+/// lignes nom (barré si inactive) + badge prix + interrupteur « Zone
+/// active » + crayon + corbeille, édition en place (nom + prix, OK /
+/// Annuler), barre d'ajout (nom + prix + Ajouter).
+class _DeliveryZonesCrudList extends ConsumerStatefulWidget {
+  const _DeliveryZonesCrudList();
+
+  @override
+  ConsumerState<_DeliveryZonesCrudList> createState() => _DeliveryZonesCrudListState();
+}
+
+class _DeliveryZonesCrudListState extends ConsumerState<_DeliveryZonesCrudList> {
+  int? _editingId;
+  final _editingNameController = TextEditingController();
+  final _editingPrixController = TextEditingController();
+  final _newNameController = TextEditingController();
+  final _newPrixController = TextEditingController();
+
+  @override
+  void dispose() {
+    _editingNameController.dispose();
+    _editingPrixController.dispose();
+    _newNameController.dispose();
+    _newPrixController.dispose();
+    super.dispose();
+  }
+
+  DeliveryZonesNotifier get _notifier => ref.read(deliveryZonesProvider.notifier);
+
+  void _startEdit(DeliveryZoneOption z) {
+    setState(() {
+      _editingId = z.id;
+      _editingNameController.text = z.nom;
+      _editingPrixController.text = montantEnSaisie(z.prix);
+    });
+  }
+
+  /// `saveEdit` : nom trimmé non vide sinon abandon silencieux ; prix
+  /// `Number(prix) || 0` ; PATCH {nom, prix} (sans `actif`).
+  Future<void> _saveEdit() async {
+    final id = _editingId;
+    final name = _editingNameController.text.trim();
+    if (id == null || name.isEmpty) return;
+    try {
+      await _notifier.updateZone(id, nom: name, prix: parseMontantOuZero(_editingPrixController.text));
+      if (!mounted) return;
+      crudToast(context, 'Zone mise à jour');
+      setState(() => _editingId = null);
+    } catch (e) {
+      if (mounted) crudToast(context, crudErrorMessage(e, 'Erreur'));
+    }
+  }
+
+  /// `toggleActive` : PATCH {actif: !actif}, rechargement, SANS toast.
+  Future<void> _toggleActive(DeliveryZoneOption z) async {
+    try {
+      await _notifier.toggleActif(z);
+    } catch (e) {
+      if (mounted) crudToast(context, crudErrorMessage(e, 'Erreur'));
+    }
+  }
+
+  /// `removeZone` : DELETE immédiat, sans confirmation. Une zone déjà
+  /// utilisée par des commandes est seulement désactivée par le serveur :
+  /// elle réapparaît alors barrée dans la liste.
+  Future<void> _remove(DeliveryZoneOption z) async {
+    try {
+      final desactivee = await _notifier.delete(z.id);
+      if (!mounted) return;
+      crudToast(context, desactivee == null ? 'Zone supprimée' : 'Zone désactivée (déjà utilisée par des commandes)');
+    } catch (e) {
+      if (mounted) crudToast(context, crudErrorMessage(e, 'Erreur lors de la suppression'));
+    }
+  }
+
+  /// `addZone` : nom trimmé non vide sinon abandon silencieux ; prix
+  /// `Number(prix) || 0` ; les deux champs sont vidés après succès.
+  Future<void> _add() async {
+    final name = _newNameController.text.trim();
+    if (name.isEmpty) return;
+    try {
+      await _notifier.create(nom: name, prix: parseMontantOuZero(_newPrixController.text));
+      if (!mounted) return;
+      crudToast(context, 'Zone ajoutée');
+      _newNameController.clear();
+      _newPrixController.clear();
+    } catch (e) {
+      if (mounted) crudToast(context, crudErrorMessage(e, 'Erreur'));
+    }
+  }
+
+  Widget _prixField(TextEditingController controller, {required VoidCallback onSubmitted}) {
+    return TextField(
+      controller: controller,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      inputFormatters: montantInputFormatters,
+      decoration: const InputDecoration(isDense: true, hintText: 'Prix (Ar)'),
+      textInputAction: TextInputAction.done,
+      onSubmitted: (_) => onSubmitted(),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final async = ref.watch(deliveryZonesProvider);
+    final zones = async.value ?? const <DeliveryZoneOption>[];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Toutes les zones (${zones.length})', style: theme.textTheme.labelLarge),
+        const SizedBox(height: 8),
+        CrudBoundedList(
+          maxHeight: kCrudTypesMaxHeight,
+          async: async,
+          itemCount: zones.length,
+          emptyMessage: 'Aucune zone.',
+          onRetry: () => _notifier.refresh(),
+          itemBuilder: (context, index) {
+            final z = zones[index];
+            if (_editingId == z.id) {
+              return CrudRowFrame(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 4),
+                    TextField(
+                      controller: _editingNameController,
+                      autofocus: true,
+                      decoration: const InputDecoration(isDense: true, hintText: 'Nom de la zone'),
+                      textInputAction: TextInputAction.next,
+                    ),
+                    const SizedBox(height: 8),
+                    _prixField(_editingPrixController, onSubmitted: _saveEdit),
+                    CrudEditActions(onOk: _saveEdit, onCancel: () => setState(() => _editingId = null)),
+                  ],
+                ),
+              );
+            }
+            return CrudRowFrame(
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          z.nom,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: z.actif ? null : theme.colorScheme.onSurfaceVariant,
+                            decoration: z.actif ? null : TextDecoration.lineThrough,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Align(alignment: Alignment.centerLeft, child: CrudPriceBadge(arFmt(z.prix))),
+                      ],
+                    ),
+                  ),
+                  CrudRowActions(
+                    leading: Tooltip(
+                      message: 'Zone active',
+                      child: Switch(value: z.actif, onChanged: (_) => _toggleActive(z)),
+                    ),
+                    onEdit: () => _startEdit(z),
+                    onDelete: () => _remove(z),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _newNameController,
+          decoration: const InputDecoration(isDense: true, hintText: 'Nouvelle zone (ex: Zone 4)'),
+          textInputAction: TextInputAction.next,
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(child: _prixField(_newPrixController, onSubmitted: _add)),
+            const SizedBox(width: 8),
+            FilledButton.icon(onPressed: _add, icon: const Icon(Icons.add, size: 18), label: const Text('Ajouter')),
           ],
         ),
-      ),
+      ],
     );
   }
 }

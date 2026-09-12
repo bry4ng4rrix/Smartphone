@@ -45,17 +45,37 @@ class PendingApprovalScreen extends ConsumerStatefulWidget {
 
 class _PendingApprovalScreenState extends ConsumerState<PendingApprovalScreen> {
   bool _busy = false;
+  bool _loggingOut = false;
+
+  /// Email du compte qui vient de s'inscrire, transmis par l'écran
+  /// d'inscription (`/pending-approval?email=…`) pour pré-remplir la
+  /// connexion (`/login?email=`, fonctionnalité de la page de login web).
+  String? _email;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final email = GoRouterState.of(context).uri.queryParameters['email']?.trim();
+    _email = (email == null || email.isEmpty) ? null : email;
+  }
+
+  /// `/login`, avec l'email pré-rempli quand on le connaît.
+  String get _loginLocation =>
+      _email == null ? '/login' : '/login?email=${Uri.encodeQueryComponent(_email!)}';
 
   void _snack(String message) {
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(SnackBar(content: Text(message)));
+    messenger.showSnackBar(SnackBar(content: Text(message), behavior: SnackBarBehavior.floating));
   }
 
   /// « Actualiser la page » : relit le profil si une session existe (compte
   /// approuvé entre-temps -> `authProvider` repasse en `authenticated` et
   /// `core/router.dart` renvoie l'utilisateur sur son accueil), sinon renvoie
-  /// vers la connexion, exactement comme le lien du web.
+  /// vers la connexion, exactement comme le lien du web. Il n'existe aucun
+  /// endpoint public pour interroger `is_confirmed` par email : sans session,
+  /// la seule façon de « vérifier » est de tenter une connexion (refusée tant
+  /// que le compte n'est pas approuvé).
   Future<void> _refreshStatus() async {
     if (_busy) return;
     setState(() => _busy = true);
@@ -70,8 +90,9 @@ class _PendingApprovalScreenState extends ConsumerState<PendingApprovalScreen> {
         }
       }
       if (!mounted) return;
-      _snack("Toujours en attente d'approbation. Réessayez de vous connecter plus tard.");
-      context.go('/login');
+      _snack('Pour vérifier si votre compte a été approuvé, essayez de vous connecter : '
+          'la connexion aboutit dès que votre administrateur a validé votre demande.');
+      context.go(_loginLocation);
     } catch (e) {
       if (mounted) _snack(ApiClient.messageFromError(e));
     } finally {
@@ -79,19 +100,28 @@ class _PendingApprovalScreenState extends ConsumerState<PendingApprovalScreen> {
     }
   }
 
-  /// Équivalent du lien `/logout` du web : purge la session locale puis
-  /// renvoie sur la connexion.
+  /// Équivalent du lien `/logout` du web (écran transitoire « Déconnexion... »,
+  /// puis `/login`) : enregistre l'événement de déconnexion côté serveur
+  /// (best effort), purge la session locale puis renvoie sur la connexion.
   Future<void> _logout() async {
     if (_busy) return;
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _loggingOut = true;
+    });
     try {
       await ref.read(authProvider.notifier).logout();
     } catch (e) {
       if (mounted) _snack(ApiClient.messageFromError(e));
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _loggingOut = false;
+        });
+      }
     }
-    if (mounted) context.go('/login');
+    if (mounted) context.go(_loginLocation);
   }
 
   @override
@@ -161,7 +191,7 @@ class _PendingApprovalScreenState extends ConsumerState<PendingApprovalScreen> {
                     const SizedBox(height: 20),
                     FilledButton(
                       onPressed: _busy ? null : _refreshStatus,
-                      child: _busy
+                      child: _busy && !_loggingOut
                           ? const SizedBox(
                               height: 18,
                               width: 18,
@@ -171,14 +201,15 @@ class _PendingApprovalScreenState extends ConsumerState<PendingApprovalScreen> {
                     ),
                     const SizedBox(height: 8),
                     OutlinedButton(
-                      onPressed: _busy ? null : () => context.go('/login'),
+                      onPressed: _busy ? null : () => context.go(_loginLocation),
                       child: const Text('Retour à la connexion'),
                     ),
                     const SizedBox(height: 4),
                     TextButton.icon(
                       onPressed: _busy ? null : _logout,
                       icon: const Icon(Icons.logout, size: 18),
-                      label: const Text('Se déconnecter'),
+                      // Texte de l'écran transitoire `/logout` du web.
+                      label: Text(_loggingOut ? 'Déconnexion...' : 'Se déconnecter'),
                       style: TextButton.styleFrom(foregroundColor: muted),
                     ),
                   ],

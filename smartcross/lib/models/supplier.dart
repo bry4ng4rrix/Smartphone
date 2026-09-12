@@ -18,8 +18,13 @@ class SupplierOrderLine {
   final String referenceName;
   final String couleur;
   final int quantite;
+
+  /// Coût unitaire de la commande, réparti sur chaque ligne côté serveur
+  /// (`suppliers/services.py::recompute_costs`).
   final double coutUnitaireCalcule;
   final double totalLigne;
+
+  /// `prix_vente` de la référence − coût unitaire calculé (backend).
   final double margeUnitaire;
 
   factory SupplierOrderLine.fromJson(Map<String, dynamic> json) {
@@ -37,10 +42,12 @@ class SupplierOrderLine {
 }
 
 /// Commande fournisseur (§7.6 README) : coût de revient réel = marchandise
-/// + fret/import + douane + Meta Ads, réparti sur chaque ligne.
+/// + fret/import + douane, réparti sur chaque ligne — miroir de
+/// `suppliers/serializers.py::SupplierOrderSerializer`.
 class SupplierOrder {
   SupplierOrder({
     required this.id,
+    required this.magasinId,
     required this.numero,
     this.date,
     this.description,
@@ -48,7 +55,6 @@ class SupplierOrder {
     required this.prixFournisseur,
     required this.fretImport,
     required this.douane,
-    required this.metaAds,
     required this.totalQty,
     required this.coutTotal,
     required this.coutUnitaire,
@@ -58,6 +64,12 @@ class SupplierOrder {
   });
 
   final int id;
+
+  /// Magasin destinataire de la marchandise (un admin multi-magasins voit
+  /// les commandes de tous ses magasins).
+  final int magasinId;
+
+  /// `SUP-<magasinId>-<YYYYMMDD>-<0001>` — généré par le serveur, unique.
   final String numero;
   final DateTime? date;
   final String? description;
@@ -65,7 +77,6 @@ class SupplierOrder {
   final double prixFournisseur;
   final double fretImport;
   final double douane;
-  final double metaAds;
   final int totalQty;
   final double coutTotal;
   final double coutUnitaire;
@@ -78,6 +89,7 @@ class SupplierOrder {
   factory SupplierOrder.fromJson(Map<String, dynamic> json) {
     return SupplierOrder(
       id: asInt(json['id']),
+      magasinId: asInt(json['magasin']),
       numero: asString(json['numero']),
       date: asDateOrNull(json['date']),
       description: asStringOrNull(json['description']),
@@ -85,7 +97,6 @@ class SupplierOrder {
       prixFournisseur: asDouble(json['prix_fournisseur']),
       fretImport: asDouble(json['fret_import']),
       douane: asDouble(json['douane']),
-      metaAds: asDouble(json['meta_ads']),
       totalQty: asInt(json['total_qty']),
       coutTotal: asDouble(json['cout_total']),
       coutUnitaire: asDouble(json['cout_unitaire']),
@@ -96,6 +107,8 @@ class SupplierOrder {
   }
 }
 
+/// Ligne saisie dans le formulaire « Nouvelle commande fournisseur »
+/// (`{product_variant, quantite}` — `SupplierOrderLineInputSerializer`).
 class SupplierOrderLineDraft {
   SupplierOrderLineDraft({required this.productVariant, required this.quantite});
 

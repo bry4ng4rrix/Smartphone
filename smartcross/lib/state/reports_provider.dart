@@ -1,24 +1,22 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../core/api_client.dart';
-import '../core/app_time.dart';
 import '../core/permissions.dart';
 import '../data/repositories/reports_repository.dart';
 import '../models/reports.dart';
 import 'auth_provider.dart';
 import 'realtime_provider.dart';
 
-/// État de l'écran Rapports — portage de `frontend/app/(app)/reports/page.tsx`.
+/// État du centre de rapports (tableau de bord du gérant) — portage de
+/// `frontend/app/(app)/dashboard/page.tsx` et de
+/// `components/reports/use-report.ts` :
 ///
-/// La page web tient trois états locaux (`periode`, `dateFrom`, `dateTo`) et
-/// recharge `GET /api/orders/reports/` à chaque changement de bornes ; ici :
-///
-/// * [reportsFilterProvider] — le sélecteur (7 / 30 / 90 jours ou bornes
-///   libres) ;
-/// * [reportsProvider] — le rapport d'une période, famille paramétrée par
-///   [ReportsRange] (`date_from`, `date_to`) : changer de bornes instancie un
-///   nouveau chargement, comme `charger()` côté web ;
-/// * [reportsAccessProvider] — le garde « réservé au gérant ».
+/// * [reportsFilterProvider] — préréglage / bornes / granularité ;
+/// * [activeSectionProvider] — l'onglet affiché (`?tab=` de l'URL) ;
+/// * [reportsProvider] — le cache mémoire par (section, paramètres) ;
+/// * [reportsAccessProvider] — le garde « réservé au gérant » ;
+/// * [reportsRealtimeProvider] — invalidation sur événement temps réel.
 final reportsRepositoryProvider = Provider((ref) => ReportsRepository());
 
 // ---------------------------------------------------------------------------
@@ -26,14 +24,14 @@ final reportsRepositoryProvider = Provider((ref) => ReportsRepository());
 // ---------------------------------------------------------------------------
 
 /// Message de la carte « Accès refusé » du web.
-const String kReportsAccesRefuseMessage = 'Les rapports sont réservés au gérant.';
+const String kReportsAccesRefuseMessage = 'Accès refusé — le tableau de bord est réservé au gérant.';
 
 /// Levée (sans appel réseau) quand le compte connecté n'est pas gérant : le
-/// serveur répondrait 403 de toute façon (`IsGerant`, orders/reports.py).
+/// serveur répondrait 403 de toute façon (`IsGerant`, orders/reporting.py).
 /// `toString()` renvoie le message du web pour qu'un
 /// `ApiClient.messageFromError` l'affiche tel quel.
-class ReportsAccesRefuseException implements Exception {
-  const ReportsAccesRefuseException();
+class ReportsAccesRefuse implements Exception {
+  const ReportsAccesRefuse();
 
   String get message => kReportsAccesRefuseMessage;
 
@@ -42,9 +40,8 @@ class ReportsAccesRefuseException implements Exception {
 }
 
 /// `const { isGerant, loading: userLoading } = useCurrentUser()` vu par la
-/// page : tant que [loading] est vrai rien n'est tranché (le web affiche les
-/// squelettes) ; ensuite [isGerant] décide entre le rapport et la carte
-/// « Accès refusé — Les rapports sont réservés au gérant. ».
+/// page : tant que [loading] est vrai rien n'est tranché (squelettes) ;
+/// ensuite [isGerant] décide entre le tableau de bord et « Accès refusé ».
 final reportsAccessProvider = Provider<({bool loading, bool isGerant})>((ref) {
   final auth = ref.watch(authProvider);
   return (
@@ -54,192 +51,247 @@ final reportsAccessProvider = Provider<({bool loading, bool isGerant})>((ref) {
 });
 
 // ---------------------------------------------------------------------------
-// Sélecteur de période
+// Filtres
 // ---------------------------------------------------------------------------
 
-/// `PERIODES` du web : 7 / 30 / 90 jours, libellés « 7 jours »…
-const List<int> kReportsPeriods = [7, 30, 90];
-
-/// Libellé du bouton de période : « 7 jours », « 30 jours », « 90 jours ».
-String reportsPeriodeLabel(int jours) => '$jours jours';
-
-/// `depuis(jours)` du web : recule de `jours` jours depuis aujourd'hui, en
-/// date d'Antananarivo, aujourd'hui compris (30 jours = J−29 … J).
-DateTime reportsDepuis(int jours) {
-  final today = appToday();
-  return DateTime(today.year, today.month, today.day - (jours - 1));
-}
-
-/// Bornes envoyées au serveur — clé de famille de [reportsProvider]. Deux
-/// bornes qui tombent le même jour calendaire sont la même clé (l'heure est
-/// ignorée).
-class ReportsRange {
-  ReportsRange({required DateTime from, required DateTime to})
-      : from = DateTime(from.year, from.month, from.day),
-        to = DateTime(to.year, to.month, to.day);
-
-  /// `ReportsRange` des `jours` derniers jours, aujourd'hui compris.
-  factory ReportsRange.derniersJours(int jours) => ReportsRange(from: reportsDepuis(jours), to: appToday());
-
-  final DateTime from;
-  final DateTime to;
-
-  /// `date_from` / `date_to` tels qu'envoyés (`YYYY-MM-DD`).
-  String get fromParam => formatReportsDate(from);
-  String get toParam => formatReportsDate(to);
-
-  @override
-  bool operator ==(Object other) =>
-      other is ReportsRange && other.fromParam == fromParam && other.toParam == toParam;
-
-  @override
-  int get hashCode => Object.hash(fromParam, toParam);
-
-  @override
-  String toString() => 'ReportsRange($fromParam → $toParam)';
-}
-
-/// Le sélecteur de la page : `periode` (7 | 30 | 90, ou 0 = bornes libres
-/// après saisie manuelle d'une date), `dateFrom`, `dateTo`.
+/// `Filtres` du web : préréglage, bornes personnalisées (`AAAA-MM-JJ`, vides
+/// tant que l'utilisateur n'a rien saisi), granularité (`null` =
+/// « Automatique »). [reload] est le compteur `_r` du web : incrémenté par le
+/// bouton Actualiser pour forcer une nouvelle clé de cache.
 class ReportsFilter {
-  ReportsFilter({required this.periode, required DateTime dateFrom, required DateTime dateTo})
-      : dateFrom = DateTime(dateFrom.year, dateFrom.month, dateFrom.day),
-        dateTo = DateTime(dateTo.year, dateTo.month, dateTo.day);
+  const ReportsFilter({
+    this.preset = ReportPreset.month,
+    this.customFrom = '',
+    this.customTo = '',
+    this.granularity,
+    this.reload = 0,
+  });
 
-  /// `choisirPeriode(jours)` : bouton de période — bornes recalculées
-  /// depuis aujourd'hui.
-  factory ReportsFilter.derniersJours(int jours) =>
-      ReportsFilter(periode: jours, dateFrom: reportsDepuis(jours), dateTo: appToday());
+  final ReportPreset preset;
+  final String customFrom;
+  final String customTo;
+  final ReportGranularity? granularity;
+  final int reload;
 
-  /// Bouton de période actif (variant `default` sur le web), 0 quand
-  /// l'utilisateur a touché une borne à la main (aucun bouton actif).
-  final int periode;
-  final DateTime dateFrom;
-  final DateTime dateTo;
+  /// `periodeDepuisPreset(filtres.preset, filtres.custom)`.
+  ReportPeriod get period => periodeDepuisPreset(preset, customFrom: customFrom, customTo: customTo);
 
-  /// Aucun des trois boutons n'est actif : les bornes viennent des champs
-  /// « Du » / « Au ».
-  bool get bornesLibres => periode == 0;
+  /// Granularité envoyée au serveur : la valeur choisie, sinon l'automatique.
+  ReportGranularity get granularityEffective => granularity ?? granulariteAuto(period);
 
-  /// `periode === p.jours` — le bouton à dessiner en plein.
-  bool periodeActive(int jours) => periode == jours;
-
-  /// Clé du rapport à charger pour ces bornes.
-  ReportsRange get range => ReportsRange(from: dateFrom, to: dateTo);
+  ReportsFilter copyWith({
+    ReportPreset? preset,
+    String? customFrom,
+    String? customTo,
+    ReportGranularity? granularity,
+    bool clearGranularity = false,
+    int? reload,
+  }) =>
+      ReportsFilter(
+        preset: preset ?? this.preset,
+        customFrom: customFrom ?? this.customFrom,
+        customTo: customTo ?? this.customTo,
+        granularity: clearGranularity ? null : (granularity ?? this.granularity),
+        reload: reload ?? this.reload,
+      );
 
   @override
   bool operator ==(Object other) =>
-      other is ReportsFilter && other.periode == periode && other.range == range;
+      other is ReportsFilter &&
+      other.preset == preset &&
+      other.customFrom == customFrom &&
+      other.customTo == customTo &&
+      other.granularity == granularity &&
+      other.reload == reload;
 
   @override
-  int get hashCode => Object.hash(periode, range);
+  int get hashCode => Object.hash(preset, customFrom, customTo, granularity, reload);
 }
 
-/// Sélecteur de période. Défaut : 30 jours, comme `useState(30)` du web ;
-/// autoDispose pour repartir des 30 jours à chaque retour sur l'écran (état
-/// de composant côté web, non persisté).
-///
-/// Aucune validation de bornes, comme sur le web : une période inversée
-/// (« Du » après « Au ») donne simplement un rapport vide côté serveur.
+/// Filtres communs à toutes les sections. NON autoDispose : comme l'onglet,
+/// l'état survit à un aller-retour vers un autre écran. Défaut : « Ce mois »,
+/// granularité automatique (`useState` de la page web).
 class ReportsFilterNotifier extends Notifier<ReportsFilter> {
   @override
-  ReportsFilter build() => ReportsFilter.derniersJours(30);
+  ReportsFilter build() => const ReportsFilter();
 
-  /// Boutons « 7 jours » / « 30 jours » / « 90 jours ».
-  void choisirPeriode(int jours) => state = ReportsFilter.derniersJours(jours);
+  void setPreset(ReportPreset preset) => state = state.copyWith(preset: preset);
 
-  /// Champ « Du » : la période passe en bornes libres (`setPeriode(0)`).
-  void setDateFrom(DateTime dateFrom) =>
-      state = ReportsFilter(periode: 0, dateFrom: dateFrom, dateTo: state.dateTo);
+  /// Champ « Du » : passe en période personnalisée en reprenant l'autre borne
+  /// de la période courante (`custom.to = preset === 'custom' ? custom.to :
+  /// period.to`).
+  void setCustomFrom(String from) {
+    final to = state.preset == ReportPreset.custom ? state.customTo : state.period.to;
+    state = state.copyWith(preset: ReportPreset.custom, customFrom: from, customTo: to);
+  }
 
   /// Champ « Au » : idem.
-  void setDateTo(DateTime dateTo) =>
-      state = ReportsFilter(periode: 0, dateFrom: state.dateFrom, dateTo: dateTo);
+  void setCustomTo(String to) {
+    final from = state.preset == ReportPreset.custom ? state.customFrom : state.period.from;
+    state = state.copyWith(preset: ReportPreset.custom, customFrom: from, customTo: to);
+  }
+
+  /// Select « Granularité » — `null` = « Automatique ».
+  void setGranularity(ReportGranularity? g) =>
+      state = g == null ? state.copyWith(clearGranularity: true) : state.copyWith(granularity: g);
+
+  /// `setRechargement((n) => n + 1)` : nouvelle clé de cache.
+  void bumpReload() => state = state.copyWith(reload: state.reload + 1);
 }
 
-final reportsFilterProvider =
-    NotifierProvider.autoDispose<ReportsFilterNotifier, ReportsFilter>(ReportsFilterNotifier.new);
+final reportsFilterProvider = NotifierProvider<ReportsFilterNotifier, ReportsFilter>(ReportsFilterNotifier.new);
 
-// ---------------------------------------------------------------------------
-// Rapport d'une période
-// ---------------------------------------------------------------------------
+/// L'onglet affiché — équivalent du `?tab=` de l'URL web, conservé entre
+/// deux visites de l'écran.
+class ActiveSectionNotifier extends Notifier<ReportSection> {
+  @override
+  ReportSection build() => ReportSection.overview;
 
-/// Politique de nouvel essai de [reportsProvider].
-///
-/// Riverpod 3 rejoue par défaut TOUTE exception levée par `build` dix fois
-/// avec attente exponentielle : l'écran resterait en chargement près de
-/// 40 s avant de montrer quoi que ce soit. Ici un refus est définitif et
-/// s'affiche tout de suite — accès réservé au gérant, 403 du serveur, bornes
-/// illisibles (400)… — et seule une coupure réseau est retentée, deux fois
-/// et vite (200 ms puis 400 ms), avant de rendre la main au bouton
-/// « Réessayer ».
-Duration? reportsRetry(int retryCount, Object error) {
-  if (error is ReportsAccesRefuseException) return null;
-  if (!ApiClient.isConnectivityError(error)) return null;
-  return ProviderContainer.defaultRetry(retryCount, error, maxRetries: 2);
+  void set(ReportSection s) => state = s;
 }
 
-/// Rapport de la période [range] — `djangoClient.reports.get(dateFrom, dateTo)`.
+final activeSectionProvider = NotifierProvider<ActiveSectionNotifier, ReportSection>(ActiveSectionNotifier.new);
+
+/// Paramètres de requête propres à une section (`dormant_days` du rapport
+/// Stock, `platform` du rapport Marketing…), tenus ici plutôt que dans
+/// l'état local de la section : le tableau de bord reconstruit ainsi la
+/// requête exacte de l'onglet affiché (impression, indicateur de
+/// chargement). Une section les lit avec `ref.watch(reportExtrasProvider(
+/// ReportSection.x))` et les modifie avec `ref.read(reportExtrasProvider(
+/// ReportSection.x).notifier).set(...)`. Conservés entre deux visites.
+class ReportExtrasNotifier extends Notifier<Map<String, String>> {
+  ReportExtrasNotifier(this.section);
+
+  final ReportSection section;
+
+  @override
+  Map<String, String> build() => const {};
+
+  void set(String cle, String? valeur) {
+    final next = Map<String, String>.from(state);
+    if (valeur == null || valeur.isEmpty) {
+      next.remove(cle);
+    } else {
+      next[cle] = valeur;
+    }
+    state = Map.unmodifiable(next);
+  }
+}
+
+final reportExtrasProvider =
+    NotifierProvider.family<ReportExtrasNotifier, Map<String, String>, ReportSection>(ReportExtrasNotifier.new);
+
+// ---------------------------------------------------------------------------
+// Requêtes et cache par section
+// ---------------------------------------------------------------------------
+
+/// Clé du cache mémoire du web (`${section}:${JSON.stringify(params)}`) :
+/// une section et ses paramètres de requête, comparés par valeur.
+class ReportRequest {
+  ReportRequest({required this.section, required Map<String, String> params})
+      : params = Map.unmodifiable(Map.fromEntries(params.entries.toList()..sort((a, b) => a.key.compareTo(b.key))));
+
+  /// Paramètres communs (`date_from`, `date_to`, `prev_from`, `prev_to`,
+  /// `granularity`, `_r` s'il y a eu un rechargement manuel) + [extra]
+  /// propres à la section (`dormant_days`, `platform`…).
+  factory ReportRequest.pour(ReportSection section, ReportsFilter filter, {Map<String, String> extra = const {}}) {
+    final p = filter.period;
+    return ReportRequest(section: section, params: {
+      'date_from': p.from,
+      'date_to': p.to,
+      'prev_from': p.prevFrom,
+      'prev_to': p.prevTo,
+      'granularity': filter.granularityEffective.key,
+      if (filter.reload > 0) '_r': '${filter.reload}',
+      ...extra,
+    });
+  }
+
+  final ReportSection section;
+  final Map<String, String> params;
+
+  String get _cle => '${section.key}:${params.entries.map((e) => '${e.key}=${e.value}').join('&')}';
+
+  @override
+  bool operator ==(Object other) => other is ReportRequest && other._cle == _cle;
+
+  @override
+  int get hashCode => _cle.hashCode;
+
+  @override
+  String toString() => 'ReportRequest($_cle)';
+}
+
+/// Réponse brute d'une section pour une requête donnée — le cache mémoire du
+/// web : NON autoDispose, revenir sur un onglet déjà consulté est instantané.
 ///
-/// * Chargé UNIQUEMENT pour un gérant (`if (!userLoading && isGerant)
-///   charger()` côté web) : un autre compte reçoit
-///   [ReportsAccesRefuseException] sans appel réseau ; un compte encore
-///   inconnu (auth en cours) laisse le serveur trancher. Le rôle qui devient
-///   connu, ou qui change, relance le chargement.
-/// * Événement temps réel (`useRealtimeRefresh(['order',
-///   'order_status_history'], () => charger(true))`) : rechargement
-///   SILENCIEUX — l'état reste un `AsyncData` (avec `isRefreshing`), l'écran
-///   continue d'afficher le rapport courant, puis reçoit le nouveau.
-/// * [refresh] (bouton « Actualiser », tirer pour rafraîchir) : rechargement
-///   NON silencieux, comme `charger()` sans argument — l'état devient un
-///   `AsyncLoading` (l'ancienne valeur reste lisible dans `value` pour qui la
-///   veut, mais `when()` par défaut et un `switch` sur `AsyncData` affichent
-///   le chargement).
-/// * Changer de bornes instancie un autre membre de la famille : chargement
-///   puis nouveau rapport, comme le web.
-class ReportsNotifier extends AsyncNotifier<ReportsData> {
-  ReportsNotifier(this.range);
+/// * Pas d'appel réseau pour un compte qui n'est pas gérant :
+///   [ReportsAccesRefuse] immédiate.
+/// * [refresh] : rechargement NON silencieux (l'état repasse en chargement).
+/// * [refreshSilencieux] : garde la valeur affichée pendant le rechargement.
+class ReportSectionNotifier extends AsyncNotifier<Map<String, dynamic>> {
+  ReportSectionNotifier(this.request);
 
-  final ReportsRange range;
-  late final _repo = ref.read(reportsRepositoryProvider);
+  final ReportRequest request;
 
-  Future<ReportsData> _charger() async {
+  Future<Map<String, dynamic>> _charger() async {
     final user = ref.read(authProvider).user;
-    if (user != null && !user.isGerant) throw const ReportsAccesRefuseException();
-    return _repo.fetch(dateFrom: range.from, dateTo: range.to);
+    if (user != null && !user.isGerant) throw const ReportsAccesRefuse();
+    return ref.read(reportsRepositoryProvider).section(request.section, request.params);
   }
 
   @override
-  Future<ReportsData> build() {
-    // Temps réel : `invalidateSelf` (et non `watch`) pour que le rechargement
-    // soit un rafraîchissement transparent — la valeur affichée ne bouge pas
-    // tant que la nouvelle n'est pas arrivée.
-    ref.listen(realtimeTickProvider, (previous, next) => ref.invalidateSelf());
-    // Rôle connu / changé : rechargement, sans réagir aux autres mises à jour
-    // du profil.
-    ref.watch(authProvider.select((a) => a.user?.isGerant));
-    return _charger();
-  }
+  Future<Map<String, dynamic>> build() => _charger();
 
-  /// Bouton « Actualiser » (et tirer pour rafraîchir) : rechargement NON
-  /// silencieux.
   Future<void> refresh() async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(_charger);
   }
+
+  Future<void> refreshSilencieux() async {
+    state = await AsyncValue.guard(_charger);
+  }
 }
 
-/// `reportsProvider(filter.range)` — un rapport par période. autoDispose : le
-/// rapport est un instantané, jeté dès que plus aucun écran ne le regarde.
-final reportsProvider = AsyncNotifierProvider.autoDispose.family<ReportsNotifier, ReportsData, ReportsRange>(
-  ReportsNotifier.new,
-  retry: reportsRetry,
+/// `reportsProvider(ReportRequest.pour(section, filter))` — une entrée de
+/// cache par (section, paramètres). Pas de nouvel essai automatique : un refus
+/// (403, accès réservé) ou une coupure s'affichent tout de suite avec le
+/// bouton Actualiser pour relancer.
+final reportsProvider = AsyncNotifierProvider.family<ReportSectionNotifier, Map<String, dynamic>, ReportRequest>(
+  ReportSectionNotifier.new,
+  retry: (_, _) => null,
 );
 
-/// Rapport de la période SÉLECTIONNÉE — `reportsProvider(filter.range)` en
-/// un seul `watch` pour l'écran. Pour recharger :
-/// `ref.read(reportsProvider(ref.read(reportsFilterProvider).range).notifier).refresh()`.
-final currentReportsProvider = Provider.autoDispose<AsyncValue<ReportsData>>((ref) {
-  final range = ref.watch(reportsFilterProvider.select((f) => f.range));
-  return ref.watch(reportsProvider(range));
+/// `invalidateReports()` du web : vide tout le cache. Les entrées observées
+/// se rechargent silencieusement (valeur conservée pendant le rechargement),
+/// les autres à leur prochaine lecture.
+void invalidateReports(Ref ref) => ref.invalidate(reportsProvider);
+
+/// Variante pour les widgets.
+void invalidateReportsFromWidget(WidgetRef ref) => ref.invalidate(reportsProvider);
+
+/// Bouton « Actualiser » (`recharger()` du web) : cache vidé + nouvelle clé
+/// (`_r`), donc chargement NON silencieux de la section affichée.
+void rechargerReports(WidgetRef ref) {
+  ref.invalidate(reportsProvider);
+  ref.read(reportsFilterProvider.notifier).bumpReload();
+}
+
+// ---------------------------------------------------------------------------
+// Temps réel
+// ---------------------------------------------------------------------------
+
+/// `useRealtimeRefresh(['order', 'order_status_history', 'stock_movement',
+/// 'caisse_movement'], …)` de use-report.ts : une commande ou un mouvement
+/// modifié ailleurs vide le cache et recharge SILENCIEUSEMENT la section
+/// affichée (les autres à leur prochaine ouverture). Débordement de 400 ms
+/// pour grouper les rafales d'événements. À `watch`er tant que le tableau de
+/// bord est affiché.
+final reportsRealtimeProvider = Provider.autoDispose<void>((ref) {
+  Timer? timer;
+  ref.listen(realtimeTickProvider, (previous, next) {
+    timer?.cancel();
+    timer = Timer(const Duration(milliseconds: 400), () => ref.invalidate(reportsProvider));
+  });
+  ref.onDispose(() => timer?.cancel());
 });

@@ -34,6 +34,9 @@ class MagasinEmployer {
   }
 }
 
+/// Une carte de la page Magasins (`frontend/app/(app)/stores/page.tsx`) :
+/// `GET /users/magasins/users/` fusionné avec `GET /users/magasins/stats/`
+/// et, pour un admin, `GET /users/magasins/overview/` (profit).
 class Magasin {
   Magasin({
     required this.magasinId,
@@ -51,17 +54,38 @@ class Magasin {
 
   final int magasinId;
   final String shopName;
+
+  /// URL absolue du logo (`shop_logo`), `null` si aucun — l'écran affiche
+  /// alors l'icône « Store » en repli, comme le web.
   final String? shopLogo;
+
+  /// Bloc « gérant » de la carte web (`store.manager`). NB : côté serveur
+  /// (`UsersByMagasinView`) `manager` est l'ADMIN propriétaire du magasin
+  /// (`mag.admin`), pas le compte `role=magasin`.
   final String? managerName;
   final String? managerEmail;
   final List<MagasinEmployer> employers;
 
-  // Fusionnées depuis `magasins/stats/` (endpoint séparé, §8 README).
+  // Fusionnées depuis `magasins/stats/` (endpoint séparé, §8 README). Le web
+  // retombe sur 0 quand l'appel échoue : les getters `*OrZero` ci-dessous
+  // reproduisent ces valeurs par défaut.
   final int? totalProducts;
   final int? totalStockQuantity;
   final double? totalStockValue;
   final double? totalSoldValue;
+
+  /// `profitStats?.total_profit ?? storeStats.profit ?? 0` du web : profit de
+  /// `magasins/overview/` (admin) sinon celui de `magasins/stats/`.
   final double? profit;
+
+  /// `store.manager` non nul sur le web — pilote l'affichage du bloc gérant.
+  bool get hasManager => managerName != null || managerEmail != null;
+
+  int get totalProductsOrZero => totalProducts ?? 0;
+  int get totalStockQuantityOrZero => totalStockQuantity ?? 0;
+  double get totalStockValueOrZero => totalStockValue ?? 0;
+  double get totalSoldValueOrZero => totalSoldValue ?? 0;
+  double get profitOrZero => profit ?? 0;
 
   factory Magasin.fromJson(Map<String, dynamic> json) {
     final manager = json['manager'] as Map<String, dynamic>?;
@@ -77,7 +101,9 @@ class Magasin {
     );
   }
 
-  Magasin withStats(Map<String, dynamic> stats) {
+  /// Fusion des stats (`magasins/stats/`) et, si fourni, du profit de
+  /// `magasins/overview/` (`total_profit`) qui prime sur `stats.profit`.
+  Magasin withStats(Map<String, dynamic>? stats, {double? overviewProfit}) {
     return Magasin(
       magasinId: magasinId,
       shopName: shopName,
@@ -85,11 +111,11 @@ class Magasin {
       managerName: managerName,
       managerEmail: managerEmail,
       employers: employers,
-      totalProducts: asIntOrNull(stats['total_products']),
-      totalStockQuantity: asIntOrNull(stats['total_stock_quantity']),
-      totalStockValue: asDoubleOrNull(stats['total_stock_value']),
-      totalSoldValue: asDoubleOrNull(stats['total_sold_value']),
-      profit: asDoubleOrNull(stats['profit']),
+      totalProducts: stats != null ? asIntOrNull(stats['total_products']) : totalProducts,
+      totalStockQuantity: stats != null ? asIntOrNull(stats['total_stock_quantity']) : totalStockQuantity,
+      totalStockValue: stats != null ? asDoubleOrNull(stats['total_stock_value']) : totalStockValue,
+      totalSoldValue: stats != null ? asDoubleOrNull(stats['total_sold_value']) : totalSoldValue,
+      profit: overviewProfit ?? (stats != null ? asDoubleOrNull(stats['profit']) : profit),
     );
   }
 }

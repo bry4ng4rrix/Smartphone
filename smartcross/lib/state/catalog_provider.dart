@@ -10,9 +10,9 @@ export '../data/repositories/catalog_repository.dart'
 
 final catalogRepositoryProvider = Provider((ref) => CatalogRepository());
 
-/// Socle commun des 5 listes du catalogue (catégories, sous-types, marques,
-/// couleurs, références) : deux rechargements, comme `fetchAll(silent)`
-/// côté web (products/page.tsx) —
+/// Socle commun des 6 listes du catalogue (catégories, sous-types, marques,
+/// couleurs, références, notes produit) : deux rechargements, comme
+/// `fetchAll(silent)` côté web (products/page.tsx) —
 ///
 /// * [refresh] — NON silencieux : repasse par l'état de chargement (bouton
 ///   « Rafraîchir », après création/suppression de référence) ;
@@ -137,6 +137,44 @@ class ColorsNotifier extends _CatalogListNotifier<ProductColor> {
 
 final colorsProvider = AsyncNotifierProvider<ColorsNotifier, List<ProductColor>>(ColorsNotifier.new);
 
+/// Notes produit — produits repérés mais pas encore au catalogue (sans prix
+/// ni stock), à commander au fournisseur : `djangoClient.catalog.notes`
+/// (products/page.tsx). Lecture pour tout utilisateur du magasin,
+/// création/suppression réservées au gérant (`IsGerantOrReadOnly`).
+///
+/// [create] et [delete] ne rechargent rien eux-mêmes : comme `onCreated` /
+/// la suppression côté web, c'est l'écran qui relance ensuite
+/// `CatalogHub.refreshAll(silent: true)` (le `fetchAll(true)` du web) —
+/// le dialog se ferme donc dès la réponse du serveur, sans attendre le
+/// re-fetch.
+class ProductNotesNotifier extends _CatalogListNotifier<ProductNote> {
+  @override
+  Future<List<ProductNote>> fetch() => repo.notes();
+
+  /// `POST catalog/notes/` — [couleurs] vide = sans couleur, [brandId]
+  /// `null` = aucune / inconnue.
+  Future<ProductNote> create({
+    required String nom,
+    required int categoryId,
+    required int typeId,
+    int? brandId,
+    List<String> couleurs = const [],
+  }) {
+    return repo.createNote(nom: nom, categoryId: categoryId, typeId: typeId, brandId: brandId, couleurs: couleurs);
+  }
+
+  /// `DELETE catalog/notes/{id}/`.
+  Future<void> delete(int id) => repo.deleteNote(id);
+}
+
+final productNotesProvider = AsyncNotifierProvider<ProductNotesNotifier, List<ProductNote>>(
+  ProductNotesNotifier.new,
+  // Pas de nouvel essai automatique (Riverpod 3 en rejoue dix par défaut,
+  // soit ~38 s de chargement) : une erreur est connue tout de suite, et
+  // l'écran la traite comme une liste vide — le `.catch(() => [])` du web.
+  retry: (count, error) => null,
+);
+
 /// Toutes les références (avec leurs variantes imbriquées) — volume attendu
 /// ~360 produits (§8.1 README), chargé en une fois pour le module Catalogue
 /// et filtré côté client, comme le tableau de products/page.tsx.
@@ -244,9 +282,10 @@ final referenceAutocompleteProvider = FutureProvider.autoDispose.family<List<Ref
   return ref.read(catalogRepositoryProvider).autocomplete(query);
 });
 
-/// Actions transverses aux 5 listes — le `fetchAll(silent)` de
-/// products/page.tsx et les opérations qui touchent tout le catalogue à la
-/// fois (import Excel, annulation d'import).
+/// Actions transverses aux 6 listes (les 5 du catalogue + les notes
+/// produit) — le `fetchAll(silent)` de products/page.tsx et les opérations
+/// qui touchent tout le catalogue à la fois (import Excel, annulation
+/// d'import).
 class CatalogHub {
   CatalogHub(this._ref);
 
@@ -254,7 +293,13 @@ class CatalogHub {
 
   CatalogRepository get _repo => _ref.read(catalogRepositoryProvider);
 
-  /// Recharge les 5 listes en parallèle (`Promise.all` côté web).
+  /// Recharge les 6 listes en parallèle (`Promise.all` côté web).
+  ///
+  /// Les notes ne doivent jamais empêcher l'affichage du catalogue — le
+  /// `notes.list().catch(() => [])` du web : chaque rechargement passe par
+  /// `AsyncValue.guard`, une erreur reste dans l'état du provider (jamais
+  /// levée ici, `Future.wait` ne peut donc pas échouer à cause d'elle) et
+  /// l'écran affiche alors une liste vide.
   Future<void> refreshAll({bool silent = false}) async {
     if (silent) {
       await Future.wait([
@@ -263,6 +308,7 @@ class CatalogHub {
         _ref.read(typesProvider.notifier).refreshSilencieux(),
         _ref.read(brandsProvider.notifier).refreshSilencieux(),
         _ref.read(colorsProvider.notifier).refreshSilencieux(),
+        _ref.read(productNotesProvider.notifier).refreshSilencieux(),
       ]);
       return;
     }
@@ -272,6 +318,7 @@ class CatalogHub {
       _ref.read(typesProvider.notifier).refresh(),
       _ref.read(brandsProvider.notifier).refresh(),
       _ref.read(colorsProvider.notifier).refresh(),
+      _ref.read(productNotesProvider.notifier).refresh(),
     ]);
   }
 
