@@ -57,7 +57,9 @@ import {
   Check,
   FolderPlus,
   Palette,
+  StickyNote,
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 
 // Indicateur de couleur par variante (badge "Variantes") — seuils fixes,
@@ -81,6 +83,10 @@ export default function ProductsPage() {
   const [types, setTypes] = useState<any[]>([]);
   const [brands, setBrands] = useState<any[]>([]);
   const [colors, setColors] = useState<any[]>([]);
+  // Notes produit : produits à commander, pas encore au catalogue.
+  const [notes, setNotes] = useState<any[]>([]);
+  const [createNoteOpen, setCreateNoteOpen] = useState(false);
+  const [deleteNoteTarget, setDeleteNoteTarget] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("ALL");
@@ -119,18 +125,21 @@ export default function ProductsPage() {
   const fetchAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [refs, cats, tps, brs, cols] = await Promise.all([
+      const [refs, cats, tps, brs, cols, nts] = await Promise.all([
         djangoClient.catalog.references.list(),
         djangoClient.catalog.categories.list(),
         djangoClient.catalog.types.list(),
         djangoClient.catalog.brands.list(),
         djangoClient.catalog.colors.list(),
+        // Les notes ne doivent jamais empêcher l'affichage du catalogue.
+        djangoClient.catalog.notes.list().catch(() => []),
       ]);
       setReferences(refs);
       setCategories(cats);
       setTypes(tps);
       setBrands(brs);
       setColors(cols);
+      setNotes(nts);
     } catch (err: any) {
       toast.error(err.message || "Erreur de chargement du catalogue");
     } finally {
@@ -484,6 +493,14 @@ export default function ProductsPage() {
               </Button>
               <Button
                 size="sm"
+                variant="outline"
+                onClick={() => setCreateNoteOpen(true)}
+                className="h-10 px-4 font-medium"
+              >
+                <StickyNote className="h-4 w-4 mr-2" /> Nouvelle note
+              </Button>
+              <Button
+                size="sm"
                 onClick={() => setCreateOpen(true)}
                 className="h-10 px-4 font-medium"
               >
@@ -693,6 +710,125 @@ export default function ProductsPage() {
           )}
         </CardContent>
       </Card>
+
+      {(notes.length > 0 || isGerant) && (
+        <Card>
+          <CardContent className="p-0">
+            <div className="flex items-center justify-between gap-2 px-4 py-3 border-b">
+              <div className="flex items-center gap-2">
+                <StickyNote className="h-4 w-4 text-muted-foreground" />
+                <p className="text-sm font-semibold">Notes — produits à commander</p>
+                <Badge variant="secondary">{notes.length}</Badge>
+              </div>
+              <p className="text-xs text-muted-foreground hidden sm:block">
+                Produits repérés mais pas encore au catalogue (sans prix ni stock).
+              </p>
+            </div>
+            {notes.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">
+                Aucune note. Utilisez « Nouvelle note » pour noter un produit à commander au fournisseur.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nom</TableHead>
+                      <TableHead>Catégorie</TableHead>
+                      <TableHead>Sous-type</TableHead>
+                      <TableHead>Marque</TableHead>
+                      <TableHead>Couleurs</TableHead>
+                      <TableHead>Ajoutée le</TableHead>
+                      {isGerant && <TableHead className="text-right">Actions</TableHead>}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {notes.map((n) => (
+                      <TableRow key={n.id}>
+                        <TableCell className="font-medium">{n.nom}</TableCell>
+                        <TableCell>{n.category_name}</TableCell>
+                        <TableCell>{n.type_name}</TableCell>
+                        <TableCell>{n.brand_name || <span className="text-muted-foreground">—</span>}</TableCell>
+                        <TableCell>
+                          {n.couleurs?.length ? (
+                            <div className="flex flex-wrap gap-1">
+                              {n.couleurs.map((c: string) => (
+                                <Badge key={c} variant="outline">{c}</Badge>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">Sans couleur</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground whitespace-nowrap">
+                          {new Date(n.created_at).toLocaleDateString("fr-FR")}
+                          {n.created_by_name ? ` · ${n.created_by_name}` : ""}
+                        </TableCell>
+                        {isGerant && (
+                          <TableCell className="text-right">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 text-destructive"
+                              onClick={() => setDeleteNoteTarget(n)}
+                              aria-label="Supprimer la note"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        )}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {isGerant && (
+        <CreateNoteDialog
+          open={createNoteOpen}
+          onOpenChange={setCreateNoteOpen}
+          categories={categories}
+          types={types}
+          brands={brands}
+          colors={colors}
+          onCreated={() => {
+            setCreateNoteOpen(false);
+            fetchAll(true);
+          }}
+        />
+      )}
+
+      <Dialog open={!!deleteNoteTarget} onOpenChange={(o) => !o && setDeleteNoteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Supprimer la note « {deleteNoteTarget?.nom} » ?</DialogTitle>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteNoteTarget(null)}>
+              Annuler
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                try {
+                  await djangoClient.catalog.notes.delete(deleteNoteTarget.id);
+                  toast.success("Note supprimée");
+                  setDeleteNoteTarget(null);
+                  fetchAll(true);
+                } catch (err: any) {
+                  toast.error(err.message || "Erreur");
+                }
+              }}
+            >
+              Supprimer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ProductDetailDialog
         reference={variantsOf}
@@ -3091,6 +3227,222 @@ function BulkPriceDialog({
             disabled={submitting || !typeId || matchCount === 0}
           >
             {submitting ? "Mise à jour..." : "Appliquer"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+
+/**
+ * Note produit : un produit repéré mais pas encore au catalogue, à
+ * commander au fournisseur. Même hiérarchie que la référence (catégorie,
+ * sous-type, marque, couleurs) mais sans prix ni stock — rien n'est créé
+ * dans le catalogue lui-même.
+ */
+function CreateNoteDialog({
+  open,
+  onOpenChange,
+  categories,
+  types,
+  brands,
+  colors,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  categories: any[];
+  types: any[];
+  brands: any[];
+  colors: any[];
+  onCreated: () => void;
+}) {
+  const [nom, setNom] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const [typeId, setTypeId] = useState("");
+  const [brandId, setBrandId] = useState("");
+  const [avecCouleur, setAvecCouleur] = useState(false);
+  const [couleurs, setCouleurs] = useState<string[]>([]);
+  const [couleurId, setCouleurId] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setNom("");
+    setCategoryId("");
+    setTypeId("");
+    setBrandId("");
+    setAvecCouleur(false);
+    setCouleurs([]);
+    setCouleurId("");
+  }, [open]);
+
+  const typesForCategory = types.filter((t) => String(t.category) === categoryId);
+
+  const addCouleur = () => {
+    const color = colors.find((c) => String(c.id) === couleurId);
+    if (!color) return;
+    if (!couleurs.includes(color.nom)) setCouleurs((prev) => [...prev, color.nom]);
+    setCouleurId("");
+  };
+
+  const submit = async () => {
+    if (!nom.trim() || !categoryId || !typeId) {
+      toast.error("Nom, catégorie et sous-type sont requis");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await djangoClient.catalog.notes.create({
+        nom: nom.trim(),
+        category: Number(categoryId),
+        type: Number(typeId),
+        brand: brandId ? Number(brandId) : null,
+        couleurs: avecCouleur ? couleurs : [],
+      });
+      toast.success("Note enregistrée");
+      onCreated();
+    } catch (err: any) {
+      toast.error(err.message || "Erreur");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <StickyNote className="h-4 w-4" /> Nouvelle note
+          </DialogTitle>
+          <p className="text-xs text-muted-foreground">
+            Un produit à commander au fournisseur, pas encore au catalogue. Sans prix ni stock.
+          </p>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <Label>Nom du produit</Label>
+            <Input
+              placeholder="Ex: Coque MagSafe iPhone 16"
+              value={nom}
+              onChange={(e) => setNom(e.target.value)}
+              autoFocus
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>Catégorie</Label>
+              <Select
+                value={categoryId}
+                onValueChange={(v) => {
+                  setCategoryId(v);
+                  setTypeId("");
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Choisir" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)}>
+                      {c.nom}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Sous-type</Label>
+              <Select value={typeId} onValueChange={setTypeId} disabled={!categoryId}>
+                <SelectTrigger>
+                  <SelectValue placeholder={categoryId ? "Choisir" : "Catégorie d'abord"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {typesForCategory.map((t) => (
+                    <SelectItem key={t.id} value={String(t.id)}>
+                      {t.nom}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <Label>Marque (facultatif)</Label>
+            <Select value={brandId} onValueChange={setBrandId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Aucune / inconnue" />
+              </SelectTrigger>
+              <SelectContent>
+                {brands.map((b) => (
+                  <SelectItem key={b.id} value={String(b.id)}>
+                    {b.nom}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2 rounded-lg border p-3">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="note-avec-couleur">Avec couleur</Label>
+              <Switch id="note-avec-couleur" checked={avecCouleur} onCheckedChange={setAvecCouleur} />
+            </div>
+            {avecCouleur && (
+              <>
+                <div className="flex gap-2">
+                  <Select value={couleurId} onValueChange={setCouleurId}>
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder="Choisir une couleur" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {colors.map((c) => (
+                        <SelectItem key={c.id} value={String(c.id)}>
+                          {c.nom}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button size="sm" variant="outline" onClick={addCouleur} disabled={!couleurId}>
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+                {couleurs.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {couleurs.map((c) => (
+                      <Badge key={c} variant="secondary" className="gap-1">
+                        {c}
+                        <button
+                          type="button"
+                          onClick={() => setCouleurs((prev) => prev.filter((x) => x !== c))}
+                          aria-label={`Retirer ${c}`}
+                        >
+                          ×
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Aucune couleur ajoutée (les couleurs se gèrent dans Paramètres › Couleurs).
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
+            Annuler
+          </Button>
+          <Button onClick={submit} disabled={submitting}>
+            {submitting ? "Enregistrement…" : "Enregistrer la note"}
           </Button>
         </DialogFooter>
       </DialogContent>

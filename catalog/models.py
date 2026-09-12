@@ -211,3 +211,31 @@ class ImportBatch(models.Model):
 
     def __str__(self):
         return f"Import #{self.pk} ({self.created_at:%d/%m/%Y %H:%M})"
+
+
+class ProductNote(models.Model):
+    """Produit repéré mais pas encore au catalogue (pas de prix, pas de
+    stock) : un pense-bête pour la prochaine commande fournisseur. Même
+    hiérarchie que le catalogue pour pouvoir créer la vraie référence plus
+    tard sans ressaisie. `couleurs` : noms libres, liste vide = sans couleur."""
+
+    magasin = models.ForeignKey(
+        "users.MagasinProfile", on_delete=models.CASCADE, related_name="product_notes"
+    )
+    nom = models.CharField(max_length=255)
+    category = models.ForeignKey(ProductCategory, on_delete=models.CASCADE, related_name="notes")
+    type = models.ForeignKey(ProductType, on_delete=models.CASCADE, related_name="notes")
+    brand = models.ForeignKey(Brand, on_delete=models.SET_NULL, related_name="notes", null=True, blank=True)
+    couleurs = models.JSONField(default=list, blank=True)
+    created_by = models.ForeignKey(
+        "users.CustomUser", on_delete=models.SET_NULL, null=True, blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Note produit"
+        verbose_name_plural = "Notes produit"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.nom

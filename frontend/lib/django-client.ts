@@ -573,6 +573,19 @@ class DjangoAPIClient {
         return this.delete(`/catalog/colors/${id}/`)
       },
     },
+    // Notes produit : produits à commander au fournisseur, pas encore au
+    // catalogue (ni prix ni stock).
+    notes: {
+      list: async () => {
+        return this.get<any[]>('/catalog/notes/')
+      },
+      create: async (data: { nom: string; category: number; type: number; brand?: number | null; couleurs?: string[] }) => {
+        return this.post<any>('/catalog/notes/', data)
+      },
+      delete: async (id: number) => {
+        return this.delete(`/catalog/notes/${id}/`)
+      },
+    },
     references: {
       list: async (filters?: { type?: number; brand?: number; category?: number }) => {
         const params = new URLSearchParams()
