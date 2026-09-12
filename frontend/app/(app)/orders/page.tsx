@@ -272,6 +272,8 @@ export default function OrdersPage() {
   const [assignTarget, setAssignTarget] = useState<{
     order: any;
     role: "PREPARATEUR" | "LIVREUR";
+    /** Vrai si l'assignation part du détail : on l'y ramène ensuite. */
+    depuisDetail?: boolean;
   } | null>(null);
   const [editTarget, setEditTarget] = useState<any | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
@@ -652,6 +654,48 @@ export default function OrdersPage() {
       setCorrection(null);
     } catch (err: any) {
       toast.error(err.message || "Correction impossible");
+    }
+  };
+
+  /**
+   * Assigne un préparateur ou un livreur SANS faire avancer la commande
+   * (§ demande).
+   *
+   * Auparavant, choisir quelqu'un passait la commande en "En préparation" ou
+   * "En livraison" du même geste — on ne pouvait donc pas préparer sa
+   * journée à l'avance sans déclencher le travail. Ces deux endpoints
+   * dédiés se contentent de désigner la personne : le statut reste
+   * "Nouvelle" ou "Prête" jusqu'à ce que quelqu'un clique explicitement sur
+   * l'étape suivante, qui réutilise alors l'affectation sans la redemander.
+   */
+  const doAssign = async (
+    cible: {
+      order: any;
+      role: "PREPARATEUR" | "LIVREUR";
+      depuisDetail?: boolean;
+    },
+    userId: number,
+  ) => {
+    try {
+      if (cible.role === "PREPARATEUR") {
+        await djangoClient.orders.assignPreparateur(cible.order.id, userId);
+      } else {
+        await djangoClient.orders.assignLivreur(cible.order.id, userId);
+      }
+      toast.success(
+        `Commande ${cible.order.numero} — ${
+          cible.role === "PREPARATEUR" ? "préparateur" : "livreur"
+        } assigné`,
+      );
+      fetchOrders(true);
+      setAssignTarget(null);
+      // La fiche avait été refermée pour laisser place au sélecteur de
+      // personnel : on la rouvre, à jour, pour ne pas perdre le fil.
+      if (cible.depuisDetail || detail?.id === cible.order.id) {
+        await refreshDetail(cible.order.id);
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Assignation impossible");
     }
   };
 
@@ -1751,6 +1795,7 @@ export default function OrdersPage() {
                                 setAssignTarget({
                                   order,
                                   role: option.role || "PREPARATEUR",
+                                  depuisDetail: true,
                                 });
                                 return;
                               }
@@ -2152,22 +2197,7 @@ export default function OrdersPage() {
         <AssignStaffDialog
           target={assignTarget}
           onOpenChange={(o) => !o && setAssignTarget(null)}
-          onAssign={(userId, assignedAt) =>
-            assignTarget &&
-            doChangeStatus(
-              assignTarget.order,
-              assignTarget.role === "PREPARATEUR"
-                ? "EN_PREPARATION"
-                : "EN_LIVRAISON",
-              undefined,
-              {
-                ...(assignTarget.role === "PREPARATEUR"
-                  ? { preparateur_id: userId }
-                  : { livreur_id: userId }),
-                assigned_at: assignedAt,
-              },
-            )
-          }
+          onAssign={(userId) => assignTarget && doAssign(assignTarget, userId)}
         />
       )}
 

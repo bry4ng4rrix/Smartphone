@@ -5,7 +5,7 @@ import { djangoClient } from '@/lib/django-client';
 import { useCurrentUser } from '@/lib/auth/useCurrentUser';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Bot, FileBarChart, Loader2, Send, Sparkles, X } from 'lucide-react';
+import { Bot, FileBarChart, Loader2, Send, X } from 'lucide-react';
 import { appToday } from '@/lib/timezone';
 
 type Message = { role: 'user' | 'assistant'; texte: string };
@@ -231,10 +231,6 @@ export function AssistantBubble() {
             )}
           </Button>
         </form>
-        <p className="text-[10px] text-muted-foreground flex items-center gap-1">
-          <Sparkles className="h-3 w-3" />
-          Modèle local — aucune donnée ne quitte votre serveur.
-        </p>
       </div>
     </div>
   );
