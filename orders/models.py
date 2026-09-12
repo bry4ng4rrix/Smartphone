@@ -116,6 +116,11 @@ class Order(models.Model):
     livreur = models.ForeignKey(
         "users.CustomUser", on_delete=models.SET_NULL, null=True, blank=True, related_name="orders_delivered"
     )
+    # Campagne marketing à l'origine de la commande (facultatif) — seule
+    # base réelle pour les commandes et le CA "générés" du rapport Marketing.
+    campagne = models.ForeignKey(
+        "orders.MarketingCampaign", on_delete=models.SET_NULL, null=True, blank=True, related_name="orders"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -319,3 +324,40 @@ class LivreurExpense(models.Model):
 
     def __str__(self):
         return f"{self.libelle} — {self.montant} Ar ({self.get_statut_display()})"
+
+
+class MarketingCampaign(models.Model):
+    """Campagne publicitaire (boost Facebook, TikTok…) : ce qu'elle a coûté et,
+    via Order.campagne, ce qu'elle a rapporté. Une dépense de campagne ne
+    passe pas par la caisse : ne pas la compter deux fois dans le résultat."""
+
+    PLATEFORME_CHOICES = (
+        ("FACEBOOK", "Facebook"),
+        ("INSTAGRAM", "Instagram"),
+        ("TIKTOK", "TikTok"),
+        ("GOOGLE", "Google"),
+        ("AUTRE", "Autre"),
+    )
+
+    magasin = models.ForeignKey(
+        "users.MagasinProfile", on_delete=models.CASCADE, related_name="marketing_campaigns"
+    )
+    nom = models.CharField(max_length=150)
+    plateforme = models.CharField(max_length=20, choices=PLATEFORME_CHOICES, default="FACEBOOK")
+    montant = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    date_debut = models.DateField(default=timezone.localdate)
+    date_fin = models.DateField(null=True, blank=True)
+    note = models.TextField(blank=True)
+    actif = models.BooleanField(default=True)
+    created_by = models.ForeignKey(
+        "users.CustomUser", on_delete=models.SET_NULL, null=True, blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Campagne marketing"
+        verbose_name_plural = "Campagnes marketing"
+        ordering = ["-date_debut", "-created_at"]
+
+    def __str__(self):
+        return f"{self.nom} ({self.get_plateforme_display()})"

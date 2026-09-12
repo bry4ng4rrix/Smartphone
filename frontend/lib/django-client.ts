@@ -717,6 +717,8 @@ class DjangoAPIClient {
       mode_paiement?: 'AVANT' | 'LIVRAISON'
       date_commande?: string
       magasin_id?: number
+      /** Campagne marketing d'origine (rapport Marketing). */
+      campagne?: number | null
     }) => {
       return this.post<any>('/orders/', data)
     },
@@ -853,6 +855,38 @@ class DjangoAPIClient {
       const params = new URLSearchParams({ date_from: dateFrom, date_to: dateTo })
       return this.get<any>(`/orders/reports/?${params.toString()}`)
     },
+    // Centre de rapports : une section par appel (voir orders/reporting.py).
+    section: async <T = any>(
+      section: string,
+      params: Record<string, string | number | undefined | null>,
+    ) => {
+      const q = new URLSearchParams()
+      for (const [k, v] of Object.entries(params)) {
+        if (v !== undefined && v !== null && v !== '') q.set(k, String(v))
+      }
+      return this.get<T>(`/orders/reports/${section}/?${q.toString()}`)
+    },
+  }
+
+  // Campagnes marketing (rapport Marketing, formulaire de commande).
+  campaigns = {
+    list: async (params?: { magasin_id?: number; actif?: boolean }) => {
+      const q = new URLSearchParams()
+      if (params?.magasin_id) q.set('magasin_id', String(params.magasin_id))
+      if (params?.actif) q.set('actif', '1')
+      const qs = q.toString()
+      return this.get<any[]>(`/orders/campaigns/${qs ? `?${qs}` : ''}`)
+    },
+    create: async (data: {
+      nom: string; plateforme: string; montant: number | string; date_debut: string;
+      date_fin?: string | null; note?: string; actif?: boolean; magasin_id?: number
+    }) => this.post<any>('/orders/campaigns/', data),
+    update: async (id: number, data: Record<string, unknown>) =>
+      this.patch<any>(`/orders/campaigns/${id}/`, data),
+    delete: async (id: number) => this.delete(`/orders/campaigns/${id}/`),
+    /** Rattache (ou détache avec null) une commande à une campagne. */
+    setOrderCampaign: async (orderId: number, campagne: number | null) =>
+      this.post<any>(`/orders/${orderId}/campagne/`, { campagne }),
   }
 
   /** Types de dépense du livreur — configurables dans Paramètres. */
