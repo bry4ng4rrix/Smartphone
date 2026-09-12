@@ -368,8 +368,26 @@ class OverviewReportView(_RapportView):
             r["statut_courant"]: r["nb"]
             for r in actuel["orders"].values("statut_courant").annotate(nb=Count("id"))
         }
+        # Bénéfices : « obtenu » = marge brute des articles livrés sur la
+        # période (CA produits − coût d'achat) ; « estimé » = potentiel du
+        # stock d'AUJOURD'HUI si tout est vendu au prix de vente actuel
+        # (valeur de vente − valeur d'achat des variantes en stock, références
+        # actives) — même base que l'état du stock du rapport Stock.
+        en_stock = ctx.variantes().filter(product_reference__actif=True, stock_actuel__gt=0)
+        valeur_achat = _somme(en_stock, F("stock_actuel") * F("product_reference__prix_achat"))
+        valeur_vente = _somme(en_stock, F("stock_actuel") * F("product_reference__prix_vente"))
+        benefices = {
+            "obtenu": _variation(actuel["marge_brute"], precedent["marge_brute"]),
+            "estime": {
+                "benefice": valeur_vente - valeur_achat,
+                "valeur_vente": valeur_vente,
+                "valeur_achat": valeur_achat,
+                "quantite": en_stock.aggregate(q=Coalesce(Sum("stock_actuel"), 0))["q"],
+            },
+        }
         return {
             "kpis": kpis,
+            "benefices": benefices,
             "series": ctx.series_financieres(),
             "repartition_statuts": [
                 {"statut": code, "label": label, "nb": statuts.get(code, 0)}

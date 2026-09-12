@@ -436,10 +436,44 @@ class RepartitionStatut {
 
 // --- 1. Vue générale --------------------------------------------------------
 
+/// `benefices.estime` : potentiel du stock d'aujourd'hui si tout est vendu
+/// (valeur de vente − valeur d'achat des variantes en stock).
+class BeneficeEstime {
+  const BeneficeEstime({required this.benefice, required this.valeurVente, required this.valeurAchat, required this.quantite});
+
+  static const BeneficeEstime zero = BeneficeEstime(benefice: 0, valeurVente: 0, valeurAchat: 0, quantite: 0);
+
+  final num benefice;
+  final num valeurVente;
+  final num valeurAchat;
+  final num quantite;
+
+  factory BeneficeEstime.fromJson(Map<String, dynamic> json) => BeneficeEstime(
+        benefice: asDouble(json['benefice']),
+        valeurVente: asDouble(json['valeur_vente']),
+        valeurAchat: asDouble(json['valeur_achat']),
+        quantite: asDouble(json['quantite']),
+      );
+}
+
 class OverviewData {
-  const OverviewData({required this.periode, required this.kpis, required this.series, required this.repartitionStatuts});
+  const OverviewData({
+    required this.periode,
+    required this.kpis,
+    required this.series,
+    required this.repartitionStatuts,
+    this.beneficeObtenu = Variation.zero,
+    this.beneficeEstime = BeneficeEstime.zero,
+  });
 
   final PeriodeInfo periode;
+
+  /// `benefices.obtenu` : marge brute des articles livrés sur la période
+  /// (prix de vente − prix d'achat), avec comparaison.
+  final Variation beneficeObtenu;
+
+  /// `benefices.estime` : bénéfice potentiel du stock actuel.
+  final BeneficeEstime beneficeEstime;
 
   /// `ca_total`, `benefice_net`, `nb_commandes`, `panier_moyen`,
   /// `nb_livrees`, `depenses`, `marge_brute`.
@@ -456,12 +490,17 @@ class OverviewData {
   Variation get depenses => kpi('depenses');
   Variation get margeBrute => kpi('marge_brute');
 
-  factory OverviewData.fromJson(Map<String, dynamic> json) => OverviewData(
-        periode: PeriodeInfo.fromJson(_obj(json['periode'])),
-        kpis: _variationMap(json['kpis']),
-        series: SeriePoint.liste(json['series']),
-        repartitionStatuts: _rows(json['repartition_statuts']).map(RepartitionStatut.fromJson).toList(),
-      );
+  factory OverviewData.fromJson(Map<String, dynamic> json) {
+    final benefices = _obj(json['benefices']);
+    return OverviewData(
+      periode: PeriodeInfo.fromJson(_obj(json['periode'])),
+      kpis: _variationMap(json['kpis']),
+      series: SeriePoint.liste(json['series']),
+      repartitionStatuts: _rows(json['repartition_statuts']).map(RepartitionStatut.fromJson).toList(),
+      beneficeObtenu: benefices['obtenu'] is Map ? Variation.fromJson(_obj(benefices['obtenu'])) : Variation.zero,
+      beneficeEstime: benefices['estime'] is Map ? BeneficeEstime.fromJson(_obj(benefices['estime'])) : BeneficeEstime.zero,
+    );
+  }
 }
 
 // --- 2. Ventes --------------------------------------------------------------

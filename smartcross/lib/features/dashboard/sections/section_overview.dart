@@ -132,6 +132,36 @@ class SectionOverview extends ConsumerWidget {
           ],
         ),
         const SizedBox(height: 16),
+        // Bénéfices : obtenu sur la période (marge brute des articles livrés)
+        // et estimé sur le stock d'aujourd'hui (si tout est vendu) — mêmes
+        // deux cartes que la Vue générale web.
+        KpiGrid(
+          cols: 2,
+          children: [
+            ReportKpiCard(
+              loading: loading,
+              titre: 'Total des bénéfices obtenus',
+              icon: Icons.savings_outlined,
+              valeur: data == null ? null : fmtAr(data.beneficeObtenu.actuel),
+              couleur: data == null ? null : (data.beneficeObtenu.actuel < 0 ? kCouleurBaisse : kCouleurHausse),
+              variation: data?.beneficeObtenu,
+              format: fmtAr,
+              detail: "Articles livrés sur la période : prix de vente − prix d'achat (hors frais et dépenses)",
+            ),
+            ReportKpiCard(
+              loading: loading,
+              titre: 'Total du bénéfice estimé',
+              icon: Icons.inventory_outlined,
+              valeur: data == null ? null : fmtAr(data.beneficeEstime.benefice),
+              couleur: data == null ? null : (data.beneficeEstime.benefice < 0 ? kCouleurBaisse : kCouleurHausse),
+              detail: data == null
+                  ? null
+                  : 'Potentiel si tout le stock actuel est vendu : ${fmtNb(data.beneficeEstime.quantite)} articles · '
+                      'vente ${fmtAr(data.beneficeEstime.valeurVente)} − achat ${fmtAr(data.beneficeEstime.valeurAchat)}',
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
         // `grid-cols-1 xl:grid-cols-3` : côte à côte (2/3 – 1/3) dès 1280 px,
         // une colonne sinon.
         LayoutBuilder(
@@ -290,6 +320,16 @@ ReportPrintable? overviewPrintable(OverviewData data) {
       PrintableKpi('Bénéfice net', fmtAr(data.beneficeNet.actuel), "CA − coût d'achat − dépenses (hors achats de stock)"),
       PrintableKpi('Commandes', fmtNb(data.nbCommandes.actuel), '${fmtNb(data.nbLivrees.actuel)} livrées'),
       PrintableKpi('Panier moyen', fmtAr(data.panierMoyen.actuel), 'CA / commandes livrées'),
+      PrintableKpi(
+        'Total des bénéfices obtenus',
+        fmtAr(data.beneficeObtenu.actuel),
+        "articles livrés : vente − achat · préc. ${fmtAr(data.beneficeObtenu.precedent)}",
+      ),
+      PrintableKpi(
+        'Total du bénéfice estimé',
+        fmtAr(data.beneficeEstime.benefice),
+        'stock actuel : ${fmtNb(data.beneficeEstime.quantite)} articles · vente ${fmtAr(data.beneficeEstime.valeurVente)} − achat ${fmtAr(data.beneficeEstime.valeurAchat)}',
+      ),
     ],
     tables: [
       PrintableTable(

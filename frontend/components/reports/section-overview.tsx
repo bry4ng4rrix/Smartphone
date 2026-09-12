@@ -2,7 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { BadgeDollarSign, Package, ShoppingCart, TrendingUp, Truck, Wallet } from 'lucide-react';
+import { BadgeDollarSign, Boxes, Coins, Package, ShoppingCart, TrendingUp, Truck, Wallet } from 'lucide-react';
 import { fmtAr, fmtDate, fmtNb, STATUT_COULEURS, type OverviewData } from '@/lib/reports';
 import { KpiCard, KpiGrid, VariationBadge } from './kpi-card';
 import { CamembertChart, ChartCard, SerieChart } from './report-chart';
@@ -11,6 +11,7 @@ import { useReport, type ReportParams } from './use-report';
 export function SectionOverview({ params, enabled }: { params: ReportParams; enabled: boolean }) {
   const { data, loading, error } = useReport<OverviewData>('overview', params, enabled);
   const k = data?.kpis;
+  const b = data?.benefices;
   const serie = (cle: string) => data?.series.map((p) => Number(p[cle]) || 0);
 
   return (
@@ -30,6 +31,29 @@ export function SectionOverview({ params, enabled }: { params: ReportParams; ena
         />
         <KpiCard loading={loading} titre="Commandes" icon={ShoppingCart} valeur={k && fmtNb(k.nb_commandes.actuel)} variation={k?.nb_commandes} format={fmtNb} detail={k && `${fmtNb(k.nb_livrees.actuel)} livrées`} />
         <KpiCard loading={loading} titre="Panier moyen" icon={Package} valeur={k && fmtAr(k.panier_moyen.actuel)} variation={k?.panier_moyen} format={fmtAr} detail="CA / commandes livrées" />
+      </KpiGrid>
+
+      {/* Bénéfices : obtenu sur la période (marge brute des articles livrés)
+          et estimé sur le stock d'aujourd'hui (si tout est vendu). */}
+      <KpiGrid cols={2}>
+        <KpiCard
+          loading={loading}
+          titre="Total des bénéfices obtenus"
+          icon={Coins}
+          valeur={b && fmtAr(b.obtenu.actuel)}
+          couleur={b && b.obtenu.actuel < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}
+          variation={b?.obtenu}
+          format={fmtAr}
+          detail="Articles livrés sur la période : prix de vente − prix d'achat (hors frais et dépenses)"
+        />
+        <KpiCard
+          loading={loading}
+          titre="Total du bénéfice estimé"
+          icon={Boxes}
+          valeur={b && fmtAr(b.estime.benefice)}
+          couleur={b && b.estime.benefice < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}
+          detail={b && `Potentiel si tout le stock actuel est vendu : ${fmtNb(b.estime.quantite)} articles · vente ${fmtAr(b.estime.valeur_vente)} − achat ${fmtAr(b.estime.valeur_achat)}`}
+        />
       </KpiGrid>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">

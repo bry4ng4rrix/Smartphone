@@ -441,7 +441,7 @@ Fonctionnalités à garantir : 76
 ### `/suppliers`  —  VERIFIED
 
 Écran Flutter : `features/suppliers/*`  
-Fonctionnalités à garantir : 63
+Fonctionnalités à garantir : 64
 
 - [x] En-tete: titre h1 'Fournisseurs' avec icone Truck (lucide, h-6 w-6) + sous-titre gris 'Coût de revient réel : marchandise + fret/import + douane (§7.6 du cahier des charges).'
 - [x] Bouton icone 'Rafraichir' (variant=outline, size=icon, icone RefreshCw) -> appelle fetchOrders() en mode NON silencieux (affiche le skeleton)
@@ -1241,6 +1241,7 @@ Fonctionnalités à garantir : 63
 - [x] ReportTable : états chargement / erreur / vide, défilement horizontal, pagination client (`a–b sur n`, `p/pages`, précédent/suivant, uniquement si > 1 page), bouton export Excel (désactivé si vide, colonne `export` ou valeur brute, fichier `{exportNom}_{AAAA-MM-JJ}.xlsx` remis à la feuille de partage), emplacement `actions`, mode compact
 - [x] VUE GÉNÉRALE — KPI `Chiffre d'affaires` (+ tendance `ventes`), `Bénéfice net` (vert/rouge, détail `CA − coût d'achat − dépenses (hors achats de stock)`, tendance `benefices`), `Commandes` (détail `{n} livrées`), `Panier moyen` (détail `CA / commandes livrées`) — chacun avec variation et `préc.`
 - [x] VUE GÉNÉRALE — graphique `Ventes, dépenses et bénéfices` (description `Par {jour|semaine|mois|année} — {from} → {to}`, barres Ventes (CA) #2563eb et Dépenses #ef4444, courbe Bénéfices #16a34a, hauteur 320) + anneau `Commandes par statut` (STATUT_COULEURS)
+- [x] VUE GÉNÉRALE — cartes `Total des bénéfices obtenus` (marge brute des articles livrés sur la période, variation) et `Total du bénéfice estimé` (stock actuel : valeur de vente − valeur d'achat, détail articles / vente / achat) — `benefices` de GET /api/orders/reports/overview/ (ajouté le 12/09/2026, web + Flutter)
 - [x] VUE GÉNÉRALE — carte `Comparaison avec la période précédente` : Indicateur / Période actuelle / Période précédente / Écart / Évolution pour Chiffre d'affaires, Marge brute (produits), Dépenses (inverse), Bénéfice net, Commandes, Commandes livrées, Panier moyen
 - [x] VENTES — KPI `Chiffre d'affaires` (détail `dont produits …`), `Ventes (commandes livrées)`, `Quantité vendue` (`articles livrés, hors retours`), `Panier moyen`
 - [x] VENTES — graphique `Évolution des ventes` (barres `CA produits`, courbe `Commandes livrées` en nb)
@@ -2809,4 +2810,4 @@ listées ici avec leur état Flutter constaté.
 
 Fonctionnalités ajoutées depuis l'audit : 53 (MISSING 1 · PARTIAL 0 · IMPLEMENTED 9 · VERIFIED 35)
 
-**Total de cases à cocher : 2170 — cochées : 1622.**
+**Total de cases à cocher : 2171 — cochées : 1623.**

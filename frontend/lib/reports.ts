@@ -216,6 +216,12 @@ export interface LigneVente {
 export interface OverviewData {
   periode: PeriodeInfo;
   kpis: Record<'ca_total' | 'benefice_net' | 'nb_commandes' | 'panier_moyen' | 'nb_livrees' | 'depenses' | 'marge_brute', Variation>;
+  /** Bénéfice obtenu (marge brute des articles livrés de la période) et
+   *  bénéfice estimé (potentiel du stock actuel : valeur de vente − valeur d'achat). */
+  benefices: {
+    obtenu: Variation;
+    estime: { benefice: number; valeur_vente: number; valeur_achat: number; quantite: number };
+  };
   series: SeriePoint[];
   repartition_statuts: { statut: string; label: string; nb: number }[];
 }
