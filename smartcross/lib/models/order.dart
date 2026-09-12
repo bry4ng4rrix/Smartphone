@@ -15,6 +15,7 @@ class OrderItem {
     this.brandName,
     this.typeName,
     this.categoryName,
+    this.retourne = false,
   });
 
   final int id;
@@ -30,6 +31,16 @@ class OrderItem {
   final String? typeName;
   final String? categoryName;
 
+  /// Article rapporté par le livreur lors d'une livraison partielle
+  /// (§ demande) : le client n'en a pas voulu, il est reparti en stock et
+  /// sorti du total à payer — voir OrderItem.retourne côté serveur et
+  /// `OrdersRepository.changeStatus(itemsLivres: ...)`.
+  final bool retourne;
+
+  /// "Galaxy A15 (Noir)" — libellé commun aux listes, résumés et pointage
+  /// des articles (même forme que `{reference_name} ({couleur})` du web).
+  String get libelle => couleur.isNotEmpty ? '$referenceName ($couleur)' : referenceName;
+
   factory OrderItem.fromJson(Map<String, dynamic> json) {
     return OrderItem(
       id: asInt(json['id']),
@@ -41,6 +52,7 @@ class OrderItem {
       brandName: asStringOrNull(json['brand_name']),
       typeName: asStringOrNull(json['type_name']),
       categoryName: asStringOrNull(json['category_name']),
+      retourne: asBool(json['retourne'], false),
     );
   }
 }
@@ -66,14 +78,19 @@ class OrderStatusHistoryEntry {
   final String? photo;
   final DateTime? timestamp;
 
+  /// Vrai si une photo est réellement jointe (le serveur peut renvoyer une
+  /// chaîne vide plutôt que `null`).
+  bool get aPhoto => photo != null && photo!.isNotEmpty;
+
   factory OrderStatusHistoryEntry.fromJson(Map<String, dynamic> json) {
+    final photo = asStringOrNull(json['photo']);
     return OrderStatusHistoryEntry(
       id: asInt(json['id']),
       ancienStatut: json['ancien_statut'] != null ? OrderStatusX.fromApi(asString(json['ancien_statut'])) : null,
       nouveauStatut: OrderStatusX.fromApi(asString(json['nouveau_statut'])),
       changedByName: asStringOrNull(json['changed_by_name']),
       note: asStringOrNull(json['note']),
-      photo: asStringOrNull(json['photo']),
+      photo: photo == null || photo.isEmpty ? null : photo,
       timestamp: asDateOrNull(json['timestamp']),
     );
   }
@@ -90,6 +107,7 @@ class Order {
     this.dateCommande,
     required this.clientNom,
     this.telephone,
+    this.telephone2,
     required this.livraisonZone,
     this.adresseLivraison,
     this.modePaiement = PaymentMode.livraison,
@@ -101,6 +119,8 @@ class Order {
     required this.items,
     this.statusHistory = const [],
     this.createdAt,
+    this.updatedAt,
+    this.magasinId,
     this.preparateurId,
     this.preparateurName,
     this.livreurId,
@@ -112,6 +132,10 @@ class Order {
   final DateTime? dateCommande;
   final String clientNom;
   final String? telephone;
+
+  /// Second numéro, facultatif (§ demande) — même format +261XXXXXXXXX. Le
+  /// livreur l'appelle quand le premier ne répond pas. `null` si vide.
+  final String? telephone2;
   // Code de zone : soit le `code` d'une DeliveryZoneOption (CRUD Paramètres),
   // soit le littéral kRecuperationCode — voir models/delivery_zone.dart.
   final String livraisonZone;
@@ -127,6 +151,11 @@ class Order {
   final List<OrderItem> items;
   final List<OrderStatusHistoryEntry> statusHistory;
   final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  /// Magasin de la commande — exposé au gérant seulement (serializer
+  /// complet) ; sert à cibler `available-staff` sur le bon magasin.
+  final int? magasinId;
   // Préparateur/livreur désigné pour cette commande (voir orders/services.py
   // — un seul à la fois par personne).
   final int? preparateurId;
@@ -134,13 +163,109 @@ class Order {
   final int? livreurId;
   final String? livreurName;
 
+  // ---------------------------------------------------------------------
+  // Règles métier partagées par les écrans — mêmes conditions que
+  // frontend/app/(app)/orders/page.tsx.
+  // ---------------------------------------------------------------------
+
+  /// Retrait sur place : pas de livreur, pas de frais.
+  bool get estRecuperation => livraisonZone == kRecuperationCode;
+
+  /// Le client a réglé AVANT la livraison : rien à encaisser pour le
+  /// livreur, les montants lui sont masqués.
+  bool get estPrepayee => modePaiement == PaymentMode.avant;
+
+  /// Livrée / Retour / Annulée — plus aucune transition, ni modification,
+  /// ni annulation possible (`!['LIVRE','RETOUR','ANNULEE'].includes(...)`).
+  bool get estTerminee =>
+      statutCourant == OrderStatus.livre ||
+      statutCourant == OrderStatus.retour ||
+      statutCourant == OrderStatus.annulee;
+
+  /// Close (Livrée ou Retour) : le gérant peut encore CORRIGER l'état
+  /// (§ demande — voir [correctionCible] et `corrigerStatut`).
+  bool get estClose => statutCourant == OrderStatus.livre || statutCourant == OrderStatus.retour;
+
+  /// État vers lequel une commande close peut être corrigée (LIVRE <-> RETOUR),
+  /// `null` si la commande n'est pas close.
+  OrderStatus? get correctionCible {
+    switch (statutCourant) {
+      case OrderStatus.livre:
+        return OrderStatus.retour;
+      case OrderStatus.retour:
+        return OrderStatus.livre;
+      default:
+        return null;
+    }
+  }
+
+  /// Modification complète possible (client, téléphone, date, articles…) —
+  /// `canEdit` du web : Nouvelle ou En préparation.
+  bool get modificationComplete =>
+      statutCourant == OrderStatus.nouvelle || statutCourant == OrderStatus.enPreparation;
+
+  /// Au-delà de "En préparation" et avant la clôture, seules les données de
+  /// LIVRAISON restent modifiables : mode de paiement, zone, adresse et note
+  /// du livreur (`livraisonSeule` du web, même règle que
+  /// orders/services.py::update_order).
+  bool get modificationLivraisonSeule => !modificationComplete && !estTerminee;
+
+  /// Suppression réservée à une commande "Nouvelle" (rien d'engagé).
+  bool get suppressionPossible => statutCourant == OrderStatus.nouvelle;
+
+  /// Annulation possible tant que la commande n'est pas terminée.
+  bool get annulationPossible => !estTerminee;
+
+  /// L'annulation restituera du stock déjà déduit (message du dialogue web).
+  bool get annulationRestitueStock =>
+      statutCourant == OrderStatus.enPreparation ||
+      statutCourant == OrderStatus.prete ||
+      statutCourant == OrderStatus.enLivraison;
+
+  /// Première entrée d'historique ayant atteint [statut] (`historyAt` du
+  /// web) — pour la chronologie et la colonne « Assigné à ».
+  OrderStatusHistoryEntry? historyEntry(OrderStatus statut) {
+    for (final h in statusHistory) {
+      if (h.nouveauStatut == statut) return h;
+    }
+    return null;
+  }
+
+  /// Horodatage du premier passage par [statut], `null` s'il n'a jamais été
+  /// atteint.
+  DateTime? historyAt(OrderStatus statut) => historyEntry(statut)?.timestamp;
+
+  /// Photo de préparation la plus récente de l'historique, `null` s'il n'y
+  /// en a aucune. Le partage dans la messagerie n'est proposé que si elle
+  /// existe (§ demande).
+  String? get photoPreparation {
+    String? photo;
+    for (final h in statusHistory) {
+      if (h.aPhoto) photo = h.photo;
+    }
+    return photo;
+  }
+
+  bool get aPhotoPreparation => photoPreparation != null;
+
+  /// Articles réellement remis au client (non rapportés).
+  List<OrderItem> get itemsRemis => items.where((i) => !i.retourne).toList();
+
+  /// Articles rapportés lors d'une livraison partielle.
+  List<OrderItem> get itemsRapportes => items.where((i) => i.retourne).toList();
+
+  /// Vrai si au moins un article a été rapporté (livraison partielle).
+  bool get livraisonPartielle => items.any((i) => i.retourne);
+
   factory Order.fromJson(Map<String, dynamic> json) {
+    final telephone2 = asStringOrNull(json['telephone_2'])?.trim();
     return Order(
       id: asInt(json['id']),
       numero: asString(json['numero']),
       dateCommande: asDateOrNull(json['date_commande']),
       clientNom: asString(json['client_nom']),
       telephone: asStringOrNull(json['telephone']),
+      telephone2: telephone2 == null || telephone2.isEmpty ? null : telephone2,
       livraisonZone: asString(json['livraison_zone'], kRecuperationCode),
       adresseLivraison: asStringOrNull(json['adresse_livraison']),
       modePaiement: PaymentModeX.fromApi(asStringOrNull(json['mode_paiement'])),
@@ -154,6 +279,8 @@ class Order {
           .map((e) => OrderStatusHistoryEntry.fromJson(e as Map<String, dynamic>))
           .toList(),
       createdAt: asDateOrNull(json['created_at']),
+      updatedAt: asDateOrNull(json['updated_at']),
+      magasinId: asIntOrNull(json['magasin']),
       preparateurId: asIntOrNull(json['preparateur']),
       preparateurName: asStringOrNull(json['preparateur_name']),
       livreurId: asIntOrNull(json['livreur']),

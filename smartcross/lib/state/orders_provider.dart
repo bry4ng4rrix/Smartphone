@@ -13,11 +13,60 @@ final ordersRepositoryProvider = Provider((ref) => OrdersRepository());
 /// Zones de livraison configurables (nom + prix) — § demande. Remplit aussi
 /// le cache mémoire utilisé pour afficher un libellé à partir du code stocké
 /// sur la commande (voir DeliveryZoneCatalog).
-final deliveryZonesProvider = FutureProvider<List<DeliveryZoneOption>>((ref) async {
-  final zones = await ref.read(ordersRepositoryProvider).deliveryZones();
-  DeliveryZoneCatalog.zones = zones;
-  return zones;
-});
+///
+/// Lecture pour tous (sélecteur de zone) ; les méthodes de modification
+/// portent le CRUD de Paramètres > Zones (gérant — `djangoClient.zones`).
+/// Reste consommable comme avant : `ref.watch(deliveryZonesProvider)` donne
+/// un `AsyncValue<List<DeliveryZoneOption>>`.
+class DeliveryZonesNotifier extends AsyncNotifier<List<DeliveryZoneOption>> {
+  late final _repo = ref.read(ordersRepositoryProvider);
+
+  Future<List<DeliveryZoneOption>> _fetch() async {
+    final zones = await _repo.deliveryZones();
+    DeliveryZoneCatalog.zones = zones;
+    return zones;
+  }
+
+  @override
+  Future<List<DeliveryZoneOption>> build() => _fetch();
+
+  Future<void> refresh() async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(_fetch);
+  }
+
+  /// Rechargement sans état de chargement intermédiaire (après une action).
+  Future<void> _refreshSilencieux() async {
+    state = await AsyncValue.guard(_fetch);
+  }
+
+  Future<DeliveryZoneOption> create({required String nom, required double prix}) async {
+    final zone = await _repo.createDeliveryZone(nom: nom, prix: prix);
+    await _refreshSilencieux();
+    return zone;
+  }
+
+  Future<DeliveryZoneOption> updateZone(int id, {String? nom, double? prix, bool? actif}) async {
+    final zone = await _repo.updateDeliveryZone(id, nom: nom, prix: prix, actif: actif);
+    await _refreshSilencieux();
+    return zone;
+  }
+
+  /// Bascule actif/inactif (interrupteur de la liste des zones du web).
+  Future<DeliveryZoneOption> toggleActif(DeliveryZoneOption zone) => updateZone(zone.id, actif: !zone.actif);
+
+  /// Renvoie la zone désactivée si elle était déjà utilisée par des
+  /// commandes (le serveur la désactive au lieu de la supprimer), `null` si
+  /// elle a réellement été supprimée.
+  Future<DeliveryZoneOption?> delete(int id) async {
+    final desactivee = await _repo.deleteDeliveryZone(id);
+    await _refreshSilencieux();
+    return desactivee;
+  }
+}
+
+final deliveryZonesProvider =
+    AsyncNotifierProvider<DeliveryZonesNotifier, List<DeliveryZoneOption>>(DeliveryZonesNotifier.new);
 
 class OrdersFilter {
   const OrdersFilter({
@@ -25,6 +74,8 @@ class OrdersFilter {
     this.dateDebut,
     this.dateFin,
     this.preparateurId,
+    this.livraisonZone,
+    this.magasinId,
     this.historique = false,
     this.dateFrom,
     this.dateTo,
@@ -34,6 +85,10 @@ class OrdersFilter {
   final DateTime? dateDebut;
   final DateTime? dateFin;
   final int? preparateurId;
+  // Filtres serveur supplémentaires de `djangoClient.orders.list` (gérant) :
+  // code de zone et magasin.
+  final String? livraisonZone;
+  final int? magasinId;
   final bool historique;
   final DateTime? dateFrom;
   final DateTime? dateTo;
@@ -48,6 +103,10 @@ class OrdersFilter {
     DateTime? dateFin,
     int? preparateurId,
     bool clearPreparateurId = false,
+    String? livraisonZone,
+    bool clearLivraisonZone = false,
+    int? magasinId,
+    bool clearMagasinId = false,
     bool? historique,
     DateTime? dateFrom,
     DateTime? dateTo,
@@ -58,6 +117,8 @@ class OrdersFilter {
       dateDebut: dateDebut ?? this.dateDebut,
       dateFin: dateFin ?? this.dateFin,
       preparateurId: clearPreparateurId ? null : (preparateurId ?? this.preparateurId),
+      livraisonZone: clearLivraisonZone ? null : (livraisonZone ?? this.livraisonZone),
+      magasinId: clearMagasinId ? null : (magasinId ?? this.magasinId),
       historique: historique ?? this.historique,
       dateFrom: dateFrom ?? this.dateFrom,
       dateTo: dateTo ?? this.dateTo,
@@ -97,6 +158,11 @@ final ordersFilterProvider = NotifierProvider<OrdersFilterNotifier, OrdersFilter
 /// Liste des commandes — vue filtrée par rôle côté serveur (§7.1/7.2/7.3
 /// README). Se rafraîchit automatiquement à chaque événement temps réel
 /// (nouvelle commande, changement de statut) via [realtimeTickProvider].
+///
+/// Deux rechargements, comme `fetchOrders(silent)` du web : [refresh] pour
+/// le bouton « Rafraîchir » (repasse par l'état de chargement) ; après
+/// chaque action la liste est rechargée SILENCIEUSEMENT — les données
+/// restent affichées jusqu'à l'arrivée des nouvelles, sans clignotement.
 class OrdersNotifier extends AsyncNotifier<List<Order>> {
   late final _repo = ref.read(ordersRepositoryProvider);
 
@@ -106,10 +172,17 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
       dateDebut: filter.dateDebut,
       dateFin: filter.dateFin,
       preparateurId: filter.preparateurId,
+      livraisonZone: filter.livraisonZone,
+      magasinId: filter.magasinId,
       historique: filter.historique,
       dateFrom: filter.dateFrom,
       dateTo: filter.dateTo,
     );
+    // « Pas encore livrée » : filtre CLIENT (`statut !== 'LIVRE'` côté web),
+    // le serveur ne connaissant pas cette valeur.
+    if (filter.nonLivree) {
+      commandes.removeWhere((o) => o.statutCourant == OrderStatus.livre);
+    }
     // Ordre d'affichage commun aux trois rôles (§ demande) : la commande la
     // plus récemment CRÉÉE en haut. La tournée du livreur y ajoute son propre
     // regroupement (jour J d'abord — voir tournee_screen.dart).
@@ -128,8 +201,17 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
     return _fetch(filter);
   }
 
+  /// Rechargement NON silencieux (bouton « Rafraîchir » : réaffiche l'état
+  /// de chargement).
   Future<void> refresh() async {
     state = const AsyncLoading();
+    state = await AsyncValue.guard(() => _fetch(ref.read(ordersFilterProvider)));
+  }
+
+  /// Rechargement SILENCIEUX (`fetchOrders(true)` du web) : après une action,
+  /// une modification ou un événement — la liste courante reste affichée
+  /// pendant l'appel.
+  Future<void> refreshSilencieux() async {
     state = await AsyncValue.guard(() => _fetch(ref.read(ordersFilterProvider)));
   }
 
@@ -138,6 +220,7 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
     required String telephone,
     required String livraisonZone,
     required List<OrderItemDraft> items,
+    String telephone2 = '',
     String notePreparateur = '',
     String noteLivreur = '',
     String adresseLivraison = '',
@@ -147,6 +230,7 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
     final order = await _repo.create(
       clientNom: clientNom,
       telephone: telephone,
+      telephone2: telephone2,
       livraisonZone: livraisonZone,
       items: items,
       notePreparateur: notePreparateur,
@@ -155,10 +239,14 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
       modePaiement: modePaiement,
       dateCommande: dateCommande,
     );
-    await refresh();
+    await refreshSilencieux();
     return order;
   }
 
+  /// Transition de statut. [itemsLivres] : livraison partielle au passage
+  /// "Livré" — ids des articles réellement remis ; `null` = tout remis ;
+  /// liste vide = rien remis, la commande devient un Retour (voir
+  /// OrdersRepository.changeStatus).
   Future<Order> changeStatus(
     int id,
     String statut, {
@@ -167,6 +255,7 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
     int? livreurId,
     DateTime? assignedAt,
     String? photoPath,
+    List<int>? itemsLivres,
   }) async {
     final order = await _repo.changeStatus(
       id,
@@ -176,14 +265,28 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
       livreurId: livreurId,
       assignedAt: assignedAt,
       photoPath: photoPath,
+      itemsLivres: itemsLivres,
     );
-    await refresh();
+    await refreshSilencieux();
     return order;
   }
 
+  /// Corrige l'état d'une commande close (gérant) : LIVRE <-> RETOUR, avec
+  /// remise en cohérence du stock côté serveur. [statut] = 'LIVRE'|'RETOUR'.
+  Future<Order> corrigerStatut(int id, String statut, {String note = ''}) async {
+    final order = await _repo.corrigerStatut(id, statut, note: note);
+    await refreshSilencieux();
+    return order;
+  }
+
+  /// Partage la commande (résumé + photo de préparation) au livreur assigné
+  /// dans la messagerie — gérant et préparateur. Ne modifie pas la commande :
+  /// aucun rechargement de la liste.
+  Future<void> shareToChat(int id, {String cible = kShareChatLivreur}) => _repo.shareToChat(id, cible: cible);
+
   Future<Order> cancel(int id, {String note = ''}) async {
     final order = await _repo.cancel(id, note: note);
-    await refresh();
+    await refreshSilencieux();
     return order;
   }
 
@@ -191,6 +294,7 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
     int id, {
     String? clientNom,
     String? telephone,
+    String? telephone2,
     String? livraisonZone,
     String? adresseLivraison,
     String? modePaiement,
@@ -203,6 +307,7 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
       id,
       clientNom: clientNom,
       telephone: telephone,
+      telephone2: telephone2,
       livraisonZone: livraisonZone,
       adresseLivraison: adresseLivraison,
       modePaiement: modePaiement,
@@ -211,27 +316,46 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
       noteLivreur: noteLivreur,
       items: items,
     );
-    await refresh();
+    await refreshSilencieux();
     return order;
+  }
+
+  /// Régime restreint de « Modifier » au-delà de "En préparation"
+  /// (`livraisonSeule` du web) : seuls le paiement, la zone, l'adresse et la
+  /// note du livreur partent — le serveur refuserait tout autre champ.
+  Future<Order> updateLivraison(
+    int id, {
+    String? modePaiement,
+    String? livraisonZone,
+    String? adresseLivraison,
+    String? noteLivreur,
+  }) {
+    return updateOrder(
+      id,
+      modePaiement: modePaiement,
+      livraisonZone: livraisonZone,
+      adresseLivraison: adresseLivraison,
+      noteLivreur: noteLivreur,
+    );
   }
 
   Future<void> delete(int id) async {
     await _repo.delete(id);
-    await refresh();
+    await refreshSilencieux();
   }
 
-  Future<List<StaffOption>> availableStaff(String role, {DateTime? dateCommande}) =>
-      _repo.availableStaff(role, dateCommande: dateCommande);
+  Future<List<StaffOption>> availableStaff(String role, {int? magasinId, DateTime? dateCommande}) =>
+      _repo.availableStaff(role, magasinId: magasinId, dateCommande: dateCommande);
 
   Future<Order> assignLivreur(int id, int livreurId) async {
     final order = await _repo.assignLivreur(id, livreurId);
-    await refresh();
+    await refreshSilencieux();
     return order;
   }
 
   Future<Order> assignPreparateur(int id, int preparateurId) async {
     final order = await _repo.assignPreparateur(id, preparateurId);
-    await refresh();
+    await refreshSilencieux();
     return order;
   }
 }
@@ -241,4 +365,15 @@ final ordersProvider = AsyncNotifierProvider<OrdersNotifier, List<Order>>(Orders
 final orderDetailProvider = FutureProvider.autoDispose.family<Order, int>((ref, id) {
   ref.watch(realtimeTickProvider);
   return ref.read(ordersRepositoryProvider).detail(id);
+});
+
+/// Liste des préparateurs pour le filtre « Préparateur » du gérant
+/// (`availableStaff('PREPARATEUR')` chargé une fois côté web). Échec
+/// silencieux comme sur le web : liste vide.
+final preparateurFilterListProvider = FutureProvider.autoDispose<List<StaffOption>>((ref) async {
+  try {
+    return await ref.read(ordersRepositoryProvider).availableStaff('PREPARATEUR');
+  } catch (_) {
+    return const <StaffOption>[];
+  }
 });

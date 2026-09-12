@@ -317,6 +317,12 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
   /// utile décodée (§ lib/qrcode-generator.ts) tant qu'on ne l'efface pas.
   ScannedCode? _scanned;
 
+  /// Rechargements du catalogue en vol pour la recherche courante — la
+  /// liste précédente reste affichée pendant ce temps (web : `loading`).
+  int _searchesInFlight = 0;
+
+  bool get _searching => _searchesInFlight > 0;
+
   @override
   void dispose() {
     _debounce?.cancel();
@@ -332,15 +338,43 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
     _debounce = Timer(_kDebounce, () {
       if (!mounted) return;
       setState(() => _query = value);
+      _searchCatalog(value);
     });
   }
 
-  /// Applique un terme SANS attendre le debounce (retour de scan).
+  /// Applique un terme SANS attendre le debounce (retour de scan, touche
+  /// Entrée).
   void _applyNow(String value) {
     _debounce?.cancel();
     _controller.text = value;
     _controller.selection = TextSelection.collapsed(offset: value.length);
     setState(() => _query = value);
+    _searchCatalog(value);
+  }
+
+  /// `search(q)` du web : à chaque terme débouncé NON vide, le catalogue est
+  /// rechargé (`djangoClient.products.search` refait un
+  /// `GET /catalog/references/` puis filtre en JS) — les stocks affichés sont
+  /// donc toujours ceux du serveur au moment de la recherche. Ici le filtrage
+  /// est immédiat sur la liste en cache et le rechargement se fait en
+  /// arrière-plan sans masquer les résultats (le web les remplace par
+  /// « Recherche... » le temps de l'appel). Terme vide : aucun appel, comme
+  /// `if (!q) { setResults([]); return; }`.
+  ///
+  /// Un échec laisse la liste précédente en place et passe par le toast du
+  /// `ref.listen` de [build] (`toast.error(err.message || ...)`).
+  Future<void> _searchCatalog(String query) async {
+    if (query.isEmpty) return;
+    final current = ref.read(referencesProvider);
+    // Premier chargement déjà en vol (déclenché par le `watch` du build) :
+    // inutile de doubler la requête.
+    if (current.isLoading && !current.hasValue) return;
+    setState(() => _searchesInFlight++);
+    try {
+      await ref.read(referencesProvider.notifier).refreshSilencieux();
+    } finally {
+      if (mounted) setState(() => _searchesInFlight--);
+    }
   }
 
   void _clear() {
@@ -497,6 +531,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
                 catalog: catalog,
                 products: products,
                 query: rawText,
+                searching: _searching,
                 onRetry: _refresh,
               )
             else
@@ -521,17 +556,24 @@ class _ResultsBlock extends StatelessWidget {
     required this.catalog,
     required this.products,
     required this.query,
+    required this.searching,
     required this.onRetry,
   });
 
   final AsyncValue<List<ProductReference>> catalog;
   final List<_ScannerProduct> products;
   final String query;
+
+  /// Rechargement du catalogue en arrière-plan pour ce terme (web :
+  /// `loading` pendant `products.search`) — la liste reste visible.
+  final bool searching;
+
   final Future<void> Function() onRetry;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final muted = Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
 
     // Web : `loading ? <p>Recherche...</p>` — on garde le libellé, avec le
     // widget de chargement partagé du projet.
@@ -539,10 +581,7 @@ class _ResultsBlock extends StatelessWidget {
       return Column(
         children: [
           const Padding(padding: EdgeInsets.symmetric(vertical: 24), child: LoadingState()),
-          Text(
-            'Recherche…',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-          ),
+          Text('Recherche…', style: muted),
         ],
       );
     }
@@ -556,24 +595,46 @@ class _ResultsBlock extends StatelessWidget {
       );
     }
 
+    // Recherche en cours sur des résultats déjà affichés : le libellé du web
+    // (« Recherche... ») accompagne une barre de progression discrète.
+    final searchingBanner = searching
+        ? Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                const Expanded(child: LinearProgressIndicator(minHeight: 2)),
+                const SizedBox(width: 8),
+                Text('Recherche…', style: muted),
+              ],
+            ),
+          )
+        : null;
+
     if (products.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 24),
-        child: EmptyState(
-          message: 'Aucun produit trouvé pour « $query »',
-          icon: Icons.inventory_2_outlined,
-        ),
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ?searchingBanner,
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            child: EmptyState(
+              message: 'Aucun produit trouvé pour « $query »',
+              icon: Icons.inventory_2_outlined,
+            ),
+          ),
+        ],
       );
     }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        ?searchingBanner,
         Text(
           products.length > 1
               ? '${products.length} produits trouvés'
               : '${products.length} produit trouvé',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          style: muted,
         ),
         const SizedBox(height: 8),
         for (final product in products) _ProductCard(product: product),

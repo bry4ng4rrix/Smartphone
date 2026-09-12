@@ -113,24 +113,68 @@ class AlertsScreen extends ConsumerStatefulWidget {
 class _AlertsScreenState extends ConsumerState<AlertsScreen> {
   bool _exporting = false;
 
-  /// Équivalent du bouton « Actualiser » du web : refetch NON silencieux (on
-  /// repasse en chargement). Le refresh SILENCIEUX de `useRealtimeRefresh`
-  /// est déjà assuré par `rupturesProvider`, qui écoute
-  /// `realtimeTickProvider` (WebSocket §9 README).
-  Future<void> _refresh() => ref.read(rupturesProvider.notifier).refresh();
+  /// Rechargement NON silencieux en cours (bouton « Actualiser », bouton
+  /// « Réessayer »). Riverpod 3 conserve la valeur précédente quand le
+  /// notifier repasse en `AsyncLoading`, on ne peut donc pas s'appuyer sur
+  /// `hasValue` pour distinguer ce rechargement du refresh silencieux du
+  /// WebSocket : l'écran s'en souvient lui-même.
+  bool _refreshing = false;
 
+  /// Équivalent du bouton « Actualiser » du web : refetch NON silencieux (on
+  /// repasse en chargement, comme les skeletons du web). Le refresh
+  /// SILENCIEUX de `useRealtimeRefresh` est déjà assuré par
+  /// `rupturesProvider`, qui écoute `realtimeTickProvider` (WebSocket §9
+  /// README).
+  Future<void> _refresh() async {
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
+    try {
+      await ref.read(rupturesProvider.notifier).refresh();
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+    _signalRefreshError();
+  }
+
+  /// Tirer-pour-rafraîchir : la liste reste affichée pendant l'appel
+  /// (équivalent du `fetchData(true)` silencieux du web).
+  Future<void> _silentRefresh() async {
+    await ref.read(rupturesProvider.notifier).refreshSilencieux();
+    _signalRefreshError();
+  }
+
+  /// Web : `catch { console.error(err) }` — les données précédentes restent
+  /// affichées. Ici aussi la liste reste en place, mais l'échec du
+  /// rechargement demandé par l'utilisateur lui est signalé.
+  void _signalRefreshError() {
+    if (!mounted) return;
+    final after = ref.read(rupturesProvider);
+    if (after.hasError && after.hasValue) _snack(ApiClient.messageFromError(after.error!));
+  }
+
+  void _snack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// Export PDF de réapprovisionnement (§7.5 Smartreadme.md) — construit sur
+  /// les alertes AFFICHÉES, pour que le document corresponde à l'écran.
   Future<void> _exportPdf() async {
+    final items = ref.read(rupturesProvider).value;
+    if (items == null || items.isEmpty) {
+      _snack('Aucune alerte à exporter');
+      return;
+    }
     setState(() => _exporting = true);
     try {
-      final bytes = await ref.read(stockRepositoryProvider).ruptureExportPdfBytes();
+      final bytes = await ref.read(stockRepositoryProvider).ruptureExportPdfBytes(items: items);
       final file = XFile.fromData(bytes, name: 'alertes-reapprovisionnement.pdf', mimeType: 'application/pdf');
       await SharePlus.instance.share(
         ShareParams(files: [file], text: 'Alertes de stock — liste de réapprovisionnement'),
       );
+      _snack('${items.length} alerte(s) exportée(s)');
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
-      }
+      _snack(ApiClient.messageFromError(e));
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
@@ -139,7 +183,11 @@ class _AlertsScreenState extends ConsumerState<AlertsScreen> {
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(rupturesProvider);
-    final loading = async.isLoading;
+    // Chargement « bloquant » : premier chargement et « Actualiser »
+    // uniquement. Un rafraîchissement déclenché par le WebSocket garde les
+    // données à l'écran, sans indicateur (web : loading reste false).
+    final initialLoading = !async.hasValue && !async.hasError;
+    final loading = _refreshing || initialLoading;
     final items = (async.value ?? const <RuptureItem>[]).map(_AlertProduct.fromRupture).toList();
 
     // Jour de référence à l'heure d'Antananarivo (core/app_time.dart) : le web
@@ -172,13 +220,14 @@ class _AlertsScreenState extends ConsumerState<AlertsScreen> {
       ),
       body: _buildBody(
         async: async,
+        loading: loading,
         outOfStock: outOfStock,
         lowStock: lowStock,
         expiringSoon: expiringSoon,
         expired: expired,
         today: today,
       ),
-      floatingActionButton: items.isEmpty
+      floatingActionButton: items.isEmpty || loading
           ? null
           : FloatingActionButton.extended(
               onPressed: _exporting ? null : _exportPdf,
@@ -192,23 +241,29 @@ class _AlertsScreenState extends ConsumerState<AlertsScreen> {
 
   Widget _buildBody({
     required AsyncValue<List<RuptureItem>> async,
+    required bool loading,
     required List<_AlertProduct> outOfStock,
     required List<_AlertProduct> lowStock,
     required List<_AlertProduct> expiringSoon,
     required List<_AlertProduct> expired,
     required DateTime today,
   }) {
+    // Web : pendant `loading`, chaque KPI et chaque tableau est remplacé par
+    // un Skeleton — ici l'indicateur de chargement partagé.
+    if (loading) return const LoadingState();
     // Le web se contente d'un `console.error` et garde les données
     // précédentes : on n'affiche donc l'écran d'erreur que s'il n'y a rien à
     // montrer, sinon la liste reste en place.
     if (async.hasError && !async.hasValue) {
       return ErrorState(message: ApiClient.messageFromError(async.error!), onRetry: _refresh);
     }
-    if (!async.hasValue) return const LoadingState();
 
     return RefreshIndicator(
-      onRefresh: _refresh,
+      onRefresh: _silentRefresh,
       child: ListView(
+        // Tirer-pour-rafraîchir possible même quand la page tient dans
+        // l'écran (peu d'alertes).
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
         children: [
           Text(

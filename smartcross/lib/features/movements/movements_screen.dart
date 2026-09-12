@@ -10,6 +10,7 @@ import '../../core/permissions.dart';
 import '../../models/catalog.dart';
 import '../../state/auth_provider.dart';
 import '../../state/catalog_provider.dart';
+import '../../state/realtime_provider.dart';
 import '../../state/stock_provider.dart';
 import '../../widgets/async_state_widgets.dart';
 import '../../widgets/status_badge.dart';
@@ -55,9 +56,20 @@ class _MovementsScreenState extends ConsumerState<MovementsScreen> {
 
   bool _exporting = false;
 
+  /// Rechargement NON silencieux en cours (bouton « Actualiser », bouton
+  /// « Réessayer »). Riverpod 3 conserve la valeur précédente quand un
+  /// notifier repasse en `AsyncLoading` : `hasValue` ne permet donc pas de
+  /// distinguer ce rechargement du refresh silencieux du WebSocket — l'écran
+  /// s'en souvient lui-même, comme le `loading` de la page web.
+  bool _refreshing = false;
+
+  /// Debounce 400 ms des événements temps réel (`useRealtimeRefresh`).
+  Timer? _realtimeDebounce;
+
   @override
   void dispose() {
     _debounce?.cancel();
+    _realtimeDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -78,25 +90,49 @@ class _MovementsScreenState extends ConsumerState<MovementsScreen> {
   }
 
   /// Bouton « Actualiser » : refetch NON silencieux (on repasse en
-  /// chargement, comme les skeletons du web). `fetchData()` côté web
-  /// recharge les mouvements ET le catalogue : on fait les deux.
+  /// chargement, comme les skeletons du web, boutons désactivés).
+  /// `fetchData()` côté web recharge les mouvements ET le catalogue
+  /// (`Promise.all`) : on attend les deux.
   Future<void> _refresh() async {
-    ref.invalidate(referencesProvider);
-    await ref.read(movementsProvider(null).notifier).refresh();
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
+    try {
+      await Future.wait([
+        ref.read(referencesProvider.notifier).refreshSilencieux(),
+        ref.read(movementsProvider(null).notifier).refresh(),
+      ]);
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+    _signalRefreshError();
   }
 
   /// Tirer-pour-rafraîchir : équivalent du refresh SILENCIEUX
-  /// (`fetchData(true)` déclenché par le WebSocket) — les données restent à
-  /// l'écran pendant le rechargement.
+  /// (`fetchData(true)`) — les données restent à l'écran pendant le
+  /// rechargement.
   Future<void> _silentRefresh() async {
-    ref.invalidate(referencesProvider);
-    ref.invalidate(movementsProvider(null));
-    try {
-      await ref.read(movementsProvider(null).future);
-    } catch (_) {
-      // L'erreur est déjà portée par l'AsyncValue (ErrorState / données
-      // conservées) — rien à relancer depuis le geste de rafraîchissement.
-    }
+    await Future.wait([
+      ref.read(referencesProvider.notifier).refreshSilencieux(),
+      ref.read(movementsProvider(null).notifier).refreshSilencieux(),
+    ]);
+    _signalRefreshError();
+  }
+
+  /// Web : `catch (err) { console.error(...) }` — les données précédentes
+  /// restent affichées, sans message. Ici aussi la page garde ses données,
+  /// mais l'échec d'un rechargement demandé par l'utilisateur lui est
+  /// signalé (l'écran d'erreur plein ne s'affiche que s'il n'y a rien à
+  /// montrer).
+  void _signalRefreshError() {
+    if (!mounted) return;
+    final movements = ref.read(movementsProvider(null));
+    final references = ref.read(referencesProvider);
+    final Object? error = movements.hasError && movements.hasValue
+        ? movements.error
+        : references.hasError && references.hasValue
+            ? references.error
+            : null;
+    if (error != null) _snack(ApiClient.messageFromError(error));
   }
 
   // --- Filtrage ------------------------------------------------------------
@@ -121,14 +157,16 @@ class _MovementsScreenState extends ConsumerState<MovementsScreen> {
     }).toList();
   }
 
+  /// Libellé « Période analysée » — le web y reprend les valeurs BRUTES des
+  /// champs date (`AAAA-MM-JJ`), non localisées : identique ici.
   String get _statsPeriodLabel {
     final start = _statsStart;
     final end = _statsEnd;
     if (start != null && end != null) {
-      return 'du ${movementDayFmt.format(start)} au ${movementDayFmt.format(end)}';
+      return 'du ${movementIsoDayFmt.format(start)} au ${movementIsoDayFmt.format(end)}';
     }
-    if (start != null) return 'depuis le ${movementDayFmt.format(start)}';
-    if (end != null) return "jusqu'au ${movementDayFmt.format(end)}";
+    if (start != null) return 'depuis le ${movementIsoDayFmt.format(start)}';
+    if (end != null) return "jusqu'au ${movementIsoDayFmt.format(end)}";
     return 'toute la période';
   }
 
@@ -189,6 +227,17 @@ class _MovementsScreenState extends ConsumerState<MovementsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Temps réel (`useRealtimeRefresh(['stock_movement','product_variant',
+    // 'order'], () => fetchData(true))`, debounce 400 ms) : les mouvements
+    // se rechargent d'eux-mêmes (le notifier écoute le tick) ; le catalogue,
+    // partagé avec les autres écrans, est rechargé silencieusement ici.
+    ref.listen(realtimeTickProvider, (_, _) {
+      _realtimeDebounce?.cancel();
+      _realtimeDebounce = Timer(const Duration(milliseconds: 400), () {
+        if (mounted) ref.read(referencesProvider.notifier).refreshSilencieux();
+      });
+    });
+
     final movementsAsync = ref.watch(movementsProvider(null));
     final referencesAsync = ref.watch(referencesProvider);
     final user = ref.watch(authProvider).user;
@@ -197,10 +246,14 @@ class _MovementsScreenState extends ConsumerState<MovementsScreen> {
 
     final all = (movementsAsync.value ?? []).map(MovementView.fromModel).toList();
     final filtered = _tableFiltered(all);
-    // Chargement « bloquant » : uniquement au premier chargement et sur
-    // « Actualiser ». Un rafraîchissement déclenché par le WebSocket garde
-    // les données à l'écran (refresh silencieux du web).
-    final loading = !movementsAsync.hasValue && !movementsAsync.hasError;
+    // Chargement « bloquant » : premier chargement (mouvements ET catalogue,
+    // comme le `Promise.all` du web) et « Actualiser ». Un rafraîchissement
+    // déclenché par le WebSocket garde les données à l'écran (refresh
+    // silencieux du web : ni skeleton ni spinner).
+    final movementsInitial = !movementsAsync.hasValue && !movementsAsync.hasError;
+    final referencesInitial = !referencesAsync.hasValue && !referencesAsync.hasError;
+    final loading = _refreshing || movementsInitial || referencesInitial;
+    final movementsError = movementsAsync.hasError && !movementsAsync.hasValue ? movementsAsync.error : null;
 
     return Scaffold(
       appBar: AppBar(
@@ -231,23 +284,23 @@ class _MovementsScreenState extends ConsumerState<MovementsScreen> {
             ),
         ],
       ),
-      body: switch (movementsAsync) {
-        AsyncValue(hasValue: true) => _buildContent(
-            context,
-            all: all,
-            filtered: filtered,
-            references: referencesAsync.value ?? const <ProductReference>[],
-            referencesError: referencesAsync.hasError && !referencesAsync.hasValue
-                ? ApiClient.messageFromError(referencesAsync.error!)
-                : null,
-            isManager: isManager,
-          ),
-        AsyncValue(hasError: true, :final error) => ErrorState(
-            message: ApiClient.messageFromError(error!),
-            onRetry: _refresh,
-          ),
-        _ => const LoadingState(),
-      },
+      body: loading
+          ? const LoadingState()
+          : movementsError != null
+              ? ErrorState(
+                  message: ApiClient.messageFromError(movementsError),
+                  onRetry: _refresh,
+                )
+              : _buildContent(
+                  context,
+                  all: all,
+                  filtered: filtered,
+                  references: referencesAsync.value ?? const <ProductReference>[],
+                  referencesError: referencesAsync.hasError && !referencesAsync.hasValue
+                      ? ApiClient.messageFromError(referencesAsync.error!)
+                      : null,
+                  isManager: isManager,
+                ),
     );
   }
 
@@ -300,6 +353,7 @@ class _MovementsScreenState extends ConsumerState<MovementsScreen> {
     return RefreshIndicator(
       onRefresh: _silentRefresh,
       child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
@@ -796,6 +850,12 @@ class _MovementsScreenState extends ConsumerState<MovementsScreen> {
     for (final m in statsFiltered) {
       final name = m.productName.isEmpty ? 'Produit inconnu' : m.productName;
       movedProductNames.add(name);
+      // Le web ne retient que `product_name` (« Référence (Couleur) ») et
+      // compare ensuite au nom de RÉFÉRENCE : une référence dont seule une
+      // variante colorée a bougé y ressort à tort « sans mouvement ». On
+      // retient aussi la référence elle-même — la règle voulue (aucun
+      // mouvement sur aucune de ses variantes), sans rien perdre.
+      if (m.productReference.isNotEmpty) movedProductNames.add(m.productReference);
       if (m.change < 0) {
         soldMap[name] = (soldMap[name] ?? 0) + m.change.abs();
       }
@@ -804,9 +864,8 @@ class _MovementsScreenState extends ConsumerState<MovementsScreen> {
     final fastest = soldMap.entries.map((e) => _ProductQty(e.key, e.value)).toList()
       ..sort((a, b) => b.qty.compareTo(a.qty));
 
-    // Comme le web : comparaison stricte du nom de référence au `product_name`
-    // des mouvements, puis les 5 premiers dans l'ordre renvoyé par l'API
-    // (aucun tri).
+    // Comme le web : les 5 premières références sans mouvement, dans l'ordre
+    // renvoyé par l'API (aucun tri).
     final slowest = references
         .where((p) => !movedProductNames.contains(p.referenceName))
         .take(5)

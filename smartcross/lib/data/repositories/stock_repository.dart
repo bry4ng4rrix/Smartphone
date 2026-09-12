@@ -1,9 +1,11 @@
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:intl/intl.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../../core/api_client.dart';
+import '../../core/app_time.dart';
 import '../../models/catalog.dart';
 import '../../models/stock.dart';
 
@@ -14,9 +16,11 @@ import '../../models/stock.dart';
 class StockRepository {
   Dio get _dio => ApiClient.instance.dio;
 
+  static final DateFormat _pdfStampFmt = DateFormat('dd/MM/yyyy HH:mm');
+
   Future<List<StockMovement>> movements({int? variantId}) async {
     final response = await _dio.get('catalog/movements/', queryParameters: {
-      if (variantId != null) 'variant': variantId,
+      'variant': ?variantId,
     });
     return (response.data as List).map((e) => StockMovement.fromJson(e as Map<String, dynamic>)).toList();
   }
@@ -37,6 +41,10 @@ class StockRepository {
     return ProductVariant.fromJson(response.data as Map<String, dynamic>);
   }
 
+  /// Variantes en rupture ou sous le seuil d'alerte, dérivées de
+  /// `GET /catalog/references/` — mêmes prédicats que la page `/alerts` du
+  /// web (`initial_quantity === 0` → rupture, `0 < qté <= seuil` → faible),
+  /// portés par le serveur via `is_rupture` / `is_stock_bas`.
   Future<List<RuptureItem>> ruptures() async {
     final response = await _dio.get('catalog/references/');
     final references = (response.data as List)
@@ -71,31 +79,45 @@ class StockRepository {
 
   /// PDF de réapprovisionnement (§7.5 Smartreadme.md : "format simple lisible
   /// fournisseur") — généré côté client, il n'y a pas d'endpoint serveur dédié.
-  Future<Uint8List> ruptureExportPdfBytes() async {
-    final items = await ruptures();
+  ///
+  /// [items] : les alertes déjà affichées à l'écran, pour que le document
+  /// corresponde exactement à ce que l'utilisateur voit. Sans [items], la
+  /// liste est rechargée depuis le serveur.
+  Future<Uint8List> ruptureExportPdfBytes({List<RuptureItem>? items}) async {
+    final rows = items ?? await ruptures();
+    final nbRuptures = rows.where((it) => it.isRupture).length;
     final doc = pw.Document();
     doc.addPage(
       pw.MultiPage(
         build: (context) => [
           pw.Header(level: 0, text: 'Smartphone.Mg — Liste de réapprovisionnement'),
-          pw.Text('Généré le ${DateTime.now().toString().split('.').first}'),
-          pw.SizedBox(height: 12),
-          pw.TableHelper.fromTextArray(
-            headers: ['Statut', 'Marque', 'Référence', 'Couleur', 'Sous-type', 'Stock', 'Seuil', 'À commander'],
-            data: [
-              for (final it in items)
-                [
-                  it.isRupture ? 'Rupture' : 'Stock bas',
-                  it.brandName,
-                  it.referenceName,
-                  it.couleur,
-                  it.typeName,
-                  it.stockActuel.toString(),
-                  it.seuilAlerte.toString(),
-                  it.quantiteACommander.toString(),
-                ],
-            ],
+          // Horodatage au fuseau métier (Antananarivo), jamais l'heure brute
+          // de l'appareil.
+          pw.Text('Généré le ${_pdfStampFmt.format(appNow())}'),
+          pw.Text(
+            '${rows.length} produit(s) en alerte — $nbRuptures en rupture, '
+            '${rows.length - nbRuptures} en stock faible',
           ),
+          pw.SizedBox(height: 12),
+          if (rows.isEmpty)
+            pw.Text('Aucun produit en rupture ou sous le seuil d\'alerte.')
+          else
+            pw.TableHelper.fromTextArray(
+              headers: ['Statut', 'Marque', 'Référence', 'Couleur', 'Sous-type', 'Stock', 'Seuil', 'À commander'],
+              data: [
+                for (final it in rows)
+                  [
+                    it.isRupture ? 'Rupture' : 'Faible',
+                    it.brandName,
+                    it.referenceName,
+                    it.couleur,
+                    it.typeName,
+                    it.stockActuel.toString(),
+                    it.seuilAlerte.toString(),
+                    it.quantiteACommander.toString(),
+                  ],
+              ],
+            ),
         ],
       ),
     );

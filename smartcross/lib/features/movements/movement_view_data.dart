@@ -35,7 +35,10 @@ String fmtQty(num value) => _decimal.format(value.round());
 final DateFormat movementDateTimeFmt = DateFormat('dd/MM/yyyy HH:mm');
 final DateFormat movementTimeFmt = DateFormat('HH:mm');
 final DateFormat movementDayFmt = DateFormat('dd/MM/yyyy');
-final DateFormat movementFileDayFmt = DateFormat('yyyy-MM-dd');
+/// `AAAA-MM-JJ` — valeur brute des `<input type="date">` du web, reprise
+/// telle quelle dans le libellé « Période analysée » et le nom du fichier
+/// exporté.
+final DateFormat movementIsoDayFmt = DateFormat('yyyy-MM-dd');
 
 const List<String> _frWeekdays = [
   'lundi',
@@ -333,7 +336,7 @@ List<Object?> movementExportRow(MovementView m) => [
     ];
 
 /// Nom du fichier exporté : `mouvements_AAAA-MM-JJ.xlsx` (jour métier).
-String movementsExportFileName() => 'mouvements_${movementFileDayFmt.format(appToday())}.xlsx';
+String movementsExportFileName() => 'mouvements_${movementIsoDayFmt.format(appToday())}.xlsx';
 
 const String kXlsxMimeType =
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';

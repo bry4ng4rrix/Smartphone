@@ -1,396 +1,245 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/api_client.dart';
 import '../core/app_time.dart';
+import '../core/permissions.dart';
 import '../data/repositories/reports_repository.dart';
+import '../models/reports.dart';
+import 'auth_provider.dart';
 import 'realtime_provider.dart';
 
+/// État de l'écran Rapports — portage de `frontend/app/(app)/reports/page.tsx`.
+///
+/// La page web tient trois états locaux (`periode`, `dateFrom`, `dateTo`) et
+/// recharge `GET /api/orders/reports/` à chaque changement de bornes ; ici :
+///
+/// * [reportsFilterProvider] — le sélecteur (7 / 30 / 90 jours ou bornes
+///   libres) ;
+/// * [reportsProvider] — le rapport d'une période, famille paramétrée par
+///   [ReportsRange] (`date_from`, `date_to`) : changer de bornes instancie un
+///   nouveau chargement, comme `charger()` côté web ;
+/// * [reportsAccessProvider] — le garde « réservé au gérant ».
 final reportsRepositoryProvider = Provider((ref) => ReportsRepository());
 
-/// Périodes proposées par le sélecteur du graphique (`PERIODS` du web).
+// ---------------------------------------------------------------------------
+// Accès
+// ---------------------------------------------------------------------------
+
+/// Message de la carte « Accès refusé » du web.
+const String kReportsAccesRefuseMessage = 'Les rapports sont réservés au gérant.';
+
+/// Levée (sans appel réseau) quand le compte connecté n'est pas gérant : le
+/// serveur répondrait 403 de toute façon (`IsGerant`, orders/reports.py).
+/// `toString()` renvoie le message du web pour qu'un
+/// `ApiClient.messageFromError` l'affiche tel quel.
+class ReportsAccesRefuseException implements Exception {
+  const ReportsAccesRefuseException();
+
+  String get message => kReportsAccesRefuseMessage;
+
+  @override
+  String toString() => message;
+}
+
+/// `const { isGerant, loading: userLoading } = useCurrentUser()` vu par la
+/// page : tant que [loading] est vrai rien n'est tranché (le web affiche les
+/// squelettes) ; ensuite [isGerant] décide entre le rapport et la carte
+/// « Accès refusé — Les rapports sont réservés au gérant. ».
+final reportsAccessProvider = Provider<({bool loading, bool isGerant})>((ref) {
+  final auth = ref.watch(authProvider);
+  return (
+    loading: auth.status == AuthStatus.loading,
+    isGerant: auth.user?.isGerant ?? false,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Sélecteur de période
+// ---------------------------------------------------------------------------
+
+/// `PERIODES` du web : 7 / 30 / 90 jours, libellés « 7 jours »…
 const List<int> kReportsPeriods = [7, 30, 90];
 
-/// Période sélectionnée, en jours. Purement CLIENT : la changer ne relance
-/// aucun appel API et n'impacte que le graphique du CA et les compteurs de
-/// mouvements (les KPI et les classements portent sur toutes les données).
-/// Défaut 30, aucune persistance — comme le web.
-class ReportsPeriodNotifier extends Notifier<int> {
-  @override
-  int build() => 30;
+/// Libellé du bouton de période : « 7 jours », « 30 jours », « 90 jours ».
+String reportsPeriodeLabel(int jours) => '$jours jours';
 
-  void set(int days) => state = days;
+/// `depuis(jours)` du web : recule de `jours` jours depuis aujourd'hui, en
+/// date d'Antananarivo, aujourd'hui compris (30 jours = J−29 … J).
+DateTime reportsDepuis(int jours) {
+  final today = appToday();
+  return DateTime(today.year, today.month, today.day - (jours - 1));
 }
 
-final reportsPeriodProvider = NotifierProvider<ReportsPeriodNotifier, int>(ReportsPeriodNotifier.new);
+/// Bornes envoyées au serveur — clé de famille de [reportsProvider]. Deux
+/// bornes qui tombent le même jour calendaire sont la même clé (l'heure est
+/// ignorée).
+class ReportsRange {
+  ReportsRange({required DateTime from, required DateTime to})
+      : from = DateTime(from.year, from.month, from.day),
+        to = DateTime(to.year, to.month, to.day);
 
-/// Données de l'écran Rapports. Le `realtimeTickProvider` rejoue l'équivalent
-/// de `useRealtimeRefresh(['product_variant','order','stock_movement'])` :
-/// rechargement silencieux à chaque événement WebSocket.
+  /// `ReportsRange` des `jours` derniers jours, aujourd'hui compris.
+  factory ReportsRange.derniersJours(int jours) => ReportsRange(from: reportsDepuis(jours), to: appToday());
+
+  final DateTime from;
+  final DateTime to;
+
+  /// `date_from` / `date_to` tels qu'envoyés (`YYYY-MM-DD`).
+  String get fromParam => formatReportsDate(from);
+  String get toParam => formatReportsDate(to);
+
+  @override
+  bool operator ==(Object other) =>
+      other is ReportsRange && other.fromParam == fromParam && other.toParam == toParam;
+
+  @override
+  int get hashCode => Object.hash(fromParam, toParam);
+
+  @override
+  String toString() => 'ReportsRange($fromParam → $toParam)';
+}
+
+/// Le sélecteur de la page : `periode` (7 | 30 | 90, ou 0 = bornes libres
+/// après saisie manuelle d'une date), `dateFrom`, `dateTo`.
+class ReportsFilter {
+  ReportsFilter({required this.periode, required DateTime dateFrom, required DateTime dateTo})
+      : dateFrom = DateTime(dateFrom.year, dateFrom.month, dateFrom.day),
+        dateTo = DateTime(dateTo.year, dateTo.month, dateTo.day);
+
+  /// `choisirPeriode(jours)` : bouton de période — bornes recalculées
+  /// depuis aujourd'hui.
+  factory ReportsFilter.derniersJours(int jours) =>
+      ReportsFilter(periode: jours, dateFrom: reportsDepuis(jours), dateTo: appToday());
+
+  /// Bouton de période actif (variant `default` sur le web), 0 quand
+  /// l'utilisateur a touché une borne à la main (aucun bouton actif).
+  final int periode;
+  final DateTime dateFrom;
+  final DateTime dateTo;
+
+  /// Aucun des trois boutons n'est actif : les bornes viennent des champs
+  /// « Du » / « Au ».
+  bool get bornesLibres => periode == 0;
+
+  /// `periode === p.jours` — le bouton à dessiner en plein.
+  bool periodeActive(int jours) => periode == jours;
+
+  /// Clé du rapport à charger pour ces bornes.
+  ReportsRange get range => ReportsRange(from: dateFrom, to: dateTo);
+
+  @override
+  bool operator ==(Object other) =>
+      other is ReportsFilter && other.periode == periode && other.range == range;
+
+  @override
+  int get hashCode => Object.hash(periode, range);
+}
+
+/// Sélecteur de période. Défaut : 30 jours, comme `useState(30)` du web ;
+/// autoDispose pour repartir des 30 jours à chaque retour sur l'écran (état
+/// de composant côté web, non persisté).
+///
+/// Aucune validation de bornes, comme sur le web : une période inversée
+/// (« Du » après « Au ») donne simplement un rapport vide côté serveur.
+class ReportsFilterNotifier extends Notifier<ReportsFilter> {
+  @override
+  ReportsFilter build() => ReportsFilter.derniersJours(30);
+
+  /// Boutons « 7 jours » / « 30 jours » / « 90 jours ».
+  void choisirPeriode(int jours) => state = ReportsFilter.derniersJours(jours);
+
+  /// Champ « Du » : la période passe en bornes libres (`setPeriode(0)`).
+  void setDateFrom(DateTime dateFrom) =>
+      state = ReportsFilter(periode: 0, dateFrom: dateFrom, dateTo: state.dateTo);
+
+  /// Champ « Au » : idem.
+  void setDateTo(DateTime dateTo) =>
+      state = ReportsFilter(periode: 0, dateFrom: state.dateFrom, dateTo: dateTo);
+}
+
+final reportsFilterProvider =
+    NotifierProvider.autoDispose<ReportsFilterNotifier, ReportsFilter>(ReportsFilterNotifier.new);
+
+// ---------------------------------------------------------------------------
+// Rapport d'une période
+// ---------------------------------------------------------------------------
+
+/// Politique de nouvel essai de [reportsProvider].
+///
+/// Riverpod 3 rejoue par défaut TOUTE exception levée par `build` dix fois
+/// avec attente exponentielle : l'écran resterait en chargement près de
+/// 40 s avant de montrer quoi que ce soit. Ici un refus est définitif et
+/// s'affiche tout de suite — accès réservé au gérant, 403 du serveur, bornes
+/// illisibles (400)… — et seule une coupure réseau est retentée, deux fois
+/// et vite (200 ms puis 400 ms), avant de rendre la main au bouton
+/// « Réessayer ».
+Duration? reportsRetry(int retryCount, Object error) {
+  if (error is ReportsAccesRefuseException) return null;
+  if (!ApiClient.isConnectivityError(error)) return null;
+  return ProviderContainer.defaultRetry(retryCount, error, maxRetries: 2);
+}
+
+/// Rapport de la période [range] — `djangoClient.reports.get(dateFrom, dateTo)`.
+///
+/// * Chargé UNIQUEMENT pour un gérant (`if (!userLoading && isGerant)
+///   charger()` côté web) : un autre compte reçoit
+///   [ReportsAccesRefuseException] sans appel réseau ; un compte encore
+///   inconnu (auth en cours) laisse le serveur trancher. Le rôle qui devient
+///   connu, ou qui change, relance le chargement.
+/// * Événement temps réel (`useRealtimeRefresh(['order',
+///   'order_status_history'], () => charger(true))`) : rechargement
+///   SILENCIEUX — l'état reste un `AsyncData` (avec `isRefreshing`), l'écran
+///   continue d'afficher le rapport courant, puis reçoit le nouveau.
+/// * [refresh] (bouton « Actualiser », tirer pour rafraîchir) : rechargement
+///   NON silencieux, comme `charger()` sans argument — l'état devient un
+///   `AsyncLoading` (l'ancienne valeur reste lisible dans `value` pour qui la
+///   veut, mais `when()` par défaut et un `switch` sur `AsyncData` affichent
+///   le chargement).
+/// * Changer de bornes instancie un autre membre de la famille : chargement
+///   puis nouveau rapport, comme le web.
 class ReportsNotifier extends AsyncNotifier<ReportsData> {
+  ReportsNotifier(this.range);
+
+  final ReportsRange range;
+  late final _repo = ref.read(reportsRepositoryProvider);
+
+  Future<ReportsData> _charger() async {
+    final user = ref.read(authProvider).user;
+    if (user != null && !user.isGerant) throw const ReportsAccesRefuseException();
+    return _repo.fetch(dateFrom: range.from, dateTo: range.to);
+  }
+
   @override
   Future<ReportsData> build() {
-    ref.watch(realtimeTickProvider);
-    return ref.read(reportsRepositoryProvider).fetchAll();
+    // Temps réel : `invalidateSelf` (et non `watch`) pour que le rechargement
+    // soit un rafraîchissement transparent — la valeur affichée ne bouge pas
+    // tant que la nouvelle n'est pas arrivée.
+    ref.listen(realtimeTickProvider, (previous, next) => ref.invalidateSelf());
+    // Rôle connu / changé : rechargement, sans réagir aux autres mises à jour
+    // du profil.
+    ref.watch(authProvider.select((a) => a.user?.isGerant));
+    return _charger();
   }
 
-  /// Bouton « Actualiser » : rechargement NON silencieux (réaffiche l'état de
-  /// chargement), comme `fetchData()` sans argument côté web.
+  /// Bouton « Actualiser » (et tirer pour rafraîchir) : rechargement NON
+  /// silencieux.
   Future<void> refresh() async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(() => ref.read(reportsRepositoryProvider).fetchAll());
+    state = await AsyncValue.guard(_charger);
   }
 }
 
-final reportsProvider = AsyncNotifierProvider<ReportsNotifier, ReportsData>(ReportsNotifier.new);
+/// `reportsProvider(filter.range)` — un rapport par période. autoDispose : le
+/// rapport est un instantané, jeté dès que plus aucun écran ne le regarde.
+final reportsProvider = AsyncNotifierProvider.autoDispose.family<ReportsNotifier, ReportsData, ReportsRange>(
+  ReportsNotifier.new,
+  retry: reportsRetry,
+);
 
-// ---------------------------------------------------------------------------
-// Agrégats
-// ---------------------------------------------------------------------------
-
-/// Ligne du classement « Top produits vendus ».
-class ProductStat {
-  const ProductStat({required this.name, required this.qty, required this.revenue, required this.profit});
-
-  final String name;
-  final int qty;
-  final double revenue;
-  final double profit;
-}
-
-/// Ligne du classement « Performance des vendeurs ».
-class SellerStat {
-  const SellerStat({required this.name, required this.count, required this.revenue, required this.profit});
-
-  final String name;
-  final int count;
-  final double revenue;
-  final double profit;
-}
-
-/// Ligne du classement « Performance par magasin » (admin uniquement).
-class ShopStat {
-  const ShopStat({required this.name, required this.qty, required this.revenue, required this.profit});
-
-  final String name;
-  final int qty;
-  final double revenue;
-  final double profit;
-}
-
-/// Un jour du graphique du CA.
-class RevenuePoint {
-  const RevenuePoint({required this.day, required this.revenue});
-
-  final DateTime day;
-  final double revenue;
-
-  /// Étiquette d'axe — `date.slice(5)` du web (MM-JJ), rendu en JJ/MM.
-  String get label => '${day.day.toString().padLeft(2, '0')}/${day.month.toString().padLeft(2, '0')}';
-}
-
-/// Compteurs des 3 tuiles « Mouvements de stock ».
-class MovementCounts {
-  const MovementCounts({required this.entrees, required this.sorties, required this.transferts});
-
-  final int entrees;
-  final int sorties;
-  final int transferts;
-}
-
-/// Tous les calculs de la page, faits côté client comme sur le web.
-class ReportsAnalytics {
-  const ReportsAnalytics({
-    required this.totalRevenue,
-    required this.totalProfit,
-    required this.totalQty,
-    required this.totalStock,
-    required this.transactions,
-    required this.lowStockCount,
-    required this.expiredCount,
-    required this.unpaidSales,
-    required this.unpaidValue,
-    required this.unpaidSorted,
-    required this.topProducts,
-    required this.topSellers,
-    required this.topShops,
-    required this.revenueChart,
-    required this.movementCounts,
-    required this.ruptures,
-    required this.stockBas,
-    required this.produitsSansMouvement,
-    required this.dashboardKpis,
-    required this.isAdmin,
-  });
-
-  final double totalRevenue;
-  final double totalProfit;
-  final int totalQty;
-  final int totalStock;
-  final int transactions;
-  final int lowStockCount;
-  final int expiredCount;
-
-  /// Ventes à crédit (non soldées ou partiellement payées).
-  final List<ReportSale> unpaidSales;
-  final double unpaidValue;
-
-  /// Les 8 premières échéances (les ventes sans date d'échéance passent en
-  /// dernier), affichées dans la carte « Ventes à crédit ».
-  final List<ReportSale> unpaidSorted;
-
-  final List<ProductStat> topProducts;
-  final List<SellerStat> topSellers;
-
-  /// Vide si l'utilisateur n'est pas `admin` : le web ne remplit `byShop`
-  /// que dans ce cas.
-  final List<ShopStat> topShops;
-
-  final List<RevenuePoint> revenueChart;
-  final MovementCounts movementCounts;
-
-  // Listes envoyées à l'analyse IA uniquement.
-  final List<ReportProduct> ruptures;
-  final List<ReportProduct> stockBas;
-  final List<ReportProduct> produitsSansMouvement;
-  final Map<String, dynamic> dashboardKpis;
-  final bool isAdmin;
-
-  int get alertesStock => lowStockCount + expiredCount;
-
-  static ReportsAnalytics compute(ReportsData data, int period, bool isAdmin) {
-    final sales = data.sales;
-    final products = data.products;
-    final today = appToday();
-
-    var totalRevenue = 0.0;
-    var totalProfit = 0.0;
-    var totalQty = 0;
-    for (final s in sales) {
-      totalRevenue += s.totalPrice ?? 0;
-      totalProfit += s.totalProfit;
-      totalQty += s.quantity;
-    }
-    final totalStock = products.fold<int>(0, (sum, p) => sum + p.initialQuantity);
-
-    final unpaid = sales.where((s) => s.isUnpaid).toList();
-    final unpaidValue = unpaid.fold<double>(0, (sum, s) => sum + s.remaining);
-
-    final expiredCount =
-        products.where((p) => p.expiryDate != null && p.expiryDate!.isBefore(today)).length;
-    final lowStockCount = products.where((p) => p.isLowStock).length;
-
-    // --- Ventes par produit (qté, CA, bénéfice), top 10 par quantité.
-    final byProduct = <String, ProductStat>{};
-    for (final s in sales) {
-      final name = s.productName.isNotEmpty ? s.productName : 'Inconnu';
-      final current = byProduct[name];
-      byProduct[name] = ProductStat(
-        name: name,
-        qty: (current?.qty ?? 0) + s.quantity,
-        revenue: (current?.revenue ?? 0) + (s.totalPrice ?? 0),
-        profit: (current?.profit ?? 0) + s.totalProfit,
-      );
-    }
-    final topProducts = _stableSorted<ProductStat>(
-      byProduct.values.toList(),
-      (a, b) => b.qty.compareTo(a.qty),
-    ).take(10).toList();
-
-    // --- Ventes par vendeur, top 8 par CA. `seller_name` n'est pas exposé
-    // par /orders/ : toutes les lignes retombent sur « Non attribué », comme
-    // sur le web.
-    final bySeller = <String, SellerStat>{};
-    for (final s in sales) {
-      final name = s.sellerName?.isNotEmpty == true ? s.sellerName! : 'Non attribué';
-      final current = bySeller[name];
-      bySeller[name] = SellerStat(
-        name: name,
-        count: (current?.count ?? 0) + 1,
-        revenue: (current?.revenue ?? 0) + (s.totalPrice ?? 0),
-        profit: (current?.profit ?? 0) + s.totalProfit,
-      );
-    }
-    final topSellers = _stableSorted<SellerStat>(
-      bySeller.values.toList(),
-      (a, b) => b.revenue.compareTo(a.revenue),
-    ).take(8).toList();
-
-    // --- Ventes par magasin — calculé UNIQUEMENT pour un admin (comparaison
-    // multi-magasins), liste complète non tronquée.
-    final byShop = <String, ShopStat>{};
-    if (isAdmin) {
-      for (final s in sales) {
-        final name = s.shopName?.isNotEmpty == true ? s.shopName! : 'Magasin inconnu';
-        final current = byShop[name];
-        byShop[name] = ShopStat(
-          name: name,
-          qty: (current?.qty ?? 0) + s.quantity,
-          revenue: (current?.revenue ?? 0) + (s.totalPrice ?? 0),
-          profit: (current?.profit ?? 0) + s.totalProfit,
-        );
-      }
-    }
-    final topShops = _stableSorted<ShopStat>(
-      byShop.values.toList(),
-      (a, b) => b.revenue.compareTo(a.revenue),
-    );
-
-    // --- Graphique du CA : un seau par jour sur la période, aujourd'hui
-    // inclus. Journées bornées à l'heure d'Antananarivo (core/app_time.dart),
-    // là où le web découpe en UTC.
-    final buckets = <String, double>{};
-    final days = <DateTime>[];
-    for (var i = period - 1; i >= 0; i--) {
-      final d = DateTime(today.year, today.month, today.day - i);
-      days.add(d);
-      buckets[_dayKey(d)] = 0;
-    }
-    for (final s in sales) {
-      if (s.soldAt == null) continue;
-      final key = _dayKey(appDay(s.soldAt!));
-      if (buckets.containsKey(key)) {
-        buckets[key] = buckets[key]! + (s.totalPrice ?? 0);
-      }
-    }
-    final revenueChart = [
-      for (final d in days) RevenuePoint(day: d, revenue: buckets[_dayKey(d)] ?? 0),
-    ];
-
-    // --- Répartition des mouvements sur la période.
-    final periodStart = appNow().subtract(Duration(days: period));
-    var entrees = 0;
-    var sorties = 0;
-    var transferts = 0;
-    for (final m in data.movements) {
-      if (m.createdAt == null) continue;
-      if (appLocal(m.createdAt!).isBefore(periodStart)) continue;
-      switch (m.kind) {
-        case ReportMovementKind.entree:
-          entrees++;
-        case ReportMovementKind.sortie:
-          sorties++;
-        case ReportMovementKind.transfert:
-          transferts++;
-      }
-    }
-
-    // --- Ventes à crédit : échéance la plus proche d'abord, sans échéance en
-    // dernier, 8 lignes maximum.
-    final unpaidSorted = _stableSorted<ReportSale>(unpaid, (a, b) {
-      if (a.paymentDueDate == null) return 1;
-      if (b.paymentDueDate == null) return -1;
-      return a.paymentDueDate!.compareTo(b.paymentDueDate!);
-    }).take(8).toList();
-
-    // --- Listes réservées au payload de l'analyse IA.
-    final ruptures = products.where((p) => p.isRupture).take(15).toList();
-    final stockBas =
-        products.where((p) => p.initialQuantity > 0 && p.isLowStock).take(15).toList();
-    final sansMouvement = products.where((p) => !byProduct.containsKey(p.name)).take(15).toList();
-
-    return ReportsAnalytics(
-      totalRevenue: totalRevenue,
-      totalProfit: totalProfit,
-      totalQty: totalQty,
-      totalStock: totalStock,
-      transactions: sales.length,
-      lowStockCount: lowStockCount,
-      expiredCount: expiredCount,
-      unpaidSales: unpaid,
-      unpaidValue: unpaidValue,
-      unpaidSorted: unpaidSorted,
-      topProducts: topProducts,
-      topSellers: topSellers,
-      topShops: topShops,
-      revenueChart: revenueChart,
-      movementCounts: MovementCounts(entrees: entrees, sorties: sorties, transferts: transferts),
-      ruptures: ruptures,
-      stockBas: stockBas,
-      produitsSansMouvement: sansMouvement,
-      dashboardKpis: data.dashboardKpis,
-      isAdmin: isAdmin,
-    );
-  }
-
-  /// Payload envoyé à l'analyse IA. Les chiffres financiers viennent du
-  /// dashboard (seule source qui connaît le coût d'achat) avec repli sur les
-  /// agrégats de la page ; `topMagasins` n'est envoyé que pour un admin.
-  Map<String, dynamic> aiPayload() {
-    num? kpi(String key) {
-      final v = dashboardKpis[key];
-      if (v is num) return v;
-      if (v is String) return num.tryParse(v);
-      return null;
-    }
-
-    return {
-      'periode': 'toutes périodes confondues',
-      'ca': kpi('ca') ?? totalRevenue,
-      'beneficeNet': kpi('total_profit') ?? totalProfit,
-      'valeurStock': kpi('total_stock_value') ?? kpi('stock_value'),
-      'beneficeEstimeStock': kpi('benefice_estime_stock'),
-      'ventesImpayeesCount': unpaidSales.length,
-      'topProduits': [
-        for (final p in topProducts)
-          {'name': p.name, 'qty': p.qty, 'revenue': p.revenue, 'profit': p.profit},
-      ],
-      'produitsSansMouvement': [for (final p in produitsSansMouvement) {'name': p.name}],
-      'rupturesStock': [for (final p in ruptures) {'name': p.name, 'stock': 0}],
-      'stockBas': [
-        for (final p in stockBas)
-          {'name': p.name, 'stock': p.initialQuantity, 'seuil': p.alertThreshold},
-      ],
-      'repartitionMouvements': {
-        'Entrée': movementCounts.entrees,
-        'Sortie': movementCounts.sorties,
-        'Transfert': movementCounts.transferts,
-      },
-      'topVendeurs': [for (final s in topSellers) {'name': s.name, 'revenue': s.revenue}],
-      if (isAdmin) 'topMagasins': [for (final s in topShops) {'name': s.name, 'revenue': s.revenue}],
-    };
-  }
-
-  static String _dayKey(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-
-  /// `List.sort` de Dart n'est pas stable, contrairement à `Array.sort` en
-  /// JS : on décore avec l'index d'insertion pour que deux lignes à égalité
-  /// gardent l'ordre d'origine (et donc le même classement que le web).
-  static List<T> _stableSorted<T>(List<T> items, int Function(T a, T b) compare) {
-    final indexed = [for (var i = 0; i < items.length; i++) (i, items[i])];
-    indexed.sort((a, b) {
-      final result = compare(a.$2, b.$2);
-      return result != 0 ? result : a.$1.compareTo(b.$1);
-    });
-    return [for (final e in indexed) e.$2];
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Analyse IA
-// ---------------------------------------------------------------------------
-
-/// État de la carte « Analyse IA Stratégique » (3 états locaux du composant
-/// web : analysis / loading / error).
-class AiAnalysisState {
-  const AiAnalysisState({this.analysis = '', this.loading = false, this.error = false});
-
-  final String analysis;
-  final bool loading;
-  final bool error;
-}
-
-class AiAnalysisNotifier extends Notifier<AiAnalysisState> {
-  @override
-  AiAnalysisState build() => const AiAnalysisState();
-
-  /// Génère (ou régénère) l'analyse. Aucune annulation possible pendant la
-  /// génération, aucune persistance : l'analyse est perdue au démontage.
-  Future<void> generate(Map<String, dynamic> payload) async {
-    state = AiAnalysisState(analysis: state.analysis, loading: true);
-    final result = await ref.read(reportsRepositoryProvider).analyze(payload);
-    state = AiAnalysisState(analysis: result.analysis, error: result.isError);
-  }
-}
-
-final aiAnalysisProvider =
-    NotifierProvider<AiAnalysisNotifier, AiAnalysisState>(AiAnalysisNotifier.new);
+/// Rapport de la période SÉLECTIONNÉE — `reportsProvider(filter.range)` en
+/// un seul `watch` pour l'écran. Pour recharger :
+/// `ref.read(reportsProvider(ref.read(reportsFilterProvider).range).notifier).refresh()`.
+final currentReportsProvider = Provider.autoDispose<AsyncValue<ReportsData>>((ref) {
+  final range = ref.watch(reportsFilterProvider.select((f) => f.range));
+  return ref.watch(reportsProvider(range));
+});
