@@ -217,17 +217,28 @@ Le bouton "Générer l'analyse" de la page Rapports (`frontend/components/ai-ana
 appelle `frontend/app/api/ai/analyze/route.ts`, qui interroge un modèle
 **Ollama local** — pas d'API cloud, pas de clé à gérer/exposer.
 
-**Deux modèles, choisis selon l'usage** (`frontend/lib/ollama.ts`) :
+**Modèle** (`frontend/lib/ollama.ts`) : `qwen3:4b-instruct` pour tout
+(variante Instruct-2507, sans phase de réflexion — ~7 s par question sur le
+guide, ~10 s pour extraire une commande dictée, ~1-2 min pour un rapport).
+Deux variables permettent de séparer les usages si besoin :
 
-| Variable | Défaut | Usage | Délai typique (CPU) |
-|---|---|---|---|
-| `OLLAMA_MODEL_FAST` | `qwen3:1.7b` | assistant (bulle "guide"), revue de doublons à l'import | 2-5 s une fois chargé |
-| `OLLAMA_MODEL_ANALYSE` | `qwen3:4b` | analyse de la page Rapports, mode "rapport" de l'assistant | 2 à 10 min (le modèle raisonne avant de répondre) |
+| Variable | Défaut | Usage |
+|---|---|---|
+| `OLLAMA_MODEL_FAST` | `qwen3:4b-instruct` | assistant (questions, commandes dictées), revue de doublons à l'import |
+| `OLLAMA_MODEL_ANALYSE` | `qwen3:4b-instruct` | analyse de la page Rapports, mode "rapport" de l'assistant |
 
-Le VPS (8 Go, CPU seul) ne peut pas garder les deux modèles en RAM en même
-temps (OOM) : avant chaque appel l'autre modèle est déchargé, et le modèle
-d'analyse se décharge seul 2 min après usage. Après une analyse, la première
-question à l'assistant prend donc ~10-20 s de plus (rechargement).
+Attention : le VPS (8 Go, CPU seul) ne peut pas garder deux modèles de 4B en
+RAM (OOM). Si deux modèles différents sont configurés, l'autre est déchargé
+avant chaque appel (10-20 s de rechargement à chaque bascule). Les variantes
+"thinking" de qwen3 (`qwen3:4b` tout court) sont 5 à 10 fois plus lentes.
+
+**L'assistant peut agir** (`frontend/lib/assistant-actions.ts`) : créer une
+commande dictée en une phrase (gérant, préparateur) et mettre à jour les
+stocks depuis un fichier Excel joint (gérant). Le modèle ne sert qu'à
+extraire ce que l'utilisateur a dit ; la résolution des produits/zones, les
+écarts de stock et les appels à l'API Django (avec le token de l'utilisateur,
+donc ses droits) sont déterministes, et rien n'est écrit avant que
+l'utilisateur ne confirme le récapitulatif affiché dans la bulle.
 
 Autre usage du modèle rapide : après un import Excel du catalogue (page
 Produits), `frontend/app/api/ai/check-duplicates/route.ts` compare les
@@ -241,8 +252,7 @@ tourne directement sur l'hôte) :
 
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
-ollama pull qwen3:1.7b   # modèle rapide (assistant)
-ollama pull qwen3:4b     # modèle d'analyse (rapports)
+ollama pull qwen3:4b-instruct
 ollama serve   # ou : systemctl enable --now ollama (si installé comme service)
 ```
 

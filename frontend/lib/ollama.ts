@@ -1,31 +1,27 @@
 // Accès à Ollama (local sur le VPS, pas d'API cloud) partagé par les routes
-// app/api/ai/*. Deux modèles, choisis selon l'usage :
+// app/api/ai/*. Deux profils, choisis selon l'usage :
 //
-//  * FAST    : réponses courtes et immédiates (assistant "guide", revue de
-//              doublons). Petit modèle gardé chaud en RAM : ~2-5 s par réponse.
-//  * ANALYSE : rapports et analyses de chiffres. Modèle plus gros qui
-//              raisonne avant de répondre (variante "thinking") : plusieurs
-//              minutes sur CPU, mais une lecture des données bien meilleure.
+//  * fast    : réponses courtes (assistant "guide", extraction d'une commande,
+//              revue de doublons) — timeout court.
+//  * analyse : rapports et analyses de chiffres — timeout long.
 //
-// Le VPS (8 Go, CPU seul) ne peut PAS garder les deux modèles en RAM à la
-// fois (1,9 + 3,2 Go + le reste = OOM, Ollama redémarre). Avant chaque appel,
-// on décharge donc l'autre modèle. Le modèle d'analyse se décharge aussi
-// tout seul peu après usage (keep_alive court) ; le modèle rapide reste
-// chargé pour répondre sans délai.
+// Par défaut les deux profils utilisent le MÊME modèle, qwen3:4b-instruct
+// (variante Instruct-2507 : pas de phase de réflexion, bon en français et en
+// JSON structuré, ~7 s pour une question sur le guide, ~1-2 min pour un
+// rapport). Un seul modèle résident : le VPS (8 Go, CPU seul) ne peut pas
+// en garder deux en RAM (OOM), et chaque bascule coûte 10-20 s de
+// rechargement. Si on configure deux modèles différents, l'autre est
+// déchargé avant chaque appel pour rester dans la mémoire disponible.
 
 export const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-export const OLLAMA_MODEL_FAST = process.env.OLLAMA_MODEL_FAST || 'qwen3:1.7b';
-export const OLLAMA_MODEL_ANALYSE = process.env.OLLAMA_MODEL_ANALYSE || 'qwen3:4b';
+export const OLLAMA_MODEL_FAST = process.env.OLLAMA_MODEL_FAST || 'qwen3:4b-instruct';
+export const OLLAMA_MODEL_ANALYSE = process.env.OLLAMA_MODEL_ANALYSE || 'qwen3:4b-instruct';
 
 export type OllamaUsage = 'fast' | 'analyse';
 
-const PROFILES: Record<OllamaUsage, { model: string; think: boolean; keepAlive: string; timeoutMs: number }> = {
-  fast: { model: OLLAMA_MODEL_FAST, think: false, keepAlive: '24h', timeoutMs: 120_000 },
-  // think:true — les variantes "thinking" de qwen3 ignorent think:false et
-  // renvoient alors leur raisonnement dans `response` (sans balise <think>
-  // ouvrante). Avec think:true, Ollama l'isole dans `thinking` et `response`
-  // ne contient que la réponse finale.
-  analyse: { model: OLLAMA_MODEL_ANALYSE, think: true, keepAlive: '2m', timeoutMs: 900_000 },
+const PROFILES: Record<OllamaUsage, { model: string; keepAlive: string; timeoutMs: number }> = {
+  fast: { model: OLLAMA_MODEL_FAST, keepAlive: '24h', timeoutMs: 180_000 },
+  analyse: { model: OLLAMA_MODEL_ANALYSE, keepAlive: '24h', timeoutMs: 900_000 },
 };
 
 function stripThinking(text: string): string {
@@ -44,8 +40,7 @@ async function unload(model: string): Promise<void> {
   }).catch(() => undefined);
 }
 
-/** Génère une réponse et renvoie uniquement le texte final (sans raisonnement). */
-export async function ollamaGenerate(usage: OllamaUsage, prompt: string): Promise<string> {
+async function generate(usage: OllamaUsage, prompt: string, format?: object): Promise<string> {
   const p = PROFILES[usage];
   const other = PROFILES[usage === 'fast' ? 'analyse' : 'fast'];
   if (other.model !== p.model) await unload(other.model);
@@ -61,8 +56,12 @@ export async function ollamaGenerate(usage: OllamaUsage, prompt: string): Promis
       // connexion après 300 s sans en-tête — une analyse longue échouait
       // systématiquement à 5 min quel que soit le timeout ci-dessous.
       stream: true,
-      think: p.think,
+      // Les variantes "thinking" de qwen3 ignorent think:false et renvoient
+      // alors leur raisonnement dans `response` ; avec think:true Ollama
+      // l'isole dans `thinking`. Sans effet sur un modèle instruct.
+      think: true,
       keep_alive: p.keepAlive,
+      ...(format ? { format } : {}),
     }),
     signal: AbortSignal.timeout(p.timeoutMs),
   });
@@ -89,6 +88,20 @@ export async function ollamaGenerate(usage: OllamaUsage, prompt: string): Promis
   if (buffer.trim()) text += JSON.parse(buffer).response ?? '';
 
   return stripThinking(text);
+}
+
+/** Génère une réponse et renvoie uniquement le texte final (sans raisonnement). */
+export function ollamaGenerate(usage: OllamaUsage, prompt: string): Promise<string> {
+  return generate(usage, prompt);
+}
+
+/**
+ * Génère une réponse contrainte à un schéma JSON (Ollama garantit la forme,
+ * pas le contenu : valider les valeurs avant de s'en servir).
+ */
+export async function ollamaJson<T>(usage: OllamaUsage, prompt: string, schema: object): Promise<T> {
+  const text = await generate(usage, prompt, schema);
+  return JSON.parse(text) as T;
 }
 
 export function ollamaErrorHint(error: unknown): string {

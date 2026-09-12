@@ -1,0 +1,85 @@
+IA — modifications apportées (12 septembre 2026)
+=================================================
+
+1. MODÈLE OLLAMA
+----------------
+- Modèle installé sur le VPS : qwen3:4b-instruct (ollama pull qwen3:4b-instruct).
+  Variante "Instruct-2507" : pas de phase de réflexion, bon en français et en
+  JSON structuré. Un seul modèle pour tout (guide, commandes dictées, rapports).
+- Pourquoi un seul modèle : le VPS (8 Go RAM, CPU seul) ne peut pas garder
+  deux modèles de 4B en mémoire — Ollama plantait (OOM) quand qwen3:1.7b et
+  qwen3:4b étaient chargés ensemble, et chaque bascule coûtait 10 à 20 s.
+- Modèles encore présents mais plus utilisés : qwen3:1.7b (petit, réponses
+  moins fiables) et qwen3:4b (variante "thinking" : 9 min pour un rapport,
+  et son raisonnement fuyait dans la réponse car think:false est ignoré).
+  Ils peuvent être supprimés : ollama rm qwen3:1.7b ; ollama rm qwen3:4b.
+- Temps mesurés : ~7-10 s pour une question sur le guide, ~15 s pour
+  transformer une commande dictée en proposition, <1 s pour un fichier
+  Excel de stocks (pas de modèle), ~1-2 min pour un rapport.
+
+2. CONFIGURATION
+----------------
+- .env / .env.example / docker-compose.prod.yml : OLLAMA_MODEL remplacé par
+  OLLAMA_MODEL_FAST et OLLAMA_MODEL_ANALYSE (tous deux = qwen3:4b-instruct).
+- frontend/lib/ollama.ts : accès Ollama partagé par toutes les routes IA.
+  * streaming activé : en mode non-stream, Node coupait la connexion à
+    exactement 5 min sans en-tête, donc toute analyse longue échouait ;
+  * décharge l'autre modèle avant un appel si deux modèles différents sont
+    configurés (protection OOM) ;
+  * ollamaJson() : réponse contrainte à un schéma JSON.
+
+3. L'ASSISTANT PEUT AGIR
+------------------------
+Fichiers : frontend/app/api/ai/assistant/route.ts, frontend/lib/assistant-actions.ts,
+frontend/lib/assistant-types.ts, frontend/components/assistant-bubble.tsx.
+
+a) Créer une commande dictée (gérant et préparateur)
+   Exemple dans la bulle : "Crée une commande pour Rakoto 034 12 345 67,
+   2 coques iPhone 13 noires, zone 2, lot II B 45 Ivandry, paiement à la livraison"
+   - Le modèle extrait uniquement ce qui est dit (client, téléphone, zone,
+     adresse, paiement, articles) dans un JSON contraint — il n'invente rien.
+   - Le serveur retrouve les produits dans le catalogue (correspondance sur
+     sous-type + marque + référence + couleur), la zone (nom, numéro ou
+     "récupération"), normalise le téléphone (034… → +26134…).
+   - En cas de doute (produit introuvable, plusieurs produits possibles,
+     couleur à préciser, zone ou téléphone manquants) l'assistant liste ce
+     qui manque et ne propose rien.
+   - Sinon il affiche un récapitulatif avec boutons Confirmer / Annuler.
+     La commande n'est créée qu'après confirmation, via POST /api/orders/
+     avec le token de l'utilisateur : ses droits s'appliquent (le
+     préparateur ne peut créer que des commandes "récupération sur place").
+   - Prix, frais de livraison et total sont calculés par Django comme pour
+     une commande saisie à la main. Préparateur et livreur s'assignent
+     ensuite depuis la page Commandes.
+
+b) Mettre à jour les stocks depuis un fichier Excel (gérant)
+   - Bouton trombone dans la bulle, fichier .xlsx.
+   - Colonnes reconnues (en-têtes en 1re ligne, ordre libre) : Référence
+     (ou Produit / Article), Stock (ou Quantité / Nouveau stock), et en
+     option Couleur, Marque, Sous-type. Le fichier d'export du catalogue
+     est accepté tel quel.
+   - Aucun appel au modèle : lecture du fichier, résolution de chaque ligne
+     vers une variante du catalogue, calcul de l'écart avec le stock actuel.
+   - Récapitulatif "produit : ancien → nouveau (±écart)", lignes ignorées
+     listées avec la raison (introuvable, ambigu, stock invalide, doublon).
+   - Après confirmation : un mouvement d'ajustement (ENTREE ou SORTIE) par
+     produit via POST /api/catalog/variants/{id}/adjust/, note
+     "Assistant IA — nom_du_fichier", visible dans la page Mouvements.
+   - Le fichier ne crée pas de nouveaux produits : pour cela, utiliser
+     l'import Excel de la page Produits.
+
+c) Sécurité
+   - La bulle transmet le token JWT de l'utilisateur (rafraîchi juste avant)
+     à la route Next.js, qui appelle l'API Django avec. Rien n'est écrit
+     sans clic sur "Confirmer", et la confirmation n'appelle plus le modèle :
+     ce qui est exécuté est exactement ce qui a été affiché.
+
+4. LIMITES CONNUES
+------------------
+- Une commande refusée pour informations manquantes doit être redictée en
+  entier (l'assistant ne garde pas le fil de la conversation).
+- Les produits sont retrouvés par mots-clés : plus le libellé dicté est
+  proche du catalogue (sous-type + marque + modèle + couleur), mieux ça
+  marche. En cas d'ambiguïté l'assistant demande, il ne devine pas.
+- Le mode d'emploi de l'assistant (GUIDE dans route.ts) est à tenir à jour
+  quand une règle métier change.
