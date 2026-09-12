@@ -19,7 +19,12 @@ Définitions (identiques à orders/reports.py) :
                      commande) + frais de livraison encaissés
   coût d'achat     = Σ quantité × ProductReference.prix_achat (prix d'achat
                      ACTUEL du catalogue : il n'est pas historisé sur la ligne)
-  dépenses         = sorties de caisse + frais de tournée des livreurs acceptés
+  dépenses         = sorties de caisse HORS achats de stock + frais de tournée
+                     des livreurs acceptés. Les sorties « Commande stock »
+                     sont de la marchandise, déjà comptée dans le coût
+                     d'achat des articles vendus : les compter aussi en
+                     dépense ferait apparaître chaque réassort comme une
+                     perte (double comptage).
   bénéfice net     = CA − coût d'achat − dépenses
 
 Les dépenses de campagnes marketing (MarketingCampaign.montant) sont
@@ -48,6 +53,17 @@ ZERO = Decimal("0")
 
 STATUT_LABELS = dict(Order.STATUT_CHOICES)
 GRANULARITES = ("day", "week", "month", "year")
+
+# Catégories de caisse qui sont des achats de marchandise, pas des charges
+# ("Commande stock" est la catégorie par défaut, voir users/views.py).
+CATEGORIES_ACHAT_STOCK = ("commande stock", "achat stock", "achats stock", "achat de stock", "achats de stock")
+
+
+def q_achat_stock():
+    q = Q()
+    for nom in CATEGORIES_ACHAT_STOCK:
+        q |= Q(category__nom__iexact=nom)
+    return q
 
 
 def _somme(qs, expression):
@@ -204,13 +220,20 @@ class _Contexte:
             date_commande__date__lte=date_to or self.date_to,
         )
 
-    def caisse_sorties(self, date_from=None, date_to=None):
-        return CaisseMovement.objects.filter(
+    def caisse_sorties(self, date_from=None, date_to=None, charges=False):
+        """Sorties de caisse de la plage ; `charges=True` exclut les achats de
+        stock (voir CATEGORIES_ACHAT_STOCK) — c'est cette version qui entre
+        dans le résultat."""
+        qs = CaisseMovement.objects.filter(
             magasin__in=self.magasins,
             movement_type="out",
             created_at__date__gte=date_from or self.date_from,
             created_at__date__lte=date_to or self.date_to,
         )
+        return qs.exclude(q_achat_stock()) if charges else qs
+
+    def achats_stock(self, date_from=None, date_to=None):
+        return self.caisse_sorties(date_from, date_to).filter(q_achat_stock())
 
     def depenses_livreur(self, date_from=None, date_to=None):
         return LivreurExpense.objects.filter(
@@ -241,8 +264,9 @@ class _Contexte:
         ca_produits = _somme(items, F("prix_unitaire") * F("quantite"))
         cout = _somme(items, F("quantite") * F("product_variant__product_reference__prix_achat"))
         frais = _somme(livrees, F("frais_livraison"))
-        dep_caisse = _somme(self.caisse_sorties(date_from, date_to), F("amount"))
+        dep_caisse = _somme(self.caisse_sorties(date_from, date_to, charges=True), F("amount"))
         dep_livreur = _somme(self.depenses_livreur(date_from, date_to), F("montant"))
+        achats_stock = _somme(self.achats_stock(date_from, date_to), F("amount"))
         nb_livrees = livrees.count()
         ca_total = ca_produits + frais
         depenses = dep_caisse + dep_livreur
@@ -263,6 +287,7 @@ class _Contexte:
             "depenses_caisse": dep_caisse,
             "depenses_livreur": dep_livreur,
             "depenses": depenses,
+            "achats_stock": achats_stock,
             "benefice_net": ca_total - cout - depenses,
             "panier_moyen": (ca_total / nb_livrees) if nb_livrees else ZERO,
         }
@@ -290,7 +315,8 @@ class _Contexte:
             for j, r in _par_jour(livrees, "date_commande", f=Coalesce(Sum("frais_livraison"), 0, output_field=_DEC)).items()
         }
         caisse = {
-            j: r["t"] for j, r in _par_jour(self.caisse_sorties(), "created_at", t=Coalesce(Sum("amount"), 0, output_field=_DEC)).items()
+            j: r["t"]
+            for j, r in _par_jour(self.caisse_sorties(charges=True), "created_at", t=Coalesce(Sum("amount"), 0, output_field=_DEC)).items()
         }
         livreur = {
             j: r["t"] for j, r in _par_date(self.depenses_livreur(), "date", t=Coalesce(Sum("montant"), 0, output_field=_DEC)).items()
@@ -469,6 +495,7 @@ class FinancialReportView(_RapportView):
         items = actuel["items"]
         cles = ("ca_total", "ca_produits", "frais_livraison", "cout_achat", "marge_brute", "depenses_caisse", "depenses_livreur", "depenses", "benefice_net")
         totaux = {k: actuel[k] for k in cles}
+        totaux["achats_stock"] = actuel["achats_stock"]
         totaux["taux_marge_brute"] = _taux(actuel["marge_brute"], actuel["ca_produits"])
         totaux["taux_benefice"] = _taux(actuel["benefice_net"], actuel["ca_total"])
         return {
@@ -492,16 +519,25 @@ class ExpensesReportView(_RapportView):
         livreur = ctx.depenses_livreur().select_related("type_depense", "livreur")
         total_caisse = _somme(caisse, F("amount"))
         total_livreur = _somme(livreur, F("montant"))
+        achats_stock = _somme(ctx.achats_stock(), F("amount"))
         prev_caisse = _somme(ctx.caisse_sorties(ctx.prev_from, ctx.prev_to), F("amount"))
         prev_livreur = _somme(ctx.depenses_livreur(ctx.prev_from, ctx.prev_to), F("montant"))
+        prev_achats = _somme(ctx.achats_stock(ctx.prev_from, ctx.prev_to), F("amount"))
+        noms_achat = set(CATEGORIES_ACHAT_STOCK)
 
         par_categorie = [
-            {"label": r["nom"] or "Sans catégorie", "source": "caisse", "total": r["total"], "nb": r["nb"]}
+            {
+                "label": r["nom"] or "Sans catégorie",
+                "source": "caisse",
+                "total": r["total"],
+                "nb": r["nb"],
+                "hors_resultat": (r["nom"] or "").strip().lower() in noms_achat,
+            }
             for r in caisse.values(nom=F("category__nom"))
             .annotate(total=Coalesce(Sum("amount"), 0, output_field=_DEC), nb=Count("id"))
             .order_by("-total")
         ] + [
-            {"label": f"Tournée livreur : {r['nom'] or 'Autre'}", "source": "livreur", "total": r["total"], "nb": r["nb"]}
+            {"label": f"Tournée livreur : {r['nom'] or 'Autre'}", "source": "livreur", "total": r["total"], "nb": r["nb"], "hors_resultat": False}
             for r in livreur.values(nom=F("type_depense__nom"))
             .annotate(total=Coalesce(Sum("montant"), 0, output_field=_DEC), nb=Count("id"))
             .order_by("-total")
@@ -561,6 +597,10 @@ class ExpensesReportView(_RapportView):
                 "total": _variation(total_caisse + total_livreur, prev_caisse + prev_livreur),
                 "caisse": _variation(total_caisse, prev_caisse),
                 "livreur": _variation(total_livreur, prev_livreur),
+                # Achats de marchandise : inclus dans le total ci-dessus mais
+                # exclus du bénéfice (déjà dans le coût d'achat des ventes).
+                "achats_stock": _variation(achats_stock, prev_achats),
+                "charges": _variation(total_caisse - achats_stock + total_livreur, prev_caisse - prev_achats + prev_livreur),
                 "nb_mouvements": caisse.count() + livreur.count(),
             },
             "par_categorie": par_categorie,

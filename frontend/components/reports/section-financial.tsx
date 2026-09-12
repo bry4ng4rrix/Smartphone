@@ -29,7 +29,7 @@ export function SectionFinancial({ params, enabled }: { params: ReportParams; en
         <KpiCard loading={loading} titre="CA brut" icon={BadgeDollarSign} valeur={t && fmtAr(t.ca_total)} variation={c?.ca_total} format={fmtAr} detail={t && `produits ${fmtAr(t.ca_produits)} + livraison ${fmtAr(t.frais_livraison)}`} />
         <KpiCard loading={loading} titre="Coût d'achat des ventes" icon={TrendingDown} valeur={t && fmtAr(t.cout_achat)} variation={c?.cout_achat} inverse format={fmtAr} detail="prix d'achat actuel × quantités" />
         <KpiCard loading={loading} titre="Marge brute" icon={Percent} valeur={t && fmtAr(t.marge_brute)} variation={c?.marge_brute} format={fmtAr} detail={t && `${fmtPct(t.taux_marge_brute)} du CA produits`} />
-        <KpiCard loading={loading} titre="Dépenses" icon={Wallet} valeur={t && fmtAr(t.depenses)} variation={c?.depenses} inverse format={fmtAr} detail={t && `caisse ${fmtAr(t.depenses_caisse)} · tournées ${fmtAr(t.depenses_livreur)}`} />
+        <KpiCard loading={loading} titre="Dépenses (charges)" icon={Wallet} valeur={t && fmtAr(t.depenses)} variation={c?.depenses} inverse format={fmtAr} detail={t && `caisse ${fmtAr(t.depenses_caisse)} · tournées ${fmtAr(t.depenses_livreur)}${t.achats_stock ? ` · achats de stock exclus : ${fmtAr(t.achats_stock)}` : ''}`} />
         <KpiCard
           loading={loading}
           titre="Bénéfice net"
@@ -115,7 +115,9 @@ export function SectionFinancial({ params, enabled }: { params: ReportParams; en
 
       <p className="text-xs text-muted-foreground">
         Bénéfice net = CA (produits + frais de livraison encaissés) − coût d&apos;achat des articles vendus − sorties de caisse − frais de tournée
-        des livreurs acceptés. Le coût d&apos;achat utilise le prix d&apos;achat actuel de chaque référence (non historisé par commande).
+        des livreurs acceptés. Les sorties de caisse « Commande stock » ne sont pas des charges : la marchandise achetée est comptée au moment de
+        la vente, dans le coût d&apos;achat — les compter deux fois ferait de chaque réassort une perte. Le coût d&apos;achat utilise le prix
+        d&apos;achat actuel de chaque référence (non historisé par commande).
       </p>
 
       <ReportTable titre="Rentabilité par produit" colonnes={COLONNES} lignes={data?.par_produit} loading={loading} error={error} exportNom="rentabilite_produits" rowKey={(r) => r.label} />

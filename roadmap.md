@@ -312,8 +312,9 @@ cache chaque section et ne charge que l'onglet affiché.
 
 Définitions : période en date de livraison prévue (`date_commande`), vente =
 commande livrée hors articles rapportés, coût d'achat = prix d'achat actuel
-du catalogue, dépenses = sorties de caisse + frais de tournée acceptés,
-bénéfice net = CA − coût d'achat − dépenses. Pas d'agence de livraison
+du catalogue, dépenses = sorties de caisse hors achats de stock (catégorie
+« Commande stock », déjà comptée dans le coût d'achat à la vente) + frais de
+tournée acceptés, bénéfice net = CA − coût d'achat − dépenses. Pas d'agence de livraison
 externe dans l'application : chaque livreur est traité comme une agence et
 son « coût payé » est la somme de ses frais de tournée acceptés.
 

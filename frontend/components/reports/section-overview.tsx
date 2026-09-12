@@ -26,7 +26,7 @@ export function SectionOverview({ params, enabled }: { params: ReportParams; ena
           variation={k?.benefice_net}
           format={fmtAr}
           serie={serie('benefices')}
-          detail="CA − coût d'achat − dépenses"
+          detail="CA − coût d'achat − dépenses (hors achats de stock)"
         />
         <KpiCard loading={loading} titre="Commandes" icon={ShoppingCart} valeur={k && fmtNb(k.nb_commandes.actuel)} variation={k?.nb_commandes} format={fmtNb} detail={k && `${fmtNb(k.nb_livrees.actuel)} livrées`} />
         <KpiCard loading={loading} titre="Panier moyen" icon={Package} valeur={k && fmtAr(k.panier_moyen.actuel)} variation={k?.panier_moyen} format={fmtAr} detail="CA / commandes livrées" />

@@ -18,8 +18,8 @@ export function SectionExpenses({ params, enabled }: { params: ReportParams; ena
   return (
     <div className="space-y-4">
       <KpiGrid cols={4}>
-        <KpiCard loading={loading} titre="Total des dépenses" icon={Wallet} valeur={t && fmtAr(t.total.actuel)} variation={t?.total} inverse format={fmtAr} detail={t && `${fmtNb(t.nb_mouvements)} opérations`} />
-        <KpiCard loading={loading} titre="Sorties de caisse" icon={Landmark} valeur={t && fmtAr(t.caisse.actuel)} variation={t?.caisse} inverse format={fmtAr} detail="salaires, pub, achats de stock, autres" />
+        <KpiCard loading={loading} titre="Total des sorties" icon={Wallet} valeur={t && fmtAr(t.total.actuel)} variation={t?.total} inverse format={fmtAr} detail={t && `${fmtNb(t.nb_mouvements)} opérations · charges ${fmtAr(t.charges.actuel)}`} />
+        <KpiCard loading={loading} titre="Sorties de caisse" icon={Landmark} valeur={t && fmtAr(t.caisse.actuel)} variation={t?.caisse} inverse format={fmtAr} detail={t && (t.achats_stock.actuel ? `dont achats de stock ${fmtAr(t.achats_stock.actuel)} (hors bénéfice)` : 'salaires, pub, autres')} />
         <KpiCard loading={loading} titre="Frais de tournée (livreurs)" icon={Truck} valeur={t && fmtAr(t.livreur.actuel)} variation={t?.livreur} inverse format={fmtAr} detail="dépenses acceptées par le gérant" />
         <KpiCard
           loading={loading}
@@ -53,9 +53,9 @@ export function SectionExpenses({ params, enabled }: { params: ReportParams; ena
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <ReportTable
           titre="Dépenses par catégorie"
-          description="Catégories de caisse (Paramètres › Dépenses) et types de dépense des livreurs."
+          description="Catégories de caisse (Paramètres › Dépenses) et types de dépense des livreurs. Les achats de stock sont listés mais n'entrent pas dans le bénéfice : la marchandise est comptée à la vente, dans le coût d'achat."
           colonnes={[
-            { key: 'label', label: 'Catégorie' },
+            { key: 'label', label: 'Catégorie', render: (r) => <span>{r.label}{r.hors_resultat && <Badge variant="secondary" className="ml-2 text-[10px]">Achat de stock · hors bénéfice</Badge>}</span> },
             { key: 'source', label: 'Source', render: (r) => <Badge variant="outline">{r.source === 'caisse' ? 'Caisse' : 'Livreur'}</Badge>, export: (r) => (r.source === 'caisse' ? 'Caisse' : 'Livreur') },
             { key: 'nb', label: 'Opérations', align: 'right' },
             { key: 'total', label: 'Total', align: 'right', render: (r) => fmtAr(r.total) },

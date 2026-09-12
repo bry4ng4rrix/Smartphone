@@ -24,6 +24,7 @@ from users.models import CaisseMovement
 from users.permissions import IsGerant, get_accessible_magasins
 
 from .models import LivreurExpense, Order, OrderItem
+from .reporting import q_achat_stock
 
 _DEC = DecimalField(max_digits=14, decimal_places=2)
 
@@ -79,14 +80,17 @@ class ReportsView(APIView):
         )
         frais_livraison = _somme(livrees, F("frais_livraison"))
 
-        # Dépenses : sorties de caisse + frais de tournée validés.
+        # Dépenses : sorties de caisse + frais de tournée validés. Les achats
+        # de stock (catégorie "Commande stock") sont exclus : la marchandise
+        # est déjà comptée dans cout_produits à la vente — la compter aussi
+        # ici ferait de chaque réassort une perte (voir orders/reporting.py).
         depenses_caisse = _somme(
             CaisseMovement.objects.filter(
                 magasin__in=magasins,
                 movement_type="out",
                 created_at__date__gte=date_from,
                 created_at__date__lte=date_to,
-            ),
+            ).exclude(q_achat_stock()),
             F("amount"),
         )
         depenses_livreur_qs = LivreurExpense.objects.filter(
@@ -183,6 +187,7 @@ class ReportsView(APIView):
                 created_at__date__gte=date_from,
                 created_at__date__lte=date_to,
             )
+            .exclude(q_achat_stock())
             .annotate(jour=TruncDate("created_at"))
             .values("jour")
             .annotate(total=Coalesce(Sum("amount"), 0, output_field=_DEC))

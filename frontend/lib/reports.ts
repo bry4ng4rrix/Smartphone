@@ -243,8 +243,8 @@ export interface FinancialData {
 
 export interface ExpensesData {
   periode: PeriodeInfo;
-  totaux: { total: Variation; caisse: Variation; livreur: Variation; nb_mouvements: number };
-  par_categorie: { label: string; source: 'caisse' | 'livreur'; total: number; nb: number }[];
+  totaux: { total: Variation; caisse: Variation; livreur: Variation; achats_stock: Variation; charges: Variation; nb_mouvements: number };
+  par_categorie: { label: string; source: 'caisse' | 'livreur'; total: number; nb: number; hors_resultat: boolean }[];
   serie: SeriePoint[];
   livraison: Record<string, number>;
   mouvements: { date: string; source: string; categorie: string; libelle: string; montant: number; auteur: string }[];
