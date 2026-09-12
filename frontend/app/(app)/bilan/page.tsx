@@ -185,14 +185,7 @@ function TicketBloc({
         <span>Nombre</span>
         <span>{totals.count}</span>
       </div>
-      <div className="flex justify-between">
-        <span>Total produits</span>
-        <span>{fmt(totals.prix)}</span>
-      </div>
-      <div className="flex justify-between">
-        <span>Total frais livraison</span>
-        <span>{fmt(totals.frais)}</span>
-      </div>
+
       {totals.prepayeCount > 0 && (
         <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
           <span>Dont payé d&apos;avance ({totals.prepayeCount})</span>
