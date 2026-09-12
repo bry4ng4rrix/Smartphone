@@ -1001,6 +1001,7 @@ class DjangoAPIClient {
       const query = filters?.variant_id ? `?variant=${filters.variant_id}` : ''
       const rows = await this.get<any[]>(`/catalog/movements/${query}`)
       const originLabel: Record<string, string> = {
+        COMMANDE: 'Création de commande',
         PREPARATION: 'Préparation de commande',
         RETOUR: 'Retour de commande',
         ANNULATION: 'Annulation de commande',

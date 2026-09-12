@@ -154,6 +154,7 @@ class StockMovement(models.Model):
         ("SORTIE", "Sortie"),
     )
     ORIGINE_CHOICES = (
+        ("COMMANDE", "Création de commande"),
         ("PREPARATION", "Préparation de commande"),
         ("RETOUR", "Retour de commande"),
         ("ANNULATION", "Annulation de commande"),

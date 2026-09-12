@@ -45,7 +45,7 @@ RÔLES
 
 WORKFLOW D'UNE COMMANDE (6 statuts, sens unique)
 Nouvelle -> En préparation -> Prête -> En livraison -> Livré (ou Retour). Annulée possible tant que la commande n'est pas terminée.
-- Le stock sort du magasin au passage "En préparation", et y revient en cas de Retour ou d'Annulation.
+- Le stock sort du magasin dès la création de la commande (l'article est réservé), et y revient en cas de Retour, d'Annulation ou de suppression de la commande.
 - "Livré" ne touche plus au stock : il est déjà sorti.
 - Une fois Livré ou Retour, seul le gérant peut corriger l'état (bouton "Corriger l'état"), ce qui rétablit le stock.
 

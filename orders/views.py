@@ -1,5 +1,7 @@
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+
+from catalog.services import apply_stock_movement
 from django.utils.dateparse import parse_datetime
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -300,12 +302,20 @@ class OrderViewSet(viewsets.ModelViewSet):
             raise DRFValidationError(str(exc))
         return Response(OrderGerantSerializer(order).data)
 
+    @transaction.atomic
     def destroy(self, request, *args, **kwargs):
         order = self.get_object()
         if order.statut_courant != "NOUVELLE":
             raise DRFValidationError(
-                "Seule une commande 'Nouvelle' peut être supprimée — le stock ou une "
-                "affectation est déjà engagé sur celle-ci."
+                "Seule une commande 'Nouvelle' peut être supprimée — une affectation "
+                "est déjà engagée sur celle-ci."
+            )
+        # Le stock réservé à la création revient en rayon (le mouvement garde
+        # le numéro de la commande comme référence).
+        for item in order.items.select_related("product_variant"):
+            apply_stock_movement(
+                product_variant=item.product_variant, movement_type="ENTREE", quantite=item.quantite,
+                origine="ANNULATION", user=request.user, reference=order.numero, note="Commande supprimée",
             )
         order.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)

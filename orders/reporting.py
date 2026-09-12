@@ -740,7 +740,7 @@ class StockReportView(_RapportView):
         dernieres_ventes = {
             r["product_variant"]: r["derniere"]
             for r in StockMovement.objects.filter(
-                product_variant__in=en_stock, type="SORTIE", origine="PREPARATION"
+                product_variant__in=en_stock, type="SORTIE", origine__in=["COMMANDE", "PREPARATION"]
             ).values("product_variant").annotate(derniere=Max("timestamp"))
         }
         dormants = []

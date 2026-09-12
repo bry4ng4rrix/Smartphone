@@ -261,6 +261,19 @@ def create_order(*, magasin, client_nom, telephone, livraison_zone, items, telep
 
     order.recompute_total()
 
+    # Le stock est réservé dès la création de la commande (§ demande) : un
+    # article commandé n'est plus disponible pour une autre vente. Il revient
+    # en rayon si la commande est annulée, supprimée ou retournée.
+    for item in order.items.select_related("product_variant"):
+        apply_stock_movement(
+            product_variant=item.product_variant,
+            movement_type="SORTIE",
+            quantite=item.quantite,
+            origine="COMMANDE",
+            user=created_by,
+            reference=order.numero,
+        )
+
     OrderStatusHistory.objects.create(
         order=order, ancien_statut=None, nouveau_statut="NOUVELLE", changed_by=created_by
     )
@@ -445,27 +458,26 @@ def update_order(*, order, user, client_nom=None, telephone=None, telephone_2=No
     order.save()
 
     if items is not None:
-        stock_already_deducted = order.statut_courant == "EN_PREPARATION"
-        if stock_already_deducted:
-            for item in order.items.select_related("product_variant"):
-                apply_stock_movement(
-                    product_variant=item.product_variant, movement_type="ENTREE", quantite=item.quantite,
-                    origine="AJUSTEMENT", user=user, reference=order.numero,
-                    note="Modification de commande — article retiré",
-                )
+        # Le stock est réservé depuis la création : on restitue les anciens
+        # articles puis on déduit les nouveaux.
+        for item in order.items.select_related("product_variant"):
+            apply_stock_movement(
+                product_variant=item.product_variant, movement_type="ENTREE", quantite=item.quantite,
+                origine="AJUSTEMENT", user=user, reference=order.numero,
+                note="Modification de commande — article retiré",
+            )
         order.items.all().delete()
         for item in items:
             OrderItem.objects.create(
                 order=order, product_variant=item["product_variant"], quantite=item.get("quantite", 1),
                 prix_unitaire=item.get("prix_unitaire"),
             )
-        if stock_already_deducted:
-            for item in order.items.select_related("product_variant"):
-                apply_stock_movement(
-                    product_variant=item.product_variant, movement_type="SORTIE", quantite=item.quantite,
-                    origine="AJUSTEMENT", user=user, reference=order.numero,
-                    note="Modification de commande — article ajouté",
-                )
+        for item in order.items.select_related("product_variant"):
+            apply_stock_movement(
+                product_variant=item.product_variant, movement_type="SORTIE", quantite=item.quantite,
+                origine="AJUSTEMENT", user=user, reference=order.numero,
+                note="Modification de commande — article ajouté",
+            )
 
     order.recompute_total()
     return order
@@ -645,21 +657,10 @@ def change_order_status(*, order, new_status, user, note="", preparateur_id=None
         **({"photo": photo} if photo else {}),
     )
 
-    # Le stock quitte physiquement le magasin au moment où le préparateur
-    # prend la commande en charge (il sort l'article du rayon pour la
-    # préparer) — et y revient si la livraison échoue et que le colis est
-    # rapporté (Retour). "Livré" ne touche plus le stock : il est déjà sorti.
-    if new_status == "EN_PREPARATION":
-        for item in order.items.select_related("product_variant"):
-            apply_stock_movement(
-                product_variant=item.product_variant,
-                movement_type="SORTIE",
-                quantite=item.quantite,
-                origine="PREPARATION",
-                user=user,
-                reference=order.numero,
-            )
-    elif new_status == "RETOUR":
+    # Le stock est sorti dès la création de la commande (voir create_order) ;
+    # "En préparation" et "Livré" n'y touchent plus. Il revient en rayon si
+    # la livraison échoue et que le colis est rapporté (Retour).
+    if new_status == "RETOUR":
         for item in order.items.select_related("product_variant"):
             apply_stock_movement(
                 product_variant=item.product_variant,
@@ -700,9 +701,9 @@ def change_order_status(*, order, new_status, user, note="", preparateur_id=None
 
 # Une commande déjà "Livré"/"Retour"/"Annulée" est terminale — rien à annuler.
 _TERMINAL_STATUSES = {"LIVRE", "RETOUR", "ANNULEE"}
-# Le stock n'a été déduit qu'à partir de "En préparation" (voir plus haut) —
-# une commande encore "Nouvelle" n'a jamais touché le stock.
-_STOCK_DEDUCTED_STATUSES = {"EN_PREPARATION", "PRETE", "EN_LIVRAISON"}
+# Le stock est déduit dès la création (voir create_order) : toute commande
+# non terminée l'a réservé et doit le restituer à l'annulation.
+_STOCK_DEDUCTED_STATUSES = {"NOUVELLE", "EN_PREPARATION", "PRETE", "EN_LIVRAISON"}
 
 
 @transaction.atomic
