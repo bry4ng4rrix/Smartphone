@@ -17,11 +17,12 @@ from users.permissions import (
 from users.subscriptions import get_company_owner
 
 from . import services
-from .models import DeliveryZoneOption, ExpenseType, LivreurExpense, Order
+from .models import DeliveryZoneOption, ExpenseType, LivreurExpense, MarketingCampaign, Order
 from .serializers import (
     DeliveryZoneOptionSerializer,
     ExpenseTypeSerializer,
     LivreurExpenseSerializer,
+    MarketingCampaignSerializer,
     OrderCreateSerializer,
     OrderGerantSerializer,
     OrderLivreurSerializer,
@@ -257,8 +258,35 @@ class OrderViewSet(viewsets.ModelViewSet):
             created_by=request.user,
             preparateur=request.user if role == "PREPARATEUR" else None,
         )
+        campagne = data.get("campagne")
+        if campagne is not None:
+            self._verifier_campagne(campagne, order)
+            order.campagne = campagne
+            order.save(update_fields=["campagne"])
         response_serializer = OrderPreparateurSerializer if role == "PREPARATEUR" else OrderGerantSerializer
         return Response(response_serializer(order).data, status=status.HTTP_201_CREATED)
+
+    @staticmethod
+    def _verifier_campagne(campagne, order):
+        if campagne.magasin_id != order.magasin_id:
+            raise DRFValidationError({"campagne": "Cette campagne n'appartient pas au magasin de la commande."})
+
+    @action(detail=True, methods=["post"], url_path="campagne", permission_classes=[IsGerant])
+    def set_campagne(self, request, pk=None):
+        """Rattache (ou détache, campagne=null) une commande à une campagne
+        marketing — possible à tout moment, sans toucher au reste de la commande."""
+        order = self.get_object()
+        campagne_id = request.data.get("campagne")
+        campagne = None
+        if campagne_id not in (None, "", 0):
+            try:
+                campagne = MarketingCampaign.objects.get(id=campagne_id)
+            except (MarketingCampaign.DoesNotExist, ValueError, TypeError):
+                raise DRFValidationError({"campagne": "Campagne introuvable."})
+            self._verifier_campagne(campagne, order)
+        order.campagne = campagne
+        order.save(update_fields=["campagne"])
+        return Response(OrderGerantSerializer(order).data)
 
     def partial_update(self, request, *args, **kwargs):
         order = self.get_object()
@@ -699,3 +727,29 @@ class LivreurExpenseViewSet(viewsets.ModelViewSet):
             ),
         )
         return Response(self.get_serializer(expense).data)
+
+
+class MarketingCampaignViewSet(viewsets.ModelViewSet):
+    """Campagnes marketing — lecture pour tout utilisateur du magasin (le
+    formulaire de commande propose la campagne d'origine), écriture gérant."""
+
+    serializer_class = MarketingCampaignSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    def get_permissions(self):
+        if self.action in ("create", "partial_update", "update", "destroy"):
+            return [IsGerant()]
+        return super().get_permissions()
+
+    def get_queryset(self):
+        qs = MarketingCampaign.objects.filter(magasin__in=get_accessible_magasins(self.request.user))
+        magasin_id = self.request.query_params.get("magasin_id")
+        if magasin_id:
+            qs = qs.filter(magasin_id=magasin_id)
+        if self.request.query_params.get("actif") == "1":
+            qs = qs.filter(actif=True)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(magasin=resolve_magasin_for_request(self.request), created_by=self.request.user)

@@ -442,6 +442,9 @@ export function CreateOrderDialog({
   const [livreurs, setLivreurs] = useState<
     { id: number; full_name: string; available: boolean }[]
   >([]);
+  // Campagne marketing d'origine (facultatif) — alimente le rapport Marketing.
+  const [campagnes, setCampagnes] = useState<{ id: number; nom: string; plateforme_label: string }[]>([]);
+  const [campagneId, setCampagneId] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -450,7 +453,12 @@ export function CreateOrderDialog({
         .availableStaff("PREPARATEUR")
         .then(setPreparateurs)
         .catch(() => setPreparateurs([]));
+      djangoClient.campaigns
+        .list({ actif: true })
+        .then(setCampagnes)
+        .catch(() => setCampagnes([]));
     }
+    setCampagneId("");
     setClientNom("");
     setTelephone("+261");
     setTelephone2("");
@@ -523,6 +531,7 @@ export function CreateOrderDialog({
         livraison_zone: zone as any,
         adresse_livraison: adresseLivraison.trim(),
         mode_paiement: modePaiement as any,
+        ...(campagneId ? { campagne: Number(campagneId) } : {}),
         // Champ vidé par l'utilisateur -> pas envoyé -> le serveur prend "maintenant" (heure précise).
         ...(dateCommande
           ? { date_commande: appDatetimeLocalToIso(dateCommande) }
@@ -699,6 +708,25 @@ export function CreateOrderDialog({
                 placeholder="Ex: Lot II M 45 Antanimena, Antananarivo"
               />
             </div>
+          </div>
+        )}
+
+        {!isPreparateur && campagnes.length > 0 && (
+          <div className="space-y-2">
+            <Label>Campagne marketing (facultatif)</Label>
+            <Select value={campagneId || "NONE"} onValueChange={(v) => setCampagneId(v === "NONE" ? "" : v)}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Aucune" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="NONE">Aucune</SelectItem>
+                {campagnes.map((c) => (
+                  <SelectItem key={c.id} value={String(c.id)}>
+                    {c.nom} · {c.plateforme_label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
 

@@ -284,7 +284,46 @@ Puis reconstruire le conteneur pour que le changement soit pris en compte :
 docker compose -f docker-compose.prod.yml up -d --build frontend
 ```
 
-## 11. Dépannage courant
+## 11. Centre de rapports (page Rapports)
+
+La page `/reports` (gérant uniquement) regroupe 8 rapports dans une seule
+page — un seul affiché à la fois (onglets sur grand écran, bouton « Liste
+des rapports » sur mobile), filtres de période communs (aujourd'hui, 7
+jours, semaine, mois, mois précédent, année, année précédente,
+personnalisée), granularité des séries (jour/semaine/mois/année), export
+Excel de chaque tableau et impression (Ctrl+P ou bouton « Imprimer / PDF »).
+
+| Onglet | Endpoint | Contenu |
+|---|---|---|
+| Vue générale | `GET /api/orders/reports/overview/` | KPI (CA, bénéfice net, commandes, panier moyen) avec période précédente, séries ventes/dépenses/bénéfices, répartition des statuts |
+| Ventes | `…/sales/` | CA, ventes, quantités, panier moyen ; ventes par produit / modèle / sous-type / catégorie / marque / couleur ; top & flop ; par livreur |
+| Financier | `…/financial/` | CA brut, coût d'achat, marge brute, dépenses, bénéfice net ; par produit / catégorie / sous-type ; comparaison |
+| Dépenses | `…/expenses/` | sorties de caisse + frais de tournée, par catégorie, évolution, marge livraison (facturé au client − coût réel), détail |
+| Stock | `…/stock/` | état actuel, valeur (achat), ruptures, réapprovisionnement, mouvements de la période, stock dormant (30/60/90/N jours) |
+| Commandes | `…/orders/` | KPI par statut, taux d'annulation / livraison / retour, répartition, par zone, par mode de paiement |
+| Livraisons | `…/deliveries/` | comparatif des livreurs (réussies, échouées, coût payé, coût moyen, marge, taux, délai moyen « En livraison → Livré »), par zone |
+| Marketing | `…/marketing/` | campagnes (`MarketingCampaign`), dépenses par plateforme, commandes et CA générés, ROI |
+
+Paramètres communs : `date_from`, `date_to`, `prev_from`, `prev_to`
+(période de comparaison), `granularity`, `magasin_id` ; `dormant_days`
+(stock), `platform` / `campaign` (marketing). Tout est agrégé côté serveur
+dans `orders/reporting.py` ; le frontend (`components/reports/*`) met en
+cache chaque section et ne charge que l'onglet affiché.
+
+Définitions : période en date de livraison prévue (`date_commande`), vente =
+commande livrée hors articles rapportés, coût d'achat = prix d'achat actuel
+du catalogue, dépenses = sorties de caisse hors achats de stock (catégorie
+« Commande stock », déjà comptée dans le coût d'achat à la vente) + frais de
+tournée acceptés, bénéfice net = CA − coût d'achat − dépenses. Pas d'agence de livraison
+externe dans l'application : chaque livreur est traité comme une agence et
+son « coût payé » est la somme de ses frais de tournée acceptés.
+
+Marketing : créer les campagnes dans l'onglet Marketing (plateforme, coût,
+dates), puis choisir la campagne d'origine dans le formulaire « Nouvelle
+commande » (ou `POST /api/orders/{id}/campagne/`). Sans rattachement, les
+commandes et le CA générés restent à zéro : rien n'est estimé.
+
+## 12. Dépannage courant
 
 | Symptôme | Piste |
 |---|---|

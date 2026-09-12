@@ -21,6 +21,7 @@ from .models import (
     Color,
     ImportBatch,
     ProductCategory,
+    ProductNote,
     ProductReference,
     ProductType,
     ProductVariant,
@@ -31,6 +32,7 @@ from .serializers import (
     BulkPriceUpdateSerializer,
     ColorSerializer,
     ProductCategorySerializer,
+    ProductNoteSerializer,
     ProductReferenceAutocompleteSerializer,
     ProductReferenceSerializer,
     ProductTypeSerializer,
@@ -606,3 +608,32 @@ class StockMovementViewSet(viewsets.ReadOnlyModelViewSet):
         if variant_id:
             qs = qs.filter(product_variant_id=variant_id)
         return qs
+
+
+class ProductNoteViewSet(viewsets.ModelViewSet):
+    """Notes produit (produits à commander, pas encore au catalogue) —
+    lecture pour tout utilisateur du magasin, écriture réservée au gérant."""
+
+    serializer_class = ProductNoteSerializer
+    permission_classes = [IsGerantOrReadOnly]
+    http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
+
+    def get_queryset(self):
+        return (
+            ProductNote.objects.select_related("category", "type", "brand", "created_by")
+            .filter(magasin__in=get_accessible_magasins(self.request.user))
+        )
+
+    def _check_category(self, category):
+        if not get_accessible_magasins(self.request.user).filter(id=category.magasin_id).exists():
+            raise ValidationError({"category": "Catégorie non autorisée."})
+
+    def perform_create(self, serializer):
+        category = serializer.validated_data["category"]
+        self._check_category(category)
+        serializer.save(magasin=category.magasin, created_by=self.request.user)
+
+    def perform_update(self, serializer):
+        category = serializer.validated_data.get("category", serializer.instance.category)
+        self._check_category(category)
+        serializer.save(magasin=category.magasin)

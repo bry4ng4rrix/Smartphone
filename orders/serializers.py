@@ -5,6 +5,7 @@ from users.subscriptions import get_company_owner
 
 from .models import (
     DeliveryZoneOption,
+    MarketingCampaign,
     ExpenseType,
     LivreurExpense,
     Order,
@@ -91,6 +92,7 @@ class OrderGerantSerializer(serializers.ModelSerializer):
     status_history = OrderStatusHistorySerializer(many=True, read_only=True)
     preparateur_name = serializers.CharField(source="preparateur.full_name", read_only=True)
     livreur_name = serializers.CharField(source="livreur.full_name", read_only=True)
+    campagne_nom = serializers.CharField(source="campagne.nom", read_only=True, default="")
 
     class Meta:
         model = Order
@@ -98,7 +100,7 @@ class OrderGerantSerializer(serializers.ModelSerializer):
             "id", "magasin", "numero", "date_commande", "client_nom", "telephone", "telephone_2", "livraison_zone",
             "adresse_livraison", "mode_paiement", "frais_livraison", "total_a_payer",
             "note_preparateur", "note_livreur", "statut_courant",
-            "preparateur", "preparateur_name", "livreur", "livreur_name", "items",
+            "preparateur", "preparateur_name", "livreur", "livreur_name", "campagne", "campagne_nom", "items",
             "status_history", "created_at", "updated_at",
         ]
         read_only_fields = fields
@@ -176,6 +178,9 @@ class OrderCreateSerializer(serializers.Serializer):
     note_preparateur = serializers.CharField(required=False, allow_blank=True, default="")
     note_livreur = serializers.CharField(required=False, allow_blank=True, default="")
     items = OrderCreateItemSerializer(many=True)
+    campagne = serializers.PrimaryKeyRelatedField(
+        queryset=MarketingCampaign.objects.all(), required=False, allow_null=True
+    )
 
     def validate_livraison_zone(self, value):
         return _validate_zone_code(value, self.context["request"].user)
@@ -279,4 +284,23 @@ class LivreurExpenseSerializer(serializers.ModelSerializer):
             )
         if quantite < 1:
             raise serializers.ValidationError({"quantite": "Quantité minimale : 1."})
+        return attrs
+
+
+class MarketingCampaignSerializer(serializers.ModelSerializer):
+    plateforme_label = serializers.CharField(source="get_plateforme_display", read_only=True)
+
+    class Meta:
+        model = MarketingCampaign
+        fields = [
+            "id", "magasin", "nom", "plateforme", "plateforme_label", "montant",
+            "date_debut", "date_fin", "note", "actif", "created_at",
+        ]
+        read_only_fields = ["magasin", "created_at"]
+
+    def validate(self, attrs):
+        debut = attrs.get("date_debut", getattr(self.instance, "date_debut", None))
+        fin = attrs.get("date_fin", getattr(self.instance, "date_fin", None))
+        if debut and fin and fin < debut:
+            raise serializers.ValidationError({"date_fin": "La date de fin précède la date de début."})
         return attrs

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Brand, Color, ProductCategory, ProductReference, ProductType, ProductVariant, StockMovement
+from .models import Brand, Color, ProductCategory, ProductNote, ProductReference, ProductType, ProductVariant, StockMovement
 
 
 class ProductCategorySerializer(serializers.ModelSerializer):
@@ -120,4 +120,35 @@ class BulkPriceUpdateSerializer(serializers.Serializer):
     def validate(self, attrs):
         if "prix_achat" not in attrs and "prix_vente" not in attrs:
             raise serializers.ValidationError("Indiquez au moins un prix à modifier.")
+        return attrs
+
+
+class ProductNoteSerializer(serializers.ModelSerializer):
+    category_name = serializers.CharField(source="category.nom", read_only=True)
+    type_name = serializers.CharField(source="type.nom", read_only=True)
+    brand_name = serializers.CharField(source="brand.nom", read_only=True, default="")
+    created_by_name = serializers.SerializerMethodField()
+    couleurs = serializers.ListField(child=serializers.CharField(max_length=100), required=False)
+
+    class Meta:
+        model = ProductNote
+        fields = [
+            "id", "magasin", "nom", "category", "category_name", "type", "type_name",
+            "brand", "brand_name", "couleurs", "created_by_name", "created_at",
+        ]
+        read_only_fields = ["magasin", "created_at"]
+
+    def get_created_by_name(self, obj):
+        u = obj.created_by
+        return (u.full_name or u.username) if u else ""
+
+    def validate(self, attrs):
+        category = attrs.get("category") or getattr(self.instance, "category", None)
+        type_ = attrs.get("type") or getattr(self.instance, "type", None)
+        brand = attrs.get("brand", getattr(self.instance, "brand", None))
+        if type_ and category and type_.category_id != category.id:
+            raise serializers.ValidationError({"type": "Ce sous-type n'appartient pas à la catégorie choisie."})
+        if brand and category and brand.magasin_id != category.magasin_id:
+            raise serializers.ValidationError({"brand": "Cette marque n'appartient pas au même magasin."})
+        attrs["couleurs"] = [c.strip() for c in attrs.get("couleurs", []) if c and c.strip()]
         return attrs

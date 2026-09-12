@@ -5,6 +5,7 @@ from .views import (
     ColorViewSet,
     ImportBatchViewSet,
     ProductCategoryViewSet,
+    ProductNoteViewSet,
     ProductReferenceViewSet,
     ProductTypeViewSet,
     ProductVariantViewSet,
@@ -20,5 +21,6 @@ router.register(r"references", ProductReferenceViewSet, basename="product-refere
 router.register(r"variants", ProductVariantViewSet, basename="product-variant")
 router.register(r"movements", StockMovementViewSet, basename="stock-movement")
 router.register(r"import-batches", ImportBatchViewSet, basename="import-batch")
+router.register(r"notes", ProductNoteViewSet, basename="product-note")
 
 urlpatterns = router.urls
