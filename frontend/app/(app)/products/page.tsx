@@ -486,19 +486,20 @@ export default function ProductsPage() {
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 size="sm"
-                onClick={() => setCreateOrderOpen(true)}
-                className="h-10 px-4 font-medium bg-slate-900 text-white hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
-              >
-                <ShoppingCart className="h-4 w-4 mr-2" /> Nouvelle commande
-              </Button>
-              <Button
-                size="sm"
                 variant="outline"
                 onClick={() => setCreateNoteOpen(true)}
                 className="h-10 px-4 font-medium"
               >
                 <StickyNote className="h-4 w-4 mr-2" /> Nouvelle note
               </Button>
+              <Button
+                size="sm"
+                onClick={() => setCreateOrderOpen(true)}
+                className="h-10 px-4 font-medium bg-slate-900 text-white hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
+              >
+                <ShoppingCart className="h-4 w-4 mr-2" /> Nouvelle commande
+              </Button>
+
               <Button
                 size="sm"
                 onClick={() => setCreateOpen(true)}
@@ -641,14 +642,14 @@ export default function ProductsPage() {
                             className={
                               Number(ref.prix_vente) -
                                 Number(ref.prix_achat || 0) >=
-                              0
+                                0
                                 ? "text-green-600"
                                 : "text-red-600"
                             }
                           >
                             {fmt(
                               Number(ref.prix_vente) -
-                                Number(ref.prix_achat || 0),
+                              Number(ref.prix_achat || 0),
                             )}
                           </TableCell>
                         )}
@@ -1796,12 +1797,12 @@ function CreateReferenceDialog({
       const variantsToCreate = avecCouleurs
         ? variants
         : [
-            {
-              couleur: "Standard",
-              stock: simpleStock ? Number(simpleStock) : 0,
-              seuil: simpleSeuil ? Number(simpleSeuil) : 1,
-            },
-          ];
+          {
+            couleur: "Standard",
+            stock: simpleStock ? Number(simpleStock) : 0,
+            seuil: simpleSeuil ? Number(simpleSeuil) : 1,
+          },
+        ];
       for (const v of variantsToCreate) {
         await djangoClient.catalog.variants.create({
           product_reference: ref.id,
@@ -2138,15 +2139,15 @@ function ProductOrderItemsEditor({
     djangoClient.catalog.categories
       .list()
       .then(setCategories)
-      .catch(() => {});
+      .catch(() => { });
     djangoClient.catalog.types
       .list()
       .then(setTypes)
-      .catch(() => {});
+      .catch(() => { });
     djangoClient.catalog.brands
       .list()
       .then(setBrands)
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   const typesForCategory = categoryId
@@ -2505,7 +2506,7 @@ function CatalogSettingsDialog({
     } catch (err: any) {
       toast.error(
         err.message ||
-          "Suppression impossible (marque utilisée par des références)",
+        "Suppression impossible (marque utilisée par des références)",
       );
     }
   };
@@ -2832,7 +2833,7 @@ function CategoriesTypesCrud({
     } catch (err: any) {
       toast.error(
         err.message ||
-          "Suppression impossible (des sous-types en dépendent encore)",
+        "Suppression impossible (des sous-types en dépendent encore)",
       );
     }
   };
@@ -2889,7 +2890,7 @@ function CategoriesTypesCrud({
     } catch (err: any) {
       toast.error(
         err.message ||
-          "Suppression impossible (des références en dépendent encore)",
+        "Suppression impossible (des références en dépendent encore)",
       );
     }
   };
