@@ -16,13 +16,12 @@ from datetime import timedelta
 from django.db.models import Count, DecimalField, F, Q, Sum
 from django.db.models.functions import Coalesce, TruncDate
 from django.utils import timezone
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from catalog.models import StockMovement
 from users.models import CaisseMovement
-from users.permissions import get_accessible_magasins
+from users.permissions import IsGerant, get_accessible_magasins
 
 from .models import LivreurExpense, Order, OrderItem
 
@@ -43,7 +42,12 @@ class ReportsView(APIView):
     chiffres se recoupent.
     """
 
-    permission_classes = [IsAuthenticated]
+    # GÉRANT UNIQUEMENT (§ demande). Ce n'est pas qu'une question d'écran :
+    # la réponse contient le COÛT D'ACHAT des produits et la marge, qui ne
+    # sont jamais exposés au livreur ni au préparateur (voir
+    # orders/serializers.py). Masquer le bouton côté navigateur ne protège
+    # rien — c'est ici que l'accès se refuse.
+    permission_classes = [IsGerant]
 
     def get(self, request):
         magasins = get_accessible_magasins(request.user)

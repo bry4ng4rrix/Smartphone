@@ -1205,6 +1205,9 @@ export default function OrdersPage() {
                         )}
                         {isLivreur && (
                           <TableCell className="align-top">
+                            {/* Les deux numéros sont cliquables : le livreur
+                                appelle le second quand le premier ne répond
+                                pas (§ demande). */}
                             <a
                               href={`tel:${order.telephone}`}
                               onClick={(e) => e.stopPropagation()}
@@ -1212,6 +1215,15 @@ export default function OrdersPage() {
                             >
                               <Phone className="h-3 w-3" /> {order.telephone}
                             </a>
+                            {order.telephone_2 && (
+                              <a
+                                href={`tel:${order.telephone_2}`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex items-center gap-1 text-blue-600 hover:underline mt-0.5"
+                              >
+                                <Phone className="h-3 w-3" /> {order.telephone_2}
+                              </a>
+                            )}
                           </TableCell>
                         )}
                         <TableCell
@@ -1566,6 +1578,14 @@ export default function OrdersPage() {
                       {detail.telephone || "-"}
                     </span>
                   </div>
+                  {detail.telephone_2 && (
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">
+                        Autre numéro
+                      </span>
+                      <span className="text-right">{detail.telephone_2}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between gap-4">
                     <span className="text-muted-foreground">
                       Adresse client
@@ -2591,6 +2611,7 @@ function EditOrderDialog({
   const zoneOptions = useMemo(() => buildZoneOptions(zones), [zones]);
   const [clientNom, setClientNom] = useState("");
   const [telephone, setTelephone] = useState("");
+  const [telephone2, setTelephone2] = useState("");
   const [zone, setZone] = useState("");
   const [adresseLivraison, setAdresseLivraison] = useState("");
   const [modePaiement, setModePaiement] = useState("LIVRAISON");
@@ -2621,6 +2642,7 @@ function EditOrderDialog({
     if (!order) return;
     setClientNom(order.client_nom || "");
     setTelephone(order.telephone || "");
+    setTelephone2(order.telephone_2 || "");
     setZone(order.livraison_zone || "");
     setAdresseLivraison(order.adresse_livraison || "");
     setModePaiement(order.mode_paiement || "LIVRAISON");
@@ -2672,6 +2694,14 @@ function EditOrderDialog({
       toast.error("Téléphone au format +261XXXXXXXXX");
       return;
     }
+    if (
+      !livraisonSeule &&
+      telephone2.trim() &&
+      !/^\+261\d{9}$/.test(telephone2.trim())
+    ) {
+      toast.error("Autre téléphone au format +261XXXXXXXXX");
+      return;
+    }
     if (!livraisonSeule && items.length === 0) {
       toast.error("Ajoutez au moins un article");
       return;
@@ -2693,6 +2723,7 @@ function EditOrderDialog({
       await djangoClient.orders.update(order.id, {
         client_nom: clientNom.trim(),
         telephone,
+        telephone_2: telephone2.trim(),
         livraison_zone: zone as any,
         adresse_livraison:
           zone === "RECUPERATION" ? "" : adresseLivraison.trim(),
@@ -2810,6 +2841,14 @@ function EditOrderDialog({
                 <Input
                   value={telephone}
                   onChange={(e) => setTelephone(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Autre téléphone (optionnel)</Label>
+                <Input
+                  value={telephone2}
+                  onChange={(e) => setTelephone2(e.target.value)}
+                  placeholder="+261340000000"
                 />
               </div>
             </div>

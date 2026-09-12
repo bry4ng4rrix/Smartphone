@@ -222,7 +222,7 @@ def _notify_commande_role(*, magasin, commande_role, notif_type, message, order)
 
 
 @transaction.atomic
-def create_order(*, magasin, client_nom, telephone, livraison_zone, items, note_preparateur="", note_livreur="",
+def create_order(*, magasin, client_nom, telephone, livraison_zone, items, telephone_2="", note_preparateur="", note_livreur="",
                   created_by, date_commande=None, adresse_livraison="", mode_paiement="LIVRAISON", preparateur=None):
     """items: liste de {"product_variant": ProductVariant, "quantite": int}.
     Prix et frais de livraison sont calculés côté serveur (§6 Smartreadme.md
@@ -238,6 +238,7 @@ def create_order(*, magasin, client_nom, telephone, livraison_zone, items, note_
         magasin=magasin,
         client_nom=client_nom,
         telephone=telephone,
+        telephone_2=telephone_2 or "",
         livraison_zone=livraison_zone,
         adresse_livraison=adresse_livraison,
         mode_paiement=mode_paiement,
@@ -351,7 +352,7 @@ def corriger_statut(*, order, user, nouveau_statut, note=""):
 
 
 @transaction.atomic
-def update_order(*, order, user, client_nom=None, telephone=None, livraison_zone=None, adresse_livraison=None,
+def update_order(*, order, user, client_nom=None, telephone=None, telephone_2=None, livraison_zone=None, adresse_livraison=None,
                   mode_paiement=None, date_commande=None, note_preparateur=None, note_livreur=None, items=None):
     """Modification d'une commande (gérant uniquement, voir
     views.py::get_permissions).
@@ -383,6 +384,7 @@ def update_order(*, order, user, client_nom=None, telephone=None, livraison_zone
         interdits = {
             "client_nom": client_nom,
             "telephone": telephone,
+            "telephone_2": telephone_2,
             "date_commande": date_commande,
             "note_preparateur": note_preparateur,
             "items": items,
@@ -414,6 +416,7 @@ def update_order(*, order, user, client_nom=None, telephone=None, livraison_zone
     for field, value in {
         "client_nom": client_nom,
         "telephone": telephone,
+        "telephone_2": telephone_2,
         "livraison_zone": livraison_zone,
         "adresse_livraison": adresse_livraison,
         "mode_paiement": mode_paiement,

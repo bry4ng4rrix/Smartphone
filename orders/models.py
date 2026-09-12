@@ -81,6 +81,10 @@ class Order(models.Model):
     date_commande = models.DateTimeField(default=timezone.now)
     client_nom = models.CharField(max_length=255)
     telephone = models.CharField(max_length=20)
+    # Second numéro, facultatif (§ demande) : un client donne souvent un
+    # numéro de secours, ou celui de la personne qui réceptionne à sa place.
+    # Le livreur voit les deux et peut appeler l'un ou l'autre.
+    telephone_2 = models.CharField(max_length=20, blank=True)
     # Stocke soit le `code` d'une DeliveryZoneOption (CRUD Paramètres),
     # soit le littéral "RECUPERATION" — voir DeliveryZoneOption ci-dessus.
     livraison_zone = models.CharField(max_length=20)

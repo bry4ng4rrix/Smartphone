@@ -692,6 +692,8 @@ class DjangoAPIClient {
     create: async (data: {
       client_nom: string
       telephone: string
+      /** Second numéro, facultatif — même format +261XXXXXXXXX. */
+      telephone_2?: string
       // Le `code` d'une zone créée dans Paramètres, ou 'RECUPERATION' —
       // voir orders/models.py::DeliveryZoneOption.
       livraison_zone: string
@@ -782,6 +784,7 @@ class DjangoAPIClient {
     update: async (id: number, data: {
       client_nom?: string
       telephone?: string
+      telephone_2?: string
       livraison_zone?: string
       adresse_livraison?: string
       mode_paiement?: 'AVANT' | 'LIVRAISON'

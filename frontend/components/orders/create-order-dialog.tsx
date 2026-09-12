@@ -423,6 +423,9 @@ export function CreateOrderDialog({
   const showPrices = !isPreparateur;
   const [clientNom, setClientNom] = useState("");
   const [telephone, setTelephone] = useState("+261");
+  // Second numéro facultatif — le client donne souvent un numéro de secours,
+  // ou celui de la personne qui réceptionne à sa place (§ demande).
+  const [telephone2, setTelephone2] = useState("");
   const [zone, setZone] = useState("");
   const [adresseLivraison, setAdresseLivraison] = useState("");
   const [modePaiement, setModePaiement] = useState("LIVRAISON");
@@ -450,6 +453,7 @@ export function CreateOrderDialog({
     }
     setClientNom("");
     setTelephone("+261");
+    setTelephone2("");
     setZone(isPreparateur ? "RECUPERATION" : "");
     setAdresseLivraison("");
     setModePaiement("LIVRAISON");
@@ -500,6 +504,12 @@ export function CreateOrderDialog({
       toast.error("Téléphone au format +261XXXXXXXXX");
       return;
     }
+    // Le second numéro est facultatif, mais s'il est saisi il doit être au
+    // même format — sinon le serveur le refuserait après coup.
+    if (telephone2.trim() && !/^\+261\d{9}$/.test(telephone2.trim())) {
+      toast.error("Autre téléphone au format +261XXXXXXXXX");
+      return;
+    }
     if (items.length === 0) {
       toast.error("Ajoutez au moins un article");
       return;
@@ -509,6 +519,7 @@ export function CreateOrderDialog({
       const order = await djangoClient.orders.create({
         client_nom: clientNom.trim(),
         telephone,
+        telephone_2: telephone2.trim(),
         livraison_zone: zone as any,
         adresse_livraison: adresseLivraison.trim(),
         mode_paiement: modePaiement as any,
@@ -723,6 +734,14 @@ export function CreateOrderDialog({
             <Input
               value={telephone}
               onChange={(e) => setTelephone(e.target.value)}
+              placeholder="+261340000000"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Autre téléphone (optionnel)</Label>
+            <Input
+              value={telephone2}
+              onChange={(e) => setTelephone2(e.target.value)}
               placeholder="+261340000000"
             />
           </div>

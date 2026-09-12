@@ -246,6 +246,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             magasin=magasin,
             client_nom=data["client_nom"],
             telephone=data["telephone"],
+            telephone_2=data.get("telephone_2", ""),
             livraison_zone=data["livraison_zone"],
             adresse_livraison=data.get("adresse_livraison", ""),
             mode_paiement=data.get("mode_paiement", "LIVRAISON"),
@@ -411,7 +412,10 @@ class OrderViewSet(viewsets.ModelViewSet):
         )
         lignes = [f"📦 Commande {order.numero}", f"Client : {order.client_nom}"]
         if order.telephone:
-            lignes.append(f"Téléphone : {order.telephone}")
+            numeros = order.telephone
+            if order.telephone_2:
+                numeros += f" / {order.telephone_2}"
+            lignes.append(f"Téléphone : {numeros}")
         if order.adresse_livraison:
             lignes.append(f"Adresse : {order.adresse_livraison}")
         if articles:

@@ -95,7 +95,7 @@ class OrderGerantSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
-            "id", "magasin", "numero", "date_commande", "client_nom", "telephone", "livraison_zone",
+            "id", "magasin", "numero", "date_commande", "client_nom", "telephone", "telephone_2", "livraison_zone",
             "adresse_livraison", "mode_paiement", "frais_livraison", "total_a_payer",
             "note_preparateur", "note_livreur", "statut_courant",
             "preparateur", "preparateur_name", "livreur", "livreur_name", "items",
@@ -120,7 +120,7 @@ class OrderPreparateurSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
-            "id", "numero", "date_commande", "client_nom", "telephone", "livraison_zone", "adresse_livraison",
+            "id", "numero", "date_commande", "client_nom", "telephone", "telephone_2", "livraison_zone", "adresse_livraison",
             "mode_paiement", "frais_livraison", "total_a_payer", "statut_courant", "note_preparateur",
             "preparateur", "preparateur_name", "livreur", "livreur_name", "items", "created_at",
         ]
@@ -141,7 +141,7 @@ class OrderLivreurSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
-            "id", "numero", "date_commande", "client_nom", "telephone", "livraison_zone", "adresse_livraison",
+            "id", "numero", "date_commande", "client_nom", "telephone", "telephone_2", "livraison_zone", "adresse_livraison",
             "mode_paiement", "frais_livraison", "total_a_payer", "statut_courant", "note_livreur",
             "livreur", "livreur_name", "items", "status_history", "created_at",
         ]
@@ -161,6 +161,12 @@ class OrderCreateSerializer(serializers.Serializer):
     telephone = serializers.RegexField(regex=r"^\+261\d{9}$", error_messages={
         "invalid": "Format attendu : +261XXXXXXXXX"
     })
+    # Second numéro facultatif (§ demande) — même format s'il est renseigné,
+    # mais une chaîne vide est acceptée : la plupart des commandes n'en ont pas.
+    telephone_2 = serializers.RegexField(
+        regex=r"^(\+261\d{9})?$", required=False, allow_blank=True, default="",
+        error_messages={"invalid": "Format attendu : +261XXXXXXXXX"},
+    )
     livraison_zone = serializers.CharField(max_length=20)
     adresse_livraison = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
     mode_paiement = serializers.ChoiceField(choices=Order.MODE_PAIEMENT_CHOICES, required=False, default="LIVRAISON")
@@ -189,6 +195,10 @@ class OrderUpdateSerializer(serializers.Serializer):
     telephone = serializers.RegexField(regex=r"^\+261\d{9}$", required=False, error_messages={
         "invalid": "Format attendu : +261XXXXXXXXX"
     })
+    telephone_2 = serializers.RegexField(
+        regex=r"^(\+261\d{9})?$", required=False, allow_blank=True,
+        error_messages={"invalid": "Format attendu : +261XXXXXXXXX"},
+    )
     livraison_zone = serializers.CharField(max_length=20, required=False)
     adresse_livraison = serializers.CharField(max_length=255, required=False, allow_blank=True)
     mode_paiement = serializers.ChoiceField(choices=Order.MODE_PAIEMENT_CHOICES, required=False)
