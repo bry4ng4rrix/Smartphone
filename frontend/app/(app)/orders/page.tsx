@@ -441,17 +441,37 @@ export default function OrdersPage() {
   }[] => {
     const isRecuperation = order?.livraison_zone === "RECUPERATION";
 
+    // Les boutons d'assignation ne sont proposés que tant que le poste est
+    // vacant (§ demande) : une fois quelqu'un désigné, le bouton disparaît —
+    // pour changer de personne, on passe par « Modifier ». Le livreur peut
+    // être désigné à l'avance, dès que le préparateur l'est, sans attendre
+    // que la commande soit prête (assign_livreur_early ne dépend pas du
+    // statut). Un retrait sur place n'a jamais de livreur.
+    const assignerPreparateur = {
+      value: "assign-preparateur",
+      label: "Assigner un préparateur",
+      target: "EN_PREPARATION",
+      kind: "assign" as const,
+      role: "PREPARATEUR" as const,
+      icon: UserCheck,
+    };
+    const assignerLivreur = {
+      value: "assign-livreur",
+      label: "Assigner un livreur",
+      target: "EN_LIVRAISON",
+      kind: "assign" as const,
+      role: "LIVREUR" as const,
+      icon: UserCheck,
+    };
+    const sansPreparateur = !order?.preparateur;
+    const sansLivreur = !order?.livreur && !isRecuperation;
+
     switch (order?.statut_courant) {
       case "NOUVELLE":
         return [
-          {
-            value: "assign-preparateur",
-            label: "Assigner un préparateur",
-            target: "EN_PREPARATION",
-            kind: "assign",
-            role: "PREPARATEUR",
-            icon: UserCheck,
-          },
+          ...(sansPreparateur ? [assignerPreparateur] : []),
+          // Préparateur déjà en place : c'est le tour du livreur.
+          ...(!sansPreparateur && sansLivreur ? [assignerLivreur] : []),
           {
             value: "commencer-preparation",
             label: "Commencer la préparation",
@@ -462,6 +482,7 @@ export default function OrdersPage() {
         ];
       case "EN_PREPARATION":
         return [
+          ...(sansLivreur ? [assignerLivreur] : []),
           {
             value: "commande-prete",
             label: "Commande prête",
@@ -484,14 +505,7 @@ export default function OrdersPage() {
               },
             ]
           : [
-              {
-                value: "assign-livreur",
-                label: "Assigner un livreur",
-                target: "EN_LIVRAISON",
-                kind: "assign",
-                role: "LIVREUR",
-                icon: UserCheck,
-              },
+              ...(sansLivreur ? [assignerLivreur] : []),
               {
                 value: "rendre-en-livraison",
                 label: "Récupérer / En livraison",
