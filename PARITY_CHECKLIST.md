@@ -24,6 +24,13 @@ fusionnees), et `/sales` (simple redirection web, sans ecran dedie).
 Toutes les routes sont cablees dans `smartcross/lib/core/router.dart` et
 `flutter analyze lib/` ne remonte **aucune erreur ni warning**.
 
+**Mise a jour (12/09/2026) — ce document est la checklist de la premiere mission ; l'etat de
+parite a jour, route par route, est dans `FLUTTER_FEATURE_PARITY.md` (audit complet du
+frontend, verification ecran contre ecran, ecarts documentes).** Depuis : la page web
+`/reports` a ete supprimee et le tableau de bord `/dashboard` est devenu le centre de rapports
+a 8 sections (porte dans `lib/features/dashboard/`) ; `lib/features/reports/` a ete retire et
+`/reports` redirige vers `/dashboard`.
+
 **Etape 3 — a faire : combler les ecarts des 61 routes `PARTIAL`** (ecrans qui existent
 deja dans l'app mais dont toutes les fonctionnalites du web ne sont pas encore portees).
 Le detail par route ci-dessous liste nommement ce qui reste a couvrir.
@@ -39,8 +46,8 @@ Le detail par route ci-dessous liste nommement ce qui reste a couvrir.
 | `/users (libellé sidebar : "Super Admin", titre page : "Super` | lib/features/users/users_screen.dart | 73 | PARTIAL |
 | `/caisse` | lib/features/caisse/caisse_screen.dart | 64 | PARTIAL |
 | `/bilan` | lib/features/tournee/bilan_screen.dart | 44 | DONE |
-| `/dashboard` | lib/features/dashboard/dashboard_screen.dart | 43 | PARTIAL |
-| `/reports` | lib/features/reports/reports_screen.dart | 53 | DONE |
+| `/dashboard` | lib/features/dashboard/ (centre de rapports a 8 sections — voir FLUTTER_FEATURE_PARITY.md) | 43 | DONE |
+| `/reports` | supprimee cote web — redirection /dashboard | 53 | DONE |
 | `/settings` | lib/features/settings/settings_screen.dart | 65 | PARTIAL |
 | `/stores` | lib/features/stores/stores_screen.dart | 57 | PARTIAL |
 | `/suppliers` | lib/features/suppliers/suppliers_screen.dart + supplier_order_*.dart | 63 | PARTIAL |
@@ -97,7 +104,7 @@ Le detail par route ci-dessous liste nommement ce qui reste a couvrir.
 | `djangoClient.sales — Ventes derivees des commandes livrees (` | composant / couche partagee — a porter | 5 | PARTIAL |
 | `djangoClient.notifications — Notifications in-app` | composant / couche partagee — a porter | 18 | PARTIAL |
 | `djangoClient.users — Utilisateurs, employes, profil` | composant / couche partagee — a porter | 12 | PARTIAL |
-| `djangoClient.dashboard — Indicateurs generaux` | composant / couche partagee — a porter | 8 | PARTIAL |
+| `djangoClient.dashboard — Indicateurs generaux` | plus utilise par le web (tableau de bord = centre de rapports) | 8 | DONE |
 | `djangoClient.transfers — Transfert de stock entre magasins +` | composant / couche partagee — a porter | 7 | PARTIAL |
 | `djangoClient.caisse — Sessions de caisse, mouvements, catego` | composant / couche partagee — a porter | 28 | PARTIAL |
 | `djangoClient.suppliers — Commandes fournisseur (§7.6)` | composant / couche partagee — a porter | 8 | PARTIAL |
@@ -833,9 +840,9 @@ Cible Flutter : lib/features/tournee/bilan_screen.dart
 - [ ] Les cellules du tableau sont align-top (les lignes multi-articles peuvent etre hautes), l'adresse est tronquee et le produit contraint a 220px
 - [ ] Mise a jour temps reel sur les evenements 'order' et 'order_status_history': des que le gerant/livreur change un statut ailleurs, le bilan se recalcule sans clic
 
-### `/dashboard` — PARTIAL
+### `/dashboard` — DONE (page web remplacee par le centre de rapports)
 
-Cible Flutter : lib/features/dashboard/dashboard_screen.dart
+Cible Flutter : lib/features/dashboard/ — la liste ci-dessous decrit l'ANCIEN tableau de bord web, remplace ; la checklist a jour est dans FLUTTER_FEATURE_PARITY.md
 
 **Fonctionnalites**
 
@@ -898,9 +905,9 @@ Cible Flutter : lib/features/dashboard/dashboard_screen.dart
 - [ ] Espacement global: p-6 space-y-8; sections graphiques et listes en grid lg:grid-cols-2 gap-6
 - [ ] Le libellé « 8 dernières transactions » est trompeur: le backend ne renvoie que 5 recent_sales
 
-### `/reports` — MISSING
+### `/reports` — DONE (page supprimee cote web)
 
-Cible Flutter : AUCUN
+Cible Flutter : /reports redirige vers /dashboard (centre de rapports) — la liste ci-dessous decrit l'ancienne page web, supprimee
 
 **Fonctionnalites**
 

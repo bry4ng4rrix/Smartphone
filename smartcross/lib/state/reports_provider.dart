@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show KeepAliveLink;
 
 import '../core/permissions.dart';
 import '../data/repositories/reports_repository.dart';
@@ -164,8 +165,15 @@ class ReportExtrasNotifier extends Notifier<Map<String, String>> {
 
   final ReportSection section;
 
+  /// Valeurs initiales : la section Stock envoie toujours `dormant_days`
+  /// (`useState(30)` de section-stock.tsx, `{ ...params, dormant_days: jours }`),
+  /// les autres n'ont pas de paramètre propre au départ (`platform` du
+  /// Marketing est absent pour « Toutes plateformes »).
   @override
-  Map<String, String> build() => const {};
+  Map<String, String> build() => switch (section) {
+        ReportSection.stock => const {'dormant_days': '30'},
+        _ => const {},
+      };
 
   void set(String cle, String? valeur) {
     final next = Map<String, String>.from(state);
@@ -222,8 +230,29 @@ class ReportRequest {
   String toString() => 'ReportRequest($_cle)';
 }
 
+/// `CACHE_MAX = 60` de use-report.ts : nombre maximal de réponses gardées en
+/// mémoire ; au-delà, la plus ancienne est libérée.
+const int kReportsCacheMax = 60;
+
+/// Entrées du cache, de la plus ancienne à la plus récente (ordre d'insertion
+/// d'un `LinkedHashMap`) : chaque lien maintient en vie un membre de
+/// [reportsProvider] qui n'est plus observé.
+final Map<ReportRequest, KeepAliveLink> _cacheLinks = <ReportRequest, KeepAliveLink>{};
+
+void _retenir(ReportRequest request, KeepAliveLink link) {
+  _cacheLinks.remove(request);
+  _cacheLinks[request] = link;
+  while (_cacheLinks.length > kReportsCacheMax) {
+    final plusAncienne = _cacheLinks.keys.first;
+    _cacheLinks.remove(plusAncienne)?.close();
+  }
+}
+
 /// Réponse brute d'une section pour une requête donnée — le cache mémoire du
-/// web : NON autoDispose, revenir sur un onglet déjà consulté est instantané.
+/// web (`cache.set(k, res)` seulement en cas de succès, 60 entrées au plus) :
+/// un membre non observé reste en vie tant qu'il est dans le cache, donc
+/// revenir sur un onglet déjà consulté est instantané ; une erreur n'est pas
+/// conservée (nouvelle tentative à la prochaine ouverture, comme le web).
 ///
 /// * Pas d'appel réseau pour un compte qui n'est pas gérant :
 ///   [ReportsAccesRefuse] immédiate.
@@ -241,7 +270,13 @@ class ReportSectionNotifier extends AsyncNotifier<Map<String, dynamic>> {
   }
 
   @override
-  Future<Map<String, dynamic>> build() => _charger();
+  Future<Map<String, dynamic>> build() async {
+    // Invalidation ou libération : l'entrée quitte le cache.
+    ref.onDispose(() => _cacheLinks.remove(request));
+    final data = await _charger();
+    if (ref.mounted) _retenir(request, ref.keepAlive());
+    return data;
+  }
 
   Future<void> refresh() async {
     state = const AsyncLoading();
@@ -257,14 +292,15 @@ class ReportSectionNotifier extends AsyncNotifier<Map<String, dynamic>> {
 /// cache par (section, paramètres). Pas de nouvel essai automatique : un refus
 /// (403, accès réservé) ou une coupure s'affichent tout de suite avec le
 /// bouton Actualiser pour relancer.
-final reportsProvider = AsyncNotifierProvider.family<ReportSectionNotifier, Map<String, dynamic>, ReportRequest>(
+final reportsProvider =
+    AsyncNotifierProvider.autoDispose.family<ReportSectionNotifier, Map<String, dynamic>, ReportRequest>(
   ReportSectionNotifier.new,
   retry: (_, _) => null,
 );
 
 /// `invalidateReports()` du web : vide tout le cache. Les entrées observées
 /// se rechargent silencieusement (valeur conservée pendant le rechargement),
-/// les autres à leur prochaine lecture.
+/// les autres sont libérées (rechargées à leur prochaine ouverture).
 void invalidateReports(Ref ref) => ref.invalidate(reportsProvider);
 
 /// Variante pour les widgets.

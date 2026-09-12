@@ -132,10 +132,17 @@ class _ProductNoteDialogState extends ConsumerState<ProductNoteDialog> {
               // Catégorie et sous-type sont côte à côte sur le web (grille 2
               // colonnes) ; empilés ici pour que les noms et le libellé
               // « Catégorie d'abord » restent lisibles sur un téléphone.
+              // Libellé toujours flottant : le texte d'attente (« Choisir »,
+              // « Catégorie d'abord », « Aucune / inconnue ») reste visible
+              // dans le champ vide, comme le placeholder du web.
               DropdownButtonFormField<int>(
                 initialValue: _categoryId,
                 isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Catégorie', hintText: 'Choisir'),
+                decoration: const InputDecoration(
+                  labelText: 'Catégorie',
+                  hintText: 'Choisir',
+                  floatingLabelBehavior: FloatingLabelBehavior.always,
+                ),
                 items: [for (final c in categories) DropdownMenuItem(value: c.id, child: Text(c.nom))],
                 onChanged: (v) => setState(() {
                   _categoryId = v;
@@ -153,6 +160,7 @@ class _ProductNoteDialogState extends ConsumerState<ProductNoteDialog> {
                 decoration: InputDecoration(
                   labelText: 'Sous-type',
                   hintText: _categoryId != null ? 'Choisir' : 'Catégorie d\'abord',
+                  floatingLabelBehavior: FloatingLabelBehavior.always,
                 ),
                 items: [for (final t in typesForCategory) DropdownMenuItem(value: t.id, child: Text(t.nom))],
                 // Désactivé tant qu'aucune catégorie n'est choisie.
@@ -162,7 +170,11 @@ class _ProductNoteDialogState extends ConsumerState<ProductNoteDialog> {
               DropdownButtonFormField<int>(
                 initialValue: _brandId,
                 isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Marque (facultatif)', hintText: 'Aucune / inconnue'),
+                decoration: const InputDecoration(
+                  labelText: 'Marque (facultatif)',
+                  hintText: 'Aucune / inconnue',
+                  floatingLabelBehavior: FloatingLabelBehavior.always,
+                ),
                 items: [for (final b in brands) DropdownMenuItem(value: b.id, child: Text(b.nom))],
                 onChanged: (v) => setState(() => _brandId = v),
               ),

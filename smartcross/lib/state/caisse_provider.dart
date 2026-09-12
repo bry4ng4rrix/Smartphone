@@ -132,18 +132,26 @@ class CurrentCaisseNotifier extends AsyncNotifier<CaisseSession?> {
   }
 }
 
+// `retry: null` sur tous les providers réseau de la page : Riverpod 3
+// rejouerait dix fois une erreur de build() (~38 s de chargement) — l'erreur
+// est connue tout de suite (toast « Erreur de chargement … » du web, données
+// précédentes conservées ou état d'erreur avec « Réessayer »).
 final currentCaisseProvider = AsyncNotifierProvider.family<CurrentCaisseNotifier, CaisseSession?, int?>(
   (magasinId) => CurrentCaisseNotifier(magasinId),
+  retry: (count, error) => null,
 );
 
 /// Historique : sessions du magasin filtrées côté client sur
 /// `status === 'closed'` (ordre serveur `-opened_at`), comme le web.
-final caisseHistoryProvider = FutureProvider.autoDispose.family<List<CaisseSession>, int?>((ref, magasinId) async {
-  ref.watch(realtimeTickProvider);
-  if (magasinId == null) return const <CaisseSession>[];
-  final sessions = await ref.read(caisseRepositoryProvider).listSessions(magasinId);
-  return sessions.where((s) => s.isClosed).toList();
-});
+final caisseHistoryProvider = FutureProvider.autoDispose.family<List<CaisseSession>, int?>(
+  (ref, magasinId) async {
+    ref.watch(realtimeTickProvider);
+    if (magasinId == null) return const <CaisseSession>[];
+    final sessions = await ref.read(caisseRepositoryProvider).listSessions(magasinId);
+    return sessions.where((s) => s.isClosed).toList();
+  },
+  retry: (count, error) => null,
+);
 
 /// Filtre de la carte « Résumé de la caisse » : magasin + bornes `YYYY-MM-DD`
 /// (`summaryFrom` / `summaryTo` du web). Tout changement relance les deux
@@ -152,25 +160,30 @@ typedef CaissePeriodQuery = ({int magasinId, String dateFrom, String dateTo});
 
 /// `fetchSummary()` du web : `GET /users/caisse/summary/` et
 /// `GET /users/caisse/movements/` lancés ensemble pour la période.
-final caissePeriodProvider = FutureProvider.autoDispose.family<CaissePeriodData, CaissePeriodQuery>((ref, query) async {
-  ref.watch(realtimeTickProvider);
-  final repo = ref.read(caisseRepositoryProvider);
-  final (summary, movements) = await (
-    repo.summary(magasinId: query.magasinId, dateFrom: query.dateFrom, dateTo: query.dateTo),
-    repo.listMovements(magasinId: query.magasinId, dateFrom: query.dateFrom, dateTo: query.dateTo),
-  ).wait;
-  return CaissePeriodData(summary: summary, movements: movements);
-});
+final caissePeriodProvider = FutureProvider.autoDispose.family<CaissePeriodData, CaissePeriodQuery>(
+  (ref, query) async {
+    ref.watch(realtimeTickProvider);
+    final repo = ref.read(caisseRepositoryProvider);
+    final (summary, movements) = await (
+      repo.summary(magasinId: query.magasinId, dateFrom: query.dateFrom, dateTo: query.dateTo),
+      repo.listMovements(magasinId: query.magasinId, dateFrom: query.dateFrom, dateTo: query.dateTo),
+    ).wait;
+    return CaissePeriodData(summary: summary, movements: movements);
+  },
+  retry: (count, error) => null,
+);
 
 /// Catégories de dépense pour le Select « Catégorie » d'une sortie
 /// (`GET /users/caisse/categories/`, lecture ouverte à tout authentifié).
-final caisseCategoriesProvider = FutureProvider.autoDispose<List<CaisseCategory>>((ref) {
-  return ref.read(caisseRepositoryProvider).categories();
-});
+final caisseCategoriesProvider = FutureProvider.autoDispose<List<CaisseCategory>>(
+  (ref) => ref.read(caisseRepositoryProvider).categories(),
+  retry: (count, error) => null,
+);
 
 /// Valeur de stock actuelle du magasin, pour pré-remplir les montants
 /// d'ouverture et de fermeture — `autoDispose` : recalculée à chaque
 /// ouverture de dialog (le stock bouge avec les ventes pendant la session).
-final caisseStockValueProvider = FutureProvider.autoDispose.family<double?, int>((ref, magasinId) {
-  return ref.read(caisseRepositoryProvider).stockValue(magasinId);
-});
+final caisseStockValueProvider = FutureProvider.autoDispose.family<double?, int>(
+  (ref, magasinId) => ref.read(caisseRepositoryProvider).stockValue(magasinId),
+  retry: (count, error) => null,
+);

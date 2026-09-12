@@ -6,14 +6,14 @@ import 'package:flutter/foundation.dart';
 
 import 'secure_storage.dart';
 
-/// URL par défaut selon la plateforme : `10.0.2.2` est l'alias que l'émulateur
-/// Android utilise pour joindre `localhost` de la machine hôte — un vrai
-/// device sur le LAN ou la prod doivent reconfigurer via l'écran serveur.
-String get kDefaultServerUrl {
-  if (kIsWeb) return 'http://127.0.0.1:8010';
-  if (Platform.isAndroid) return 'http://10.0.2.2:8010';
-  return 'http://127.0.0.1:8010';
-}
+/// Serveur par défaut : le backend Django de production (VPS, port 8010 —
+/// voir `.env` / docker-compose.prod.yml). L'application fonctionne donc
+/// dès l'installation ; l'écran « Configuration du serveur » (accessible
+/// depuis la connexion) permet de pointer vers un autre poste (dev local :
+/// `http://10.0.2.2:8010` depuis l'émulateur Android, `http://127.0.0.1:8010`
+/// sinon). Le frontend Next.js (assistant) est dérivé de cette URL sur le
+/// port 3010.
+const String kDefaultServerUrl = 'http://185.215.167.79:8010';
 
 enum AuthEventKind { sessionExpired }
 
@@ -55,6 +55,12 @@ class ApiClient {
             final req = error.requestOptions;
             req.extra['retried'] = true;
             req.headers['Authorization'] = 'Bearer $refreshed';
+            // Un corps multipart (photo de préparation, import Excel, image
+            // de chat, logo) est consommé par le premier envoi : il faut le
+            // recopier, sinon le rejeu échoue (« FormData already finalized »)
+            // et c'est le 401 d'origine qui remonte.
+            final data = req.data;
+            if (data is FormData) req.data = data.clone();
             try {
               final clone = await _dio.fetch(req);
               handler.resolve(clone);
@@ -104,7 +110,21 @@ class ApiClient {
     return '$scheme://${uri.authority}';
   }
 
-  Future<String?> _tryRefresh() async {
+  /// Renouvellement en cours, partagé : plusieurs 401 simultanés (écran qui
+  /// charge plusieurs listes) attendent le MÊME POST users/refresh/ au lieu
+  /// d'en lancer un chacun (file d'attente `refreshQueue` du client web).
+  Future<String?>? _refreshing;
+
+  Future<String?> _tryRefresh() {
+    final pending = _refreshing;
+    if (pending != null) return pending;
+    final future = _doRefresh();
+    _refreshing = future;
+    future.whenComplete(() => _refreshing = null);
+    return future;
+  }
+
+  Future<String?> _doRefresh() async {
     final refresh = await TokenStorage.instance.refreshToken;
     if (refresh == null || refresh.isEmpty) return null;
     try {

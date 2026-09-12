@@ -537,6 +537,12 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
                     ),
                   if (order.preparateurName != null) _KeyValueRow(label: 'Préparateur', value: order.preparateurName!),
                   if (order.livreurName != null) _KeyValueRow(label: 'Livreur', value: order.livreurName!),
+                  // Campagne marketing d'origine (`campagne_nom`, serializer
+                  // gérant) — choisie à la création (« Campagne marketing
+                  // (facultatif) ») ; absente sans campagne ou pour les
+                  // autres rôles. Le web n'a pas de fiche équivalente : simple
+                  // lecture, ajoutée pour retrouver l'information sur mobile.
+                  if (order.campagneNom.isNotEmpty) _KeyValueRow(label: 'Campagne', value: order.campagneNom),
                   if (order.createdAt != null)
                     _KeyValueRow(label: 'Commande créée le', value: _fmtAppDateTime(order.createdAt)),
                 ],

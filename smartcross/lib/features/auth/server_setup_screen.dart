@@ -70,12 +70,21 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
                   controller: _controller,
                   decoration: const InputDecoration(
                     labelText: 'URL du serveur',
-                    hintText: 'http://192.168.1.10:8010',
+                    hintText: kDefaultServerUrl,
                     prefixIcon: Icon(Icons.link),
                   ),
                   keyboardType: TextInputType.url,
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: _saving ? null : () => setState(() => _controller.text = kDefaultServerUrl),
+                    icon: const Icon(Icons.restart_alt, size: 18),
+                    label: const Text('Serveur par défaut'),
+                  ),
+                ),
+                const SizedBox(height: 12),
                 FilledButton(
                   onPressed: _saving ? null : _save,
                   child: _saving

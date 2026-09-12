@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/app_time.dart';
 import '../../../models/reports.dart';
 import '../../../state/reports_provider.dart';
 
@@ -34,7 +35,7 @@ class ReportFilters extends StatelessWidget {
   Future<void> _choisirDate(BuildContext context, {required bool debut}) async {
     final custom = filter.preset == ReportPreset.custom;
     final valeur = debut ? (custom ? filter.customFrom : period.from) : (custom ? filter.customTo : period.to);
-    final initiale = DateTime.tryParse(valeur) ?? DateTime.now();
+    final initiale = DateTime.tryParse(valeur) ?? appToday();
     // `max` du champ Du / `min` du champ Au en période personnalisée.
     DateTime? borneMin;
     DateTime? borneMax;

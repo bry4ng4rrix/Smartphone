@@ -66,7 +66,13 @@ class CategoriesNotifier extends _CatalogListNotifier<ProductCategory> {
   }
 }
 
-final categoriesProvider = AsyncNotifierProvider<CategoriesNotifier, List<ProductCategory>>(CategoriesNotifier.new);
+// `retry: null` sur toutes les listes réseau : Riverpod 3 rejouerait dix
+// fois une erreur de build() (~38 s de chargement) — l'erreur est connue tout
+// de suite et traitée par l'écran (toast + liste précédente conservée).
+final categoriesProvider = AsyncNotifierProvider<CategoriesNotifier, List<ProductCategory>>(
+  CategoriesNotifier.new,
+  retry: (count, error) => null,
+);
 
 class TypesNotifier extends _CatalogListNotifier<ProductType> {
   @override
@@ -89,7 +95,10 @@ class TypesNotifier extends _CatalogListNotifier<ProductType> {
   }
 }
 
-final typesProvider = AsyncNotifierProvider<TypesNotifier, List<ProductType>>(TypesNotifier.new);
+final typesProvider = AsyncNotifierProvider<TypesNotifier, List<ProductType>>(
+  TypesNotifier.new,
+  retry: (count, error) => null,
+);
 
 class BrandsNotifier extends _CatalogListNotifier<Brand> {
   @override
@@ -112,7 +121,10 @@ class BrandsNotifier extends _CatalogListNotifier<Brand> {
   }
 }
 
-final brandsProvider = AsyncNotifierProvider<BrandsNotifier, List<Brand>>(BrandsNotifier.new);
+final brandsProvider = AsyncNotifierProvider<BrandsNotifier, List<Brand>>(
+  BrandsNotifier.new,
+  retry: (count, error) => null,
+);
 
 class ColorsNotifier extends _CatalogListNotifier<ProductColor> {
   @override
@@ -135,7 +147,10 @@ class ColorsNotifier extends _CatalogListNotifier<ProductColor> {
   }
 }
 
-final colorsProvider = AsyncNotifierProvider<ColorsNotifier, List<ProductColor>>(ColorsNotifier.new);
+final colorsProvider = AsyncNotifierProvider<ColorsNotifier, List<ProductColor>>(
+  ColorsNotifier.new,
+  retry: (count, error) => null,
+);
 
 /// Notes produit — produits repérés mais pas encore au catalogue (sans prix
 /// ni stock), à commander au fournisseur : `djangoClient.catalog.notes`
@@ -169,9 +184,8 @@ class ProductNotesNotifier extends _CatalogListNotifier<ProductNote> {
 
 final productNotesProvider = AsyncNotifierProvider<ProductNotesNotifier, List<ProductNote>>(
   ProductNotesNotifier.new,
-  // Pas de nouvel essai automatique (Riverpod 3 en rejoue dix par défaut,
-  // soit ~38 s de chargement) : une erreur est connue tout de suite, et
-  // l'écran la traite comme une liste vide — le `.catch(() => [])` du web.
+  // Une erreur est connue tout de suite et l'écran la traite comme une
+  // liste vide — le `.catch(() => [])` du web.
   retry: (count, error) => null,
 );
 
@@ -275,12 +289,16 @@ class ReferencesNotifier extends _CatalogListNotifier<ProductReference> {
   }
 }
 
-final referencesProvider = AsyncNotifierProvider<ReferencesNotifier, List<ProductReference>>(ReferencesNotifier.new);
+final referencesProvider = AsyncNotifierProvider<ReferencesNotifier, List<ProductReference>>(
+  ReferencesNotifier.new,
+  retry: (count, error) => null,
+);
 
 /// Recherche autocomplete pour le formulaire Nouvelle commande (§6 README).
-final referenceAutocompleteProvider = FutureProvider.autoDispose.family<List<ReferenceOption>, String>((ref, query) {
-  return ref.read(catalogRepositoryProvider).autocomplete(query);
-});
+final referenceAutocompleteProvider = FutureProvider.autoDispose.family<List<ReferenceOption>, String>(
+  (ref, query) => ref.read(catalogRepositoryProvider).autocomplete(query),
+  retry: (count, error) => null,
+);
 
 /// Actions transverses aux 6 listes (les 5 du catalogue + les notes
 /// produit) — le `fetchAll(silent)` de products/page.tsx et les opérations

@@ -113,8 +113,9 @@ class _SectionStockState extends ConsumerState<SectionStock> {
   @override
   void initState() {
     super.initState();
-    // Durée conservée d'une visite précédente (extras de la section) :
-    // on en repart, sans réécrire la requête.
+    // Durée conservée d'une visite précédente (extras de la section, 30 par
+    // défaut — `dormant_days` est toujours envoyé, comme sur le web) : on en
+    // repart, sans réécrire la requête.
     final memo = int.tryParse(ref.read(reportExtrasProvider(ReportSection.stock))['dormant_days'] ?? '');
     if (memo != null && memo >= 1) {
       if (_dormantChoix.contains(memo)) {
@@ -380,8 +381,8 @@ class _SectionStockState extends ConsumerState<SectionStock> {
           ],
         ),
         const SizedBox(height: 16),
-        // `grid-cols-1 xl:grid-cols-3` : 2/3 – 1/3 côte à côte dès 1024 px,
-        // une colonne sinon.
+        // `grid-cols-1 xl:grid-cols-3` : 2/3 – 1/3 côte à côte dès 1280 px
+        // (`xl`), une colonne sinon.
         _Grille(gauche: graphiqueSerie, droite: graphiqueCategories, flexGauche: 2),
         const SizedBox(height: 16),
         // `grid-cols-1 xl:grid-cols-2`.
@@ -467,8 +468,8 @@ class _SectionStockState extends ConsumerState<SectionStock> {
   }
 }
 
-/// Deux cartes côte à côte dès 1024 px (proportions [flexGauche] /
-/// [flexDroite]), l'une sous l'autre sinon.
+/// `grid-cols-1 xl:grid-cols-N` du web : deux cartes côte à côte dès 1280 px
+/// (`xl`, proportions [flexGauche] / [flexDroite]), l'une sous l'autre sinon.
 class _Grille extends StatelessWidget {
   const _Grille({required this.gauche, required this.droite, this.flexGauche = 1, this.flexDroite = 1});
 
@@ -481,7 +482,7 @@ class _Grille extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (constraints.maxWidth >= 1024) {
+        if (constraints.maxWidth >= 1280) {
           return Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

@@ -138,19 +138,24 @@ class CatalogRepository {
     return (response.data as List).map((e) => CatalogCategory.fromJson(e as Map<String, dynamic>)).toList();
   }
 
-  Future<ProductCategory> createCategory(String nom, int ordre, {bool avecCouleurs = true}) async {
+  /// [magasinId] : facultatif (`magasin_id`, admin multi-magasins), comme
+  /// `categories.create` du client web.
+  Future<ProductCategory> createCategory(String nom, int ordre, {bool avecCouleurs = true, int? magasinId}) async {
     final response = await _dio.post('catalog/categories/', data: {
       'nom': nom,
       'ordre': ordre,
       'avec_couleurs': avecCouleurs,
+      'magasin_id': ?magasinId,
     });
     return CatalogCategory.fromJson(response.data as Map<String, dynamic>);
   }
 
-  /// PATCH partiel : renommage et/ou bascule « avec couleurs ».
-  Future<ProductCategory> updateCategory(int id, {String? nom, bool? avecCouleurs}) async {
+  /// PATCH partiel : renommage, ordre d'affichage et/ou bascule « avec
+  /// couleurs ».
+  Future<ProductCategory> updateCategory(int id, {String? nom, int? ordre, bool? avecCouleurs}) async {
     final response = await _dio.patch('catalog/categories/$id/', data: {
       'nom': ?nom,
+      'ordre': ?ordre,
       'avec_couleurs': ?avecCouleurs,
     });
     return CatalogCategory.fromJson(response.data as Map<String, dynamic>);
@@ -176,8 +181,10 @@ class CatalogRepository {
     return ProductType.fromJson(response.data as Map<String, dynamic>);
   }
 
-  Future<ProductType> updateType(int id, String nom) async {
-    final response = await _dio.patch('catalog/types/$id/', data: {'nom': nom});
+  /// [categoryId] : déplace le sous-type vers une autre catégorie
+  /// (`types.update(id, {nom?, category?})` du client web).
+  Future<ProductType> updateType(int id, String nom, {int? categoryId}) async {
+    final response = await _dio.patch('catalog/types/$id/', data: {'nom': nom, 'category': ?categoryId});
     return ProductType.fromJson(response.data as Map<String, dynamic>);
   }
 
@@ -194,8 +201,8 @@ class CatalogRepository {
     return (response.data as List).map((e) => Brand.fromJson(e as Map<String, dynamic>)).toList();
   }
 
-  Future<Brand> createBrand(String nom) async {
-    final response = await _dio.post('catalog/brands/', data: {'nom': nom});
+  Future<Brand> createBrand(String nom, {int? magasinId}) async {
+    final response = await _dio.post('catalog/brands/', data: {'nom': nom, 'magasin_id': ?magasinId});
     return Brand.fromJson(response.data as Map<String, dynamic>);
   }
 
@@ -212,13 +219,13 @@ class CatalogRepository {
   // Couleurs
   // ---------------------------------------------------------------------------
 
-  Future<List<ProductColor>> colors() async {
-    final response = await _dio.get('catalog/colors/');
+  Future<List<ProductColor>> colors({int? magasinId}) async {
+    final response = await _dio.get('catalog/colors/', queryParameters: {'magasin_id': ?magasinId});
     return (response.data as List).map((e) => ProductColor.fromJson(e as Map<String, dynamic>)).toList();
   }
 
-  Future<ProductColor> createColor(String nom) async {
-    final response = await _dio.post('catalog/colors/', data: {'nom': nom});
+  Future<ProductColor> createColor(String nom, {int? magasinId}) async {
+    final response = await _dio.post('catalog/colors/', data: {'nom': nom, 'magasin_id': ?magasinId});
     return ProductColor.fromJson(response.data as Map<String, dynamic>);
   }
 

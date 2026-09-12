@@ -64,9 +64,9 @@ class PushNotificationsBootstrap {
   /// Notifications ; repli sur la page Notifications si introuvable).
   Future<void> _open(String path) async {
     if (ref.read(authProvider).status != AuthStatus.authenticated) {
-      // Pas encore connecté (lancement par notification) : le bootstrap
-      // rejouera le chemin après connexion.
-      PushNotificationsService.instance.onOpen = null;
+      // Pas encore connecté (lancement par notification, session expirée) :
+      // la destination est rejouée juste après la connexion.
+      PushNotificationsService.instance.deferLaunchPath(path);
       return;
     }
     final router = ref.read(routerProvider);

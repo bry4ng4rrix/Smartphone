@@ -20,8 +20,12 @@ String _brut(num v) => v == v.truncate() ? '${v.toInt()}' : '$v';
 /// Colonne « Date » du détail : date-heure pour la caisse, date seule pour
 /// les tournées livreurs (`fmtDateHeure(`${date}T12:00:00+03:00`).slice(0,
 /// 10)`).
-String _dateDepense(MouvementDepense r) =>
-    r.source == 'caisse' ? fmtDateHeure(r.date) : fmtDateHeure('${r.date}T12:00:00+03:00').substring(0, 10);
+String _dateDepense(MouvementDepense r) {
+  if (r.source == 'caisse') return fmtDateHeure(r.date);
+  final texte = fmtDateHeure('${r.date}T12:00:00+03:00');
+  // `.slice(0, 10)` : sans effet sur « — » (date absente).
+  return texte.length > 10 ? texte.substring(0, 10) : texte;
+}
 
 /// Part d'une catégorie dans le total actuel (1 décimale), `null` si le total
 /// est nul.
@@ -228,11 +232,11 @@ class SectionExpenses extends ConsumerWidget {
           ],
         ),
         const SizedBox(height: 16),
-        // `grid-cols-1 xl:grid-cols-3` : 2/3 – 1/3 côte à côte dès 1024 px,
-        // une colonne sinon.
+        // `grid-cols-1 xl:grid-cols-3` : 2/3 – 1/3 côte à côte dès 1280 px
+        // (`xl`), une colonne sinon.
         LayoutBuilder(
           builder: (context, constraints) {
-            if (constraints.maxWidth >= 1024) {
+            if (constraints.maxWidth >= 1280) {
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -252,7 +256,7 @@ class SectionExpenses extends ConsumerWidget {
         // `grid-cols-1 xl:grid-cols-2`.
         LayoutBuilder(
           builder: (context, constraints) {
-            if (constraints.maxWidth >= 1024) {
+            if (constraints.maxWidth >= 1280) {
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [

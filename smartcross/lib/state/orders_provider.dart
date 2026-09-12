@@ -65,8 +65,13 @@ class DeliveryZonesNotifier extends AsyncNotifier<List<DeliveryZoneOption>> {
   }
 }
 
-final deliveryZonesProvider =
-    AsyncNotifierProvider<DeliveryZonesNotifier, List<DeliveryZoneOption>>(DeliveryZonesNotifier.new);
+// `retry: null` sur les providers réseau : Riverpod 3 rejouerait dix fois
+// une erreur de build() (~38 s de chargement) — l'erreur est connue tout de
+// suite et traitée par l'écran (toast, données précédentes conservées).
+final deliveryZonesProvider = AsyncNotifierProvider<DeliveryZonesNotifier, List<DeliveryZoneOption>>(
+  DeliveryZonesNotifier.new,
+  retry: (count, error) => null,
+);
 
 class OrdersFilter {
   const OrdersFilter({
@@ -226,6 +231,8 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
     String adresseLivraison = '',
     String modePaiement = 'LIVRAISON',
     DateTime? dateCommande,
+    // Campagne marketing d'origine (facultative) — voir OrdersRepository.create.
+    int? campagne,
   }) async {
     final order = await _repo.create(
       clientNom: clientNom,
@@ -238,6 +245,7 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
       adresseLivraison: adresseLivraison,
       modePaiement: modePaiement,
       dateCommande: dateCommande,
+      campagne: campagne,
     );
     await refreshSilencieux();
     return order;
@@ -360,12 +368,18 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
   }
 }
 
-final ordersProvider = AsyncNotifierProvider<OrdersNotifier, List<Order>>(OrdersNotifier.new);
+final ordersProvider = AsyncNotifierProvider<OrdersNotifier, List<Order>>(
+  OrdersNotifier.new,
+  retry: (count, error) => null,
+);
 
-final orderDetailProvider = FutureProvider.autoDispose.family<Order, int>((ref, id) {
-  ref.watch(realtimeTickProvider);
-  return ref.read(ordersRepositoryProvider).detail(id);
-});
+final orderDetailProvider = FutureProvider.autoDispose.family<Order, int>(
+  (ref, id) {
+    ref.watch(realtimeTickProvider);
+    return ref.read(ordersRepositoryProvider).detail(id);
+  },
+  retry: (count, error) => null,
+);
 
 /// Liste des préparateurs pour le filtre « Préparateur » du gérant
 /// (`availableStaff('PREPARATEUR')` chargé une fois côté web). Échec

@@ -31,6 +31,7 @@ void _invalidateDataProviders(Ref ref) {
   ref.invalidate(brandsProvider);
   ref.invalidate(colorsProvider);
   ref.invalidate(referencesProvider);
+  ref.invalidate(productNotesProvider);
   ref.invalidate(referenceAutocompleteProvider);
   ref.invalidate(rupturesProvider);
   ref.invalidate(movementsProvider);

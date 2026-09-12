@@ -137,7 +137,9 @@ class _Legende extends StatelessWidget {
             children: [
               Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
               const SizedBox(width: 4),
-              Text(label, style: TextStyle(fontSize: 12, color: muted)),
+              Flexible(
+                child: Text(label, style: TextStyle(fontSize: 12, color: muted), overflow: TextOverflow.ellipsis),
+              ),
             ],
           ),
       ],
@@ -176,7 +178,7 @@ class _InfoBulle extends StatelessWidget {
                       Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
                       const SizedBox(width: 4),
                     ],
-                    Text('$label : $valeur', style: const TextStyle(fontSize: 12)),
+                    Flexible(child: Text('$label : $valeur', style: const TextStyle(fontSize: 12))),
                   ],
                 ),
               ),
@@ -210,6 +212,9 @@ class SerieChart extends StatefulWidget {
 
   final List<SeriePoint> data;
   final List<SerieDef> series;
+
+  /// Hauteur demandée par la section (prop `hauteur` du web) ; le dessin
+  /// occupe en fait toute la hauteur donnée par [ChartCard].
   final double hauteur;
 
   @override
@@ -421,12 +426,12 @@ class _SerieChartState extends State<SerieChart> {
         ];
 
         final sel = _selection;
-        final hauteurGraphique = widget.hauteur - 24;
 
+        // La zone de dessin prend toute la hauteur restante (la légende peut
+        // occuper une ou deux lignes sur un écran étroit).
         return Column(
           children: [
-            SizedBox(
-              height: hauteurGraphique,
+            Expanded(
               child: Stack(
                 children: [
                   Positioned.fill(

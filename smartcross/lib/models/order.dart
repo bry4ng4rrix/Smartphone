@@ -125,6 +125,8 @@ class Order {
     this.preparateurName,
     this.livreurId,
     this.livreurName,
+    this.campagneId,
+    this.campagneNom = '',
   });
 
   final int id;
@@ -162,6 +164,14 @@ class Order {
   final String? preparateurName;
   final int? livreurId;
   final String? livreurName;
+
+  /// Campagne marketing d'origine (facultative, choisie à la création de la
+  /// commande — alimente le rapport Marketing). Exposée au gérant seulement
+  /// (`campagne` / `campagne_nom` du serializer complet,
+  /// orders/serializers.py) ; `null` / vide pour les autres rôles ou sans
+  /// campagne.
+  final int? campagneId;
+  final String campagneNom;
 
   // ---------------------------------------------------------------------
   // Règles métier partagées par les écrans — mêmes conditions que
@@ -285,6 +295,8 @@ class Order {
       preparateurName: asStringOrNull(json['preparateur_name']),
       livreurId: asIntOrNull(json['livreur']),
       livreurName: asStringOrNull(json['livreur_name']),
+      campagneId: asIntOrNull(json['campagne']),
+      campagneNom: asString(json['campagne_nom']),
     );
   }
 }

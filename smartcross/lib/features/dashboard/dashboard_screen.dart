@@ -124,7 +124,6 @@ class DashboardScreen extends ConsumerWidget {
     final period = filter.period;
     final extras = ref.watch(reportExtrasProvider(actif));
     final request = ReportRequest.pour(actif, filter, extra: extras);
-    final chargement = ref.watch(reportsProvider(request).select((a) => a.isLoading));
     final filtres = ref.read(reportsFilterProvider.notifier);
 
     final enTete = Column(
@@ -181,10 +180,11 @@ class DashboardScreen extends ConsumerWidget {
                   },
                 ),
                 const SizedBox(height: 16),
+                // Comme la page web, `loading` n'est pas transmis aux filtres :
+                // le bouton Actualiser reste toujours actif.
                 ReportFilters(
                   filter: filter,
                   period: period,
-                  loading: chargement,
                   onPreset: filtres.setPreset,
                   onCustomFrom: filtres.setCustomFrom,
                   onCustomTo: filtres.setCustomTo,

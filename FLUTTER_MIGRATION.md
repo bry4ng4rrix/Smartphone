@@ -5,6 +5,13 @@ etabli pour porter integralement l'application web vers Flutter.
 
 **Source de verite fonctionnelle et UX : le projet Next.js.** Backend de reference : Django (`Stock/`, `users/`, `catalog/`, `orders/`, `suppliers/`).
 
+> **Mise a jour (12/09/2026).** Cet inventaire date de l'audit initial. Depuis : la page web
+> `/reports` a ete supprimee et `/dashboard` est devenu le centre de rapports a 8 sections
+> (`frontend/app/(app)/dashboard/page.tsx`, `frontend/components/reports/*`, backend
+> `orders/reporting.py`) — porte dans `smartcross/lib/features/dashboard/` ; l'ecran Flutter
+> `features/reports/` a ete retire et `/reports` redirige vers `/dashboard`. L'etat de parite a
+> jour est dans `FLUTTER_FEATURE_PARITY.md`.
+
 ## Methode
 
 Audit automatise par 20 agents lisant integralement les fichiers (aucun resume a partir de `grep`) :
@@ -34,7 +41,7 @@ Audit automatise par 20 agents lisant integralement les fichiers (aucun resume a
 | `/caisse` | GERANT uniquement en pratique (admin = role 'admin', gerant magasin = role 'magasin'). AUCUN guard explicite d… | lib/features/caisse/caisse_screen.dart | PARTIAL |
 | `/bilan` | LIVREUR EXCLUSIVEMENT. useCurrentUser() fournit { isLivreur, loading: userLoading } avec isLivreur = (role ===… | lib/features/tournee/bilan_screen.dart | DONE |
 | `/dashboard` | GERANT UNIQUEMENT (admin + magasin). Gating en 2 couches: (1) Sidebar (/home/garrix/Dev/Smartphone/frontend/co… | lib/features/dashboard/dashboard_screen.dart | PARTIAL |
-| `/reports` | lib/features/reports/reports_screen.dart | AUCUN | DONE |
+| `/reports` | supprimee cote web — redirection /dashboard | AUCUN | DONE |
 | `/settings` | GATING = `const { user, isGerant, loading: userLoading } = useCurrentUser()` (/home/garrix/Dev/Smartphone/fron… | lib/features/settings/settings_screen.dart | PARTIAL |
 | `/stores` | GATING = `const { user, isAdmin } = useCurrentUser()` ; `isAdmin === (role === 'admin')`. AUCUN guard/redirect… | lib/features/stores/stores_screen.dart | PARTIAL |
 | `/suppliers` | GERANT (= admin OU magasin). ATTENTION: AUCUN gating dans la page elle-meme — pas de useCurrentUser, pas de gu… | lib/features/suppliers/suppliers_screen.dart + supplier_order_*.dart | PARTIAL |

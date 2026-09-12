@@ -94,6 +94,10 @@ class PushNotificationsService {
     }
   }
 
+  /// Mémorise une destination à rejouer après connexion (appui reçu alors
+  /// que la session n'est pas encore ouverte).
+  void deferLaunchPath(String path) => _pendingLaunchPath = path;
+
   /// Chemin en attente (lancement par notification), consommé une seule fois.
   String? takePendingLaunchPath() {
     final p = _pendingLaunchPath;

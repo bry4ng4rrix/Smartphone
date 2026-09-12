@@ -230,7 +230,8 @@ class _Sparkline extends StatelessWidget {
   }
 }
 
-/// `KpiGrid` : 1 colonne sur mobile, 2 dès 600 px, [cols] dès 1024 px.
+/// `KpiGrid` (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-N`) : 1 colonne sur
+/// mobile, 2 dès 640 px (`sm`), [cols] dès 1024 px (`lg`).
 class KpiGrid extends StatelessWidget {
   const KpiGrid({super.key, required this.children, this.cols = 4});
 
@@ -242,7 +243,7 @@ class KpiGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final w = constraints.maxWidth;
-        final n = w < 600 ? 1 : (w < 1024 ? 2 : cols);
+        final n = w < 640 ? 1 : (w < 1024 ? 2 : cols);
         const gap = 12.0;
         // Cartes d'une même rangée à la même hauteur.
         final rangees = <Widget>[];
