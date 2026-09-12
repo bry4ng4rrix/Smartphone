@@ -6,12 +6,12 @@
 //  * "rapport" : rédiger un commentaire des chiffres de la page Rapports,
 //                fournis par l'appelant.
 //
-// Même modèle Ollama local que app/api/ai/analyze/route.ts : pas d'API cloud,
-// pas de clé. Pour changer le ton ou le contenu, éditez GUIDE ou les deux
-// fonctions de prompt ci-dessous, puis relancez le conteneur frontend.
+// Ollama local (voir lib/ollama.ts) : le mode "guide" utilise le modèle
+// rapide, le mode "rapport" le modèle d'analyse. Pour changer le ton ou le
+// contenu, éditez GUIDE ou les deux fonctions de prompt ci-dessous, puis
+// relancez le conteneur frontend.
 
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen3:4b';
+import { ollamaGenerate, ollamaErrorHint } from '@/lib/ollama';
 
 /**
  * Mode d'emploi de l'application, injecté à chaque question.
@@ -107,44 +107,14 @@ export async function POST(req: Request) {
       return Response.json({ reponse: 'Posez-moi une question sur l’application.' });
     }
 
-    const prompt =
+    const reponse =
       data.mode === 'rapport'
-        ? promptRapport(data.rapport, question)
-        : promptGuide(question);
-
-    const response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        prompt,
-        stream: false,
-        // qwen3 raisonne longuement en interne avant de répondre : désactiver
-        // ce mode accélère nettement (ignoré si le modèle ne le supporte pas).
-        think: false,
-      }),
-      // Sur CPU, un rapport complet peut demander plusieurs minutes ; une
-      // question sur le guide répond en général en quelques secondes.
-      signal: AbortSignal.timeout(600_000),
-    });
-
-    if (!response.ok) {
-      const detail = await response.text().catch(() => '');
-      throw new Error(`Ollama a répondu ${response.status} : ${detail.slice(0, 300)}`);
-    }
-
-    const result = await response.json();
-    const texte: string = result.response ?? '';
-    // On ne garde que la réponse finale, pas le raisonnement interne.
-    const reponse = texte.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+        ? await ollamaGenerate('analyse', promptRapport(data.rapport, question))
+        : await ollamaGenerate('fast', promptGuide(question));
 
     return Response.json({ reponse });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Erreur assistant (Ollama) :', error);
-    const indice =
-      error?.name === 'TimeoutError'
-        ? 'Le modèle a mis trop de temps à répondre.'
-        : `Impossible de contacter Ollama sur ${OLLAMA_BASE_URL}. Vérifiez qu'Ollama tourne et que OLLAMA_BASE_URL est configuré.`;
-    return Response.json({ reponse: `Désolé, je n'ai pas pu répondre. ${indice}` }, { status: 500 });
+    return Response.json({ reponse: `Désolé, je n'ai pas pu répondre. ${ollamaErrorHint(error)}` }, { status: 500 });
   }
 }

@@ -11,8 +11,7 @@
 // docker-compose.prod.yml up -d --build frontend`) pour que le changement
 // soit pris en compte.
 
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen3:4b';
+import { ollamaGenerate, ollamaErrorHint } from '@/lib/ollama';
 
 interface AnalyzePayload {
   periode?: string;
@@ -63,45 +62,11 @@ Réponds en français, en texte brut avec des sauts de ligne, sans markdown (pas
 export async function POST(req: Request) {
   try {
     const data: AnalyzePayload = await req.json();
-    const prompt = buildPrompt(data);
-
-    const response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        prompt,
-        stream: false,
-        // qwen3 est un modèle "hybrid reasoning" : sans ce flag, il passe
-        // souvent le plus clair du temps à raisonner en interne (balises
-        // <think>) avant de répondre — le désactiver accélère nettement la
-        // réponse (Ollama l'ignore silencieusement si le modèle ne le supporte pas).
-        think: false,
-      }),
-      // qwen3:4b est un modèle "hybrid reasoning" qui raisonne longuement en
-      // interne avant de répondre (balises <think>, non désactivable de façon
-      // fiable selon la version d'Ollama) — en CPU sur un VPS, une analyse
-      // complète peut prendre plusieurs minutes. Délai volontairement large.
-      signal: AbortSignal.timeout(600_000),
-    });
-
-    if (!response.ok) {
-      const detail = await response.text().catch(() => '');
-      throw new Error(`Ollama a répondu ${response.status} : ${detail.slice(0, 300)}`);
-    }
-
-    const result = await response.json();
-    const text: string = result.response ?? '';
-    // qwen3 expose son raisonnement dans des balises <think>...</think> —
-    // on ne garde que la réponse finale destinée à l'utilisateur.
-    const analysis = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    const analysis = await ollamaGenerate('analyse', buildPrompt(data));
 
     return Response.json({ analysis });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Erreur lors de l'analyse IA (Ollama) :", error);
-    const hint = error?.name === 'TimeoutError'
-      ? "Le modèle a mis trop de temps à répondre (délai dépassé)."
-      : `Impossible de contacter Ollama sur ${OLLAMA_BASE_URL}. Vérifiez qu'Ollama tourne sur le VPS et que OLLAMA_BASE_URL est bien configuré (voir roadmap.md).`;
-    return Response.json({ analysis: `Erreur lors de la génération de l'analyse. ${hint}` }, { status: 500 });
+    return Response.json({ analysis: `Erreur lors de la génération de l'analyse. ${ollamaErrorHint(error)}` }, { status: 500 });
   }
 }

@@ -217,7 +217,19 @@ Le bouton "Générer l'analyse" de la page Rapports (`frontend/components/ai-ana
 appelle `frontend/app/api/ai/analyze/route.ts`, qui interroge un modèle
 **Ollama local** — pas d'API cloud, pas de clé à gérer/exposer.
 
-Même modèle, deuxième usage : après un import Excel du catalogue (page
+**Deux modèles, choisis selon l'usage** (`frontend/lib/ollama.ts`) :
+
+| Variable | Défaut | Usage | Délai typique (CPU) |
+|---|---|---|---|
+| `OLLAMA_MODEL_FAST` | `qwen3:1.7b` | assistant (bulle "guide"), revue de doublons à l'import | 2-5 s une fois chargé |
+| `OLLAMA_MODEL_ANALYSE` | `qwen3:4b` | analyse de la page Rapports, mode "rapport" de l'assistant | 2 à 10 min (le modèle raisonne avant de répondre) |
+
+Le VPS (8 Go, CPU seul) ne peut pas garder les deux modèles en RAM en même
+temps (OOM) : avant chaque appel l'autre modèle est déchargé, et le modèle
+d'analyse se décharge seul 2 min après usage. Après une analyse, la première
+question à l'assistant prend donc ~10-20 s de plus (rechargement).
+
+Autre usage du modèle rapide : après un import Excel du catalogue (page
 Produits), `frontend/app/api/ai/check-duplicates/route.ts` compare les
 références nouvellement créées à celles déjà existantes pour repérer un
 quasi-doublon (faute de frappe, variante d'écriture) que la correspondance
@@ -229,7 +241,8 @@ tourne directement sur l'hôte) :
 
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
-ollama pull qwen3:4b
+ollama pull qwen3:1.7b   # modèle rapide (assistant)
+ollama pull qwen3:4b     # modèle d'analyse (rapports)
 ollama serve   # ou : systemctl enable --now ollama (si installé comme service)
 ```
 
@@ -241,7 +254,8 @@ curl http://localhost:11434/api/generate -d '{"model":"qwen3:4b","prompt":"Bonjo
 
 **Depuis le conteneur frontend**, Ollama est joignable via
 `http://host.docker.internal:11434` (voir `extra_hosts` dans
-`docker-compose.prod.yml`, et `OLLAMA_BASE_URL`/`OLLAMA_MODEL` dans `.env`).
+`docker-compose.prod.yml`, et `OLLAMA_BASE_URL`/`OLLAMA_MODEL_FAST`/`OLLAMA_MODEL_ANALYSE`
+dans `.env`).
 Si `host.docker.internal` ne résout pas sur votre configuration Docker,
 remplacer `OLLAMA_BASE_URL` par l'IP du VPS elle-même (`http://<ip-vps>:11434`)
 dans `.env`, puis `docker compose -f docker-compose.prod.yml up -d frontend`.

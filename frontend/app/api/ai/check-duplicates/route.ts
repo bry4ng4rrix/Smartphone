@@ -10,8 +10,7 @@
 // Pour changer le PROMPT : voir frontend/app/api/ai/analyze/route.ts, même
 // principe (éditer PROMPT_TEMPLATE-like ci-dessous puis rebuild frontend).
 
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen3:4b';
+import { ollamaGenerate } from '@/lib/ollama';
 
 interface CheckPayload {
   newNames: string[];
@@ -43,28 +42,9 @@ export async function POST(req: Request) {
       return Response.json({ warnings: [] });
     }
 
-    const prompt = buildPrompt(data);
-
-    const response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        prompt,
-        stream: false,
-        think: false,
-      }),
-      signal: AbortSignal.timeout(600_000),
-    });
-
-    if (!response.ok) {
-      const detail = await response.text().catch(() => '');
-      throw new Error(`Ollama a répondu ${response.status} : ${detail.slice(0, 300)}`);
-    }
-
-    const result = await response.json();
-    let text: string = result.response ?? '';
-    text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    // Modèle rapide : cette revue tourne pendant l'import, elle ne doit pas
+    // bloquer l'utilisateur plusieurs minutes.
+    let text = await ollamaGenerate('fast', buildPrompt(data));
     // Au cas où le modèle encadre quand même sa réponse de ```json ... ``` malgré la consigne.
     text = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
 
