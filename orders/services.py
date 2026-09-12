@@ -363,38 +363,52 @@ def update_order(*, order, user, client_nom=None, telephone=None, livraison_zone
       l'ancien stock est restitué et le nouveau déduit — mouvement
       'AJUSTEMENT', pour ne pas se confondre avec une préparation ou un retour
       normaux.
-    * "Prête" / "En livraison" — seul le MODE DE PAIEMENT reste modifiable
-      (§ demande) : le client peut régler d'avance une commande déjà partie.
-      Toute autre modification est refusée, la commande étant trop engagée.
+    * "Prête" / "En livraison" — seules les données de LIVRAISON restent
+      modifiables (§ demande) : mode de paiement, zone, adresse et note du
+      livreur. Un client peut régler d'avance une commande déjà partie, ou
+      donner une autre adresse au téléphone pendant que le livreur roule.
+      Changer la zone met à jour les frais ET le total, donc le bilan du
+      livreur. Le client, le téléphone, la date et les articles restent
+      figés : la commande est trop engagée.
 
     Une commande terminée (livrée, retour, annulée) n'est plus modifiable du
     tout : son paiement est soldé et compté dans les bilans."""
-    # Hors fenêtre d'édition, seule reste permise la mise à jour du mode de
-    # paiement, et uniquement sur une commande non terminée.
+    # Hors fenêtre d'édition, seules restent modifiables les données de
+    # LIVRAISON — et uniquement sur une commande non terminée.
     if order.statut_courant not in _EDITABLE_STATUSES:
         if order.statut_courant in _TERMINAL_STATUSES:
             raise ValidationError(
                 f"Cette commande est '{order.get_statut_courant_display()}' — elle ne peut plus être modifiée."
             )
-        autres = {
+        interdits = {
             "client_nom": client_nom,
             "telephone": telephone,
-            "livraison_zone": livraison_zone,
-            "adresse_livraison": adresse_livraison,
             "date_commande": date_commande,
             "note_preparateur": note_preparateur,
-            "note_livreur": note_livreur,
             "items": items,
         }
-        if any(v is not None for v in autres.values()):
+        if any(v is not None for v in interdits.values()):
             raise ValidationError(
                 f"Cette commande est '{order.get_statut_courant_display()}' — "
-                "seul le mode de paiement peut encore être modifié."
+                "seuls le paiement, la zone, l'adresse et la note du livreur "
+                "peuvent encore être modifiés."
             )
-        if mode_paiement is None:
+        modifiables = {
+            "mode_paiement": mode_paiement,
+            "livraison_zone": livraison_zone,
+            "adresse_livraison": adresse_livraison,
+            "note_livreur": note_livreur,
+        }
+        if all(v is None for v in modifiables.values()):
             raise ValidationError("Aucune modification demandée.")
-        order.mode_paiement = mode_paiement
+        for champ, valeur in modifiables.items():
+            if valeur is not None:
+                setattr(order, champ, valeur)
+        # `save()` recalcule les frais depuis la nouvelle zone, et
+        # `recompute_total()` en tire le total à encaisser : le bilan du
+        # livreur suit donc tout seul, sans ressaisie (§ demande).
         order.save()
+        order.recompute_total()
         return order
 
     for field, value in {

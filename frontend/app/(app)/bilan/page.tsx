@@ -511,56 +511,6 @@ function BilanJour({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6">
-      <div className="space-y-6 min-w-0">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <PackageCheck className="h-4 w-4" /> Livraisons effectuées (
-              {livrees.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {loading ? (
-              <div className="p-6">
-                <Skeleton className="h-32 w-full" />
-              </div>
-            ) : livrees.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-10">
-                Aucune livraison effectuée ce jour-là.
-              </p>
-            ) : (
-              <OrdersTable rows={livrees} />
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Undo2 className="h-4 w-4 text-red-600" /> Retours (
-              {retours.length})
-            </CardTitle>
-            <CardDescription>
-              Colis rapportés — rien n&apos;a été encaissé, ces montants ne sont
-              pas comptés dans le total du ticket.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-0">
-            {loading ? (
-              <div className="p-6">
-                <Skeleton className="h-24 w-full" />
-              </div>
-            ) : retours.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-10">
-                Aucun retour ce jour-là.
-              </p>
-            ) : (
-              <OrdersTable rows={retours} />
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
       <div className="lg:sticky lg:top-6 self-start">
         <Card className="font-mono">
           <CardHeader className="text-center border-b border-dashed">
@@ -609,6 +559,55 @@ function BilanJour({
               totals={totalRetours}
               variant="retours"
             />
+          </CardContent>
+        </Card>
+      </div>
+      <div className="space-y-6 min-w-0">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <PackageCheck className="h-4 w-4" /> Livraisons effectuées (
+              {livrees.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {loading ? (
+              <div className="p-6">
+                <Skeleton className="h-32 w-full" />
+              </div>
+            ) : livrees.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-10">
+                Aucune livraison effectuée ce jour-là.
+              </p>
+            ) : (
+              <OrdersTable rows={livrees} />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Undo2 className="h-4 w-4 text-red-600" /> Retours (
+              {retours.length})
+            </CardTitle>
+            <CardDescription>
+              Colis rapportés — rien n&apos;a été encaissé, ces montants ne sont
+              pas comptés dans le total du ticket.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            {loading ? (
+              <div className="p-6">
+                <Skeleton className="h-24 w-full" />
+              </div>
+            ) : retours.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-10">
+                Aucun retour ce jour-là.
+              </p>
+            ) : (
+              <OrdersTable rows={retours} />
+            )}
           </CardContent>
         </Card>
       </div>

@@ -2556,11 +2556,13 @@ function EditOrderDialog({
     { id: number; full_name: string; available: boolean }[]
   >([]);
 
-  // Au-delà de "En préparation" la commande est trop engagée : seul le mode
-  // de paiement reste modifiable (le client peut régler d'avance une
-  // commande déjà en tournée). Même règle que le serveur —
+  // Au-delà de "En préparation" la commande est trop engagée pour tout
+  // modifier, mais les données de LIVRAISON doivent rester ajustables : le
+  // client peut régler d'avance, ou dicter une autre adresse pendant que le
+  // livreur roule. Changer la zone met à jour les frais et le total, donc le
+  // bilan du livreur (§ demande). Même règle que le serveur —
   // orders/services.py::update_order, qui refuserait le reste de toute façon.
-  const paiementSeul =
+  const livraisonSeule =
     !!order && !["NOUVELLE", "EN_PREPARATION"].includes(order.statut_courant);
 
   useEffect(() => {
@@ -2610,25 +2612,29 @@ function EditOrderDialog({
   const submit = async () => {
     if (!order) return;
     // En régime restreint on ne valide rien d'autre : seul le paiement part.
-    if (!paiementSeul && !clientNom.trim()) {
+    if (!livraisonSeule && !clientNom.trim()) {
       toast.error("Nom du client requis");
       return;
     }
-    if (!paiementSeul && !/^\+261\d{9}$/.test(telephone)) {
+    if (!livraisonSeule && !/^\+261\d{9}$/.test(telephone)) {
       toast.error("Téléphone au format +261XXXXXXXXX");
       return;
     }
-    if (!paiementSeul && items.length === 0) {
+    if (!livraisonSeule && items.length === 0) {
       toast.error("Ajoutez au moins un article");
       return;
     }
     setSubmitting(true);
     try {
-      if (paiementSeul) {
+      if (livraisonSeule) {
         await djangoClient.orders.update(order.id, {
           mode_paiement: modePaiement as any,
+          livraison_zone: zone as any,
+          adresse_livraison:
+            zone === "RECUPERATION" ? "" : adresseLivraison.trim(),
+          note_livreur: zone === "RECUPERATION" ? "" : noteLivreur,
         });
-        toast.success(`Commande ${order.numero} — paiement mis à jour`);
+        toast.success(`Commande ${order.numero} — livraison mise à jour`);
         onSaved();
         return;
       }
@@ -2693,8 +2699,8 @@ function EditOrderDialog({
         <DialogHeader>
           <DialogTitle>Modifier la commande {order?.numero}</DialogTitle>
           <DialogDescription>
-            {paiementSeul
-              ? "Commande déjà engagée : seul le mode de paiement reste modifiable."
+            {livraisonSeule
+              ? "Commande déjà engagée : seules la zone, l'adresse, le paiement et la note du livreur restent modifiables. Changer la zone met à jour les frais et le bilan du livreur."
               : 'Possible tant que la commande n\'est pas encore "Prête".'}
           </DialogDescription>
         </DialogHeader>
@@ -2703,7 +2709,7 @@ function EditOrderDialog({
             mode de paiement reste modifiable (§ demande). Tout le
             reste du formulaire est masqué — le serveur le refuserait
             de toute façon (orders/services.py::update_order). */}
-        {!paiementSeul && (
+        {!livraisonSeule && (
           <>
             <OrderItemsEditor items={items} setItems={setItems} showPrices />
 
@@ -2756,6 +2762,9 @@ function EditOrderDialog({
               </div>
             </div>
 
+          </>
+        )}
+
             {zone !== "RECUPERATION" && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-2">
@@ -2784,10 +2793,8 @@ function EditOrderDialog({
                 </div>
               </div>
             )}
-          </>
-        )}
 
-        {(paiementSeul || zone !== "RECUPERATION") && (
+        {(livraisonSeule || zone !== "RECUPERATION") && (
           <div className="space-y-2">
             <Label>Paiement</Label>
             <Select value={modePaiement} onValueChange={setModePaiement}>
@@ -2805,7 +2812,7 @@ function EditOrderDialog({
           </div>
         )}
 
-        {!paiementSeul && (
+        {!livraisonSeule && (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-2">
@@ -2850,16 +2857,19 @@ function EditOrderDialog({
               />
             </div>
 
-            {zone !== "RECUPERATION" && (
-              <div className="space-y-2">
-                <Label>Note pour le livreur (optionnel)</Label>
-                <Textarea
-                  value={noteLivreur}
-                  onChange={(e) => setNoteLivreur(e.target.value)}
-                />
-              </div>
-            )}
           </>
+        )}
+
+        {/* La note du livreur reste utile en cours de tournée : c'est par
+            elle qu'on lui transmet une consigne de dernière minute. */}
+        {zone !== "RECUPERATION" && (
+          <div className="space-y-2">
+            <Label>Note pour le livreur (optionnel)</Label>
+            <Textarea
+              value={noteLivreur}
+              onChange={(e) => setNoteLivreur(e.target.value)}
+            />
+          </div>
         )}
 
         <DialogFooter>
