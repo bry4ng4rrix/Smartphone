@@ -323,7 +323,18 @@ dates), puis choisir la campagne d'origine dans le formulaire « Nouvelle
 commande » (ou `POST /api/orders/{id}/campagne/`). Sans rattachement, les
 commandes et le CA générés restent à zéro : rien n'est estimé.
 
-## 12. Dépannage courant
+## 12. Caisse / Trésorerie
+
+La page Caisse regroupe caisse (sessions, mouvements), trésorerie (espèces
+disponibles, valeur du stock, argent en attente chez les livreurs, épargne),
+gain réel par vente, résultat livraison, boost par période, répartition
+automatique du gain (60/25/15 paramétrable), épargne (versements automatiques,
+retraits confirmés) et journal avec solde. Backend : app `finance/`
+(`/api/finance/…`). Documentation complète : `CAISSE_TRESORERIE.md`.
+Tests : `python manage.py test finance`. Reprise de l'historique après
+déploiement : `python manage.py finance_backfill`.
+
+## 13. Dépannage courant
 
 | Symptôme                                                   | Piste                                                                                                                                                                                                     |
 | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

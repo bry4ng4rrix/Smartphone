@@ -12,6 +12,7 @@ urlpatterns = [
     path('api/suppliers/', include('suppliers.urls')),
     # Espace client (catalogue public, comptes et commandes client) — app `clients`.
     path('api/', include('clients.urls')),
+    path('api/finance/', include('finance.urls')),
 ]
 
 urlpatterns += static(

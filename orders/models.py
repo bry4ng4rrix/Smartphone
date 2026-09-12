@@ -25,6 +25,10 @@ class DeliveryZoneOption(models.Model):
     code = models.SlugField(max_length=20)
     nom = models.CharField(max_length=100)
     prix = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    # Ce que la livraison de cette zone COÛTE réellement (agence, coursier,
+    # livreur) — distinct de `prix`, facturé au client. Sert au gain réel
+    # (finance/services.py) : livraison client − coût agence = résultat livraison.
+    cout_agence = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     actif = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -103,6 +107,9 @@ class Order(models.Model):
     mode_paiement = models.CharField(max_length=20, choices=MODE_PAIEMENT_CHOICES, default="LIVRAISON")
     frais_livraison = models.DecimalField(max_digits=10, decimal_places=2, editable=False, default=0)
     total_a_payer = models.DecimalField(max_digits=12, decimal_places=2, editable=False, default=0)
+    # Coût réel de livraison de CETTE commande (surcharge du cout_agence de la
+    # zone, ex : course exceptionnelle). Vide = coût de la zone.
+    frais_agence = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     # Deux notes distinctes, chacune destinée à un seul rôle (§ demande) — le
     # préparateur ne voit jamais la note du livreur, et inversement.
     note_preparateur = models.TextField(blank=True, null=True)
@@ -388,7 +395,16 @@ class MarketingCampaign(models.Model):
     )
     nom = models.CharField(max_length=150)
     plateforme = models.CharField(max_length=20, choices=PLATEFORME_CHOICES, default="FACEBOOK")
+    TYPE_PERIODE_CHOICES = (
+        ("JOUR", "Jour"),
+        ("SEMAINE", "Semaine"),
+        ("MOIS", "Mois"),
+        ("PERSONNALISE", "Personnalisée"),
+    )
     montant = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Boost par période (finance) : le montant est réparti sur les articles
+    # vendus entre date_debut et date_fin (bornes comprises).
+    type_periode = models.CharField(max_length=15, choices=TYPE_PERIODE_CHOICES, default="PERSONNALISE")
     date_debut = models.DateField(default=timezone.localdate)
     date_fin = models.DateField(null=True, blank=True)
     note = models.TextField(blank=True)

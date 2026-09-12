@@ -19,7 +19,8 @@ export type DataModel =
   | 'order_status_history'
   | 'supplier_order'
   | 'caisse_session'
-  | 'caisse_movement';
+  | 'caisse_movement'
+  | 'tresorerie';
 export type DataAction = 'created' | 'updated' | 'deleted';
 
 export interface DataSyncEvent {

@@ -759,10 +759,14 @@ class CaisseSessionViewSet(viewsets.ModelViewSet):
         return Response(self.get_serializer(session).data)
 
     @action(detail=False, methods=["post"])
+    @transaction.atomic
     def open(self, request):
         magasin = _resolve_own_magasin(request)
         if magasin is None:
             return Response({"error": "Magasin introuvable ou non spécifié."}, status=400)
+        # Verrou sur le magasin : deux ouvertures simultanées ne peuvent pas
+        # créer deux sessions ouvertes.
+        MagasinProfile.objects.select_for_update().get(id=magasin.id)
         if CaisseSession.objects.filter(magasin=magasin, status="open").exists():
             return Response({"error": "Une session de caisse est déjà ouverte pour ce magasin."}, status=400)
         try:
@@ -841,17 +845,18 @@ class CaisseMovementViewSet(viewsets.ModelViewSet):
             qs = qs.filter(created_at__date__lte=date_to)
         return qs
 
+    @transaction.atomic
     def perform_create(self, serializer):
         user = self.request.user
         session_id = self.request.data.get("session")
         if session_id:
-            session = CaisseSession.objects.filter(
+            session = CaisseSession.objects.select_for_update().filter(
                 id=session_id, magasin__in=_accessible_magasins(user)
             ).first()
         else:
             magasin = _resolve_own_magasin(self.request)
             session = (
-                CaisseSession.objects.filter(magasin=magasin, status="open").order_by("-opened_at").first()
+                CaisseSession.objects.select_for_update().filter(magasin=magasin, status="open").order_by("-opened_at").first()
                 if magasin
                 else None
             )
@@ -861,14 +866,23 @@ class CaisseMovementViewSet(viewsets.ModelViewSet):
             raise serializers.ValidationError("Cette session de caisse est fermée.")
         serializer.save(session=session, magasin=session.magasin, created_by=user)
 
-    def _verifier_session_ouverte(self, movement):
+    def _verifier_modifiable(self, movement):
+        # Un mouvement automatique (vente remise, frais de tournée, épargne…)
+        # est une pièce comptable : il ne se modifie ni ne se supprime, il se
+        # contre-passe (annulation de vente, correction). Idem pour une
+        # session déjà clôturée, dont l'écart a été constaté.
+        if movement.reference:
+            raise serializers.ValidationError(
+                "Ce mouvement a été créé automatiquement (référence "
+                f"{movement.reference}) : il ne peut pas être modifié ni supprimé."
+            )
         if movement.session.status != "open":
             raise serializers.ValidationError(
                 "Cette session de caisse est fermée : ses mouvements ne peuvent plus être modifiés."
             )
 
     def perform_update(self, serializer):
-        self._verifier_session_ouverte(serializer.instance)
+        self._verifier_modifiable(serializer.instance)
         # Une entrée ne porte jamais de catégorie (voir le serializer).
         extra = {}
         if serializer.validated_data.get("movement_type", serializer.instance.movement_type) == "in":
@@ -876,7 +890,7 @@ class CaisseMovementViewSet(viewsets.ModelViewSet):
         serializer.save(**extra)
 
     def perform_destroy(self, instance):
-        self._verifier_session_ouverte(instance)
+        self._verifier_modifiable(instance)
         instance.delete()
 
 

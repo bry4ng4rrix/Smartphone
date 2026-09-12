@@ -37,7 +37,7 @@ class DeliveryZoneOptionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DeliveryZoneOption
-        fields = ["id", "code", "nom", "prix", "actif", "created_at"]
+        fields = ["id", "code", "nom", "prix", "cout_agence", "actif", "created_at"]
         read_only_fields = ["id", "code", "created_at"]
 
 
@@ -328,12 +328,28 @@ class LivreurExpenseSerializer(serializers.ModelSerializer):
 
 class MarketingCampaignSerializer(serializers.ModelSerializer):
     plateforme_label = serializers.CharField(source="get_plateforme_display", read_only=True)
+    articles_vendus = serializers.SerializerMethodField()
+    cout_par_article = serializers.SerializerMethodField()
+    en_caisse = serializers.SerializerMethodField()
+
+    def get_articles_vendus(self, obj):
+        from finance.services import cout_boost_par_article
+        return cout_boost_par_article(obj)[1]
+
+    def get_cout_par_article(self, obj):
+        from finance.services import cout_boost_par_article
+        return cout_boost_par_article(obj)[0]
+
+    def get_en_caisse(self, obj):
+        from users.models import CaisseMovement
+        return CaisseMovement.objects.filter(reference=f"BOOST:{obj.id}").exists()
 
     class Meta:
         model = MarketingCampaign
         fields = [
-            "id", "magasin", "nom", "plateforme", "plateforme_label", "montant",
+            "id", "magasin", "nom", "plateforme", "plateforme_label", "montant", "type_periode",
             "date_debut", "date_fin", "note", "actif", "created_at",
+            "articles_vendus", "cout_par_article", "en_caisse",
         ]
         read_only_fields = ["magasin", "created_at"]
 

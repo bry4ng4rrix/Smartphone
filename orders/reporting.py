@@ -66,6 +66,14 @@ def q_achat_stock():
     return q
 
 
+# Sorties de caisse créées par la trésorerie qui doublonneraient une autre
+# ligne des rapports : frais de tournée (déjà comptés via LivreurExpense
+# acceptées) et remboursements d'une vente annulée (la vente n'est plus
+# dans le CA). Voir finance/services.py.
+def q_sorties_doublon():
+    return Q(reference__startswith="TOURNEE:") | Q(reference__startswith="ANNUL:")
+
+
 def _somme(qs, expression):
     return qs.aggregate(t=Coalesce(Sum(expression), 0, output_field=_DEC))["t"]
 
@@ -229,7 +237,7 @@ class _Contexte:
             movement_type="out",
             created_at__date__gte=date_from or self.date_from,
             created_at__date__lte=date_to or self.date_to,
-        )
+        ).exclude(q_sorties_doublon())
         return qs.exclude(q_achat_stock()) if charges else qs
 
     def achats_stock(self, date_from=None, date_to=None):

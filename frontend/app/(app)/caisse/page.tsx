@@ -25,11 +25,41 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import {
-  Wallet, Store, Plus, Lock, LockOpen, Loader2, RefreshCw, ArrowDownCircle, ArrowUpCircle, PiggyBank, Pencil, Trash2,
+  Wallet, Store, Plus, Lock, LockOpen, Loader2, RefreshCw, ArrowDownCircle, ArrowUpCircle, Pencil, Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { periodeDepuisPreset, type PeriodPreset } from '@/lib/reports';
+import { IndicateursCaisse, type Indicateurs } from '@/components/caisse/indicateurs';
+import { SectionLivraison, type StatsLivraison } from '@/components/caisse/section-livraison';
+import { SectionGain, TableVentes, type LigneVenteResultat, type RepartitionPct, type StatsGain } from '@/components/caisse/section-gain';
+import { SectionEncaissements, type Encaissements } from '@/components/caisse/section-encaissements';
+import { SectionJournal, type LigneJournal } from '@/components/caisse/section-journal';
+import { SectionEpargne, type MouvementEpargne } from '@/components/caisse/section-epargne';
+import { SectionBoost, type Boost } from '@/components/caisse/section-boost';
+
+interface Tresorerie {
+  indicateurs: Indicateurs;
+  periode: { from: string; to: string };
+  gain: StatsGain;
+  repartition_pct: RepartitionPct;
+  livraison: { periode: StatsLivraison; jour: StatsLivraison; semaine: StatsLivraison; mois: StatsLivraison };
+  boosts: Boost[];
+  encaissements: Encaissements;
+  epargne: { solde: number; verse_periode: number; retire_periode: number };
+}
+
+const PERIODES: { key: PeriodPreset; label: string }[] = [
+  { key: 'today', label: "Aujourd'hui" },
+  { key: 'week', label: 'Cette semaine' },
+  { key: 'month', label: 'Ce mois' },
+  { key: 'custom', label: 'Personnalisée' },
+];
+
+// Nature d'un mouvement saisi à la main (journal de trésorerie).
+const ORIGINES_ENTREE = [['AUTRE_ENTREE', 'Autre entrée'], ['PAIEMENT_CLIENT', 'Paiement client (hors commande)']] as const;
+const ORIGINES_SORTIE = [['DEPENSE', 'Dépense'], ['ACHAT_STOCK', 'Achat stock'], ['BOOST', 'Boost / publicité'], ['RETRAIT', 'Retrait'], ['AUTRE_SORTIE', 'Autre sortie']] as const;
 
 const money = (v: any) =>
   `${Number(v ?? 0).toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} Ar`;
@@ -74,16 +104,20 @@ export default function CaissePage() {
   // Mouvement en cours de modification (null = ajout) et cible de suppression (§ demande).
   const [editingMovement, setEditingMovement] = useState<any | null>(null);
   const [deleteMovementTarget, setDeleteMovementTarget] = useState<any | null>(null);
+  const [movementOrigine, setMovementOrigine] = useState<string>('AUTRE_ENTREE');
   const [expenseCategories, setExpenseCategories] = useState<any[]>([]);
 
-  // Résumé + historique complet des mouvements, filtrables par période
-  // (indépendant de la session en cours, qui ne montre que ses propres mouvements).
-  const todayStr = new Date().toISOString().split('T')[0];
-  const [summaryFrom, setSummaryFrom] = useState(todayStr.slice(0, 8) + '01');
-  const [summaryTo, setSummaryTo] = useState(todayStr);
-  const [summary, setSummary] = useState<any | null>(null);
-  const [periodMovements, setPeriodMovements] = useState<any[]>([]);
-  const [summaryLoading, setSummaryLoading] = useState(false);
+  // Trésorerie (finance/) : indicateurs, gain réel, livraison, journal,
+  // épargne, boosts — tout est calculé côté serveur, filtré par période.
+  const [preset, setPreset] = useState<PeriodPreset>('month');
+  const [custom, setCustom] = useState({ from: '', to: '' });
+  const period = periodeDepuisPreset(preset, custom);
+  const [tresorerie, setTresorerie] = useState<Tresorerie | null>(null);
+  const [journal, setJournal] = useState<LigneJournal[] | null>(null);
+  const [ventes, setVentes] = useState<LigneVenteResultat[] | null>(null);
+  const [epargneHistorique, setEpargneHistorique] = useState<MouvementEpargne[] | null>(null);
+  const [tresoLoading, setTresoLoading] = useState(false);
+  const [tresoError, setTresoError] = useState<string | null>(null);
 
   // Admin has no magasin of their own — resolve which store's caisse to manage.
   const magasinId = isAdmin ? selectedMagasinId : (user?.magasin_id ?? null);
@@ -120,26 +154,34 @@ export default function CaissePage() {
     }
   }, [magasinId]);
 
-  const fetchSummary = useCallback(async () => {
+  const fetchTresorerie = useCallback(async () => {
     if (!magasinId) {
-      setSummary(null);
-      setPeriodMovements([]);
+      setTresorerie(null);
+      setJournal(null);
+      setVentes(null);
+      setEpargneHistorique(null);
       return;
     }
-    setSummaryLoading(true);
+    setTresoLoading(true);
+    setTresoError(null);
     try {
-      const [summaryData, movementsData] = await Promise.all([
-        djangoClient.caisse.summary({ magasinId, dateFrom: summaryFrom, dateTo: summaryTo }),
-        djangoClient.caisse.listMovements({ magasinId, dateFrom: summaryFrom, dateTo: summaryTo }),
+      const params = { magasinId, dateFrom: period.from, dateTo: period.to };
+      const [dash, jr, vt, ep] = await Promise.all([
+        djangoClient.finance.dashboard(params),
+        djangoClient.finance.journal(params),
+        djangoClient.finance.ventes(params),
+        djangoClient.finance.epargne(magasinId),
       ]);
-      setSummary(summaryData);
-      setPeriodMovements(movementsData);
+      setTresorerie(dash);
+      setJournal(jr.lignes);
+      setVentes(vt.ventes);
+      setEpargneHistorique(ep.historique);
     } catch (err: any) {
-      toast.error('Erreur de chargement du résumé: ' + (err.message || err));
+      setTresoError(err.message || 'Erreur de chargement de la trésorerie');
     } finally {
-      setSummaryLoading(false);
+      setTresoLoading(false);
     }
-  }, [magasinId, summaryFrom, summaryTo]);
+  }, [magasinId, period.from, period.to]);
 
   useEffect(() => {
     djangoClient.caisse.categories.list().then(setExpenseCategories).catch(() => {});
@@ -154,10 +196,10 @@ export default function CaissePage() {
   }, [userLoading, fetchCaisse]);
 
   useEffect(() => {
-    if (!userLoading) fetchSummary();
-  }, [userLoading, fetchSummary]);
+    if (!userLoading) fetchTresorerie();
+  }, [userLoading, fetchTresorerie]);
 
-  useRealtimeRefresh(['caisse_session', 'caisse_movement'], () => { fetchCaisse(); fetchSummary(); });
+  useRealtimeRefresh(['caisse_session', 'caisse_movement', 'tresorerie', 'order'], () => { fetchCaisse(); fetchTresorerie(); });
 
   const movementTotals = (session?.movements || []).reduce(
     (acc: { in: number; out: number }, m: any) => {
@@ -169,39 +211,28 @@ export default function CaissePage() {
   );
   const expectedBalance = session ? Number(session.opening_balance) + movementTotals.in - movementTotals.out : 0;
 
-  // Pré-remplit le montant (ouverture comme fermeture) avec la valeur de
-  // stock actuelle du magasin — recalculée à chaque fois pour rester à jour
-  // (le stock bouge avec les ventes pendant la session). Reste modifiable.
-  const fetchStockValue = async (): Promise<number | null> => {
-    if (!magasinId) return null;
-    try {
-      const stats = await djangoClient.get<any[]>('/users/magasins/stats/');
-      const entry = stats.find((s: any) => s.magasin_id === magasinId);
-      return entry?.total_stock_value != null ? Number(entry.total_stock_value) : null;
-    } catch {
-      return null;
-    }
-  };
-
-  const openOpenDialog = async () => {
+  // Le fond d'ouverture est pré-rempli avec le montant compté à la dernière
+  // fermeture (continuité des espèces), la fermeture avec le solde attendu —
+  // la valeur du stock n'est pas de l'argent en caisse (voir indicateurs).
+  const openOpenDialog = () => {
     setOpeningNote('');
     setOpenedAt(toDatetimeLocalValue(new Date()));
+    const derniere = history[0];
+    setOpeningBalance(derniere?.closing_balance != null ? String(Number(derniere.closing_balance)) : '');
     setOpenDialogOpen(true);
-    const stockValue = await fetchStockValue();
-    setOpeningBalance(stockValue != null ? String(stockValue) : '');
   };
 
-  const openCloseDialog = async () => {
+  const openCloseDialog = () => {
     setClosingNote('');
     setClosedAt(toDatetimeLocalValue(new Date()));
+    setClosingBalance(String(expectedBalance));
     setCloseDialogOpen(true);
-    const stockValue = await fetchStockValue();
-    setClosingBalance(stockValue != null ? String(stockValue) : '');
   };
 
   const openMovementDialog = () => {
     setEditingMovement(null);
     setMovementType('in');
+    setMovementOrigine('AUTRE_ENTREE');
     setMovementAmount('');
     setMovementReason('');
     setMovementCategory('');
@@ -211,6 +242,7 @@ export default function CaissePage() {
   const openEditMovementDialog = (m: any) => {
     setEditingMovement(m);
     setMovementType(m.movement_type === 'out' ? 'out' : 'in');
+    setMovementOrigine(m.origine && m.origine !== 'MANUEL' ? m.origine : m.movement_type === 'out' ? 'DEPENSE' : 'AUTRE_ENTREE');
     setMovementAmount(String(Number(m.amount) || ''));
     setMovementReason(m.reason || '');
     setMovementCategory(m.category ? String(m.category) : '');
@@ -225,7 +257,7 @@ export default function CaissePage() {
       toast.success('Mouvement supprimé');
       setDeleteMovementTarget(null);
       fetchCaisse();
-      fetchSummary();
+      fetchTresorerie();
     } catch (err: any) {
       toast.error(err.message || 'Erreur lors de la suppression');
     } finally {
@@ -294,6 +326,7 @@ export default function CaissePage() {
           amount: movementAmount,
           reason: movementReason,
           category: movementType === 'out' && movementCategory ? Number(movementCategory) : null,
+          origine: movementOrigine,
         });
         toast.success('Mouvement modifié');
       } else {
@@ -303,12 +336,13 @@ export default function CaissePage() {
           amount: movementAmount,
           reason: movementReason,
           category: movementType === 'out' && movementCategory ? Number(movementCategory) : undefined,
+          origine: movementOrigine,
         });
         toast.success('Mouvement ajouté');
       }
       setMovementDialogOpen(false);
       fetchCaisse();
-      fetchSummary();
+      fetchTresorerie();
     } catch (err: any) {
       toast.error(err.message || (editingMovement ? 'Erreur lors de la modification du mouvement' : 'Erreur lors de l’ajout du mouvement'));
     } finally {
@@ -331,10 +365,10 @@ export default function CaissePage() {
           <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
             <Wallet className="h-8 w-8 text-blue-600" />Caisse
           </h1>
-          <p className="text-muted-foreground mt-1">Ouverture, mouvements et fermeture de la caisse</p>
+          <p className="text-muted-foreground mt-1">Caisse, trésorerie, gain réel, livraison, épargne et boost</p>
         </div>
-        <Button variant="outline" size="sm" onClick={fetchCaisse} disabled={loading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />Actualiser
+        <Button variant="outline" size="sm" onClick={() => { fetchCaisse(); fetchTresorerie(); }} disabled={loading || tresoLoading}>
+          <RefreshCw className={`h-4 w-4 mr-2 ${loading || tresoLoading ? 'animate-spin' : ''}`} />Actualiser
         </Button>
       </div>
 
@@ -375,6 +409,9 @@ export default function CaissePage() {
         <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}</div>
       ) : (
         <>
+          <IndicateursCaisse data={tresorerie?.indicateurs ?? null} loading={tresoLoading && !tresorerie} />
+          {tresoError && <p className="text-sm text-destructive">{tresoError}</p>}
+
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <div>
@@ -450,8 +487,9 @@ export default function CaissePage() {
                             <span className={`text-sm font-semibold ${m.movement_type === 'in' ? 'text-green-600' : 'text-red-600'}`}>
                               {m.movement_type === 'in' ? '+' : '-'}{money(m.amount)}
                             </span>
-                            {/* Correction / suppression d'un mouvement tant que la session est ouverte (§ demande). */}
-                            {session.status === 'open' && (
+                            {/* Correction / suppression d'un mouvement tant que la session est ouverte (§ demande) —
+                                sauf les mouvements automatiques (vente remise, frais de tournée…), pièces comptables. */}
+                            {session.status === 'open' && !m.reference && (
                               <>
                                 <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Modifier le mouvement" onClick={() => openEditMovementDialog(m)}>
                                   <Pencil className="h-3.5 w-3.5" />
@@ -471,98 +509,57 @@ export default function CaissePage() {
             )}
           </Card>
 
-          <Card>
-            <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 space-y-0">
-              <div>
-                <CardTitle>Résumé de la caisse</CardTitle>
-                <CardDescription>Tous les mouvements et les ventes de la période, quelle que soit la session.</CardDescription>
-              </div>
-              <div className="flex items-center gap-2">
-                <Input type="date" value={summaryFrom} onChange={(e) => setSummaryFrom(e.target.value)} className="w-auto" />
-                <span className="text-sm text-muted-foreground">→</span>
-                <Input type="date" value={summaryTo} onChange={(e) => setSummaryTo(e.target.value)} className="w-auto" />
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {summaryLoading ? (
-                <Skeleton className="h-40 w-full" />
-              ) : (
-                <>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Entrées</p>
-                      <p className="text-lg font-semibold text-green-600">+{money(summary?.total_entrees)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Sorties</p>
-                      <p className="text-lg font-semibold text-red-600">-{money(summary?.total_sorties)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Solde</p>
-                      <p className="text-lg font-semibold">{money(summary?.solde)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">CA produits vendus</p>
-                      <p className="text-lg font-semibold">{money(summary?.ca_produits_vendus)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Coût des produits vendus</p>
-                      <p className="text-lg font-semibold text-orange-600">{money(summary?.cout_produits_vendus)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground flex items-center gap-1"><PiggyBank className="h-3.5 w-3.5" />Bénéfice produits vendus</p>
-                      <p className="text-lg font-semibold text-green-700">{money(summary?.benefice_produits_vendus)}</p>
-                    </div>
-                  </div>
+          {/* Filtre de période commun aux sections de trésorerie */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <div className="flex flex-wrap gap-1.5">
+              {PERIODES.map((p) => (
+                <Button key={p.key} size="sm" variant={preset === p.key ? 'default' : 'outline'} className="h-8 text-xs" onClick={() => setPreset(p.key)}>
+                  {p.label}
+                </Button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 sm:ml-auto">
+              <Input type="date" value={preset === 'custom' ? custom.from : period.from} onChange={(e) => { setPreset('custom'); setCustom({ from: e.target.value, to: preset === 'custom' ? custom.to : period.to }); }} className="h-8 w-auto" />
+              <span className="text-sm text-muted-foreground">→</span>
+              <Input type="date" value={preset === 'custom' ? custom.to : period.to} onChange={(e) => { setPreset('custom'); setCustom({ from: preset === 'custom' ? custom.from : period.from, to: e.target.value }); }} className="h-8 w-auto" />
+            </div>
+          </div>
 
-                  {summary?.sorties_par_categorie?.length > 0 && (
-                    <div>
-                      <Label className="text-sm">Sorties par catégorie</Label>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {summary.sorties_par_categorie.map((row: any) => (
-                          <Badge key={row.categorie} variant="outline" className="text-sm">
-                            {row.categorie} : {money(row.total)}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+          <SectionLivraison data={tresorerie?.livraison ?? null} loading={tresoLoading && !tresorerie} />
 
-                  <div>
-                    <Label className="text-sm">Mouvements de la période ({periodMovements.length})</Label>
-                    <div className="mt-2 border rounded-lg divide-y max-h-72 overflow-y-auto">
-                      {periodMovements.length === 0 ? (
-                        <p className="p-4 text-sm text-muted-foreground text-center">Aucun mouvement pour cette période</p>
-                      ) : (
-                        periodMovements.map((m: any) => (
-                          <div key={m.id} className="flex items-center justify-between gap-2 px-3 py-2">
-                            <div className="flex items-center gap-2 min-w-0">
-                              {m.movement_type === 'in' ? (
-                                <ArrowUpCircle className="h-4 w-4 text-green-600 shrink-0" />
-                              ) : (
-                                <ArrowDownCircle className="h-4 w-4 text-red-600 shrink-0" />
-                              )}
-                              <div className="min-w-0">
-                                <p className="text-sm font-medium truncate">
-                                  {m.reason}{m.category_name ? ` · ${m.category_name}` : ''}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  {formatDateTime(m.created_at)}{m.created_by_name ? ` · ${m.created_by_name}` : ''}
-                                </p>
-                              </div>
-                            </div>
-                            <span className={`text-sm font-semibold shrink-0 ${m.movement_type === 'in' ? 'text-green-600' : 'text-red-600'}`}>
-                              {m.movement_type === 'in' ? '+' : '-'}{money(m.amount)}
-                            </span>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
+          <SectionGain
+            gain={tresorerie?.gain ?? null}
+            pct={tresorerie?.repartition_pct ?? null}
+            periode={tresorerie?.periode}
+            loading={tresoLoading && !tresorerie}
+            magasinId={magasinId}
+            onSettingsChanged={fetchTresorerie}
+          />
+
+          <SectionEncaissements
+            data={tresorerie?.encaissements ?? null}
+            loading={tresoLoading && !tresorerie}
+            magasinId={magasinId}
+            sessionOuverte={!!session}
+            onChanged={() => { fetchCaisse(); fetchTresorerie(); }}
+          />
+
+          <SectionJournal lignes={journal} loading={tresoLoading && !journal} error={tresoError} />
+
+          <TableVentes ventes={ventes} loading={tresoLoading && !ventes} error={tresoError} />
+
+          <SectionEpargne
+            solde={tresorerie?.epargne.solde ?? null}
+            historique={epargneHistorique}
+            loading={tresoLoading && !tresorerie}
+            error={tresoError}
+            magasinId={magasinId}
+            onChanged={fetchTresorerie}
+            versePeriode={tresorerie?.epargne.verse_periode}
+            retirePeriode={tresorerie?.epargne.retire_periode}
+          />
+
+          <SectionBoost boosts={tresorerie?.boosts ?? null} loading={tresoLoading && !tresorerie} error={tresoError} magasinId={magasinId} sessionOuverte={!!session} onChanged={fetchTresorerie} />
 
           <Card>
             <CardHeader>
@@ -621,7 +618,7 @@ export default function CaissePage() {
               <Label>Montant d'ouverture (Ar) *</Label>
               <Input type="number" min={0} step="0.01" value={openingBalance} onChange={(e) => setOpeningBalance(e.target.value)} required />
               <p className="text-xs text-muted-foreground">
-                Pré-rempli avec la valeur de stock actuelle du magasin — modifiable.
+                Pré-rempli avec le montant compté à la dernière fermeture — modifiable.
               </p>
             </div>
             <div className="space-y-2">
@@ -658,7 +655,7 @@ export default function CaissePage() {
               <Label>Montant compté (Ar) *</Label>
               <Input type="number" min={0} step="0.01" value={closingBalance} onChange={(e) => setClosingBalance(e.target.value)} required />
               <p className="text-xs text-muted-foreground">
-                Pré-rempli avec la valeur de stock actuelle du magasin — modifiable.
+                Pré-rempli avec le solde attendu — remplacez-le par le montant réellement compté.
               </p>
               {closingBalance !== '' && (
                 <p className={`text-xs ${Number(closingBalance) - expectedBalance === 0 ? 'text-green-600' : 'text-orange-600'}`}>
@@ -705,7 +702,7 @@ export default function CaissePage() {
           <form onSubmit={handleAddMovement} className="space-y-4">
             <div className="space-y-2">
               <Label>Type *</Label>
-              <RadioGroup value={movementType} onValueChange={(v) => setMovementType(v as 'in' | 'out')} className="flex gap-4">
+              <RadioGroup value={movementType} onValueChange={(v) => { setMovementType(v as 'in' | 'out'); setMovementOrigine(v === 'in' ? 'AUTRE_ENTREE' : 'DEPENSE'); }} className="flex gap-4">
                 <label className="flex items-center gap-2 text-sm cursor-pointer">
                   <RadioGroupItem value="in" /> <ArrowUpCircle className="h-4 w-4 text-green-600" />Entrée
                 </label>
@@ -713,6 +710,18 @@ export default function CaissePage() {
                   <RadioGroupItem value="out" /> <ArrowDownCircle className="h-4 w-4 text-red-600" />Sortie
                 </label>
               </RadioGroup>
+            </div>
+            <div className="space-y-2">
+              <Label>Nature</Label>
+              <Select value={movementOrigine} onValueChange={setMovementOrigine}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {(movementType === 'in' ? ORIGINES_ENTREE : ORIGINES_SORTIE).map(([c, l]) => (
+                    <SelectItem key={c} value={c}>{l}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Les ventes livrées entrent en caisse automatiquement (remise) : ne les saisissez pas ici.</p>
             </div>
             <div className="space-y-2">
               <Label>Montant (Ar) *</Label>

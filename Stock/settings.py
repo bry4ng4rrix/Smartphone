@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     # Espace client en ligne (catalogue public, comptes et commandes client)
     # — extension additive, voir clients/.
     'clients',
+    'finance',
     'corsheaders',
 ]
 

@@ -354,6 +354,15 @@ def corriger_statut(*, order, user, nouveau_statut, note=""):
         changed_by=user,
         note=(note or "").strip() or "Correction d'état par le gérant",
     )
+
+    # Trésorerie : une vente corrigée en retour est annulée (épargne reprise,
+    # remboursement si l'argent était en caisse) ; l'inverse la (ré)enregistre.
+    from finance import services as finance_services
+
+    if nouveau_statut == "RETOUR":
+        finance_services.annuler_vente(order, user)
+    elif nouveau_statut == "LIVRE":
+        finance_services.enregistrer_vente(order, user)
     return order
 
 
@@ -534,6 +543,9 @@ def change_order_status(*, order, new_status, user, note="", preparateur_id=None
             order=order, ancien_statut=old_status, nouveau_statut=new_status, changed_by=user, note=note,
             **({"photo": photo} if photo else {}),
         )
+        from finance import services as finance_services
+
+        finance_services.enregistrer_vente(order, user)
         return order
 
     if new_status not in TRANSITIONS:
@@ -657,6 +669,14 @@ def change_order_status(*, order, new_status, user, note="", preparateur_id=None
                 user=user,
                 reference=order.numero,
             )
+
+    # Vente réalisée : gain réel, encaissement, épargne (finance/services.py).
+    # Dans la même transaction : si la trésorerie échoue, la livraison n'est
+    # pas enregistrée non plus.
+    if new_status == "LIVRE":
+        from finance import services as finance_services
+
+        finance_services.enregistrer_vente(order, user)
 
     if new_status == "PRETE":
         if order.livraison_zone == "RECUPERATION":

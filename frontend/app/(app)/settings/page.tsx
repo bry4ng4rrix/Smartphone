@@ -431,7 +431,9 @@ export default function SettingsPage() {
                   Zones proposées à la création d'une commande (nom + frais de livraison). Le
                   retrait sur place ("Récupération") reste toujours disponible séparément et n'est
                   pas géré ici. Ajoutez-en, renommez ou changez le prix selon vos besoins — pensez
-                  à garder au moins une zone gratuite (0 Ar).
+                  à garder au moins une zone gratuite (0 Ar). Le « coût agence » est ce que la
+                  livraison vous coûte réellement (agence, coursier, livreur) : il sert au gain
+                  réel de la page Caisse (livraison facturée − coût agence = résultat livraison).
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -759,19 +761,22 @@ function DeliveryZonesCrudList({ zones, onChanged }: { zones: any[]; onChanged: 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingName, setEditingName] = useState('');
   const [editingPrix, setEditingPrix] = useState('');
+  const [editingCout, setEditingCout] = useState('');
   const [newName, setNewName] = useState('');
   const [newPrix, setNewPrix] = useState('');
+  const [newCout, setNewCout] = useState('');
 
   const startEdit = (z: any) => {
     setEditingId(z.id);
     setEditingName(z.nom);
     setEditingPrix(String(z.prix));
+    setEditingCout(String(z.cout_agence ?? 0));
   };
 
   const saveEdit = async () => {
     if (!editingId || !editingName.trim()) return;
     try {
-      await djangoClient.zones.update(editingId, { nom: editingName.trim(), prix: Number(editingPrix) || 0 });
+      await djangoClient.zones.update(editingId, { nom: editingName.trim(), prix: Number(editingPrix) || 0, cout_agence: Number(editingCout) || 0 });
       toast.success('Zone mise à jour');
       setEditingId(null);
       onChanged();
@@ -802,10 +807,11 @@ function DeliveryZonesCrudList({ zones, onChanged }: { zones: any[]; onChanged: 
   const addZone = async () => {
     if (!newName.trim()) return;
     try {
-      await djangoClient.zones.create({ nom: newName.trim(), prix: Number(newPrix) || 0 });
+      await djangoClient.zones.create({ nom: newName.trim(), prix: Number(newPrix) || 0, cout_agence: Number(newCout) || 0 });
       toast.success('Zone ajoutée');
       setNewName('');
       setNewPrix('');
+      setNewCout('');
       onChanged();
     } catch (err: any) {
       toast.error(err.message || 'Erreur');
@@ -829,6 +835,15 @@ function DeliveryZonesCrudList({ zones, onChanged }: { zones: any[]; onChanged: 
                   className="h-8 w-28"
                   placeholder="Prix (Ar)"
                 />
+                <Input
+                  type="number"
+                  min={0}
+                  value={editingCout}
+                  onChange={(e) => setEditingCout(e.target.value)}
+                  className="h-8 w-28"
+                  placeholder="Coût agence"
+                  title="Frais réellement payés à l'agence / au livreur pour cette zone"
+                />
                 <Button size="sm" onClick={saveEdit}>OK</Button>
                 <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Annuler</Button>
               </>
@@ -837,7 +852,10 @@ function DeliveryZonesCrudList({ zones, onChanged }: { zones: any[]; onChanged: 
                 <span className={`flex-1 text-sm ${!z.actif ? 'text-muted-foreground line-through' : ''}`}>
                   {z.nom}
                 </span>
-                <Badge variant="secondary">{arFmt(z.prix)}</Badge>
+                <Badge variant="secondary" title="Facturé au client">{arFmt(z.prix)}</Badge>
+                <Badge variant="outline" title="Frais réellement payés à l'agence / au livreur" className={Number(z.cout_agence) > Number(z.prix) ? 'text-red-600 border-red-200' : ''}>
+                  agence {arFmt(z.cout_agence ?? 0)}
+                </Badge>
                 <Switch checked={z.actif} onCheckedChange={() => toggleActive(z)} title="Zone active" />
                 <Button size="icon" variant="ghost" onClick={() => startEdit(z)}><Pencil className="h-4 w-4" /></Button>
                 <Button size="icon" variant="ghost" onClick={() => removeZone(z)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
@@ -856,6 +874,15 @@ function DeliveryZonesCrudList({ zones, onChanged }: { zones: any[]; onChanged: 
           value={newPrix}
           onChange={(e) => setNewPrix(e.target.value)}
           className="w-32"
+        />
+        <Input
+          type="number"
+          min={0}
+          placeholder="Coût agence (Ar)"
+          value={newCout}
+          onChange={(e) => setNewCout(e.target.value)}
+          className="w-36"
+          title="Frais réellement payés à l'agence / au livreur pour cette zone"
         />
         <Button onClick={addZone}><Plus className="h-4 w-4 mr-2" /> Ajouter</Button>
       </div>

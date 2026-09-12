@@ -829,14 +829,14 @@ class DjangoAPIClient {
   // DeliveryZoneOption). Lecture ouverte à tous, écriture réservée au gérant.
   zones = {
     list: async () => {
-      return this.get<{ id: number; code: string; nom: string; prix: number; actif: boolean }[]>(
+      return this.get<{ id: number; code: string; nom: string; prix: number; cout_agence: number; actif: boolean }[]>(
         '/orders/delivery-zones/',
       )
     },
-    create: async (data: { nom: string; prix: number }) => {
+    create: async (data: { nom: string; prix: number; cout_agence?: number }) => {
       return this.post<any>('/orders/delivery-zones/', data)
     },
-    update: async (id: number, data: { nom?: string; prix?: number; actif?: boolean }) => {
+    update: async (id: number, data: { nom?: string; prix?: number; cout_agence?: number; actif?: boolean }) => {
       return this.patch<any>(`/orders/delivery-zones/${id}/`, data)
     },
     // Une zone déjà utilisée par des commandes n'est pas vraiment supprimée
@@ -869,6 +869,44 @@ class DjangoAPIClient {
     },
   }
 
+  // Trésorerie (page Caisse) — calculs côté serveur, voir finance/services.py.
+  finance = {
+    dashboard: async (params: { magasinId?: number | null; dateFrom?: string; dateTo?: string }) =>
+      this.get<any>(`/finance/dashboard/?${this.financeQuery(params)}`),
+    journal: async (params: { magasinId?: number | null; dateFrom?: string; dateTo?: string; origine?: string }) =>
+      this.get<{ periode: { from: string; to: string }; lignes: any[] }>(`/finance/journal/?${this.financeQuery(params)}`),
+    ventes: async (params: { magasinId?: number | null; dateFrom?: string; dateTo?: string }) =>
+      this.get<{ periode: { from: string; to: string }; ventes: any[] }>(`/finance/ventes/?${this.financeQuery(params)}`),
+    settings: {
+      get: async (magasinId?: number | null) =>
+        this.get<{ pct_reappro: string; pct_epargne: string; pct_depenses: string; updated_at: string; updated_by_name: string }>(
+          `/finance/settings/?${this.financeQuery({ magasinId })}`,
+        ),
+      update: async (magasinId: number | null | undefined, data: { pct_reappro: number; pct_epargne: number; pct_depenses: number }) =>
+        this.patch<any>(`/finance/settings/?${this.financeQuery({ magasinId })}`, data),
+    },
+    epargne: async (magasinId?: number | null) =>
+      this.get<{ solde: string | number; historique: any[] }>(`/finance/epargne/?${this.financeQuery({ magasinId })}`),
+    retraitEpargne: async (magasinId: number | null | undefined, data: { montant: number; motif?: string }) =>
+      this.post<any>(`/finance/epargne/retrait/?${this.financeQuery({ magasinId })}`, { ...data, confirmation: true, magasin_id: magasinId ?? undefined }),
+    encaissements: async (magasinId?: number | null) => this.get<any>(`/finance/encaissements/?${this.financeQuery({ magasinId })}`),
+    remise: async (magasinId: number | null | undefined, data: { livreur_id?: number | null; encaissement_ids?: number[]; inclure_depenses?: boolean }) =>
+      this.post<{ nb: number; brut: string | number; depenses: string | number; net: string | number }>(
+        `/finance/encaissements/remise/?${this.financeQuery({ magasinId })}`, { ...data, magasin_id: magasinId ?? undefined },
+      ),
+    recalculer: async (magasinId: number | null | undefined, data: { date_from?: string; date_to?: string }) =>
+      this.post<any>(`/finance/recalculer/?${this.financeQuery({ magasinId })}`, { ...data, magasin_id: magasinId ?? undefined }),
+  }
+
+  private financeQuery(params: { magasinId?: number | null; dateFrom?: string; dateTo?: string; origine?: string }) {
+    const q = new URLSearchParams()
+    if (params.magasinId) q.set('magasin_id', String(params.magasinId))
+    if (params.dateFrom) q.set('date_from', params.dateFrom)
+    if (params.dateTo) q.set('date_to', params.dateTo)
+    if (params.origine) q.set('origine', params.origine)
+    return q.toString()
+  }
+
   // Campagnes marketing (rapport Marketing, formulaire de commande).
   campaigns = {
     list: async (params?: { magasin_id?: number; actif?: boolean }) => {
@@ -880,7 +918,10 @@ class DjangoAPIClient {
     },
     create: async (data: {
       nom: string; plateforme: string; montant: number | string; date_debut: string;
-      date_fin?: string | null; note?: string; actif?: boolean; magasin_id?: number
+      date_fin?: string | null; note?: string; actif?: boolean; magasin_id?: number;
+      type_periode?: 'JOUR' | 'SEMAINE' | 'MOIS' | 'PERSONNALISE';
+      /** Enregistre aussi la dépense en sortie de caisse (session ouverte requise). */
+      en_caisse?: boolean;
     }) => this.post<any>('/orders/campaigns/', data),
     update: async (id: number, data: Record<string, unknown>) =>
       this.patch<any>(`/orders/campaigns/${id}/`, data),
@@ -1178,12 +1219,14 @@ class DjangoAPIClient {
       amount: number | string
       reason: string
       category?: number
+      /** Nature du mouvement (journal) — défaut MANUEL. */
+      origine?: string
     }) => {
       return this.post<any>('/users/caisse/movements/', data)
     },
 
     /** Correction d'un mouvement (session encore ouverte) : type, montant, motif, catégorie. */
-    updateMovement: async (id: number, data: { movement_type?: 'in' | 'out'; amount?: number | string; reason?: string; category?: number | null }) => {
+    updateMovement: async (id: number, data: { movement_type?: 'in' | 'out'; amount?: number | string; reason?: string; category?: number | null; origine?: string }) => {
       return this.patch<any>(`/users/caisse/movements/${id}/`, data)
     },
 

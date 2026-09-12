@@ -138,17 +138,30 @@ class CaisseMovementSerializer(serializers.ModelSerializer):
             "reason",
             "category",
             "category_name",
+            "origine",
+            "reference",
             "created_by",
             "created_by_name",
             "created_at",
         ]
-        read_only_fields = ["id", "session", "magasin", "created_by", "created_at"]
+        read_only_fields = ["id", "session", "magasin", "reference", "created_by", "created_at"]
+
+    def validate_amount(self, value):
+        if value is None or value <= 0:
+            raise serializers.ValidationError("Le montant doit être strictement positif.")
+        return value
 
     def validate(self, attrs):
         category = attrs.get("category")
         movement_type = attrs.get("movement_type")
         if category and movement_type == "in":
             raise serializers.ValidationError("Une catégorie ne s'applique qu'aux sorties.")
+        # Une saisie manuelle ne peut pas se faire passer pour un mouvement
+        # automatique (vente, remise…) : ceux-ci ne naissent que dans finance/.
+        origine = attrs.get("origine") or "MANUEL"
+        if origine not in ("MANUEL", "AUTRE_ENTREE", "PAIEMENT_CLIENT", "ACHAT_STOCK", "BOOST", "RETRAIT", "DEPENSE", "AUTRE_SORTIE"):
+            raise serializers.ValidationError({"origine": "Origine réservée aux mouvements automatiques."})
+        attrs["origine"] = origine
         return attrs
 
 

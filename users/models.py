@@ -307,6 +307,22 @@ class CaisseMovement(models.Model):
         ("in", "Entrée"),
         ("out", "Sortie"),
     )
+    # Nature du mouvement (journal de trésorerie). "MANUEL" = saisi à la main
+    # depuis la page Caisse ; les autres sont créés par le module finance
+    # (voir finance/services.py) et portent une `reference` unique.
+    ORIGINES = (
+        ("MANUEL", "Saisie manuelle"),
+        ("VENTE", "Vente"),
+        ("PAIEMENT_CLIENT", "Paiement client"),
+        ("AUTRE_ENTREE", "Autre entrée"),
+        ("ACHAT_STOCK", "Achat stock"),
+        ("BOOST", "Boost / publicité"),
+        ("RETRAIT", "Retrait"),
+        ("DEPENSE", "Dépense"),
+        ("FRAIS_LIVRAISON", "Frais de livraison"),
+        ("ANNULATION_VENTE", "Annulation / remboursement de vente"),
+        ("AUTRE_SORTIE", "Autre sortie"),
+    )
 
     session = models.ForeignKey(CaisseSession, on_delete=models.CASCADE, related_name="movements")
     magasin = models.ForeignKey(MagasinProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name="caisse_movements")
@@ -315,6 +331,11 @@ class CaisseMovement(models.Model):
     reason = models.CharField(max_length=255)
     # Uniquement pour les sorties (dépenses) — voir CaisseCategory.
     category = models.ForeignKey(CaisseCategory, on_delete=models.SET_NULL, null=True, blank=True, related_name="movements")
+    origine = models.CharField(max_length=20, choices=ORIGINES, default="MANUEL")
+    # Clé d'idempotence des mouvements automatiques (ex : "VENTE:CMD-3-20260912-0011") :
+    # la contrainte d'unicité garantit qu'une même vente ne peut jamais
+    # produire deux entrées en caisse, quels que soient les rejeux.
+    reference = models.CharField(max_length=80, unique=True, null=True, blank=True)
     created_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True, related_name="caisse_movements")
     created_at = models.DateTimeField(auto_now_add=True)
 

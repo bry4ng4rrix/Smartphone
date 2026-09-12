@@ -1,4 +1,5 @@
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import transaction
 from django.utils.dateparse import parse_datetime
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -783,5 +784,37 @@ class MarketingCampaignViewSet(viewsets.ModelViewSet):
             qs = qs.filter(actif=True)
         return qs
 
+    @transaction.atomic
     def perform_create(self, serializer):
-        serializer.save(magasin=resolve_magasin_for_request(self.request), created_by=self.request.user)
+        campagne = serializer.save(magasin=resolve_magasin_for_request(self.request), created_by=self.request.user)
+        self._apres_ecriture(campagne)
+
+    @transaction.atomic
+    def perform_update(self, serializer):
+        self._apres_ecriture(serializer.save())
+
+    @transaction.atomic
+    def perform_destroy(self, instance):
+        magasin, d1, d2 = instance.magasin, instance.date_debut, instance.date_fin
+        super().perform_destroy(instance)
+        from finance import services as finance_services
+
+        finance_services.recalculer_ventes(magasin, d1, d2 or finance_services.timezone.localdate(), self.request.user)
+
+    def _apres_ecriture(self, campagne):
+        """Un boost change la part de boost de toutes les ventes de sa
+        période : on les recalcule. `en_caisse: true` enregistre aussi la
+        dépense en sortie de caisse (une seule fois, référence BOOST:<id>)."""
+        from finance import services as finance_services
+
+        if str(self.request.data.get("en_caisse", "")).lower() in ("1", "true"):
+            session = finance_services.session_ouverte(campagne.magasin, verrouiller=True)
+            if not session:
+                raise DRFValidationError({"en_caisse": "Aucune session de caisse ouverte pour enregistrer la dépense."})
+            finance_services.mouvement_caisse(
+                session, "out", campagne.montant, f"Boost {campagne.get_plateforme_display()} — {campagne.nom}",
+                "BOOST", f"BOOST:{campagne.id}", self.request.user,
+            )
+        finance_services.recalculer_ventes(
+            campagne.magasin, campagne.date_debut, campagne.date_fin or finance_services.timezone.localdate(), self.request.user
+        )
