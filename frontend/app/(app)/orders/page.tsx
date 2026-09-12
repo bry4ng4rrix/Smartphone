@@ -1693,184 +1693,6 @@ export default function OrdersPage() {
                   )}
                 </div>
 
-                {/* Actions du détail, jouées SANS quitter le modal (§ demande) :
-                    le bouton laisse place, dans la même fenêtre, au
-                    formulaire de confirmation (note, et photo de preuve pour
-                    le passage "Prête"). Seule l'assignation part dans sa
-                    propre boîte, qui doit charger la liste du personnel. */}
-                {(() => {
-                  // Confirmation en cours : elle remplace les boutons.
-                  if (detailInline) {
-                    return (
-                      <div className="space-y-3 rounded-md border bg-muted/10 p-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                          Confirmer : {detailInline.label}
-                        </p>
-                        {detailInline.showPhoto && (
-                          <p className="text-sm text-muted-foreground">
-                            Ajoutez si besoin une note et une photo prouvant que
-                            la préparation est faite — le livreur les verra.
-                          </p>
-                        )}
-                        <NoteForm
-                          showPhoto={detailInline.showPhoto}
-                          confirmWord={MOTS_CONFIRMATION[detailInline.target]}
-                          // Pointage des articles au moment de livrer.
-                          items={
-                            detailInline.target === "LIVRE"
-                              ? detail.items
-                              : undefined
-                          }
-                          onCancel={() => setDetailInline(null)}
-                          onSubmit={async (note, photo, itemsLivres) => {
-                            const ok = await doChangeStatus(
-                              detail,
-                              detailInline.target,
-                              note,
-                              undefined,
-                              photo,
-                              itemsLivres,
-                            );
-                            // En cas d'échec on reste sur le formulaire : la
-                            // note et la photo saisies ne sont pas perdues.
-                            if (!ok) return;
-                            setDetailInline(null);
-                            // On NE ferme PAS : on recharge la commande pour
-                            // que la fiche affiche le nouveau statut, la
-                            // chronologie à jour et l'action suivante.
-                            await refreshDetail(detail.id);
-                          }}
-                        />
-                      </div>
-                    );
-                  }
-
-                  const dueLabel = `Disponible le ${fmtOuverture(detail.date_commande, roleCommande)}`;
-
-                  // Ouvre la confirmation intégrée pour une transition.
-                  const ouvrir = (target: string, label: string) =>
-                    setDetailInline({
-                      target,
-                      label,
-                      // La photo ne sert de preuve qu'au passage "Prête".
-                      showPhoto: target === "PRETE",
-                    });
-
-                  // Commande close : plus de transition possible, mais le
-                  // gérant peut CORRIGER un état saisi par erreur — le
-                  // livreur touche vite « Retour » alors que la livraison
-                  // est faite (§ demande).
-                  if (
-                    isGerant &&
-                    ["LIVRE", "RETOUR"].includes(detail.statut_courant)
-                  ) {
-                    const cible =
-                      detail.statut_courant === "RETOUR" ? "LIVRE" : "RETOUR";
-                    const label = statutInfo(cible).label;
-                    return (
-                      <Button
-                        variant="outline"
-                        className="w-full"
-                        onClick={() =>
-                          setCorrection({ order: detail, cible, label })
-                        }
-                      >
-                        <Undo2 className="h-4 w-4 mr-2" />
-                        Corriger l&apos;état → {label}
-                      </Button>
-                    );
-                  }
-
-                  // GÉRANT : toutes les actions du statut courant, en
-                  // boutons. Elles se remplacent au fil du workflow, la
-                  // fenêtre restant ouverte jusqu'au statut terminal.
-                  if (isGerant) {
-                    const options = gerantActionOptions(detail);
-                    if (options.length === 0) return null;
-                    return (
-                      <div className="flex flex-col sm:flex-row gap-2">
-                        {options.map((option) => (
-                          <Button
-                            key={option.value}
-                            className="flex-1"
-                            variant={
-                              option.kind === "assign" ||
-                              option.target === "RETOUR"
-                                ? "outline"
-                                : "default"
-                            }
-                            onClick={() => {
-                              if (option.kind === "assign") {
-                                // Choisir une personne demande de charger la
-                                // liste du personnel : seule action qui garde
-                                // sa propre boîte.
-                                const order = detail;
-                                setDetail(null);
-                                setAssignTarget({
-                                  order,
-                                  role: option.role || "PREPARATEUR",
-                                  depuisDetail: true,
-                                });
-                                return;
-                              }
-                              ouvrir(option.target, option.label);
-                            }}
-                          >
-                            {option.icon && (
-                              <option.icon className="h-4 w-4 mr-2" />
-                            )}
-                            {option.label}
-                          </Button>
-                        ))}
-                      </div>
-                    );
-                  }
-
-                  // LIVREUR en cours de livraison : "Livré" et "Retour" sont
-                  // deux issues possibles, pas une succession.
-                  if (
-                    isLivreur &&
-                    detail.statut_courant === "EN_LIVRAISON" &&
-                    isJourJ(detail.date_commande)
-                  ) {
-                    return (
-                      <div className="flex flex-col sm:flex-row gap-2">
-                        <Button
-                          className="flex-1"
-                          onClick={() => ouvrir("LIVRE", "Livré")}
-                        >
-                          <Truck className="h-4 w-4 mr-2" /> Livré
-                        </Button>
-                        <Button
-                          variant="outline"
-                          className="flex-1 text-red-600"
-                          onClick={() => ouvrir("RETOUR", "Retour")}
-                        >
-                          <Undo2 className="h-4 w-4 mr-2" /> Retour
-                        </Button>
-                      </div>
-                    );
-                  }
-
-                  // Préparateur et livreur : leur action du moment, jouée
-                  // elle aussi sans quitter la fenêtre.
-                  const action = nextAction(detail);
-                  if (!action) return null;
-                  const bloque = !isJourJ(detail.date_commande);
-                  // Livreur hors jour J : aucun bouton, pas même grisé.
-                  if (isLivreur && bloque) return null;
-                  return (
-                    <Button
-                      className="w-full"
-                      disabled={bloque}
-                      onClick={() => ouvrir(action.target, action.label)}
-                    >
-                      <action.icon className="h-4 w-4 mr-2" />
-                      {bloque ? dueLabel : action.label}
-                    </Button>
-                  );
-                })()}
-
                 {detail.note_preparateur && (
                   <div>
                     <span className="text-muted-foreground">
@@ -1959,6 +1781,189 @@ export default function OrdersPage() {
                     </div>
                   </>
                 )}
+
+                {/* Les actions de statut ferment la fiche : elles sont
+                    placées tout en bas, après l'historique détaillé
+                    (§ demande). Seul « Modifier » reste dans l'en-tête. */}
+                <div className="border-t pt-3">
+                  {/* Actions du détail, jouées SANS quitter le modal (§ demande) :
+                      le bouton laisse place, dans la même fenêtre, au
+                      formulaire de confirmation (note, et photo de preuve pour
+                      le passage "Prête"). Seule l'assignation part dans sa
+                      propre boîte, qui doit charger la liste du personnel. */}
+                  {(() => {
+                    // Confirmation en cours : elle remplace les boutons.
+                    if (detailInline) {
+                      return (
+                        <div className="space-y-3 rounded-md border bg-muted/10 p-3">
+                          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                            Confirmer : {detailInline.label}
+                          </p>
+                          {detailInline.showPhoto && (
+                            <p className="text-sm text-muted-foreground">
+                              Ajoutez si besoin une note et une photo prouvant que
+                              la préparation est faite — le livreur les verra.
+                            </p>
+                          )}
+                          <NoteForm
+                            showPhoto={detailInline.showPhoto}
+                            confirmWord={MOTS_CONFIRMATION[detailInline.target]}
+                            // Pointage des articles au moment de livrer.
+                            items={
+                              detailInline.target === "LIVRE"
+                                ? detail.items
+                                : undefined
+                            }
+                            onCancel={() => setDetailInline(null)}
+                            onSubmit={async (note, photo, itemsLivres) => {
+                              const ok = await doChangeStatus(
+                                detail,
+                                detailInline.target,
+                                note,
+                                undefined,
+                                photo,
+                                itemsLivres,
+                              );
+                              // En cas d'échec on reste sur le formulaire : la
+                              // note et la photo saisies ne sont pas perdues.
+                              if (!ok) return;
+                              setDetailInline(null);
+                              // On NE ferme PAS : on recharge la commande pour
+                              // que la fiche affiche le nouveau statut, la
+                              // chronologie à jour et l'action suivante.
+                              await refreshDetail(detail.id);
+                            }}
+                          />
+                        </div>
+                      );
+                    }
+
+                    const dueLabel = `Disponible le ${fmtOuverture(detail.date_commande, roleCommande)}`;
+
+                    // Ouvre la confirmation intégrée pour une transition.
+                    const ouvrir = (target: string, label: string) =>
+                      setDetailInline({
+                        target,
+                        label,
+                        // La photo ne sert de preuve qu'au passage "Prête".
+                        showPhoto: target === "PRETE",
+                      });
+
+                    // Commande close : plus de transition possible, mais le
+                    // gérant peut CORRIGER un état saisi par erreur — le
+                    // livreur touche vite « Retour » alors que la livraison
+                    // est faite (§ demande).
+                    if (
+                      isGerant &&
+                      ["LIVRE", "RETOUR"].includes(detail.statut_courant)
+                    ) {
+                      const cible =
+                        detail.statut_courant === "RETOUR" ? "LIVRE" : "RETOUR";
+                      const label = statutInfo(cible).label;
+                      return (
+                        <Button
+                          variant="outline"
+                          className="w-full"
+                          onClick={() =>
+                            setCorrection({ order: detail, cible, label })
+                          }
+                        >
+                          <Undo2 className="h-4 w-4 mr-2" />
+                          Corriger l&apos;état → {label}
+                        </Button>
+                      );
+                    }
+
+                    // GÉRANT : toutes les actions du statut courant, en
+                    // boutons. Elles se remplacent au fil du workflow, la
+                    // fenêtre restant ouverte jusqu'au statut terminal.
+                    if (isGerant) {
+                      const options = gerantActionOptions(detail);
+                      if (options.length === 0) return null;
+                      return (
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          {options.map((option) => (
+                            <Button
+                              key={option.value}
+                              className="flex-1"
+                              variant={
+                                option.kind === "assign" ||
+                                option.target === "RETOUR"
+                                  ? "outline"
+                                  : "default"
+                              }
+                              onClick={() => {
+                                if (option.kind === "assign") {
+                                  // Choisir une personne demande de charger la
+                                  // liste du personnel : seule action qui garde
+                                  // sa propre boîte.
+                                  const order = detail;
+                                  setDetail(null);
+                                  setAssignTarget({
+                                    order,
+                                    role: option.role || "PREPARATEUR",
+                                    depuisDetail: true,
+                                  });
+                                  return;
+                                }
+                                ouvrir(option.target, option.label);
+                              }}
+                            >
+                              {option.icon && (
+                                <option.icon className="h-4 w-4 mr-2" />
+                              )}
+                              {option.label}
+                            </Button>
+                          ))}
+                        </div>
+                      );
+                    }
+
+                    // LIVREUR en cours de livraison : "Livré" et "Retour" sont
+                    // deux issues possibles, pas une succession.
+                    if (
+                      isLivreur &&
+                      detail.statut_courant === "EN_LIVRAISON" &&
+                      isJourJ(detail.date_commande)
+                    ) {
+                      return (
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <Button
+                            className="flex-1"
+                            onClick={() => ouvrir("LIVRE", "Livré")}
+                          >
+                            <Truck className="h-4 w-4 mr-2" /> Livré
+                          </Button>
+                          <Button
+                            variant="outline"
+                            className="flex-1 text-red-600"
+                            onClick={() => ouvrir("RETOUR", "Retour")}
+                          >
+                            <Undo2 className="h-4 w-4 mr-2" /> Retour
+                          </Button>
+                        </div>
+                      );
+                    }
+
+                    // Préparateur et livreur : leur action du moment, jouée
+                    // elle aussi sans quitter la fenêtre.
+                    const action = nextAction(detail);
+                    if (!action) return null;
+                    const bloque = !isJourJ(detail.date_commande);
+                    // Livreur hors jour J : aucun bouton, pas même grisé.
+                    if (isLivreur && bloque) return null;
+                    return (
+                      <Button
+                        className="w-full"
+                        disabled={bloque}
+                        onClick={() => ouvrir(action.target, action.label)}
+                      >
+                        <action.icon className="h-4 w-4 mr-2" />
+                        {bloque ? dueLabel : action.label}
+                      </Button>
+                    );
+                  })()}
+                </div>
               </div>
             </>
           )}
