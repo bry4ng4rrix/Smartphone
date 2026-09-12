@@ -16,7 +16,7 @@ import '../../widgets/async_state_widgets.dart';
 
 // =============================================================================
 // Couleurs de STATUT reprises des classes Tailwind de la page web (même
-// approche que features/superadmin/superadmin_screen.dart) : ce ne sont pas
+// approche que les autres écrans) : ce ne sont pas
 // des couleurs de thème.
 // =============================================================================
 const _purple500 = Color(0xFFA855F7); // icône rôle admin (Shield)

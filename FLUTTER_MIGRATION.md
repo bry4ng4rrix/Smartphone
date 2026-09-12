@@ -50,9 +50,9 @@ Audit automatise par 20 agents lisant integralement les fichiers (aucun resume a
 | `/stores (modal TransferProductsDialog — variante modale du meme flux)` | Aucun gating propre. Utilise par app/(app)/stores/page.tsx (entree sidebar superAdminOnly => role 'admin'). Le… | lib/features/stores/stores_screen.dart | PARTIAL |
 | `/alerts` | lib/features/alerts/alerts_screen.dart | AUCUN | DONE |
 | `/pickup` | lib/features/pickup/pickup_screen.dart | AUCUN | DONE |
-| `/scanner` | lib/features/scanner/scanner_screen.dart | AUCUN | DONE |
+| `/scanner` | retiree de l'app a la demande (12/09/2026) | AUCUN | DONE |
 | `/sales` | Aucun role, aucun gating : la page ne fait que rediriger. Elle n'apparait dans aucun menu de la Sidebar. | redirection go_router vers /orders (lib/core/router.dart) | DONE |
-| `/superadmin` | lib/features/superadmin/superadmin_screen.dart | AUCUN | DONE |
+| `/superadmin` | retiree de l'app a la demande (12/09/2026) | AUCUN | DONE |
 | `/notifications` | AUCUN guard dans la page elle-meme. Le composant est un 'use client' sans useCurrentUser, sans verification de… | lib/features/notifications/notifications_screen.dart | PARTIAL |
 | `(global) TopBar — cloche de notifications (dropdown)` | AUCUN gating de role. Le composant <Notifications /> est monte inconditionnellement dans /home/garrix/Dev/Smar… | composant / couche partagee — a porter | PARTIAL |
 | `/` | PUBLIC — aucun gating. Server Component pur, aucun appel a useCurrentUser ni a djangoClient. Ne verifie PAS si… | lib/features/auth/splash_screen.dart | DONE |

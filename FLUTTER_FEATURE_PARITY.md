@@ -645,41 +645,43 @@ Fonctionnalités à garantir : 39
 **Écarts documentés (adaptations mobiles assumées ou limites du backend) :**
 - Groupes Rupture / Stock faible listés par variante (couleur) avec les drapeaux serveur is_rupture / is_stock_bas, là où le web agrège par référence ; export PDF de réapprovisionnement ajouté.
 
-### `/scanner`  —  VERIFIED
+### `/scanner`  —  RETIRÉE DE L'APP
 
 Écran Flutter : `features/scanner/scanner_screen.dart`  
 Fonctionnalités à garantir : 30
 
-- [x] En-tete : h1 text-3xl font-bold tracking-tight avec icone QrCode h-8 w-8 text-blue-600 + 'Recherche produit'; sous-titre muted 'Recherchez une reference du catalogue par nom, marque ou modele.'
-- [x] Champ de recherche unique : Input max-w-xl, placeholder 'Marque, reference...', icone Search h-4 w-4 en absolute left-3 top-1/2 -translate-y-1/2 (Input en pl-10). Controle par le state `query`.
-- [x] Autofocus au montage : useEffect(() => { inputRef.current?.focus(); }, []) — clavier ouvert d'emblee.
-- [x] Recherche debouncee : useEffect avec setTimeout(() => search(query), 350) et clearTimeout au cleanup — 350 ms apres la derniere frappe.
-- [x] Si la query est vide, search() fait setResults([]) et sort immediatement (aucun appel API).
-- [x] Bloc resultats affiche seulement si (query || results.length > 0).
-- [x] Grille de resultats : grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4, une Card par produit avec hover:shadow-md transition-shadow.
-- [x] Carte resultat — CardHeader pb-2 : CardTitle text-base = p.name, et a droite un Badge de statut de stock; en dessous p.brand en text-xs text-muted-foreground font-mono.
-- [x] Carte resultat — CardContent : grille 2 colonnes text-sm. Cellule 'Categorie' (label text-xs muted) -> p.category || '-'. Cellule 'Stock' -> `${p.initial_quantity} u.` en font-semibold. Cellule 'Prix vente' en col-span-2 -> new Intl.NumberFormat('fr-MG').format(p.shell_price || 0) + ' Ar'.
-- [x] Carte resultat — Button asChild className='w-full mt-2' size='sm' contenant <Link href='/orders'>Creer une commande</Link> : navigation simple vers la liste des commandes, SANS transmettre le produit selectionne (aucun query param, aucun state) — le produit doit etre re-choisi dans le formulaire de commande.
-- [x] Aucun bouton d'ajout au panier, aucune vente directe, aucun scan camera, aucun bouton d'actualisation manuelle.
-- [x] Aucun rafraichissement temps reel (pas de useRealtimeRefresh sur cette page).
-- [x] Aucun tri, aucune pagination, aucun filtre secondaire (categorie/marque).
-- [x] Champ de recherche libre (non soumis) : 1 seul champ texte `query`, aucune validation, aucun message d'erreur de saisie, pas de submit (pas de <form>, pas de touche Entree geree). L'unique 'soumission' est le debounce de 350 ms.
-- [x] Recherche plein-texte debouncee 350 ms, insensible a la casse, sur reference_name OU brand_name (contains, pas de fuzzy, pas d'accent-folding).
-- [x] Aucun filtre par categorie/marque/type malgre le sous-titre qui mentionne 'modele'.
-- [x] Aucun tri (ordre API), aucune pagination, aucune limite de resultats.
-- [x] loading : simple <p className='text-muted-foreground text-sm'>Recherche...</p> (aucun skeleton, aucun spinner).
-- [x] empty / aucun resultat : Card > CardContent flex-col items-center py-12 gap-2 avec icone Package h-10 w-10 et le texte 'Aucun produit trouve pour « {query} »' (guillemets francais).
-- [x] idle (aucune query ET aucun resultat) : Card > CardContent flex-col items-center py-16 gap-3, icone QrCode h-16 w-16 opacity-20 + p text-lg font-medium 'Tapez pour rechercher un produit'.
-- [x] error : toast.error(err.message || 'Erreur lors de la recherche'); results conserve sa valeur precedente.
-- [x] success : pas de toast (affichage direct des cartes).
-- [x] unauthorized : AUCUN etat implemente.
-- [x] disabled : aucun.
-- [x] Badge de stock calcule par stockStatus(p) : initial_quantity === 0 -> { label:'Rupture', class:'bg-red-100 text-red-800' }; initial_quantity <= alert_threshold -> { label:'Faible', class:'bg-orange-100 text-orange-800' }; sinon { label:'En stock', class:'bg-green-100 text-green-800' }.
-- [x] Marque affichee en police mono (font-mono) pour un rendu 'code-barres/reference'.
-- [x] Prix formate fr-MG + ' Ar' (fallback 0 si shell_price null).
-- [x] Icone QrCode trompeuse : aucune camera n'est ouverte, malgre la presence de @yudiel/react-qr-scanner dans package.json (utilise ailleurs).
-- [x] Conteneur : div p-6 space-y-6.
-- [x] Les etats 'idle' et 'aucun resultat' peuvent se chevaucher logiquement mais s'excluent grace aux conditions (query || results.length > 0) et (!query && results.length === 0).
+- [ ] En-tete : h1 text-3xl font-bold tracking-tight avec icone QrCode h-8 w-8 text-blue-600 + 'Recherche produit'; sous-titre muted 'Recherchez une reference du catalogue par nom, marque ou modele.'
+- [ ] Champ de recherche unique : Input max-w-xl, placeholder 'Marque, reference...', icone Search h-4 w-4 en absolute left-3 top-1/2 -translate-y-1/2 (Input en pl-10). Controle par le state `query`.
+- [ ] Autofocus au montage : useEffect(() => { inputRef.current?.focus(); }, []) — clavier ouvert d'emblee.
+- [ ] Recherche debouncee : useEffect avec setTimeout(() => search(query), 350) et clearTimeout au cleanup — 350 ms apres la derniere frappe.
+- [ ] Si la query est vide, search() fait setResults([]) et sort immediatement (aucun appel API).
+- [ ] Bloc resultats affiche seulement si (query || results.length > 0).
+- [ ] Grille de resultats : grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4, une Card par produit avec hover:shadow-md transition-shadow.
+- [ ] Carte resultat — CardHeader pb-2 : CardTitle text-base = p.name, et a droite un Badge de statut de stock; en dessous p.brand en text-xs text-muted-foreground font-mono.
+- [ ] Carte resultat — CardContent : grille 2 colonnes text-sm. Cellule 'Categorie' (label text-xs muted) -> p.category || '-'. Cellule 'Stock' -> `${p.initial_quantity} u.` en font-semibold. Cellule 'Prix vente' en col-span-2 -> new Intl.NumberFormat('fr-MG').format(p.shell_price || 0) + ' Ar'.
+- [ ] Carte resultat — Button asChild className='w-full mt-2' size='sm' contenant <Link href='/orders'>Creer une commande</Link> : navigation simple vers la liste des commandes, SANS transmettre le produit selectionne (aucun query param, aucun state) — le produit doit etre re-choisi dans le formulaire de commande.
+- [ ] Aucun bouton d'ajout au panier, aucune vente directe, aucun scan camera, aucun bouton d'actualisation manuelle.
+- [ ] Aucun rafraichissement temps reel (pas de useRealtimeRefresh sur cette page).
+- [ ] Aucun tri, aucune pagination, aucun filtre secondaire (categorie/marque).
+- [ ] Champ de recherche libre (non soumis) : 1 seul champ texte `query`, aucune validation, aucun message d'erreur de saisie, pas de submit (pas de <form>, pas de touche Entree geree). L'unique 'soumission' est le debounce de 350 ms.
+- [ ] Recherche plein-texte debouncee 350 ms, insensible a la casse, sur reference_name OU brand_name (contains, pas de fuzzy, pas d'accent-folding).
+- [ ] Aucun filtre par categorie/marque/type malgre le sous-titre qui mentionne 'modele'.
+- [ ] Aucun tri (ordre API), aucune pagination, aucune limite de resultats.
+- [ ] loading : simple <p className='text-muted-foreground text-sm'>Recherche...</p> (aucun skeleton, aucun spinner).
+- [ ] empty / aucun resultat : Card > CardContent flex-col items-center py-12 gap-2 avec icone Package h-10 w-10 et le texte 'Aucun produit trouve pour « {query} »' (guillemets francais).
+- [ ] idle (aucune query ET aucun resultat) : Card > CardContent flex-col items-center py-16 gap-3, icone QrCode h-16 w-16 opacity-20 + p text-lg font-medium 'Tapez pour rechercher un produit'.
+- [ ] error : toast.error(err.message || 'Erreur lors de la recherche'); results conserve sa valeur precedente.
+- [ ] success : pas de toast (affichage direct des cartes).
+- [ ] unauthorized : AUCUN etat implemente.
+- [ ] disabled : aucun.
+- [ ] Badge de stock calcule par stockStatus(p) : initial_quantity === 0 -> { label:'Rupture', class:'bg-red-100 text-red-800' }; initial_quantity <= alert_threshold -> { label:'Faible', class:'bg-orange-100 text-orange-800' }; sinon { label:'En stock', class:'bg-green-100 text-green-800' }.
+- [ ] Marque affichee en police mono (font-mono) pour un rendu 'code-barres/reference'.
+- [ ] Prix formate fr-MG + ' Ar' (fallback 0 si shell_price null).
+- [ ] Icone QrCode trompeuse : aucune camera n'est ouverte, malgre la presence de @yudiel/react-qr-scanner dans package.json (utilise ailleurs).
+- [ ] Conteneur : div p-6 space-y-6.
+- [ ] Les etats 'idle' et 'aucun resultat' peuvent se chevaucher logiquement mais s'excluent grace aux conditions (query || results.length > 0) et (!query && results.length === 0).
+
+**Retirée de l'app :** page web accessible uniquement par l'URL (aucun lien dans le menu web) ; l'écran Flutter, sa route et son entrée de menu ont été supprimés à la demande (12/09/2026). La recherche produit reste disponible dans l'écran Catalogue.
 
 ## COMMUNICATION
 
@@ -1078,63 +1080,65 @@ Fonctionnalités à garantir : 15
 **Écarts documentés (adaptations mobiles assumées ou limites du backend) :**
 - Le transfert depuis la carte d'un magasin ouvre l'écran Transferts pré-rempli (source) au lieu d'une fenêtre modale.
 
-### `/superadmin`  —  VERIFIED
+### `/superadmin`  —  RETIRÉE DE L'APP
 
 Écran Flutter : `features/superadmin/superadmin_screen.dart`  
 Fonctionnalités à garantir : 52
 
-- [x] En-tete : h1 text-3xl font-bold tracking-tight avec icone Shield h-8 w-8 text-blue-600 + 'Super Administration'; sous-titre muted 'Gestion globale des utilisateurs et magasins'.
-- [x] Bouton 'Actualiser' (Button variant='outline' size='sm', icone RefreshCw h-4 w-4 mr-2 avec 'animate-spin' quand loading, disabled={loading}) -> fetchData().
-- [x] Bandeau statistiques : grid-cols-1 md:grid-cols-3 gap-4.
-- [x] Stat 1 'Magasins' : icone Store h-4 w-4 text-blue-500, valeur = stores.length en text-2xl font-bold.
-- [x] Stat 2 'Utilisateurs total' : icone Users h-4 w-4 text-green-500, valeur = allUsers.length.
-- [x] Stat 3 'En attente' : icone Users h-4 w-4 text-orange-500, valeur = allUsers.filter(u => !u.is_confirmed).length.
-- [x] Tableau 1 — Card 'Toutes les equipes', CardDescription '{stores.length} equipe(s) enregistree(s)'.
-- [x] Tableau 1 colonne 'Magasin' : s.shop_name, className font-medium.
-- [x] Tableau 1 colonne 'Gerant' : s.manager?.full_name || '-', en text-sm text-muted-foreground. ATTENTION : `manager` cote backend est en realite l'ADMIN de la societe (mag.admin), pas le compte role='magasin'.
-- [x] Tableau 1 colonne 'Membres' : memberCount = (s.employers?.length || 0) + (s.manager ? 1 : 0), en text-sm. Ne compte PAS mag.user (le vrai gerant) ni les co-admins.
-- [x] Tableau 1 colonne 'Statut' : Badge variant='outline'; isActive = !!s.manager?.is_confirmed -> 'Actif' avec classes 'text-green-700 border-green-200', sinon 'Inactif' avec 'text-orange-700 border-orange-200'.
-- [x] Tableau 1 : key de ligne = s.magasin_id. Aucune action par ligne (pas d'edition, pas de suppression de magasin, pas de lien vers le detail magasin).
-- [x] Tableau 2 — Card 'Tous les utilisateurs', CardDescription '{allUsers.length} compte(s) enregistre(s)'.
-- [x] Construction de allUsers : stores.flatMap(s => [ s.manager ? {...s.manager, shop_name: s.shop_name} : null, ...(s.employers||[]).map(e => ({...e, shop_name: s.shop_name})) ]).filter(Boolean) — donc uniquement manager + employers, PAS les co-admins presents dans s.company_users, et sans dedoublonnage.
-- [x] Tableau 2 colonne 'Nom' : u.full_name, font-medium.
-- [x] Tableau 2 colonne 'Email' : u.email, text-sm text-muted-foreground.
-- [x] Tableau 2 colonne 'Magasin' : u.shop_name || '-', text-sm.
-- [x] Tableau 2 colonne 'Role' : Select shadcn inline (SelectTrigger className='w-32 h-7 text-xs', SelectValue) — CHANGE LE ROLE IMMEDIATEMENT au onValueChange, sans confirmation.
-- [x] Options du Select : value='admin' libelle 'Admin', value='magasin' libelle 'Gerant', value='employer' libelle 'Commercial'.
-- [x] Le Select est disabled si changingRole === u.id (appel en cours) OU si u.role === 'admin' (un compte admin liste ici est toujours le fondateur de la societe; l'action ne serait jamais autorisee cote backend, donc le controle est desactive plutot que supprime pour garder la mise en page des colonnes).
-- [x] Tableau 2 colonne 'Statut' : Badge variant='outline' — u.is_confirmed -> 'Actif' (text-green-700 border-green-200), sinon 'En attente' (text-orange-700 border-orange-200). NOTE : le libelle 'inactif' du tableau 1 devient 'En attente' ici pour la meme donnee is_confirmed.
-- [x] Tableau 2 colonne 'Actions' : bouton Trash2 (Button variant='ghost' size='icon' className='h-7 w-7 text-red-500 hover:text-red-700') affiche UNIQUEMENT si u.role !== 'admin'; il ouvre la modale de suppression via setDeleteTarget({ id: u.id, name: u.full_name }). Pour un admin la cellule est vide.
-- [x] Aucune creation d'utilisateur, aucune invitation, aucune approbation de compte en attente, aucune edition d'email/telephone depuis cette page.
-- [x] Aucun rafraichissement temps reel (pas de useRealtimeRefresh) — la seule mise a jour est fetchData() apres une action ou via le bouton Actualiser.
-- [x] Constante roleLabel = { admin:'Administrateur', magasin:'Gerant', employer:'Commercial' } declaree en haut du fichier mais JAMAIS UTILISEE (code mort) — les libelles reels du Select sont 'Admin' / 'Gerant' / 'Commercial'.
-- [x] Formulaire inline 'changement de role' (le Select de la colonne Role) : 1 champ (role, valeurs admin|magasin|employer), pas de validation cliente, pas de confirmation. Soumission implicite au changement de valeur -> handleChangeRole(u.id, v). Pendant l'appel : setChangingRole(userId) desactive le Select de cette ligne. Apres succes : toast.success('Role modifie') puis fetchData() (rechargement complet, donc reaffichage des 3 skeletons puisque fetchData fait setLoading(true)). Apres echec : toast.error(err.message || 'Erreur') et la valeur affichee revient a l'ancienne apres le refetch.
-- [x] Formulaire de la modale ConfirmDeleteDialog (composant partage) : 1 champ 'Votre mot de passe' (id='confirm-delete-password', type='password', autoComplete='current-password', placeholder '••••••••', autoFocus, required, disabled pendant l'envoi). Validation cliente : si mot de passe vide -> setError('Mot de passe requis.') et pas d'appel API. Le bouton de soumission est disabled tant que le champ est vide ou qu'un envoi est en cours. Le message d'erreur (client ou serveur) s'affiche en <p className='text-sm text-red-600'> sous le champ, et est efface a chaque frappe. Apres succes : le champ est vide, la modale se ferme, toast.success('Utilisateur supprime'), puis fetchData(). Apres echec : la modale RESTE OUVERTE avec l'erreur inline (err.message || 'Erreur lors de la suppression.') — AUCUN toast d'erreur ici.
-- [x] ConfirmDeleteDialog (composant partage /home/garrix/Dev/Smartphone/frontend/components/confirm-delete-dialog.tsx) : open={!!deleteTarget}, onOpenChange={(open) => !open && setDeleteTarget(null)}.
-- [x] Titre passe : 'Supprimer cet utilisateur' — rendu en DialogTitle flex items-center gap-2 text-red-600 avec icone ShieldAlert h-5 w-5.
-- [x] Description riche (ReactNode) : 'Vous etes sur le point de supprimer definitivement <span class="font-medium text-foreground">{deleteTarget?.name}</span>. Cette action est irreversible. Entrez votre mot de passe pour confirmer.'
-- [x] DialogContent className='sm:max-w-md'. La fermeture (Echap / clic exterieur / bouton Annuler) est BLOQUEE tant que loading===true (handleOpenChange fait un return anticipe).
-- [x] Bouton 'Annuler' : type='button', variant='outline', disabled pendant l'envoi; a la fermeture le mot de passe et l'erreur sont reinitialises.
-- [x] Bouton de confirmation : type='submit', variant='destructive', libelle 'Supprimer definitivement'; pendant l'envoi il affiche un Loader2 h-4 w-4 mr-2 animate-spin + 'Suppression...'; disabled={loading || !password}.
-- [x] Aucun dropdown/popover/menu contextuel ailleurs sur la page (hormis le SelectContent du Select de role, qui est un popover Radix).
-- [x] AUCUNE recherche, AUCUN filtre (ni par role, ni par statut, ni par magasin), AUCUN tri de colonne, AUCUNE pagination — les deux tableaux affichent l'integralite des donnees renvoyees.
-- [x] L'ordre des lignes est celui de l'API (magasins puis, dans allUsers, manager avant employers pour chaque magasin).
-- [x] loading (userLoading || loading) : TOUTE la page est remplacee par un div p-6 space-y-4 contenant 3 <Skeleton className='h-16 w-full' /> — l'en-tete et les stats disparaissent aussi.
-- [x] Ce meme skeleton plein ecran reapparait apres CHAQUE changement de role et CHAQUE suppression, car fetchData() fait setLoading(true) (pas de mode silencieux ici).
-- [x] empty : AUCUN etat vide implemente — si stores est vide, on voit deux tableaux avec un header et zero ligne, et les descriptions '0 equipe(s) enregistree(s)' / '0 compte(s) enregistre(s)'.
-- [x] error de chargement : catch { console.error(err) } uniquement — pas de toast, pas de bandeau, pas de retry. stores reste a sa valeur precedente.
-- [x] error changement de role : toast.error(err.message || 'Erreur').
-- [x] error suppression : message inline rouge dans la modale (pas de toast).
-- [x] success : toast.success('Role modifie') / toast.success('Utilisateur supprime').
-- [x] unauthorized : pas d'ecran dedie — redirection router.replace('/dashboard') sans aucun message.
-- [x] disabled : bouton Actualiser pendant loading; Select de role si changingRole===u.id ou u.role==='admin'; boutons de la modale pendant l'envoi.
-- [x] Codes couleur des badges : Actif / vert (text-green-700 border-green-200) ; Inactif ou En attente / orange (text-orange-700 border-orange-200). Badges en variant='outline' (fond transparent), contrairement aux badges pleins de /alerts et /pickup.
-- [x] Deux libelles differents pour la meme donnee is_confirmed : 'Actif'/'Inactif' dans le tableau des equipes, 'Actif'/'En attente' dans le tableau des utilisateurs.
-- [x] Le Select de role est tres compact (w-32 h-7 text-xs) : en Flutter, prevoir un DropdownButton dense ou un bottom sheet sur mobile.
-- [x] Toasts sonner globaux : top-right, richColors, closeButton, expand, duree 5000 ms.
-- [x] Aucun temps reel : contrairement a /alerts et /pickup, aucune souscription WebSocket ici.
-- [x] Aucun format numerique special (pas d'Intl) : les compteurs sont affiches bruts.
-- [x] Conteneur global : div p-6 space-y-6; tableaux dans des Card sans conteneur overflow-x (6 colonnes -> deborde sur mobile, a repenser en liste de cartes en Flutter).
+- [ ] En-tete : h1 text-3xl font-bold tracking-tight avec icone Shield h-8 w-8 text-blue-600 + 'Super Administration'; sous-titre muted 'Gestion globale des utilisateurs et magasins'.
+- [ ] Bouton 'Actualiser' (Button variant='outline' size='sm', icone RefreshCw h-4 w-4 mr-2 avec 'animate-spin' quand loading, disabled={loading}) -> fetchData().
+- [ ] Bandeau statistiques : grid-cols-1 md:grid-cols-3 gap-4.
+- [ ] Stat 1 'Magasins' : icone Store h-4 w-4 text-blue-500, valeur = stores.length en text-2xl font-bold.
+- [ ] Stat 2 'Utilisateurs total' : icone Users h-4 w-4 text-green-500, valeur = allUsers.length.
+- [ ] Stat 3 'En attente' : icone Users h-4 w-4 text-orange-500, valeur = allUsers.filter(u => !u.is_confirmed).length.
+- [ ] Tableau 1 — Card 'Toutes les equipes', CardDescription '{stores.length} equipe(s) enregistree(s)'.
+- [ ] Tableau 1 colonne 'Magasin' : s.shop_name, className font-medium.
+- [ ] Tableau 1 colonne 'Gerant' : s.manager?.full_name || '-', en text-sm text-muted-foreground. ATTENTION : `manager` cote backend est en realite l'ADMIN de la societe (mag.admin), pas le compte role='magasin'.
+- [ ] Tableau 1 colonne 'Membres' : memberCount = (s.employers?.length || 0) + (s.manager ? 1 : 0), en text-sm. Ne compte PAS mag.user (le vrai gerant) ni les co-admins.
+- [ ] Tableau 1 colonne 'Statut' : Badge variant='outline'; isActive = !!s.manager?.is_confirmed -> 'Actif' avec classes 'text-green-700 border-green-200', sinon 'Inactif' avec 'text-orange-700 border-orange-200'.
+- [ ] Tableau 1 : key de ligne = s.magasin_id. Aucune action par ligne (pas d'edition, pas de suppression de magasin, pas de lien vers le detail magasin).
+- [ ] Tableau 2 — Card 'Tous les utilisateurs', CardDescription '{allUsers.length} compte(s) enregistre(s)'.
+- [ ] Construction de allUsers : stores.flatMap(s => [ s.manager ? {...s.manager, shop_name: s.shop_name} : null, ...(s.employers||[]).map(e => ({...e, shop_name: s.shop_name})) ]).filter(Boolean) — donc uniquement manager + employers, PAS les co-admins presents dans s.company_users, et sans dedoublonnage.
+- [ ] Tableau 2 colonne 'Nom' : u.full_name, font-medium.
+- [ ] Tableau 2 colonne 'Email' : u.email, text-sm text-muted-foreground.
+- [ ] Tableau 2 colonne 'Magasin' : u.shop_name || '-', text-sm.
+- [ ] Tableau 2 colonne 'Role' : Select shadcn inline (SelectTrigger className='w-32 h-7 text-xs', SelectValue) — CHANGE LE ROLE IMMEDIATEMENT au onValueChange, sans confirmation.
+- [ ] Options du Select : value='admin' libelle 'Admin', value='magasin' libelle 'Gerant', value='employer' libelle 'Commercial'.
+- [ ] Le Select est disabled si changingRole === u.id (appel en cours) OU si u.role === 'admin' (un compte admin liste ici est toujours le fondateur de la societe; l'action ne serait jamais autorisee cote backend, donc le controle est desactive plutot que supprime pour garder la mise en page des colonnes).
+- [ ] Tableau 2 colonne 'Statut' : Badge variant='outline' — u.is_confirmed -> 'Actif' (text-green-700 border-green-200), sinon 'En attente' (text-orange-700 border-orange-200). NOTE : le libelle 'inactif' du tableau 1 devient 'En attente' ici pour la meme donnee is_confirmed.
+- [ ] Tableau 2 colonne 'Actions' : bouton Trash2 (Button variant='ghost' size='icon' className='h-7 w-7 text-red-500 hover:text-red-700') affiche UNIQUEMENT si u.role !== 'admin'; il ouvre la modale de suppression via setDeleteTarget({ id: u.id, name: u.full_name }). Pour un admin la cellule est vide.
+- [ ] Aucune creation d'utilisateur, aucune invitation, aucune approbation de compte en attente, aucune edition d'email/telephone depuis cette page.
+- [ ] Aucun rafraichissement temps reel (pas de useRealtimeRefresh) — la seule mise a jour est fetchData() apres une action ou via le bouton Actualiser.
+- [ ] Constante roleLabel = { admin:'Administrateur', magasin:'Gerant', employer:'Commercial' } declaree en haut du fichier mais JAMAIS UTILISEE (code mort) — les libelles reels du Select sont 'Admin' / 'Gerant' / 'Commercial'.
+- [ ] Formulaire inline 'changement de role' (le Select de la colonne Role) : 1 champ (role, valeurs admin|magasin|employer), pas de validation cliente, pas de confirmation. Soumission implicite au changement de valeur -> handleChangeRole(u.id, v). Pendant l'appel : setChangingRole(userId) desactive le Select de cette ligne. Apres succes : toast.success('Role modifie') puis fetchData() (rechargement complet, donc reaffichage des 3 skeletons puisque fetchData fait setLoading(true)). Apres echec : toast.error(err.message || 'Erreur') et la valeur affichee revient a l'ancienne apres le refetch.
+- [ ] Formulaire de la modale ConfirmDeleteDialog (composant partage) : 1 champ 'Votre mot de passe' (id='confirm-delete-password', type='password', autoComplete='current-password', placeholder '••••••••', autoFocus, required, disabled pendant l'envoi). Validation cliente : si mot de passe vide -> setError('Mot de passe requis.') et pas d'appel API. Le bouton de soumission est disabled tant que le champ est vide ou qu'un envoi est en cours. Le message d'erreur (client ou serveur) s'affiche en <p className='text-sm text-red-600'> sous le champ, et est efface a chaque frappe. Apres succes : le champ est vide, la modale se ferme, toast.success('Utilisateur supprime'), puis fetchData(). Apres echec : la modale RESTE OUVERTE avec l'erreur inline (err.message || 'Erreur lors de la suppression.') — AUCUN toast d'erreur ici.
+- [ ] ConfirmDeleteDialog (composant partage /home/garrix/Dev/Smartphone/frontend/components/confirm-delete-dialog.tsx) : open={!!deleteTarget}, onOpenChange={(open) => !open && setDeleteTarget(null)}.
+- [ ] Titre passe : 'Supprimer cet utilisateur' — rendu en DialogTitle flex items-center gap-2 text-red-600 avec icone ShieldAlert h-5 w-5.
+- [ ] Description riche (ReactNode) : 'Vous etes sur le point de supprimer definitivement <span class="font-medium text-foreground">{deleteTarget?.name}</span>. Cette action est irreversible. Entrez votre mot de passe pour confirmer.'
+- [ ] DialogContent className='sm:max-w-md'. La fermeture (Echap / clic exterieur / bouton Annuler) est BLOQUEE tant que loading===true (handleOpenChange fait un return anticipe).
+- [ ] Bouton 'Annuler' : type='button', variant='outline', disabled pendant l'envoi; a la fermeture le mot de passe et l'erreur sont reinitialises.
+- [ ] Bouton de confirmation : type='submit', variant='destructive', libelle 'Supprimer definitivement'; pendant l'envoi il affiche un Loader2 h-4 w-4 mr-2 animate-spin + 'Suppression...'; disabled={loading || !password}.
+- [ ] Aucun dropdown/popover/menu contextuel ailleurs sur la page (hormis le SelectContent du Select de role, qui est un popover Radix).
+- [ ] AUCUNE recherche, AUCUN filtre (ni par role, ni par statut, ni par magasin), AUCUN tri de colonne, AUCUNE pagination — les deux tableaux affichent l'integralite des donnees renvoyees.
+- [ ] L'ordre des lignes est celui de l'API (magasins puis, dans allUsers, manager avant employers pour chaque magasin).
+- [ ] loading (userLoading || loading) : TOUTE la page est remplacee par un div p-6 space-y-4 contenant 3 <Skeleton className='h-16 w-full' /> — l'en-tete et les stats disparaissent aussi.
+- [ ] Ce meme skeleton plein ecran reapparait apres CHAQUE changement de role et CHAQUE suppression, car fetchData() fait setLoading(true) (pas de mode silencieux ici).
+- [ ] empty : AUCUN etat vide implemente — si stores est vide, on voit deux tableaux avec un header et zero ligne, et les descriptions '0 equipe(s) enregistree(s)' / '0 compte(s) enregistre(s)'.
+- [ ] error de chargement : catch { console.error(err) } uniquement — pas de toast, pas de bandeau, pas de retry. stores reste a sa valeur precedente.
+- [ ] error changement de role : toast.error(err.message || 'Erreur').
+- [ ] error suppression : message inline rouge dans la modale (pas de toast).
+- [ ] success : toast.success('Role modifie') / toast.success('Utilisateur supprime').
+- [ ] unauthorized : pas d'ecran dedie — redirection router.replace('/dashboard') sans aucun message.
+- [ ] disabled : bouton Actualiser pendant loading; Select de role si changingRole===u.id ou u.role==='admin'; boutons de la modale pendant l'envoi.
+- [ ] Codes couleur des badges : Actif / vert (text-green-700 border-green-200) ; Inactif ou En attente / orange (text-orange-700 border-orange-200). Badges en variant='outline' (fond transparent), contrairement aux badges pleins de /alerts et /pickup.
+- [ ] Deux libelles differents pour la meme donnee is_confirmed : 'Actif'/'Inactif' dans le tableau des equipes, 'Actif'/'En attente' dans le tableau des utilisateurs.
+- [ ] Le Select de role est tres compact (w-32 h-7 text-xs) : en Flutter, prevoir un DropdownButton dense ou un bottom sheet sur mobile.
+- [ ] Toasts sonner globaux : top-right, richColors, closeButton, expand, duree 5000 ms.
+- [ ] Aucun temps reel : contrairement a /alerts et /pickup, aucune souscription WebSocket ici.
+- [ ] Aucun format numerique special (pas d'Intl) : les compteurs sont affiches bruts.
+- [ ] Conteneur global : div p-6 space-y-6; tableaux dans des Card sans conteneur overflow-x (6 colonnes -> deborde sur mobile, a repenser en liste de cartes en Flutter).
+
+**Retirée de l'app :** page web accessible uniquement par l'URL (aucun lien dans le menu web) ; l'écran Flutter, sa route et son entrée de menu ont été supprimés à la demande (12/09/2026). La gestion des comptes reste disponible dans `/users`.
 
 ## PILOTAGE
 
@@ -2798,10 +2802,11 @@ listées ici avec leur état Flutter constaté.
 | MISSING | 0 |
 | PARTIAL | 0 |
 | IMPLEMENTED | 5 |
-| VERIFIED | 56 |
+| VERIFIED | 54 |
 | Supprimées côté web (rien à porter) | 1 |
 | Sans objet côté Flutter (non utilisé par le web ou sans équivalent mobile) | 13 |
+| Retirées de l'app à la demande (/superadmin, /scanner) | 2 |
 
 Fonctionnalités ajoutées depuis l'audit : 53 (MISSING 1 · PARTIAL 0 · IMPLEMENTED 9 · VERIFIED 35)
 
-**Total de cases à cocher : 2170 — cochées : 1704.**
+**Total de cases à cocher : 2170 — cochées : 1622.**

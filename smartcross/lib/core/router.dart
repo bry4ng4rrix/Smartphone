@@ -20,9 +20,7 @@ import '../features/depot/depot_screen.dart';
 import '../features/movements/movements_screen.dart';
 import '../features/notifications/notifications_screen.dart';
 import '../features/pickup/pickup_screen.dart';
-import '../features/scanner/scanner_screen.dart';
 import '../features/settings/settings_screen.dart';
-import '../features/superadmin/superadmin_screen.dart';
 import '../features/orders/order_create_screen.dart';
 import '../features/orders/order_detail_screen.dart';
 import '../features/orders/orders_list_screen.dart';
@@ -136,8 +134,6 @@ final routerProvider = Provider<GoRouter>((ref) {
           // anciens liens /reports arrivent au même endroit.
           GoRoute(path: '/reports', redirect: (context, state) => '/dashboard'),
           GoRoute(path: '/pickup', builder: (context, state) => const PickupScreen()),
-          GoRoute(path: '/scanner', builder: (context, state) => const ScannerScreen()),
-          GoRoute(path: '/superadmin', builder: (context, state) => const SuperadminScreen()),
           GoRoute(path: '/reset-password', builder: (context, state) => const ResetPasswordScreen()),
           // Le module Ventes/Ticket a ete retire : le seul flux de vente
           // est la Commande a 6 statuts. Meme redirection heritee que

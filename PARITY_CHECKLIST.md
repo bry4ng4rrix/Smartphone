@@ -56,9 +56,9 @@ Le detail par route ci-dessous liste nommement ce qui reste a couvrir.
 | `/stores (modal TransferProductsDialog — variante modale du m` | lib/features/stores/stores_screen.dart | 15 | PARTIAL |
 | `/alerts` | lib/features/alerts/alerts_screen.dart | 39 | DONE |
 | `/pickup` | lib/features/pickup/pickup_screen.dart | 37 | DONE |
-| `/scanner` | lib/features/scanner/scanner_screen.dart | 30 | DONE |
+| `/scanner` | retiree de l'app a la demande (12/09/2026) | 30 | DONE |
 | `/sales` | redirection go_router vers /orders (lib/core/router.dart) | 6 | DONE |
-| `/superadmin` | lib/features/superadmin/superadmin_screen.dart | 52 | DONE |
+| `/superadmin` | retiree de l'app a la demande (12/09/2026) | 52 | DONE |
 | `/notifications` | lib/features/notifications/notifications_screen.dart | 49 | PARTIAL |
 | `(global) TopBar — cloche de notifications (dropdown)` | composant / couche partagee — a porter | 39 | PARTIAL |
 | `/` | lib/features/auth/splash_screen.dart | 5 | DONE |
