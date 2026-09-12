@@ -1,455 +1,576 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { djangoClient } from '@/lib/django-client';
 import { useCurrentUser } from '@/lib/auth/useCurrentUser';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
-  RefreshCw, TrendingUp, Package, DollarSign, ShoppingBag, AlertTriangle,
-  Users, Store, ArrowDownRight, ArrowUpRight, ArrowLeftRight, CircleCheck,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  RefreshCw,
+  TrendingUp,
+  TrendingDown,
+  Truck,
+  Package,
+  Undo2,
+  Wallet,
+  ShieldAlert,
+  ArrowUpRight,
+  ArrowDownRight,
+  ArrowLeftRight,
 } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh';
-import { AIAnalysis } from '@/components/ai-analysis';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  ComposedChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import { APP_TIME_ZONE, appToday } from '@/lib/timezone';
 
-const fmt = (n: number) => new Intl.NumberFormat('fr-MG').format(Math.round(n));
-const PERIODS = [7, 30, 90] as const;
+const fmt = (n: number | string | null | undefined) =>
+  new Intl.NumberFormat('fr-MG').format(Math.round(Number(n || 0))) + ' Ar';
+const nb = (n: number | string | null | undefined) =>
+  new Intl.NumberFormat('fr-MG').format(Number(n || 0));
+
+/** Jour court pour les axes : « 09/09 ». */
+const jourCourt = (iso: string) =>
+  new Date(`${iso}T12:00:00+03:00`).toLocaleDateString('fr-FR', {
+    timeZone: APP_TIME_ZONE,
+    day: '2-digit',
+    month: '2-digit',
+  });
+
+const PERIODES = [
+  { jours: 7, label: '7 jours' },
+  { jours: 30, label: '30 jours' },
+  { jours: 90, label: '90 jours' },
+] as const;
+
+/** Recule de `jours` jours depuis aujourd'hui, en date d'Antananarivo. */
+function depuis(jours: number) {
+  const d = new Date(`${appToday()}T12:00:00+03:00`);
+  d.setDate(d.getDate() - (jours - 1));
+  return d.toISOString().slice(0, 10);
+}
+
+function Kpi({
+  titre,
+  valeur,
+  detail,
+  icon: Icon,
+  couleur = 'text-foreground',
+}: {
+  titre: string;
+  valeur: string;
+  detail?: string;
+  icon: any;
+  couleur?: string;
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardDescription className="flex items-center gap-1.5">
+          <Icon className="h-3.5 w-3.5" />
+          {titre}
+        </CardDescription>
+        <CardTitle className={`text-xl ${couleur}`}>{valeur}</CardTitle>
+      </CardHeader>
+      {detail && (
+        <CardContent className="pt-0">
+          <p className="text-xs text-muted-foreground">{detail}</p>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
 
 export default function ReportsPage() {
-  const { isAdmin } = useCurrentUser();
-  const [sales, setSales] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
-  const [movements, setMovements] = useState<any[]>([]);
-  const [dashboardKpis, setDashboardKpis] = useState<any>({});
+  const { isGerant, loading: userLoading } = useCurrentUser();
+  const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState<typeof PERIODS[number]>(30);
+  const [periode, setPeriode] = useState<number>(30);
+  const [dateFrom, setDateFrom] = useState(() => depuis(30));
+  const [dateTo, setDateTo] = useState(() => appToday());
 
-  const fetchData = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    try {
-      const [s, p, m, dashboard] = await Promise.all([
-        djangoClient.sales.list(),
-        djangoClient.products.list(),
-        djangoClient.movements.list(),
-        djangoClient.get<any>('/users/dashboard/').catch(() => ({})),
-      ]);
-      setSales(s);
-      setProducts(p);
-      setMovements(Array.isArray(m) ? m : (m as any)?.results || []);
-      setDashboardKpis(dashboard?.kpis || {});
-    } catch (err) {
-      console.error(err);
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }, []);
-
-  useRealtimeRefresh(['product_variant', 'order', 'stock_movement'], () => fetchData(true));
-
-  useEffect(() => { fetchData(); }, [fetchData]);
-
-  const today = useMemo(() => new Date(), []);
-
-  const totalRevenue = sales.reduce((s, x) => s + Number(x.total_price || 0), 0);
-  const totalProfit = sales.reduce((s, x) => s + Number(x.total_profit || 0), 0);
-  const totalQty = sales.reduce((s, x) => s + (x.quantity || 0), 0);
-  const totalStock = products.reduce((s, p) => s + (p.initial_quantity || 0), 0);
-
-  const unpaidSales = sales.filter(
-    (s) => !s.is_paid || Number(s.payment_amount || 0) < Number(s.total_price || 0)
-  );
-  const unpaidValue = unpaidSales.reduce(
-    (sum, s) => sum + Math.max(Number(s.total_price || 0) - Number(s.payment_amount || 0), 0),
-    0
+  const charger = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true);
+      try {
+        setData(await djangoClient.reports.get(dateFrom, dateTo));
+      } catch {
+        setData(null);
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [dateFrom, dateTo],
   );
 
-  const expiredCount = products.filter((p) => p.expiry_date && new Date(p.expiry_date) < today).length;
-  const lowStockCount = products.filter(
-    (p) => (p.initial_quantity ?? 0) <= (p.alert_threshold ?? 0)
-  ).length;
+  useRealtimeRefresh(['order', 'order_status_history'], () => charger(true));
+  useEffect(() => {
+    if (!userLoading && isGerant) charger();
+  }, [userLoading, isGerant, charger]);
 
-  // Sales by product (qty, CA, profit)
-  const byProduct: Record<string, { qty: number; revenue: number; profit: number }> = {};
-  sales.forEach((s) => {
-    const name = s.product_name || 'Inconnu';
-    if (!byProduct[name]) byProduct[name] = { qty: 0, revenue: 0, profit: 0 };
-    byProduct[name].qty += s.quantity || 0;
-    byProduct[name].revenue += Number(s.total_price || 0);
-    byProduct[name].profit += Number(s.total_profit || 0);
-  });
-  const topProducts = Object.entries(byProduct)
-    .map(([name, v]) => ({ name, ...v }))
-    .sort((a, b) => b.qty - a.qty)
-    .slice(0, 10);
-
-  // Sales by seller
-  const bySeller: Record<string, { count: number; revenue: number; profit: number }> = {};
-  sales.forEach((s) => {
-    const name = s.seller_name || 'Non attribué';
-    if (!bySeller[name]) bySeller[name] = { count: 0, revenue: 0, profit: 0 };
-    bySeller[name].count += 1;
-    bySeller[name].revenue += Number(s.total_price || 0);
-    bySeller[name].profit += Number(s.total_profit || 0);
-  });
-  const topSellers = Object.entries(bySeller)
-    .map(([name, v]) => ({ name, ...v }))
-    .sort((a, b) => b.revenue - a.revenue)
-    .slice(0, 8);
-
-  // Sales by shop (admin only — cross-magasin comparison)
-  const byShop: Record<string, { qty: number; revenue: number; profit: number }> = {};
-  if (isAdmin) {
-    sales.forEach((s) => {
-      const name = s.shop_name || 'Magasin inconnu';
-      if (!byShop[name]) byShop[name] = { qty: 0, revenue: 0, profit: 0 };
-      byShop[name].qty += s.quantity || 0;
-      byShop[name].revenue += Number(s.total_price || 0);
-      byShop[name].profit += Number(s.total_profit || 0);
-    });
-  }
-  const topShops = Object.entries(byShop)
-    .map(([name, v]) => ({ name, ...v }))
-    .sort((a, b) => b.revenue - a.revenue);
-
-  // Revenue chart over the selected period
-  const dayBuckets: Record<string, number> = {};
-  for (let i = period - 1; i >= 0; i--) {
-    const d = new Date(); d.setDate(d.getDate() - i);
-    dayBuckets[d.toISOString().split('T')[0]] = 0;
-  }
-  sales.forEach((s) => {
-    const day = new Date(s.sold_at).toISOString().split('T')[0];
-    if (day in dayBuckets) dayBuckets[day] += Number(s.total_price || 0);
-  });
-  const revenueChart = Object.entries(dayBuckets).map(([date, revenue]) => ({
-    date: date.slice(5),
-    revenue,
-  }));
-
-  // Movement type breakdown over the selected period
-  const periodStart = new Date();
-  periodStart.setDate(periodStart.getDate() - period);
-  const movementsInPeriod = movements.filter((m) => new Date(m.created_at) >= periodStart);
-  const movementCounts = { Entrée: 0, Sortie: 0, Transfert: 0 } as Record<string, number>;
-  movementsInPeriod.forEach((m) => {
-    const type = m.movement_type;
-    if (type in movementCounts) movementCounts[type] += 1;
-  });
-
-  const unpaidSorted = [...unpaidSales].sort((a, b) => {
-    if (!a.payment_due_date) return 1;
-    if (!b.payment_due_date) return -1;
-    return new Date(a.payment_due_date).getTime() - new Date(b.payment_due_date).getTime();
-  }).slice(0, 8);
-
-  const kpis = [
-    { label: "Chiffre d'affaires", value: `${fmt(totalRevenue)} Ar`, icon: DollarSign, color: 'text-green-600' },
-    { label: 'Bénéfice net', value: `${fmt(totalProfit)} Ar`, icon: TrendingUp, color: 'text-emerald-600' },
-    { label: 'Unités vendues', value: `${fmt(totalQty)}`, icon: ShoppingBag, color: 'text-blue-600' },
-    { label: 'Transactions', value: sales.length, icon: ShoppingBag, color: 'text-purple-600' },
-    { label: 'Produits en stock', value: `${fmt(totalStock)} u.`, icon: Package, color: 'text-indigo-600' },
-    { label: 'Alertes stock', value: lowStockCount + expiredCount, icon: AlertTriangle, color: 'text-amber-600' },
-  ];
-
-  // Données envoyées à l'analyse IA (voir components/ai-analysis.tsx et
-  // app/api/ai/analyze/route.ts) — les chiffres financiers viennent du
-  // dashboard (seule source qui connaît le coût d'achat), le reste des
-  // données déjà calculées ci-dessus pour les tableaux de cette page.
-  const rupturesStock = products
-    .filter((p) => (p.initial_quantity ?? 0) === 0)
-    .slice(0, 15)
-    .map((p) => ({ name: p.name, stock: 0 }));
-  const stockBas = products
-    .filter((p) => (p.initial_quantity ?? 0) > 0 && (p.initial_quantity ?? 0) <= (p.alert_threshold ?? 0))
-    .slice(0, 15)
-    .map((p) => ({ name: p.name, stock: p.initial_quantity, seuil: p.alert_threshold }));
-  const produitsSansMouvement = products
-    .filter((p) => !byProduct[p.name])
-    .slice(0, 15)
-    .map((p) => ({ name: p.name }));
-
-  const aiData = {
-    periode: 'toutes périodes confondues',
-    ca: dashboardKpis.ca ?? totalRevenue,
-    beneficeNet: dashboardKpis.total_profit ?? totalProfit,
-    valeurStock: dashboardKpis.total_stock_value ?? dashboardKpis.stock_value,
-    beneficeEstimeStock: dashboardKpis.benefice_estime_stock,
-    ventesImpayeesCount: unpaidSales.length,
-    topProduits: topProducts,
-    produitsSansMouvement,
-    rupturesStock,
-    stockBas,
-    repartitionMouvements: movementCounts,
-    topVendeurs: topSellers.map((s) => ({ name: s.name, revenue: s.revenue })),
-    topMagasins: isAdmin ? topShops.map((s) => ({ name: s.name, revenue: s.revenue })) : undefined,
+  const choisirPeriode = (jours: number) => {
+    setPeriode(jours);
+    setDateFrom(depuis(jours));
+    setDateTo(appToday());
   };
 
-  return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Rapports</h1>
-          <p className="text-muted-foreground mt-1">Analyse des ventes, du stock et des performances</p>
+  const t = data?.totaux;
+  const parJour = useMemo(
+    () =>
+      (data?.par_jour || []).map((j: any) => ({
+        ...j,
+        jour: jourCourt(j.date),
+        ca: Number(j.ca),
+        depenses: Number(j.depenses),
+        difference: Number(j.difference),
+      })),
+    [data],
+  );
+  const mouvements = useMemo(
+    () =>
+      (data?.mouvements_par_jour || []).map((m: any) => ({
+        ...m,
+        jour: jourCourt(m.date),
+      })),
+    [data],
+  );
+
+  if (!userLoading && !isGerant) {
+    return (
+      <div className="p-6">
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-20 text-center">
+            <ShieldAlert className="h-12 w-12 text-red-500 mb-4" />
+            <h2 className="text-xl font-bold">Accès refusé</h2>
+            <p className="text-muted-foreground mt-2">
+              Les rapports sont réservés au gérant.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (loading || !data) {
+    return (
+      <div className="p-4 sm:p-6 space-y-4">
+        <Skeleton className="h-10 w-64" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-24 w-full" />
+          ))}
         </div>
-        <Button variant="outline" size="sm" onClick={() => fetchData()} disabled={loading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />Actualiser
-        </Button>
+        <Skeleton className="h-72 w-full" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 sm:p-6 space-y-6">
+      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Rapports</h1>
+          <p className="text-sm text-muted-foreground">
+            Du {jourCourt(data.periode.from)} au {jourCourt(data.periode.to)} —
+            chiffre d&apos;affaires, dépenses, performance des équipes.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-end gap-2">
+          {PERIODES.map((p) => (
+            <Button
+              key={p.jours}
+              size="sm"
+              variant={periode === p.jours ? 'default' : 'outline'}
+              onClick={() => choisirPeriode(p.jours)}
+            >
+              {p.label}
+            </Button>
+          ))}
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Du</Label>
+            <Input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => {
+                setDateFrom(e.target.value);
+                setPeriode(0);
+              }}
+              className="w-auto"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Au</Label>
+            <Input
+              type="date"
+              value={dateTo}
+              onChange={(e) => {
+                setDateTo(e.target.value);
+                setPeriode(0);
+              }}
+              className="w-auto"
+            />
+          </div>
+          <Button variant="outline" size="icon" onClick={() => charger()}>
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {kpis.map(({ label, value, icon: Icon, color }) => (
-          <Card key={label}>
-            <CardHeader className="pb-2">
-              <CardTitle className={`text-sm font-medium flex items-center gap-2 ${color}`}>
-                <Icon className="h-4 w-4" />{label}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {loading ? <Skeleton className="h-8 w-24" /> : <div className={`text-2xl font-bold ${color}`}>{value}</div>}
-            </CardContent>
-          </Card>
-        ))}
+      {/* Les chiffres de la période */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Kpi
+          titre="Chiffre d'affaires"
+          valeur={fmt(t.chiffre_affaires)}
+          detail={`Produits ${fmt(t.ca_produits)} + frais ${fmt(t.frais_livraison)}`}
+          icon={TrendingUp}
+        />
+        <Kpi
+          titre="Marge sur produits"
+          valeur={fmt(t.marge_produits)}
+          detail={`Vendus ${fmt(t.ca_produits)} − coût ${fmt(t.cout_produits)}`}
+          icon={ArrowUpRight}
+          couleur="text-emerald-600 dark:text-emerald-400"
+        />
+        <Kpi
+          titre="Total dépenses"
+          valeur={fmt(t.depenses_totales)}
+          detail={`Caisse ${fmt(t.depenses_caisse)} + livreurs ${fmt(t.depenses_livreur)}`}
+          icon={ArrowDownRight}
+          couleur="text-red-600"
+        />
+        <Kpi
+          titre="Résultat"
+          valeur={fmt(t.resultat)}
+          detail="Marge + frais − dépenses"
+          icon={Number(t.resultat) >= 0 ? TrendingUp : TrendingDown}
+          couleur={
+            Number(t.resultat) >= 0
+              ? 'text-emerald-600 dark:text-emerald-400'
+              : 'text-red-600'
+          }
+        />
+        <Kpi
+          titre="Frais de livraison"
+          valeur={fmt(t.frais_livraison)}
+          detail={`${nb(t.nb_livrees)} livraison(s)`}
+          icon={Truck}
+        />
+        <Kpi
+          titre="Dépenses livreurs"
+          valeur={fmt(t.depenses_livreur)}
+          detail="Frais de tournée validés"
+          icon={Wallet}
+          couleur="text-red-600"
+        />
+        <Kpi
+          titre="Retours"
+          valeur={nb(t.nb_retours)}
+          detail={`${fmt(t.montant_retours)} non encaissés`}
+          icon={Undo2}
+          couleur="text-red-600"
+        />
+        <Kpi
+          titre="Taux de livraison"
+          valeur={`${t.taux_livraison} %`}
+          detail={`${nb(t.nb_livrees)} livrées sur ${nb(t.nb_commandes)}`}
+          icon={Package}
+        />
       </div>
 
-      {/* Revenue chart */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <div>
-            <CardTitle>Chiffre d'affaires — {period} derniers jours</CardTitle>
-            <CardDescription>Évolution journalière du CA</CardDescription>
-          </div>
-          <div className="flex gap-1">
-            {PERIODS.map((p) => (
-              <Button
-                key={p}
-                size="sm"
-                variant={period === p ? 'default' : 'outline'}
-                className="h-7 px-2.5 text-xs"
-                onClick={() => setPeriod(p)}
-              >
-                {p}j
-              </Button>
-            ))}
-          </div>
-        </CardHeader>
-        <CardContent>
-          {loading ? <Skeleton className="h-64 w-full" /> : (
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={revenueChart}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} interval={Math.max(Math.floor(period / 8), 0)} />
-                <YAxis tickFormatter={(v) => fmt(v)} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v: number) => `${fmt(v)} Ar`} />
-                <Bar dataKey="revenue" fill="#3b82f6" radius={[2, 2, 0, 0]} name="CA" />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Top products */}
+      {/* Recettes, dépenses et écart, jour par jour */}
       <Card>
         <CardHeader>
-          <CardTitle>Top produits vendus</CardTitle>
-          <CardDescription>Classement par quantités vendues</CardDescription>
+          <CardTitle className="text-base">Recettes et dépenses par jour</CardTitle>
+          <CardDescription>
+            La courbe donne l&apos;écart du jour : ce que la journée a
+            réellement laissé une fois les dépenses retirées.
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          {loading ? <Skeleton className="h-48 w-full" /> : topProducts.length === 0 ? (
-            <p className="text-muted-foreground text-sm text-center py-8">Aucune vente enregistrée</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>#</TableHead>
-                  <TableHead>Produit</TableHead>
-                  <TableHead className="text-right">Qté vendue</TableHead>
-                  <TableHead className="text-right">CA généré</TableHead>
-                  <TableHead className="text-right">Bénéfice</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {topProducts.map((p, i) => (
-                  <TableRow key={p.name}>
-                    <TableCell className="font-medium text-muted-foreground">{i + 1}</TableCell>
-                    <TableCell className="font-medium">{p.name}</TableCell>
-                    <TableCell className="text-right font-semibold">{p.qty}</TableCell>
-                    <TableCell className="text-right">{fmt(p.revenue)} Ar</TableCell>
-                    <TableCell className="text-right text-emerald-600 font-medium">{fmt(p.profit)} Ar</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
+          <div className="h-72 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={parJour}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                <XAxis dataKey="jour" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} width={70} />
+                <Tooltip formatter={(v: any) => fmt(v)} />
+                <Legend />
+                <Bar dataKey="ca" name="Recettes" fill="#2563eb" />
+                <Bar dataKey="depenses" name="Dépenses" fill="#dc2626" />
+                <Line
+                  type="monotone"
+                  dataKey="difference"
+                  name="Écart"
+                  stroke="#16a34a"
+                  strokeWidth={2}
+                  dot={false}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
         </CardContent>
       </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Ventes à crédit / impayées */}
+        {/* Mouvements de stock */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-orange-500" />
-              Ventes à crédit
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ArrowLeftRight className="h-4 w-4" /> Mouvements de stock par jour
             </CardTitle>
-            <CardDescription>Paiements en attente ou partiels</CardDescription>
+            <CardDescription>
+              Entrées et sorties enregistrées sur la période.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            {loading ? <Skeleton className="h-48 w-full" /> : unpaidSorted.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 py-8 text-center text-muted-foreground">
-                <CircleCheck className="h-8 w-8 text-green-500" />
-                <p className="text-sm">Aucune vente impayée</p>
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Client</TableHead>
-                    <TableHead>Produit</TableHead>
-                    <TableHead className="text-right">Restant dû</TableHead>
-                    <TableHead>Statut</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {unpaidSorted.map((s) => {
-                    const remaining = Math.max(Number(s.total_price || 0) - Number(s.payment_amount || 0), 0);
-                    const overdue = s.payment_due_date && new Date(s.payment_due_date) < today;
-                    return (
-                      <TableRow key={s.id}>
-                        <TableCell className="font-medium">{s.customer_name || 'Client anonyme'}</TableCell>
-                        <TableCell className="text-muted-foreground">{s.product_name}</TableCell>
-                        <TableCell className="text-right font-semibold text-red-600">{fmt(remaining)} Ar</TableCell>
-                        <TableCell>
-                          <Badge variant={overdue ? 'destructive' : 'outline'} className="text-[10px]">
-                            {overdue ? 'En retard' : 'En attente'}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            )}
+            <div className="h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={mouvements}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                  <XAxis dataKey="jour" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="entrees" name="Entrées" fill="#16a34a" />
+                  <Bar dataKey="sorties" name="Sorties" fill="#ea580c" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </CardContent>
         </Card>
 
-        {/* Performance des vendeurs */}
+        {/* Part de l'activité par jour */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5 text-blue-500" />
-              Performance des vendeurs
-            </CardTitle>
-            <CardDescription>Classement par chiffre d'affaires</CardDescription>
+            <CardTitle className="text-base">Activité par jour</CardTitle>
+            <CardDescription>
+              Part des mouvements de stock de chaque journée dans la période —
+              elle montre où se concentre l&apos;activité.
+            </CardDescription>
           </CardHeader>
-          <CardContent>
-            {loading ? <Skeleton className="h-48 w-full" /> : topSellers.length === 0 ? (
-              <p className="text-muted-foreground text-sm text-center py-8">Aucune vente enregistrée</p>
-            ) : (
+          <CardContent className="p-0">
+            <div className="overflow-x-auto max-h-64">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Vendeur</TableHead>
-                    <TableHead className="text-right">Ventes</TableHead>
-                    <TableHead className="text-right">CA</TableHead>
-                    <TableHead className="text-right">Bénéfice</TableHead>
+                    <TableHead>Jour</TableHead>
+                    <TableHead className="text-right">Commandes</TableHead>
+                    <TableHead className="text-right">Livrées</TableHead>
+                    <TableHead className="text-right">Retours</TableHead>
+                    <TableHead className="text-right">Mouvements</TableHead>
+                    <TableHead className="text-right">Part</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {topSellers.map((s) => (
-                    <TableRow key={s.name}>
-                      <TableCell className="font-medium">{s.name}</TableCell>
-                      <TableCell className="text-right">{s.count}</TableCell>
-                      <TableCell className="text-right">{fmt(s.revenue)} Ar</TableCell>
-                      <TableCell className="text-right text-emerald-600 font-medium">{fmt(s.profit)} Ar</TableCell>
+                  {parJour.map((j: any) => (
+                    <TableRow key={j.date}>
+                      <TableCell className="whitespace-nowrap">{j.jour}</TableCell>
+                      <TableCell className="text-right">{nb(j.commandes)}</TableCell>
+                      <TableCell className="text-right">{nb(j.livrees)}</TableCell>
+                      <TableCell className="text-right text-red-600">
+                        {j.retours || '-'}
+                      </TableCell>
+                      <TableCell className="text-right">{nb(j.mouvements)}</TableCell>
+                      <TableCell className="text-right font-medium">
+                        {j.part_mouvements} %
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-            )}
+            </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Performance par magasin (admin uniquement, comparaison multi-magasins) */}
-      {isAdmin && (
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Produits les plus vendus */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Store className="h-5 w-5 text-violet-500" />
-              Performance par magasin
-            </CardTitle>
-            <CardDescription>Comparaison du chiffre d'affaires entre magasins</CardDescription>
+            <CardTitle className="text-base">Produits les plus vendus</CardTitle>
           </CardHeader>
-          <CardContent>
-            {loading ? <Skeleton className="h-48 w-full" /> : topShops.length === 0 ? (
-              <p className="text-muted-foreground text-sm text-center py-8">Aucune vente enregistrée</p>
-            ) : (
+          <CardContent className="p-0">
+            <ProduitsTable rows={data.top_produits} vide="Aucune vente sur la période." />
+          </CardContent>
+        </Card>
+
+        {/* Produits les moins vendus */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Produits les moins vendus</CardTitle>
+            <CardDescription>
+              Parmi ceux qui se sont vendus — un produit jamais vendu
+              n&apos;apparaît pas ici, il est dans le catalogue.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <ProduitsTable
+              rows={data.produits_moins_vendus}
+              vide="Aucune vente sur la période."
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Performance des livreurs */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Truck className="h-4 w-4" /> Performance des livreurs
+          </CardTitle>
+          <CardDescription>
+            Livraisons réussies, retours, argent rapporté et frais de tournée.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          {data.livreurs.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-10">
+              Aucune commande assignée sur la période.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Magasin</TableHead>
-                    <TableHead className="text-right">Qté vendue</TableHead>
-                    <TableHead className="text-right">CA</TableHead>
-                    <TableHead className="text-right">Bénéfice</TableHead>
+                    <TableHead>Livreur</TableHead>
+                    <TableHead className="text-right">Assignées</TableHead>
+                    <TableHead className="text-right">Livrées</TableHead>
+                    <TableHead className="text-right">Retours</TableHead>
+                    <TableHead className="text-right">Réussite</TableHead>
+                    <TableHead className="text-right">Encaissé</TableHead>
+                    <TableHead className="text-right">Frais</TableHead>
+                    <TableHead className="text-right">Dépenses</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {topShops.map((s) => (
-                    <TableRow key={s.name}>
-                      <TableCell className="font-medium">{s.name}</TableCell>
-                      <TableCell className="text-right">{s.qty}</TableCell>
-                      <TableCell className="text-right">{fmt(s.revenue)} Ar</TableCell>
-                      <TableCell className="text-right text-emerald-600 font-medium">{fmt(s.profit)} Ar</TableCell>
+                  {data.livreurs.map((l: any) => (
+                    <TableRow key={l.id}>
+                      <TableCell className="font-medium">{l.nom}</TableCell>
+                      <TableCell className="text-right">{nb(l.assignees)}</TableCell>
+                      <TableCell className="text-right">{nb(l.livrees)}</TableCell>
+                      <TableCell className="text-right text-red-600">
+                        {l.retours || '-'}
+                      </TableCell>
+                      <TableCell className="text-right font-medium">
+                        {l.taux_reussite} %
+                      </TableCell>
+                      <TableCell className="text-right">{fmt(l.ca)}</TableCell>
+                      <TableCell className="text-right">
+                        {fmt(l.frais_livraison)}
+                      </TableCell>
+                      <TableCell className="text-right text-red-600">
+                        {Number(l.depenses) > 0 ? `-${fmt(l.depenses)}` : '-'}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Mouvements de stock */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Mouvements de stock — {period} derniers jours</CardTitle>
-          <CardDescription>Entrées, sorties et transferts enregistrés</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loading ? <Skeleton className="h-20 w-full" /> : (
-            <div className="grid grid-cols-3 gap-4">
-              <div className="flex items-center gap-3 rounded-lg border p-4">
-                <ArrowUpRight className="h-5 w-5 text-green-600" />
-                <div>
-                  <div className="text-xl font-bold text-green-600">{movementCounts['Entrée']}</div>
-                  <p className="text-xs text-muted-foreground">Entrées</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 rounded-lg border p-4">
-                <ArrowDownRight className="h-5 w-5 text-red-600" />
-                <div>
-                  <div className="text-xl font-bold text-red-600">{movementCounts['Sortie']}</div>
-                  <p className="text-xs text-muted-foreground">Sorties</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 rounded-lg border p-4">
-                <ArrowLeftRight className="h-5 w-5 text-cyan-600" />
-                <div>
-                  <div className="text-xl font-bold text-cyan-600">{movementCounts['Transfert']}</div>
-                  <p className="text-xs text-muted-foreground">Transferts</p>
-                </div>
-              </div>
             </div>
           )}
         </CardContent>
       </Card>
 
-      <AIAnalysis data={aiData} />
+      {/* Préparateurs */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Package className="h-4 w-4" /> Commandes préparées
+          </CardTitle>
+          <CardDescription>
+            Par préparateur sur la période, avec le détail des journées.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {data.preparateurs.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-10">
+              Aucune préparation sur la période.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {data.preparateurs.map((p: any) => (
+                <div key={p.id} className="space-y-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-medium">{p.nom}</span>
+                    <span className="text-muted-foreground">
+                      {nb(p.total)} commande(s)
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {p.par_jour.map((j: any) => (
+                      <span
+                        key={j.date}
+                        className="text-[11px] rounded-full border px-2 py-0.5 text-muted-foreground"
+                      >
+                        {jourCourt(j.date)} · {j.nb}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function ProduitsTable({ rows, vide }: { rows: any[]; vide: string }) {
+  if (!rows || rows.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground text-center py-10">{vide}</p>
+    );
+  }
+  return (
+    <div className="overflow-x-auto">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Produit</TableHead>
+            <TableHead>Marque</TableHead>
+            <TableHead className="text-right">Vendus</TableHead>
+            <TableHead className="text-right">CA</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((p, i) => (
+            <TableRow key={`${p.label}-${i}`}>
+              <TableCell className="font-medium">{p.label}</TableCell>
+              <TableCell className="text-muted-foreground">
+                {p.marque || '-'}
+              </TableCell>
+              <TableCell className="text-right">{nb(p.quantite)}</TableCell>
+              <TableCell className="text-right">{fmt(p.ca)}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   );
 }

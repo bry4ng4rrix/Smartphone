@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { djangoClient } from "@/lib/django-client";
 import { useCurrentUser } from "@/lib/auth/useCurrentUser";
 import { useRealtimeRefresh } from "@/lib/hooks/useRealtimeRefresh";
@@ -70,6 +70,7 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import {
+  Image as ImageIcon,
   MessageCircle,
   Plus,
   Trash2,
@@ -2280,6 +2281,18 @@ function NoteForm({
   const [note, setNote] = useState("");
   const [photo, setPhoto] = useState<File | undefined>(undefined);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // `capture="environment"` ouvre l'appareil photo arrière sur mobile ;
+  // sans l'attribut, c'est le sélecteur de fichiers.
+  const ouvrirFichier = (appareilPhoto: boolean) => {
+    const input = fileRef.current;
+    if (!input) return;
+    if (appareilPhoto) input.setAttribute("capture", "environment");
+    else input.removeAttribute("capture");
+    input.value = "";
+    input.click();
+  };
   const [saisie, setSaisie] = useState("");
   // Tout est coché au départ : le cas courant reste « tout a été remis ».
   const [livres, setLivres] = useState<number[]>(() =>
@@ -2304,21 +2317,60 @@ function NoteForm({
           <Label className="flex items-center gap-1.5 text-sm">
             <Camera className="h-4 w-4" /> Photo de la préparation (optionnel)
           </Label>
-          <Input
+          {/* Un seul input fichier, piloté par les deux boutons : `capture`
+              est posé à la volée pour ouvrir directement l'appareil photo
+              (§ demande). Sur ordinateur l'attribut est ignoré et c'est la
+              boîte de dialogue habituelle qui s'affiche. */}
+          <input
+            ref={fileRef}
             type="file"
             accept="image/*"
+            className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
               setPhoto(file);
               setPhotoPreview(file ? URL.createObjectURL(file) : null);
             }}
           />
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              onClick={() => ouvrirFichier(true)}
+            >
+              <Camera className="h-4 w-4 mr-2" /> Prendre une photo
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              onClick={() => ouvrirFichier(false)}
+            >
+              <ImageIcon className="h-4 w-4 mr-2" /> Choisir un fichier
+            </Button>
+          </div>
           {photoPreview && (
-            <img
-              src={photoPreview}
-              alt="Aperçu"
-              className="h-20 w-20 object-cover rounded border"
-            />
+            <div className="flex items-center gap-2">
+              <img
+                src={photoPreview}
+                alt="Aperçu"
+                className="h-20 w-20 object-cover rounded border"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-red-600"
+                onClick={() => {
+                  setPhoto(undefined);
+                  setPhotoPreview(null);
+                  if (fileRef.current) fileRef.current.value = "";
+                }}
+              >
+                Retirer
+              </Button>
+            </div>
           )}
         </div>
       )}

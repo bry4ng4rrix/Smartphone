@@ -827,6 +827,18 @@ class DjangoAPIClient {
     },
   }
 
+  /**
+   * Rapports du gérant — tous les bilans d'une période, agrégés côté serveur
+   * (voir orders/reports.py). Le bénéfice a besoin du prix d'achat, qui ne
+   * doit pas transiter par le navigateur d'un livreur ou d'un préparateur.
+   */
+  reports = {
+    get: async (dateFrom: string, dateTo: string) => {
+      const params = new URLSearchParams({ date_from: dateFrom, date_to: dateTo })
+      return this.get<any>(`/orders/reports/?${params.toString()}`)
+    },
+  }
+
   /** Types de dépense du livreur — configurables dans Paramètres. */
   expenseTypes = {
     list: async () => {

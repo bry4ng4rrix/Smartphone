@@ -2,6 +2,7 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from .dashboard import DashboardView
+from .reports import ReportsView
 from .views import (
     DeliveryZoneOptionViewSet,
     ExpenseTypeViewSet,
@@ -19,4 +20,6 @@ router.register(r"", OrderViewSet, basename="order")
 
 urlpatterns = [
     path("dashboard/", DashboardView.as_view()),
+    # Rapports du gérant — tous les bilans de la période, agrégés côté serveur.
+    path("reports/", ReportsView.as_view()),
 ] + router.urls
