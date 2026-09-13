@@ -14,13 +14,19 @@ import '../../state/auth_provider.dart';
 import '../../state/orders_provider.dart';
 import '../../widgets/assign_staff_dialog.dart';
 import '../../widgets/async_state_widgets.dart';
+import '../../widgets/note_callout.dart';
 import '../../widgets/order_confirm_dialog.dart';
 import '../../widgets/status_badge.dart';
+import 'order_create_screen.dart' show OrderDateTimeField;
 import 'orders_list_screen.dart' show EditOrderDialog;
 
 final _moneyFmt = NumberFormat.decimalPattern('fr_FR');
 String _ar(num v) => '${_moneyFmt.format(v.round())} Ar';
 final _dateTimeFmt = DateFormat('dd/MM/yyyy HH:mm');
+
+/// Vert des remises (`text-emerald-700` / `dark:text-emerald-300` du web).
+Color _remiseColor(BuildContext context) =>
+    Theme.of(context).brightness == Brightness.dark ? const Color(0xFF6EE7B7) : const Color(0xFF047857);
 
 /// `fmtAppDateTime` du web : JJ/MM/AAAA HH:mm à l'heure d'Antananarivo, quel
 /// que soit le fuseau de l'appareil — « — » si la valeur est absente.
@@ -172,7 +178,8 @@ class OrderDetailScreen extends ConsumerWidget {
 
   /// « Modifier » reste proposé tant que la commande n'est pas terminée
   /// (§ demande) : au-delà de "En préparation" le formulaire se limite aux
-  /// données de livraison (zone, adresse, paiement, note du livreur).
+  /// données de livraison (zone, adresse, paiement, date et heure de
+  /// livraison, note du livreur).
   Future<void> _edit(BuildContext context, WidgetRef ref, Order order) async {
     if (order.modificationComplete) {
       await showDialog<void>(
@@ -551,10 +558,10 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
           ),
 
           // -------------------------------------------------------------- Notes
-          if (order.notePreparateur != null && order.notePreparateur!.isNotEmpty)
-            _NoteBlock(label: 'Note pour le préparateur', text: order.notePreparateur!),
-          if (order.noteLivreur != null && order.noteLivreur!.isNotEmpty)
-            _NoteBlock(label: 'Note pour le livreur', text: order.noteLivreur!),
+          // Consignes du gérant en encarts très visibles (§ demande) ; le
+          // widget ne rend rien quand la note est vide.
+          NoteCallout(role: NoteRole.preparateur, text: order.notePreparateur, margin: const EdgeInsets.only(top: 12)),
+          NoteCallout(role: NoteRole.livreur, text: order.noteLivreur, margin: const EdgeInsets.only(top: 12)),
 
           // ----------------------------------------------------- Envoyer au chat
           // Proposé dès qu'une photo de préparation existe, au gérant comme au
@@ -836,12 +843,46 @@ class _ArticlesCard extends StatelessWidget {
                 ],
               ),
               Text(_meta(item), style: small),
-              // Prix unitaire : exposé au gérant seulement (serializer complet).
+              // Prix unitaire : exposé au gérant seulement (serializer complet),
+              // avec la remise accordée — prix catalogue barré + badge vert.
               if (item.prixUnitaire != null)
-                Text(
-                  '${item.quantite} × ${_ar(item.prixUnitaire!)} = ${_ar(item.prixUnitaire! * item.quantite)}',
-                  style: small,
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Text(
+                        '${_ar(item.prixUnitaire!)} / unité',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                      ),
+                      if (item.aRemise) ...[
+                        if (item.prixCatalogue != null)
+                          Text(_ar(item.prixCatalogue!), style: small.copyWith(decoration: TextDecoration.lineThrough)),
+                        StatusChip(label: 'Remise −${_ar(item.remiseUnitaire)}', color: _remiseColor(context)),
+                      ],
+                    ],
+                  ),
                 ),
+            ],
+            // Total des remises de la commande (`remise_total`, toutes vues).
+            if (order.aRemise) ...[
+              const Divider(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Remise accordée',
+                      style: TextStyle(fontWeight: FontWeight.w500, color: _remiseColor(context)),
+                    ),
+                  ),
+                  Text(
+                    '−${_ar(order.remiseTotal)}',
+                    style: TextStyle(fontWeight: FontWeight.w500, color: _remiseColor(context)),
+                  ),
+                ],
+              ),
             ],
           ],
         ),
@@ -893,27 +934,6 @@ class _KeyValueRow extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _NoteBlock extends StatelessWidget {
-  const _NoteBlock({required this.label, required this.text});
-  final String label;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
-          const SizedBox(height: 2),
-          Text(text),
-        ],
       ),
     );
   }
@@ -1315,9 +1335,11 @@ class _DeleteOrderDialogState extends State<_DeleteOrderDialog> {
 /// commande est trop engagée pour tout modifier, mais les données de
 /// LIVRAISON doivent rester ajustables — le client peut régler d'avance, ou
 /// dicter une autre adresse pendant que le livreur roule. Changer la zone met
-/// à jour les frais et le total, donc le bilan du livreur (§ demande). Même
-/// règle que le serveur (orders/services.py::update_order), qui refuserait le
-/// reste de toute façon. Un retrait sur place ne garde que le paiement.
+/// à jour les frais et le total, donc le bilan du livreur (§ demande). La
+/// date et l'heure de livraison restent aussi modifiables : le client reporte
+/// son créneau en cours de tournée (§ demande). Même règle que le serveur
+/// (orders/services.py::update_order), qui refuserait le reste de toute
+/// façon. Un retrait sur place ne garde que le paiement et la date.
 class _EditLivraisonDialog extends ConsumerStatefulWidget {
   const _EditLivraisonDialog({required this.order});
   final Order order;
@@ -1329,6 +1351,8 @@ class _EditLivraisonDialog extends ConsumerStatefulWidget {
 class _EditLivraisonDialogState extends ConsumerState<_EditLivraisonDialog> {
   late String _zone = widget.order.livraisonZone;
   late PaymentMode _modePaiement = widget.order.modePaiement;
+  // Heure « au mur » d'Antananarivo, comme le régime complet (EditOrderDialog).
+  late DateTime? _dateCommande = widget.order.dateCommande == null ? null : appLocal(widget.order.dateCommande!);
   late final _adresseController = TextEditingController(text: widget.order.adresseLivraison ?? '');
   late final _noteLivreurController = TextEditingController(text: widget.order.noteLivreur ?? '');
   bool _submitting = false;
@@ -1356,6 +1380,8 @@ class _EditLivraisonDialogState extends ConsumerState<_EditLivraisonDialog> {
             modePaiement: _modePaiement.apiValue,
             livraisonZone: _zone,
             adresseLivraison: _recuperation ? '' : _adresseController.text.trim(),
+            // Envoyée seulement si renseignée, comme le web (`date_commande`).
+            dateCommande: _dateCommande == null ? null : appWallClockToUtc(_dateCommande!),
             noteLivreur: _recuperation ? '' : _noteLivreurController.text.trim(),
           );
       if (!mounted) return;
@@ -1394,7 +1420,7 @@ class _EditLivraisonDialogState extends ConsumerState<_EditLivraisonDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                "Commande déjà engagée : seules la zone, l'adresse, le paiement et la note du livreur restent modifiables. Changer la zone met à jour les frais et le bilan du livreur.",
+                "Commande déjà engagée : seules la zone, l'adresse, le paiement, la date et l'heure de livraison et la note du livreur restent modifiables. Changer la zone met à jour les frais et le bilan du livreur.",
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               if (_error != null) ...[
@@ -1416,6 +1442,18 @@ class _EditLivraisonDialogState extends ConsumerState<_EditLivraisonDialog> {
                   enabled: !_submitting,
                 ),
               ],
+              // Reporter la livraison reste possible en cours de tournée
+              // (§ demande) : le champ est aussi proposé en régime restreint.
+              const SizedBox(height: 12),
+              IgnorePointer(
+                ignoring: _submitting,
+                child: OrderDateTimeField(
+                  value: _dateCommande,
+                  labelText: 'Date et heure de livraison',
+                  hintText: 'Choisir la date',
+                  onChanged: (d) => setState(() => _dateCommande = d),
+                ),
+              ),
               const SizedBox(height: 12),
               DropdownButtonFormField<PaymentMode>(
                 initialValue: _modePaiement,

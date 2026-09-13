@@ -1,13 +1,17 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../core/app_time.dart';
 import '../core/constants.dart';
+import '../core/permissions.dart';
 import '../models/delivery_zone.dart';
 import '../models/order.dart';
+import '../state/auth_provider.dart';
+import 'note_callout.dart';
 
 final _moneyFmt = NumberFormat.decimalPattern('fr_FR');
 String arFmt(num v) => '${_moneyFmt.format(v.round())} Ar';
@@ -104,7 +108,7 @@ Future<OrderConfirmResult?> showOrderConfirmDialog(
   );
 }
 
-class _OrderConfirmDialog extends StatelessWidget {
+class _OrderConfirmDialog extends ConsumerWidget {
   const _OrderConfirmDialog({
     required this.title,
     required this.order,
@@ -121,9 +125,19 @@ class _OrderConfirmDialog extends StatelessWidget {
   final List<OrderItem>? items;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final isRecuperation = order.estRecuperation;
     final muted = TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant);
+    // Rôle courant : chaque encart de note ne s'adresse qu'à son destinataire
+    // (le gérant, qui joue aussi la livraison, voit celui du livreur).
+    final user = ref.watch(authProvider.select((a) => a.user));
+    final isGerant = user?.isGerant ?? false;
+    final isPreparateur = user?.isPreparateur ?? false;
+    final isLivreur = user?.isLivreur ?? false;
+    // Vert des remises (`text-emerald-700` / `dark:text-emerald-300` du web).
+    final remiseColor = Theme.of(context).brightness == Brightness.dark
+        ? const Color(0xFF6EE7B7)
+        : const Color(0xFF047857);
 
     Widget row(String label, String value, {bool bold = false}) => Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
@@ -161,6 +175,33 @@ class _OrderConfirmDialog extends StatelessWidget {
               if (order.adresseLivraison != null && order.adresseLivraison!.isNotEmpty)
                 row('Adresse', order.adresseLivraison!),
               if (!isRecuperation) row('Paiement', order.modePaiement.label),
+              // La consigne du gérant, bien en vue au moment d'agir (§ demande).
+              if (isPreparateur)
+                NoteCallout(
+                  role: NoteRole.preparateur,
+                  text: order.notePreparateur,
+                  margin: const EdgeInsets.only(top: 8),
+                ),
+              if (isLivreur || isGerant)
+                NoteCallout(role: NoteRole.livreur, text: order.noteLivreur, margin: const EdgeInsets.only(top: 8)),
+              if (order.aRemise)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Remise accordée au client',
+                          style: TextStyle(fontWeight: FontWeight.w500, color: remiseColor),
+                        ),
+                      ),
+                      Text(
+                        '−${arFmt(order.remiseTotal)}',
+                        style: TextStyle(fontWeight: FontWeight.w500, color: remiseColor),
+                      ),
+                    ],
+                  ),
+                ),
               const Divider(height: 20),
               Text('Articles', style: muted),
               for (final item in order.items) row(item.libelle, 'x${item.quantite}'),

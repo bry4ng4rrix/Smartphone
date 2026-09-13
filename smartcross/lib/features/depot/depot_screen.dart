@@ -14,6 +14,7 @@ import '../../state/auth_provider.dart';
 import '../../state/orders_provider.dart';
 import '../../state/realtime_provider.dart';
 import '../../widgets/async_state_widgets.dart';
+import '../../widgets/note_callout.dart';
 import '../../widgets/order_confirm_dialog.dart';
 import '../../widgets/status_badge.dart';
 import '../orders/order_create_screen.dart' show OrderFormDropdown;
@@ -702,7 +703,6 @@ class _DepotOrderCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
     final action = isPreparateur ? _nextAction(order) : null;
     // Le préparateur voit toutes ses commandes à venir (planning) mais ne
     // peut agir qu'à partir de 19h00 la veille du jour de livraison ; le
@@ -711,7 +711,6 @@ class _DepotOrderCard extends ConsumerWidget {
     final livree = order.statutCourant == OrderStatus.livre;
     final dateLivraison = livree ? (order.historyAt(OrderStatus.livre) ?? order.dateCommande) : order.dateCommande;
     final adresse = order.adresseLivraison?.trim() ?? '';
-    final note = order.notePreparateur?.trim() ?? '';
     final retraitPret = order.estRecuperation && order.statutCourant == OrderStatus.prete;
 
     return Card(
@@ -739,6 +738,16 @@ class _DepotOrderCard extends ConsumerWidget {
               for (final item in order.items) _ArticleLigne(item: item),
               const SizedBox(height: 8),
               _InfoLigne(icon: Icons.person_outline, text: order.clientNom, bold: true),
+              // Consigne du gérant, impossible à manquer depuis la liste
+              // (§ demande) — cellule « Client » du tableau web, réservée au
+              // préparateur (`isPreparateur &&`).
+              if (isPreparateur)
+                NoteCallout(
+                  role: NoteRole.preparateur,
+                  text: order.notePreparateur,
+                  compact: true,
+                  margin: const EdgeInsets.symmetric(vertical: 4),
+                ),
               // Les deux numéros sont appelables : le second sert quand le
               // premier ne répond pas (§ demande).
               for (final tel in [order.telephone, order.telephone2])
@@ -760,25 +769,6 @@ class _DepotOrderCard extends ConsumerWidget {
                   icon: Icons.event_outlined,
                   text: '${livree ? 'Livrée le' : 'Livraison prévue le'} ${_fmtAppDateTime(dateLivraison)}',
                 ),
-              if (note.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Note pour le préparateur', style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
-                      const SizedBox(height: 2),
-                      Text(note),
-                    ],
-                  ),
-                ),
-              ],
               if (action != null) ...[
                 const SizedBox(height: 12),
                 SizedBox(
@@ -1003,19 +993,28 @@ class _ResumeCommande extends StatelessWidget {
     final muted = TextStyle(color: scheme.onSurfaceVariant);
     final recup = order.estRecuperation;
     final adresse = order.adresseLivraison?.trim() ?? '';
+    // Vert des remises (`text-emerald-700` / `dark:text-emerald-300` du web).
+    final remiseColor = Theme.of(context).brightness == Brightness.dark
+        ? const Color(0xFF6EE7B7)
+        : const Color(0xFF047857);
 
-    Widget row(String label, String value, {bool bold = false}) => Padding(
+    Widget row(String label, String value, {bool bold = false, Color? color}) => Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: bold ? const TextStyle(fontWeight: FontWeight.w700) : muted),
+          Text(
+            label,
+            style: bold
+                ? TextStyle(fontWeight: FontWeight.w700, color: color)
+                : (color == null ? muted : TextStyle(fontWeight: FontWeight.w500, color: color)),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               value,
               textAlign: TextAlign.right,
-              style: TextStyle(fontWeight: bold ? FontWeight.w700 : FontWeight.w500),
+              style: TextStyle(fontWeight: bold ? FontWeight.w700 : FontWeight.w500, color: color),
             ),
           ),
         ],
@@ -1039,6 +1038,11 @@ class _ResumeCommande extends StatelessWidget {
           row('Zone', DeliveryZoneCatalog.shortLabelFor(order.livraisonZone)),
           if (adresse.isNotEmpty) row('Adresse', adresse),
           if (!recup) row('Paiement', order.modePaiement.label),
+          // La consigne du gérant, bien en vue au moment d'agir.
+          NoteCallout(role: NoteRole.preparateur, text: order.notePreparateur, margin: const EdgeInsets.only(top: 8)),
+          // Remise du gérant, déjà déduite des montants ci-dessous (même
+          // place que le résumé web : après la note, avant les articles).
+          if (order.aRemise) row('Remise accordée au client', '−${arFmt(order.remiseTotal)}', color: remiseColor),
           const Divider(height: 16),
           Text('Articles', style: muted),
           for (final item in order.items) row(item.libelle, 'x${item.quantite}'),

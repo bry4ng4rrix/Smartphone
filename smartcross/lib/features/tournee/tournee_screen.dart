@@ -7,10 +7,13 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/api_client.dart';
 import '../../core/app_time.dart';
 import '../../core/constants.dart';
+import '../../core/permissions.dart';
 import '../../models/delivery_zone.dart';
 import '../../models/order.dart';
+import '../../state/auth_provider.dart';
 import '../../state/orders_provider.dart';
 import '../../widgets/async_state_widgets.dart';
+import '../../widgets/note_callout.dart';
 import '../../widgets/order_confirm_dialog.dart';
 import '../../widgets/order_historique_view.dart';
 import '../../widgets/status_badge.dart';
@@ -408,6 +411,7 @@ class _TourneeCard extends ConsumerWidget {
     final scheme = theme.colorScheme;
     final muted = TextStyle(color: scheme.onSurfaceVariant, fontSize: 12);
     final adresse = order.adresseLivraison;
+    final isLivreur = ref.watch(authProvider.select((a) => a.user?.isLivreur ?? false));
     // « Livrée le » une fois livrée, sinon la livraison prévue (colonne
     // « Date » du tableau web, reprise dans son détail).
     final dateLigne = order.statutCourant == OrderStatus.livre
@@ -483,6 +487,16 @@ class _TourneeCard extends ConsumerWidget {
               const Divider(height: 12),
               _IconLine(icon: Icons.person_outline, text: order.clientNom),
               _IconLine(icon: Icons.place_outlined, text: adresse != null && adresse.isNotEmpty ? adresse : '-'),
+              // Consigne du gérant, impossible à manquer depuis la liste
+              // (§ demande) — cellule « Client » du tableau web, réservée au
+              // livreur (`isLivreur &&`).
+              if (isLivreur)
+                NoteCallout(
+                  role: NoteRole.livreur,
+                  text: order.noteLivreur,
+                  compact: true,
+                  margin: const EdgeInsets.symmetric(vertical: 4),
+                ),
               // Les deux numéros sont cliquables : le livreur appelle le
               // second quand le premier ne répond pas (§ demande).
               if (order.telephone != null) _PhoneLink(numero: order.telephone!),
@@ -722,13 +736,22 @@ class _TourneeConfirmDialogState extends ConsumerState<_TourneeConfirmDialog> {
     final scheme = Theme.of(context).colorScheme;
     final muted = TextStyle(color: scheme.onSurfaceVariant);
     final isRecuperation = order.estRecuperation;
+    // Vert des remises (`text-emerald-700` / `dark:text-emerald-300` du web).
+    final remiseColor = Theme.of(context).brightness == Brightness.dark
+        ? const Color(0xFF6EE7B7)
+        : const Color(0xFF047857);
 
     Widget row(String label, String value, {bool bold = false, Color? color}) => Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: bold ? TextStyle(fontWeight: FontWeight.w700, color: color) : muted),
+          Text(
+            label,
+            style: bold
+                ? TextStyle(fontWeight: FontWeight.w700, color: color)
+                : (color == null ? muted : TextStyle(fontWeight: FontWeight.w500, color: color)),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
@@ -761,6 +784,13 @@ class _TourneeConfirmDialogState extends ConsumerState<_TourneeConfirmDialog> {
                 if (order.adresseLivraison != null && order.adresseLivraison!.isNotEmpty)
                   row('Adresse', order.adresseLivraison!),
                 if (!isRecuperation) row('Paiement', modePaiementLabel(order.modePaiement)),
+                // La consigne du gérant, bien en vue au moment d'agir.
+                NoteCallout(role: NoteRole.livreur, text: order.noteLivreur, margin: const EdgeInsets.only(top: 8)),
+                // Remise du gérant, déjà déduite du total : annoncée au client
+                // même quand il a déjà réglé (même place que le résumé web,
+                // après la note, avant les articles).
+                if (order.aRemise)
+                  row('Remise accordée au client', '−${arFmt(order.remiseTotal)}', color: remiseColor),
                 const Divider(height: 20),
                 Text('Articles', style: muted),
                 for (final item in order.items) row(item.libelle, 'x${item.quantite}'),

@@ -1234,7 +1234,8 @@ class _EditOrderDialogState extends ConsumerState<EditOrderDialog> {
   List<StaffOption> _preparateurs = const [];
   List<StaffOption> _livreurs = const [];
   // Articles existants pré-chargés : plus de contrôle de stock sur eux
-  // (`stock_actuel: Infinity` côté web).
+  // (`stock_actuel: Infinity` côté web). Le prix catalogue et le prix
+  // appliqué (remisé ou non) sont repris de la commande.
   late List<CartLine> _lines = [
     for (final it in widget.order.items)
       if (it.productVariantId != null)
@@ -1247,13 +1248,15 @@ class _EditOrderDialogState extends ConsumerState<EditOrderDialog> {
             brandId: 0,
             brandName: it.brandName ?? '',
             referenceName: it.referenceName,
-            prixVente: it.prixUnitaire ?? 0,
+            prixVente: it.prixCatalogue ?? it.prixUnitaire ?? 0,
             couleurs: [ColorOption(variantId: it.productVariantId!, couleur: it.couleur, stockActuel: 1 << 30)],
           ),
           couleur: it.couleur,
           variantId: it.productVariantId!,
           quantite: it.quantite,
           stockActuel: 1 << 30,
+          prixCatalogue: it.prixCatalogue ?? it.prixUnitaire ?? 0,
+          prixVente: it.prixUnitaire ?? 0,
         ),
   ];
   bool _submitting = false;
@@ -1357,6 +1360,9 @@ class _EditOrderDialogState extends ConsumerState<EditOrderDialog> {
           modePaiement: _modePaiement.apiValue,
           livraisonZone: _zone,
           adresseLivraison: _isPickup ? '' : _adresseController.text.trim(),
+          // Date et heure de livraison modifiables même en cours de
+          // livraison (§ demande) — le client reporte son créneau.
+          dateCommande: _dateCommande == null ? null : appWallClockToUtc(_dateCommande!),
           noteLivreur: _isPickup ? '' : _noteLivreurController.text.trim(),
         );
         messenger.showSnackBar(SnackBar(content: Text('Commande ${order.numero} — livraison mise à jour')));
@@ -1374,7 +1380,8 @@ class _EditOrderDialogState extends ConsumerState<EditOrderDialog> {
         dateCommande: _dateCommande == null ? null : appWallClockToUtc(_dateCommande!),
         notePreparateur: _notePreparateurController.text.trim(),
         noteLivreur: _isPickup ? '' : _noteLivreurController.text.trim(),
-        items: [for (final l in _lines) OrderItemDraft(productVariant: l.variantId, quantite: l.quantite)],
+        // Prix remisé : envoyé seulement s'il diffère du catalogue.
+        items: [for (final l in _lines) l.toDraft()],
       );
       // Pré-assignation du préparateur/livreur — endpoints indépendants du
       // statut, comme à la création. Rien à envoyer si rien n'a changé.
@@ -1451,8 +1458,9 @@ class _EditOrderDialogState extends ConsumerState<EditOrderDialog> {
             children: [
               Text(
                 livraisonSeule
-                    ? "Commande déjà engagée : seules la zone, l'adresse, le paiement et la note du livreur restent "
-                        'modifiables. Changer la zone met à jour les frais et le bilan du livreur.'
+                    ? "Commande déjà engagée : seules la zone, l'adresse, le paiement, la date et l'heure de livraison "
+                        'et la note du livreur restent modifiables. Changer la zone met à jour les frais et le bilan du '
+                        'livreur.'
                     : 'Possible tant que la commande n\'est pas encore "Prête".',
                 style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               ),
@@ -1544,6 +1552,16 @@ class _EditOrderDialogState extends ConsumerState<EditOrderDialog> {
                     ],
                   ),
                 ),
+              // Reporter la livraison reste possible en cours de tournée
+              // (§ demande) : le champ est aussi proposé en régime restreint.
+              if (livraisonSeule) ...[
+                _label('Date et heure de livraison'),
+                OrderDateTimeField(
+                  value: _dateCommande,
+                  hintText: 'Choisir la date',
+                  onChanged: (d) => setState(() => _dateCommande = d),
+                ),
+              ],
               if (livraisonSeule || !_isPickup) ...[
                 _label('Paiement'),
                 OrderFormDropdown<PaymentMode>(

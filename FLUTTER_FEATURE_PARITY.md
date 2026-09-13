@@ -2741,6 +2741,14 @@ listées ici avec leur état Flutter constaté.
 - [x] Gérant : accepter / rejeter chaque dépense ; colonne « Dépenses » et « n à valider » dans la vue d'ensemble  `VERIFIED`
 - [x] Ticket : « DÉPENSES VALIDÉES » et « NET À REMETTRE »  `VERIFIED`
 
+### COMMANDES — /orders — remise, date de livraison, notes (13/09/2026)
+
+- [x] Remise par article à la création / modification (gérant) : champ « Prix unitaire » borné 0..prix catalogue, badge « Remise −X / unité », « Annuler la remise » ; envoyé en `prix_unitaire` seulement s'il diffère du catalogue — catalogue et stock inchangés (`OrderItem.prix_catalogue`, migration 0015)  `VERIFIED`
+- [x] Fiche de commande : prix / unité, prix catalogue barré + badge « Remise −X » (gérant), ligne « Remise accordée » ; `remise_total` visible par tous les rôles sans les prix unitaires  `VERIFIED`
+- [x] Confirmation d'action et listes par rôle : ligne « Remise accordée au client » ; le total à encaisser et le bilan du livreur suivent le prix remisé  `VERIFIED`
+- [x] Date et heure de livraison modifiables même en cours de livraison (régime restreint « Modifier ») ; le reste du formulaire reste réservé aux commandes Nouvelle / En préparation  `VERIFIED`
+- [x] Notes préparateur / livreur en encarts très visibles (`NoteCallout` : fond coloré, bordure épaisse, icône, texte agrandi) sur la fiche, la confirmation et les listes par rôle  `VERIFIED`
+
 ### PILOTAGE — /dashboard (ex-/reports : le centre de rapports remplace le tableau de bord)
 
 - [ ] Centre de rapports à 8 sections (Vue générale, Ventes, Financier, Dépenses, Stock, Commandes, Livraisons, Marketing) sur GET /api/orders/reports/{section}/  `__DASH__`
@@ -2808,6 +2816,6 @@ listées ici avec leur état Flutter constaté.
 | Sans objet côté Flutter (non utilisé par le web ou sans équivalent mobile) | 13 |
 | Retirées de l'app à la demande (/superadmin, /scanner) | 2 |
 
-Fonctionnalités ajoutées depuis l'audit : 53 (MISSING 1 · PARTIAL 0 · IMPLEMENTED 9 · VERIFIED 35)
+Fonctionnalités ajoutées depuis l'audit : 58 (MISSING 1 · PARTIAL 0 · IMPLEMENTED 9 · VERIFIED 40)
 
-**Total de cases à cocher : 2171 — cochées : 1623.**
+**Total de cases à cocher : 2176 — cochées : 1628.**

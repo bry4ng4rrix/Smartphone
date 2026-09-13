@@ -53,7 +53,10 @@ class CartLine {
     required this.variantId,
     required this.quantite,
     required this.stockActuel,
-  });
+    double? prixCatalogue,
+    double? prixVente,
+  })  : prixCatalogue = prixCatalogue ?? reference.prixVente,
+        prixVente = prixVente ?? prixCatalogue ?? reference.prixVente;
 
   final String key;
   final ReferenceOption reference;
@@ -62,10 +65,40 @@ class CartLine {
   final int quantite;
   final int stockActuel;
 
+  /// Prix catalogue de référence (`prix_catalogue` du web) : le catalogue et
+  /// le stock ne changent jamais, quelle que soit la remise accordée.
+  final double prixCatalogue;
+
+  /// Prix appliqué à CETTE commande (`prix_vente` du web), remisé ou non —
+  /// envoyé en `prix_unitaire` seulement s'il diffère du catalogue.
+  final double prixVente;
+
   /// « Samsung A15 » — `reference_label` du web.
   String get label => [reference.brandName, reference.referenceName].where((s) => s.isNotEmpty).join(' ');
 
-  double get sousTotal => reference.prixVente * quantite;
+  /// Remise accordée par unité (jamais négative).
+  double get remiseUnitaire => (prixCatalogue - prixVente).clamp(0, double.infinity).toDouble();
+
+  double get sousTotal => prixVente * quantite;
+
+  /// Brouillon envoyé au serveur : le prix remisé n'est transmis que s'il
+  /// est inférieur au catalogue (`...(prix_vente < prix_catalogue ? … : {})`).
+  OrderItemDraft toDraft() => OrderItemDraft(
+        productVariant: variantId,
+        quantite: quantite,
+        prixUnitaire: prixVente < prixCatalogue ? prixVente : null,
+      );
+
+  CartLine copyWith({double? prixVente}) => CartLine(
+        key: key,
+        reference: reference,
+        couleur: couleur,
+        variantId: variantId,
+        quantite: quantite,
+        stockActuel: stockActuel,
+        prixCatalogue: prixCatalogue,
+        prixVente: prixVente ?? this.prixVente,
+      );
 }
 
 /// Sélecteur contrôlé (la valeur affichée suit toujours [value], même quand
@@ -254,6 +287,17 @@ class _OrderItemsEditorState extends ConsumerState<OrderItemsEditor> {
 
   void _removeAt(int index) {
     final next = [...widget.lines]..removeAt(index);
+    widget.onChanged(next);
+  }
+
+  /// Remise par article : le gérant saisit le prix appliqué à CETTE
+  /// commande, borné entre 0 et le prix catalogue.
+  void _setPrixVente(int index, double prixVente) {
+    final line = widget.lines[index];
+    final borne = prixVente.isFinite ? prixVente.clamp(0, line.prixCatalogue).toDouble() : line.prixCatalogue;
+    if (borne == line.prixVente) return;
+    final next = [...widget.lines];
+    next[index] = line.copyWith(prixVente: borne);
     widget.onChanged(next);
   }
 
@@ -491,7 +535,7 @@ class _OrderItemsEditorState extends ConsumerState<OrderItemsEditor> {
         ),
         if (widget.lines.isNotEmpty) ...[
           const SizedBox(height: 8),
-          for (int i = 0; i < widget.lines.length; i++)
+          for (final (i, line) in widget.lines.indexed)
             Container(
               margin: const EdgeInsets.only(bottom: 6),
               padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
@@ -499,22 +543,165 @@ class _OrderItemsEditorState extends ConsumerState<OrderItemsEditor> {
                 border: Border.all(color: scheme.outlineVariant),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Expanded(child: Text('${widget.lines[i].label} (${widget.lines[i].couleur}) x${widget.lines[i].quantite}')),
-                  if (widget.showPrices) ...[
-                    const SizedBox(width: 8),
-                    Text(arFmt(widget.lines[i].sousTotal)),
-                  ],
-                  IconButton(
-                    tooltip: 'Retirer',
-                    icon: const Icon(Icons.delete_outline, color: Colors.red),
-                    onPressed: () => _removeAt(i),
+                  Row(
+                    children: [
+                      Expanded(child: Text('${line.label} (${line.couleur}) x${line.quantite}')),
+                      if (widget.showPrices) ...[
+                        const SizedBox(width: 8),
+                        Text(arFmt(line.sousTotal), style: const TextStyle(fontWeight: FontWeight.w500)),
+                      ],
+                      IconButton(
+                        tooltip: 'Retirer',
+                        icon: const Icon(Icons.delete_outline, color: Colors.red),
+                        onPressed: () => _removeAt(i),
+                      ),
+                    ],
                   ),
+                  // Remise par article (§ demande) : le gérant saisit le prix
+                  // de vente appliqué à CETTE commande — le catalogue et le
+                  // stock ne changent pas ; préparateur et livreur voient le
+                  // prix remisé, qui entre dans le total et le bilan.
+                  if (widget.showPrices)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 6, right: 8),
+                      child: _CartLinePriceEditor(
+                        key: ValueKey('prix-${line.key}'),
+                        line: line,
+                        onChanged: (v) => _setPrixVente(i, v),
+                      ),
+                    ),
                 ],
               ),
             ),
         ],
+      ],
+    );
+  }
+}
+
+/// Champ « Prix unitaire » d'une ligne du panier (remise par article) :
+/// saisie numérique bornée 0..catalogue, pas de 100 par les boutons −/+,
+/// rappel du prix catalogue, badge « Remise −X / unité » + « Annuler la
+/// remise » quand une remise est accordée — miroir du bloc `showPrices` de
+/// `OrderItemsEditor` (create-order-dialog.tsx).
+class _CartLinePriceEditor extends StatefulWidget {
+  const _CartLinePriceEditor({super.key, required this.line, required this.onChanged});
+
+  final CartLine line;
+  final ValueChanged<double> onChanged;
+
+  @override
+  State<_CartLinePriceEditor> createState() => _CartLinePriceEditorState();
+}
+
+class _CartLinePriceEditorState extends State<_CartLinePriceEditor> {
+  static const double _pas = 100;
+
+  late final _controller = TextEditingController(text: _texte(widget.line.prixVente));
+  final _focus = FocusNode();
+
+  /// Texte du champ : entier quand le prix est rond (cas courant en Ar).
+  static String _texte(double v) => v == v.roundToDouble() ? v.round().toString() : v.toString();
+
+  @override
+  void initState() {
+    super.initState();
+    // À la sortie du champ, le texte est réaligné sur la valeur bornée.
+    _focus.addListener(() {
+      if (!_focus.hasFocus) _sync();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _CartLinePriceEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Valeur modifiée par programme (« Annuler la remise », boutons −/+) :
+    // le champ suit, sauf pendant une saisie au clavier.
+    if (oldWidget.line.prixVente != widget.line.prixVente && !_focus.hasFocus) _sync();
+  }
+
+  void _sync() {
+    final texte = _texte(widget.line.prixVente);
+    if (_controller.text != texte) _controller.text = texte;
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  void _onText(String text) {
+    final v = double.tryParse(text.trim().replaceAll(',', '.'));
+    // Saisie vide ou invalide -> retour au prix catalogue (branche « non
+    // fini » du web ; le web, lui, lit 0 pour un champ vidé).
+    widget.onChanged(v ?? widget.line.prixCatalogue);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final line = widget.line;
+    final remise = line.remiseUnitaire;
+    final muted = theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 4,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        SizedBox(
+          width: 200,
+          child: TextField(
+            controller: _controller,
+            focusNode: _focus,
+            decoration: InputDecoration(
+              labelText: 'Prix unitaire',
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              prefixIcon: IconButton(
+                tooltip: '−${arFmt(_pas)}',
+                icon: const Icon(Icons.remove, size: 18),
+                onPressed: line.prixVente > 0 ? () => widget.onChanged(line.prixVente - _pas) : null,
+              ),
+              suffixIcon: IconButton(
+                tooltip: '+${arFmt(_pas)}',
+                icon: const Icon(Icons.add, size: 18),
+                onPressed: line.prixVente < line.prixCatalogue ? () => widget.onChanged(line.prixVente + _pas) : null,
+              ),
+            ),
+            style: theme.textTheme.bodySmall,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+            onChanged: _onText,
+            onSubmitted: (_) => _sync(),
+          ),
+        ),
+        Text('catalogue ${arFmt(line.prixCatalogue)}', style: muted),
+        if (remise > 0) ...[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.green.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              'Remise −${arFmt(remise)} / unité',
+              style: theme.textTheme.bodySmall?.copyWith(color: Colors.green.shade800, fontWeight: FontWeight.w600),
+            ),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(visualDensity: VisualDensity.compact, textStyle: theme.textTheme.bodySmall),
+            onPressed: () => widget.onChanged(line.prixCatalogue),
+            child: const Text('Annuler la remise'),
+          ),
+        ] else
+          Text('(baisser pour accorder une remise)', style: muted),
       ],
     );
   }
@@ -770,7 +957,8 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
             telephone: telephone,
             telephone2: telephone2,
             livraisonZone: _zone,
-            items: [for (final l in _lines) OrderItemDraft(productVariant: l.variantId, quantite: l.quantite)],
+            // Prix remisé : envoyé seulement s'il diffère du catalogue.
+            items: [for (final l in _lines) l.toDraft()],
             notePreparateur: _notePreparateurController.text.trim(),
             noteLivreur: _isPickup ? '' : _noteLivreurController.text.trim(),
             adresseLivraison: _adresseController.text.trim(),
