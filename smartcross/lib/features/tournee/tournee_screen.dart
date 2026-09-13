@@ -287,8 +287,14 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
         ),
         actions: [IconButton(tooltip: 'Rafraîchir', icon: const Icon(Icons.refresh), onPressed: _refresh)],
       ),
-      body: Column(
-        children: [
+      // Toute la page défile avec les commandes (onglets et filtres compris),
+      // pas seulement la liste (§ demande) : l'en-tête est passé au
+      // défilement de chaque vue.
+      body: Builder(
+        builder: (context) {
+          final header = Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
           // Onglets du livreur : « Ma tournée » / « Historique ».
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
@@ -414,15 +420,15 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
               ),
             ),
           ],
-          Expanded(
-            child: historique
-                // Même carte que la tournée : le tableau du web est identique
-                // dans les deux onglets (téléphones cliquables, boutons
-                // d'action quand le statut et le jour J s'y prêtent).
-                ? OrderHistoriqueView(cardBuilder: (context, order) => _TourneeCard(order: order))
-                : _TourneeActiveList(search: _search, periode: _periode, tri: _tri, refreshing: _refreshing),
-          ),
-        ],
+            ],
+          );
+          return historique
+              // Même carte que la tournée : le tableau du web est identique
+              // dans les deux onglets (téléphones cliquables, boutons
+              // d'action quand le statut et le jour J s'y prêtent).
+              ? OrderHistoriqueView(header: header, cardBuilder: (context, order) => _TourneeCard(order: order))
+              : _TourneeActiveList(header: header, search: _search, periode: _periode, tri: _tri, refreshing: _refreshing);
+        },
       ),
     );
   }
@@ -469,11 +475,15 @@ class _FiltreDropdown<T> extends StatelessWidget {
 /// assigné), filtrées par la recherche et la période, dans l'ordre choisi.
 class _TourneeActiveList extends ConsumerWidget {
   const _TourneeActiveList({
+    required this.header,
     required this.search,
     required this.periode,
     required this.tri,
     required this.refreshing,
   });
+
+  /// Onglets + filtres de l'écran, rendus en tête du défilement.
+  final Widget header;
   final String search;
   final _LivreurPeriode periode;
   final _LivreurTri tri;
@@ -495,13 +505,18 @@ class _TourneeActiveList extends ConsumerWidget {
     // Dernière liste connue, y compris pendant un rechargement silencieux.
     final orders = async.value;
     if (refreshing || orders == null) {
-      if (!refreshing && async.hasError) {
-        return ErrorState(
-          message: ApiClient.messageFromError(async.error!),
-          onRetry: () => ref.read(ordersProvider.notifier).refresh(),
-        );
-      }
-      return const LoadingState();
+      final etat = !refreshing && async.hasError
+          ? ErrorState(
+              message: ApiClient.messageFromError(async.error!),
+              onRetry: () => ref.read(ordersProvider.notifier).refresh(),
+            )
+          : const LoadingState();
+      return CustomScrollView(
+        slivers: [
+          SliverToBoxAdapter(child: header),
+          SliverFillRemaining(hasScrollBody: false, child: etat),
+        ],
+      );
     }
 
     final q = search.trim().toLowerCase();
@@ -516,6 +531,8 @@ class _TourneeActiveList extends ConsumerWidget {
             child: CustomScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
+                // Onglets et filtres défilent avec les commandes (§ demande).
+                SliverToBoxAdapter(child: header),
                 if (displayed.isEmpty)
                   const SliverFillRemaining(
                     hasScrollBody: false,

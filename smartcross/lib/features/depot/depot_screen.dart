@@ -407,30 +407,40 @@ class _DepotScreenState extends ConsumerState<DepotScreen> {
           IconButton(tooltip: 'Rafraîchir', icon: const Icon(Icons.refresh), onPressed: _rafraichir),
         ],
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(description, style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: [
-                _ongletChip(_DepotView.aPreparer, 'À préparer', Icons.local_shipping_outlined),
-                _ongletChip(_DepotView.recuperations, 'Récupérations', Icons.inventory_2_outlined),
-                _ongletChip(_DepotView.historique, 'Historique', Icons.history),
-              ],
-            ),
-          ),
-          if (historique) _filtresHistorique() else _filtresActif(filter),
-          Expanded(child: historique ? _listeHistorique(isPreparateur: isPreparateur) : _listeActive(isPreparateur: isPreparateur)),
-        ],
+      // Toute la page défile avec les commandes (sous-titre, onglets et
+      // filtres compris), pas seulement la liste (§ demande) : l'en-tête est
+      // rendu en tête du défilement de chaque vue.
+      body: Builder(
+        builder: (context) {
+          final header = Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(description, style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    _ongletChip(_DepotView.aPreparer, 'À préparer', Icons.local_shipping_outlined),
+                    _ongletChip(_DepotView.recuperations, 'Récupérations', Icons.inventory_2_outlined),
+                    _ongletChip(_DepotView.historique, 'Historique', Icons.history),
+                  ],
+                ),
+              ),
+              if (historique) _filtresHistorique() else _filtresActif(filter),
+            ],
+          );
+          return historique
+              ? _listeHistorique(header: header, isPreparateur: isPreparateur)
+              : _listeActive(header: header, isPreparateur: isPreparateur);
+        },
       ),
       // Le préparateur ne crée que des retraits sur place (le formulaire
       // force la zone RECUPERATION) ; le gérant, une commande complète.
@@ -580,39 +590,59 @@ class _DepotScreenState extends ConsumerState<DepotScreen> {
     );
   }
 
-  Widget _liste(List<Order> commandes, {required bool isPreparateur}) {
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 96),
+  /// Défilement unique : en-tête (sous-titre, onglets, filtres) puis les
+  /// commandes — ou un état (chargement / vide / erreur) qui remplit le
+  /// reste de l'écran sous l'en-tête.
+  Widget _defilement({required Widget header, List<Order>? commandes, Widget? etat, required bool isPreparateur}) {
+    return CustomScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
-      itemCount: commandes.length,
-      itemBuilder: (context, i) => _DepotOrderCard(order: commandes[i], isPreparateur: isPreparateur),
+      slivers: [
+        SliverToBoxAdapter(child: header),
+        if (commandes != null && commandes.isNotEmpty)
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 96),
+            sliver: SliverList.builder(
+              itemCount: commandes.length,
+              itemBuilder: (context, i) => _DepotOrderCard(order: commandes[i], isPreparateur: isPreparateur),
+            ),
+          )
+        else
+          SliverFillRemaining(hasScrollBody: false, child: etat ?? const SizedBox.shrink()),
+      ],
     );
   }
 
   /// « À préparer » / « Récupérations » : segmentation côté client par zone
   /// (RECUPERATION ou non — `visibleOrders` du web), puis recherche.
-  Widget _listeActive({required bool isPreparateur}) {
+  Widget _listeActive({required Widget header, required bool isPreparateur}) {
     final async = ref.watch(ordersProvider);
     final isRecup = _view == _DepotView.recuperations;
 
     final Widget contenu;
     if (_chargementVisible || (async.isLoading && !async.hasValue)) {
-      contenu = const LoadingState();
+      contenu = _defilement(header: header, etat: const LoadingState(), isPreparateur: isPreparateur);
     } else if (async.hasValue) {
       final commandes = _filtrer(async.value!.where((o) => o.estRecuperation == isRecup));
-      contenu = commandes.isEmpty
-          ? const EmptyState(message: 'Aucune commande trouvée pour cette recherche.', icon: Icons.inventory_outlined)
-          : _liste(commandes, isPreparateur: isPreparateur);
+      contenu = _defilement(
+        header: header,
+        commandes: commandes,
+        etat: const EmptyState(message: 'Aucune commande trouvée pour cette recherche.', icon: Icons.inventory_outlined),
+        isPreparateur: isPreparateur,
+      );
     } else {
-      contenu = ErrorState(
-        message: ApiClient.messageFromError(async.error ?? 'Erreur de chargement des commandes'),
-        onRetry: _rafraichir,
+      contenu = _defilement(
+        header: header,
+        etat: ErrorState(
+          message: ApiClient.messageFromError(async.error ?? 'Erreur de chargement des commandes'),
+          onRetry: _rafraichir,
+        ),
+        isPreparateur: isPreparateur,
       );
     }
     return RefreshIndicator(onRefresh: _rafraichir, child: contenu);
   }
 
-  Widget _listeHistorique({required bool isPreparateur}) {
+  Widget _listeHistorique({required Widget header, required bool isPreparateur}) {
     final async = ref.watch(depotHistoriqueProvider(_historique));
     final contenu = async.when(
       // Temps réel : rechargement silencieux, la liste reste affichée.
@@ -621,14 +651,18 @@ class _DepotScreenState extends ConsumerState<DepotScreen> {
       skipLoadingOnRefresh: false,
       // Un échec après un premier chargement garde la liste (message à part).
       skipError: true,
-      data: (commandes) {
-        final visibles = _filtrer(commandes);
-        return visibles.isEmpty
-            ? const EmptyState(message: 'Aucune commande trouvée pour cette recherche.', icon: Icons.history)
-            : _liste(visibles, isPreparateur: isPreparateur);
-      },
-      error: (error, _) => ErrorState(message: ApiClient.messageFromError(error), onRetry: _rafraichir),
-      loading: () => const LoadingState(),
+      data: (commandes) => _defilement(
+        header: header,
+        commandes: _filtrer(commandes),
+        etat: const EmptyState(message: 'Aucune commande trouvée pour cette recherche.', icon: Icons.history),
+        isPreparateur: isPreparateur,
+      ),
+      error: (error, _) => _defilement(
+        header: header,
+        etat: ErrorState(message: ApiClient.messageFromError(error), onRetry: _rafraichir),
+        isPreparateur: isPreparateur,
+      ),
+      loading: () => _defilement(header: header, etat: const LoadingState(), isPreparateur: isPreparateur),
     );
     return RefreshIndicator(onRefresh: _rafraichir, child: contenu);
   }
