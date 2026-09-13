@@ -106,8 +106,13 @@ final orderHistoriqueProvider = FutureProvider.autoDispose.family<List<Order>, O
 /// sur le jour J et « Réinitialiser » y ramène. [cardBuilder] laisse chaque
 /// rôle afficher ses propres champs et actions.
 class OrderHistoriqueView extends ConsumerStatefulWidget {
-  const OrderHistoriqueView({super.key, required this.cardBuilder});
+  const OrderHistoriqueView({super.key, required this.cardBuilder, this.header});
   final Widget Function(BuildContext context, Order order) cardBuilder;
+
+  /// Bloc de l'écran hôte (onglets, sous-titre…) rendu AU-DESSUS des filtres,
+  /// dans le même défilement : toute la page défile avec les commandes, pas
+  /// seulement la liste (§ demande).
+  final Widget? header;
 
   @override
   ConsumerState<OrderHistoriqueView> createState() => _OrderHistoriqueViewState();
@@ -187,7 +192,8 @@ class _OrderHistoriqueViewState extends ConsumerState<OrderHistoriqueView> {
     });
     final orders = async.value;
 
-    return Column(
+    final filtres = Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
@@ -242,37 +248,53 @@ class _OrderHistoriqueViewState extends ConsumerState<OrderHistoriqueView> {
         // Rechargement silencieux en cours : la liste reste affichée, un
         // filet de progression le signale.
         if (async.isLoading && orders != null) const LinearProgressIndicator(minHeight: 2),
-        Expanded(
-          child: orders != null
-              ? RefreshIndicator(
-                  onRefresh: _reload,
-                  child: CustomScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    slivers: [
-                      if (orders.isEmpty)
-                        const SliverFillRemaining(
-                          hasScrollBody: false,
-                          child: EmptyState(
-                            message: 'Aucune commande trouvée pour cette recherche.',
-                            icon: Icons.history,
-                          ),
-                        )
-                      else
-                        SliverPadding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                          sliver: SliverList.builder(
-                            itemCount: orders.length,
-                            itemBuilder: (context, i) => widget.cardBuilder(context, orders[i]),
-                          ),
-                        ),
-                    ],
-                  ),
-                )
-              : async.hasError
-                  ? ErrorState(message: ApiClient.messageFromError(async.error!), onRetry: _reload)
-                  : const LoadingState(),
-        ),
       ],
     );
+
+    // Tout défile ensemble : en-tête de l'écran hôte, filtres, puis les
+    // commandes (ou l'état vide / erreur / chargement qui remplit le reste).
+    final enTete = [
+      if (widget.header != null) SliverToBoxAdapter(child: widget.header),
+      SliverToBoxAdapter(child: filtres),
+    ];
+    final Widget corps;
+    if (orders != null) {
+      corps = CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          ...enTete,
+          if (orders.isEmpty)
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: EmptyState(
+                message: 'Aucune commande trouvée pour cette recherche.',
+                icon: Icons.history,
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              sliver: SliverList.builder(
+                itemCount: orders.length,
+                itemBuilder: (context, i) => widget.cardBuilder(context, orders[i]),
+              ),
+            ),
+        ],
+      );
+    } else {
+      corps = CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          ...enTete,
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: async.hasError
+                ? ErrorState(message: ApiClient.messageFromError(async.error!), onRetry: _reload)
+                : const LoadingState(),
+          ),
+        ],
+      );
+    }
+    return RefreshIndicator(onRefresh: _reload, child: corps);
   }
 }
