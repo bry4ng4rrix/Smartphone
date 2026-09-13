@@ -25,7 +25,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import {
-  Wallet, Store, Plus, Lock, LockOpen, Loader2, RefreshCw, ArrowDownCircle, ArrowUpCircle, PiggyBank,
+  Wallet, Store, Plus, Lock, LockOpen, Loader2, RefreshCw, ArrowDownCircle, ArrowUpCircle, PiggyBank, Pencil, Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -71,6 +71,9 @@ export default function CaissePage() {
   const [movementAmount, setMovementAmount] = useState('');
   const [movementReason, setMovementReason] = useState('');
   const [movementCategory, setMovementCategory] = useState<string>('');
+  // Mouvement en cours de modification (null = ajout) et cible de suppression (§ demande).
+  const [editingMovement, setEditingMovement] = useState<any | null>(null);
+  const [deleteMovementTarget, setDeleteMovementTarget] = useState<any | null>(null);
   const [expenseCategories, setExpenseCategories] = useState<any[]>([]);
 
   // Résumé + historique complet des mouvements, filtrables par période
@@ -197,11 +200,37 @@ export default function CaissePage() {
   };
 
   const openMovementDialog = () => {
+    setEditingMovement(null);
     setMovementType('in');
     setMovementAmount('');
     setMovementReason('');
     setMovementCategory('');
     setMovementDialogOpen(true);
+  };
+
+  const openEditMovementDialog = (m: any) => {
+    setEditingMovement(m);
+    setMovementType(m.movement_type === 'out' ? 'out' : 'in');
+    setMovementAmount(String(Number(m.amount) || ''));
+    setMovementReason(m.reason || '');
+    setMovementCategory(m.category ? String(m.category) : '');
+    setMovementDialogOpen(true);
+  };
+
+  const handleDeleteMovement = async () => {
+    if (!deleteMovementTarget) return;
+    setSubmitting(true);
+    try {
+      await djangoClient.caisse.deleteMovement(deleteMovementTarget.id);
+      toast.success('Mouvement supprimé');
+      setDeleteMovementTarget(null);
+      fetchCaisse();
+      fetchSummary();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur lors de la suppression');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleOpen = async (e: React.FormEvent) => {
@@ -259,19 +288,29 @@ export default function CaissePage() {
     }
     setSubmitting(true);
     try {
-      await djangoClient.caisse.addMovement({
-        session: session?.id,
-        movement_type: movementType,
-        amount: movementAmount,
-        reason: movementReason,
-        category: movementType === 'out' && movementCategory ? Number(movementCategory) : undefined,
-      });
-      toast.success('Mouvement ajouté');
+      if (editingMovement) {
+        await djangoClient.caisse.updateMovement(editingMovement.id, {
+          movement_type: movementType,
+          amount: movementAmount,
+          reason: movementReason,
+          category: movementType === 'out' && movementCategory ? Number(movementCategory) : null,
+        });
+        toast.success('Mouvement modifié');
+      } else {
+        await djangoClient.caisse.addMovement({
+          session: session?.id,
+          movement_type: movementType,
+          amount: movementAmount,
+          reason: movementReason,
+          category: movementType === 'out' && movementCategory ? Number(movementCategory) : undefined,
+        });
+        toast.success('Mouvement ajouté');
+      }
       setMovementDialogOpen(false);
       fetchCaisse();
       fetchSummary();
     } catch (err: any) {
-      toast.error(err.message || 'Erreur lors de l’ajout du mouvement');
+      toast.error(err.message || (editingMovement ? 'Erreur lors de la modification du mouvement' : 'Erreur lors de l’ajout du mouvement'));
     } finally {
       setSubmitting(false);
     }
@@ -407,9 +446,22 @@ export default function CaissePage() {
                               </p>
                             </div>
                           </div>
-                          <span className={`text-sm font-semibold shrink-0 ${m.movement_type === 'in' ? 'text-green-600' : 'text-red-600'}`}>
-                            {m.movement_type === 'in' ? '+' : '-'}{money(m.amount)}
-                          </span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <span className={`text-sm font-semibold ${m.movement_type === 'in' ? 'text-green-600' : 'text-red-600'}`}>
+                              {m.movement_type === 'in' ? '+' : '-'}{money(m.amount)}
+                            </span>
+                            {/* Correction / suppression d'un mouvement tant que la session est ouverte (§ demande). */}
+                            {session.status === 'open' && (
+                              <>
+                                <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Modifier le mouvement" onClick={() => openEditMovementDialog(m)}>
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" aria-label="Supprimer le mouvement" onClick={() => setDeleteMovementTarget(m)}>
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
                         </div>
                       ))
                     )}
@@ -643,8 +695,12 @@ export default function CaissePage() {
       <Dialog open={movementDialogOpen} onOpenChange={setMovementDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Ajouter un mouvement</DialogTitle>
-            <DialogDescription>Apport ou retrait d'espèces dans la caisse.</DialogDescription>
+            <DialogTitle>{editingMovement ? 'Modifier le mouvement' : 'Ajouter un mouvement'}</DialogTitle>
+            <DialogDescription>
+              {editingMovement
+                ? `Correction du mouvement du ${formatDateTime(editingMovement.created_at)} — le solde attendu est recalculé.`
+                : "Apport ou retrait d'espèces dans la caisse."}
+            </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddMovement} className="space-y-4">
             <div className="space-y-2">
@@ -685,11 +741,36 @@ export default function CaissePage() {
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setMovementDialogOpen(false)} disabled={submitting}>Annuler</Button>
               <Button type="submit" disabled={submitting}>
-                {submitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
-                Ajouter
+                {submitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : editingMovement ? <Pencil className="h-4 w-4 mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+                {editingMovement ? 'Enregistrer' : 'Ajouter'}
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete movement dialog */}
+      <Dialog open={!!deleteMovementTarget} onOpenChange={(o) => !o && setDeleteMovementTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Supprimer ce mouvement ?</DialogTitle>
+            <DialogDescription>
+              {deleteMovementTarget && (
+                <>
+                  {deleteMovementTarget.movement_type === 'in' ? 'Entrée' : 'Sortie'} de {money(deleteMovementTarget.amount)} — « {deleteMovementTarget.reason} »
+                  {deleteMovementTarget.created_at ? ` (${formatDateTime(deleteMovementTarget.created_at)})` : ''}.
+                  Le solde attendu de la session est recalculé. Cette action est irréversible.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteMovementTarget(null)} disabled={submitting}>Annuler</Button>
+            <Button variant="destructive" onClick={handleDeleteMovement} disabled={submitting}>
+              {submitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              Supprimer
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

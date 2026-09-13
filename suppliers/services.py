@@ -109,8 +109,11 @@ def update_supplier_order(*, order, data):
         "prix_fournisseur", "fret_import", "douane",
         "date_expedition", "transporteur", "mode_transport", "tracking", "lieu_depart", "destination", "date_arrivee",
     )
+    # `null` explicite accepté pour retirer le fournisseur ou effacer une date
+    # de transport ; les autres champs ignorent null.
+    effacables = {"supplier", "date_expedition", "date_arrivee"}
     for champ in champs_simples:
-        if champ in data and data[champ] is not None:
+        if champ in data and (data[champ] is not None or champ in effacables):
             setattr(order, champ, data[champ])
     if order.devise == "MGA":
         order.taux_change = Decimal("1")

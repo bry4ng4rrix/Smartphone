@@ -1182,6 +1182,11 @@ class DjangoAPIClient {
       return this.post<any>('/users/caisse/movements/', data)
     },
 
+    /** Correction d'un mouvement (session encore ouverte) : type, montant, motif, catégorie. */
+    updateMovement: async (id: number, data: { movement_type?: 'in' | 'out'; amount?: number | string; reason?: string; category?: number | null }) => {
+      return this.patch<any>(`/users/caisse/movements/${id}/`, data)
+    },
+
     deleteMovement: async (id: number) => {
       return this.delete<void>(`/users/caisse/movements/${id}/`)
     },

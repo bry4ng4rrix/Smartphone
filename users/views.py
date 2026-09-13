@@ -819,7 +819,9 @@ class CaisseSessionViewSet(viewsets.ModelViewSet):
 class CaisseMovementViewSet(viewsets.ModelViewSet):
     serializer_class = CaisseMovementSerializer
     permission_classes = [IsAuthenticated, IsGerant]
-    http_method_names = ["get", "post", "delete", "head", "options"]
+    # PATCH / DELETE : correction ou suppression d'un mouvement (gérant), tant
+    # que sa session de caisse est encore ouverte (§ demande).
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def get_queryset(self):
         qs = CaisseMovement.objects.select_related("magasin", "created_by", "session", "category")
@@ -858,6 +860,24 @@ class CaisseMovementViewSet(viewsets.ModelViewSet):
         if session.status != "open":
             raise serializers.ValidationError("Cette session de caisse est fermée.")
         serializer.save(session=session, magasin=session.magasin, created_by=user)
+
+    def _verifier_session_ouverte(self, movement):
+        if movement.session.status != "open":
+            raise serializers.ValidationError(
+                "Cette session de caisse est fermée : ses mouvements ne peuvent plus être modifiés."
+            )
+
+    def perform_update(self, serializer):
+        self._verifier_session_ouverte(serializer.instance)
+        # Une entrée ne porte jamais de catégorie (voir le serializer).
+        extra = {}
+        if serializer.validated_data.get("movement_type", serializer.instance.movement_type) == "in":
+            extra["category"] = None
+        serializer.save(**extra)
+
+    def perform_destroy(self, instance):
+        self._verifier_session_ouverte(instance)
+        instance.delete()
 
 
 DEFAULT_CAISSE_CATEGORIES = ["Salaire", "Pub", "Commande stock", "Autre"]
