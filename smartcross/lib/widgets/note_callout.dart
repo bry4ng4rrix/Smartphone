@@ -43,44 +43,66 @@ class NoteCallout extends StatelessWidget {
     final fond = prep ? (dark ? _amberBgDark : _amberBg) : (dark ? _skyBgDark : _skyBg);
     final texte = prep ? (dark ? _amberTextDark : _amberText) : (dark ? _skyTextDark : _skyText);
     final accent = prep ? (dark ? _amberAccentDark : _amberAccent) : (dark ? _skyAccentDark : _skyAccent);
+    // Bordure gauche épaisse dessinée comme une barre : une `Border` aux
+    // côtés de couleurs différentes ne peut pas porter de borderRadius
+    // (assertion Flutter), ce qui cassait le rendu de la carte.
     return Container(
       margin: margin,
-      padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12, vertical: compact ? 6 : 10),
       decoration: BoxDecoration(
         color: fond,
         borderRadius: BorderRadius.circular(8),
-        border: Border(
-          left: BorderSide(color: bordure, width: 4),
-          top: BorderSide(color: bordure.withValues(alpha: 0.6)),
-          right: BorderSide(color: bordure.withValues(alpha: 0.6)),
-          bottom: BorderSide(color: bordure.withValues(alpha: 0.6)),
-        ),
+        border: Border.all(color: bordure.withValues(alpha: 0.6)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              Icon(prep ? Icons.assignment_outlined : Icons.local_shipping_outlined, size: compact ? 14 : 16, color: accent),
-              const SizedBox(width: 6),
-              Text(
-                prep ? 'NOTE POUR LE PRÉPARATEUR' : 'NOTE POUR LE LIVREUR',
-                style: TextStyle(
-                  fontSize: compact ? 10 : 11,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.8,
-                  color: accent,
+      clipBehavior: Clip.antiAlias,
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(width: 4, color: bordure),
+            Expanded(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12, vertical: compact ? 6 : 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          prep ? Icons.assignment_outlined : Icons.local_shipping_outlined,
+                          size: compact ? 14 : 16,
+                          color: accent,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            prep ? 'NOTE POUR LE PRÉPARATEUR' : 'NOTE POUR LE LIVREUR',
+                            style: TextStyle(
+                              fontSize: compact ? 10 : 11,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.8,
+                              color: accent,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      contenu,
+                      style: TextStyle(
+                        fontSize: compact ? 14 : 16,
+                        fontWeight: FontWeight.w500,
+                        height: 1.3,
+                        color: texte,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 3),
-          Text(
-            contenu,
-            style: TextStyle(fontSize: compact ? 14 : 16, fontWeight: FontWeight.w500, height: 1.3, color: texte),
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }
