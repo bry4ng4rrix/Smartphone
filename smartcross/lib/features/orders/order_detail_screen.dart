@@ -26,11 +26,14 @@ final _dateTimeFmt = DateFormat('dd/MM/yyyy HH:mm');
 
 /// Vert des remises (`text-emerald-700` / `dark:text-emerald-300` du web).
 Color _remiseColor(BuildContext context) =>
-    Theme.of(context).brightness == Brightness.dark ? const Color(0xFF6EE7B7) : const Color(0xFF047857);
+    Theme.of(context).brightness == Brightness.dark
+    ? const Color(0xFF6EE7B7)
+    : const Color(0xFF047857);
 
 /// `fmtAppDateTime` du web : JJ/MM/AAAA HH:mm à l'heure d'Antananarivo, quel
 /// que soit le fuseau de l'appareil — « — » si la valeur est absente.
-String _fmtAppDateTime(DateTime? d) => d == null ? '—' : _dateTimeFmt.format(appLocal(d));
+String _fmtAppDateTime(DateTime? d) =>
+    d == null ? '—' : _dateTimeFmt.format(appLocal(d));
 
 enum _ActionKind { status, assign }
 
@@ -100,14 +103,22 @@ List<_ActionOption> _gerantActionOptions(Order order) {
     case OrderStatus.enPreparation:
       return [
         if (sansLivreur) _assignerLivreur,
-        const _ActionOption(label: 'Commande prête', target: OrderStatus.prete, icon: Icons.inventory_2_outlined),
+        const _ActionOption(
+          label: 'Commande prête',
+          target: OrderStatus.prete,
+          icon: Icons.inventory_2_outlined,
+        ),
       ];
     case OrderStatus.prete:
       // Retrait sur place : pas de livreur, le gérant clôture directement au
       // comptoir (voir services.py::change_order_status).
       if (order.estRecuperation) {
         return const [
-          _ActionOption(label: 'Récupérée par le client', target: OrderStatus.livre, icon: Icons.inventory_2_outlined),
+          _ActionOption(
+            label: 'Récupérée par le client',
+            target: OrderStatus.livre,
+            icon: Icons.inventory_2_outlined,
+          ),
         ];
       }
       return [
@@ -120,8 +131,16 @@ List<_ActionOption> _gerantActionOptions(Order order) {
       ];
     case OrderStatus.enLivraison:
       return const [
-        _ActionOption(label: 'Livrée', target: OrderStatus.livre, icon: Icons.local_shipping_outlined),
-        _ActionOption(label: 'Retour', target: OrderStatus.retour, icon: Icons.undo),
+        _ActionOption(
+          label: 'Livrée',
+          target: OrderStatus.livre,
+          icon: Icons.local_shipping_outlined,
+        ),
+        _ActionOption(
+          label: 'Retour',
+          target: OrderStatus.retour,
+          icon: Icons.undo,
+        ),
       ];
     case OrderStatus.livre:
     case OrderStatus.retour:
@@ -131,7 +150,11 @@ List<_ActionOption> _gerantActionOptions(Order order) {
 }
 
 /// Action du moment pour le préparateur / le livreur (`nextAction` du web).
-_ActionOption? _nextAction(Order order, {required bool isPreparateur, required bool isLivreur}) {
+_ActionOption? _nextAction(
+  Order order, {
+  required bool isPreparateur,
+  required bool isLivreur,
+}) {
   if (isPreparateur) {
     switch (order.statutCourant) {
       case OrderStatus.nouvelle:
@@ -159,7 +182,11 @@ _ActionOption? _nextAction(Order order, {required bool isPreparateur, required b
           icon: Icons.local_shipping_outlined,
         );
       case OrderStatus.enLivraison:
-        return const _ActionOption(label: 'Livré', target: OrderStatus.livre, icon: Icons.local_shipping_outlined);
+        return const _ActionOption(
+          label: 'Livré',
+          target: OrderStatus.livre,
+          icon: Icons.local_shipping_outlined,
+        );
       default:
         return null;
     }
@@ -212,7 +239,9 @@ class OrderDetailScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(order == null ? 'Détail commande' : 'Commande ${order.numero}'),
+        title: Text(
+          order == null ? 'Détail commande' : 'Commande ${order.numero}',
+        ),
         actions: [
           if (canEdit)
             TextButton.icon(
@@ -266,7 +295,9 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
 
   void _snack(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   /// Referme la fiche (retour à la liste si elle a été ouverte directement).
@@ -306,7 +337,10 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
     setState(() => _inline = _InlineConfirm(target: target, label: label));
   }
 
-  Future<void> _changeStatus(OrderStatus target, OrderConfirmResult result) async {
+  Future<void> _changeStatus(
+    OrderStatus target,
+    OrderConfirmResult result,
+  ) async {
     final order = _order;
     setState(() => _busy = true);
     try {
@@ -320,7 +354,9 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
             itemsLivres: result.itemsLivres,
           );
       // Rien de remis au pointage : le serveur a enregistré un Retour.
-      final effectif = target == OrderStatus.livre && result.rienRemis ? OrderStatus.retour : target;
+      final effectif = target == OrderStatus.livre && result.rienRemis
+          ? OrderStatus.retour
+          : target;
       _snack('Commande ${order.numero} → ${effectif.label}');
       if (!mounted) return;
       setState(() => _inline = null);
@@ -362,7 +398,9 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
       } else {
         await notifier.assignLivreur(order.id, result.staffId);
       }
-      _snack('Commande ${order.numero} — ${role == 'PREPARATEUR' ? 'préparateur' : 'livreur'} assigné');
+      _snack(
+        'Commande ${order.numero} — ${role == 'PREPARATEUR' ? 'préparateur' : 'livreur'} assigné',
+      );
       await _recharger();
     } catch (e) {
       _snack(ApiClient.messageFromError(e));
@@ -383,7 +421,9 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
     if (result == null || !mounted) return;
     setState(() => _busy = true);
     try {
-      await ref.read(ordersProvider.notifier).corrigerStatut(order.id, cible.apiValue, note: result.note);
+      await ref
+          .read(ordersProvider.notifier)
+          .corrigerStatut(order.id, cible.apiValue, note: result.note);
       _snack('Commande ${order.numero} corrigée → ${cible.label}');
       await _recharger();
     } catch (e) {
@@ -399,8 +439,10 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
     final order = _order;
     final done = await showDialog<bool>(
       context: context,
-      builder: (_) =>
-          _CancelOrderDialog(order: order, onConfirm: () => ref.read(ordersProvider.notifier).cancel(order.id)),
+      builder: (_) => _CancelOrderDialog(
+        order: order,
+        onConfirm: () => ref.read(ordersProvider.notifier).cancel(order.id),
+      ),
     );
     if (done != true || !mounted) return;
     _snack('Commande ${order.numero} annulée');
@@ -412,8 +454,10 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
     final order = _order;
     final done = await showDialog<bool>(
       context: context,
-      builder: (_) =>
-          _DeleteOrderDialog(order: order, onConfirm: () => ref.read(ordersProvider.notifier).delete(order.id)),
+      builder: (_) => _DeleteOrderDialog(
+        order: order,
+        onConfirm: () => ref.read(ordersProvider.notifier).delete(order.id),
+      ),
     );
     if (done != true || !mounted) return;
     _snack('Commande ${order.numero} supprimée');
@@ -427,7 +471,11 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
     setState(() => _sharing = true);
     try {
       await ref.read(ordersProvider.notifier).shareToChat(order.id);
-      _snack(order.livreurName == null ? 'Commande envoyée au livreur' : 'Commande envoyée à ${order.livreurName}');
+      _snack(
+        order.livreurName == null
+            ? 'Commande envoyée au livreur'
+            : 'Commande envoyée à ${order.livreurName}',
+      );
     } catch (e) {
       _snack(ApiClient.messageFromError(e));
     } finally {
@@ -446,7 +494,12 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
     final isLivreur = user?.isLivreur ?? false;
 
     final muted = TextStyle(color: scheme.onSurfaceVariant);
-    final actions = _buildActions(context, isGerant: isGerant, isPreparateur: isPreparateur, isLivreur: isLivreur);
+    final actions = _buildActions(
+      context,
+      isGerant: isGerant,
+      isPreparateur: isPreparateur,
+      isLivreur: isLivreur,
+    );
     final canCancel = isGerant && order.annulationPossible;
     final canDelete = isGerant && order.suppressionPossible;
 
@@ -467,7 +520,9 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
           // ------------------------------------------------------------ En-tête
           Row(
             children: [
-              Expanded(child: Text(order.numero, style: theme.textTheme.headlineSmall)),
+              Expanded(
+                child: Text(order.numero, style: theme.textTheme.headlineSmall),
+              ),
               OrderStatusBadge(status: order.statutCourant),
             ],
           ),
@@ -492,7 +547,10 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
           // -------------------------------------------------------- Information
           _SectionLabel('Information'),
           const SizedBox(height: 8),
-          if (order.items.isNotEmpty) ...[_ArticlesCard(order: order), const SizedBox(height: 10)],
+          if (order.items.isNotEmpty) ...[
+            _ArticlesCard(order: order),
+            const SizedBox(height: 10),
+          ],
           Card(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -502,18 +560,26 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
                   // de livraison prévue — une fois Livrée, l'heure réellement
                   // atteinte (§ demande).
                   _KeyValueRow(
-                    label: order.statutCourant == OrderStatus.livre ? 'Livrée le' : 'Livraison prévue le',
+                    label: order.statutCourant == OrderStatus.livre
+                        ? 'Livrée le'
+                        : 'Livraison prévue le',
                     value: _fmtAppDateTime(
                       order.statutCourant == OrderStatus.livre
-                          ? (order.historyAt(OrderStatus.livre) ?? order.dateCommande)
+                          ? (order.historyAt(OrderStatus.livre) ??
+                                order.dateCommande)
                           : order.dateCommande,
                     ),
                   ),
-                  _KeyValueRow(label: 'Nom client', value: order.clientNom.isEmpty ? '-' : order.clientNom),
+                  _KeyValueRow(
+                    label: 'Nom client',
+                    value: order.clientNom.isEmpty ? '-' : order.clientNom,
+                  ),
                   _KeyValueRow(
                     label: 'Numéro client',
                     value: order.telephone ?? '-',
-                    onTap: order.telephone == null ? null : () => launchUrl(Uri.parse('tel:${order.telephone}')),
+                    onTap: order.telephone == null
+                        ? null
+                        : () => launchUrl(Uri.parse('tel:${order.telephone}')),
                   ),
                   // Le livreur appelle le second numéro quand le premier ne
                   // répond pas (§ demande).
@@ -521,37 +587,60 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
                     _KeyValueRow(
                       label: 'Autre numéro',
                       value: order.telephone2!,
-                      onTap: () => launchUrl(Uri.parse('tel:${order.telephone2}')),
+                      onTap: () =>
+                          launchUrl(Uri.parse('tel:${order.telephone2}')),
                     ),
                   _KeyValueRow(
                     label: 'Adresse client',
-                    value: (order.adresseLivraison == null || order.adresseLivraison!.isEmpty)
+                    value:
+                        (order.adresseLivraison == null ||
+                            order.adresseLivraison!.isEmpty)
                         ? '-'
                         : order.adresseLivraison!,
                   ),
-                  _KeyValueRow(label: 'Zone', value: DeliveryZoneCatalog.labelFor(order.livraisonZone)),
-                  _KeyValueRow(label: 'Mode de paiement', value: order.modePaiement.label),
+                  _KeyValueRow(
+                    label: 'Zone',
+                    value: DeliveryZoneCatalog.labelFor(order.livraisonZone),
+                  ),
+                  _KeyValueRow(
+                    label: 'Mode de paiement',
+                    value: order.modePaiement.label,
+                  ),
                   if (!order.estRecuperation && order.fraisLivraison != null)
-                    _KeyValueRow(label: 'Frais de livraison', value: _ar(order.fraisLivraison!)),
+                    _KeyValueRow(
+                      label: 'Frais de livraison',
+                      value: _ar(order.fraisLivraison!),
+                    ),
                   // Rien ne reste à encaisser quand le client a déjà payé
                   // d'avance : afficher un "Total à payer" ferait croire au
                   // livreur qu'il doit encore réclamer la somme (§ demande).
                   if (!order.estPrepayee)
                     _KeyValueRow(
                       label: 'Total à payer',
-                      value: order.totalAPayer == null ? '-' : _ar(order.totalAPayer!),
+                      value: order.totalAPayer == null
+                          ? '-'
+                          : _ar(order.totalAPayer!),
                       bold: true,
                     ),
-                  if (order.preparateurName != null) _KeyValueRow(label: 'Préparateur', value: order.preparateurName!),
-                  if (order.livreurName != null) _KeyValueRow(label: 'Livreur', value: order.livreurName!),
+                  if (order.preparateurName != null)
+                    _KeyValueRow(
+                      label: 'Préparateur',
+                      value: order.preparateurName!,
+                    ),
+                  if (order.livreurName != null)
+                    _KeyValueRow(label: 'Livreur', value: order.livreurName!),
                   // Campagne marketing d'origine (`campagne_nom`, serializer
                   // gérant) — choisie à la création (« Campagne marketing
                   // (facultatif) ») ; absente sans campagne ou pour les
                   // autres rôles. Le web n'a pas de fiche équivalente : simple
                   // lecture, ajoutée pour retrouver l'information sur mobile.
-                  if (order.campagneNom.isNotEmpty) _KeyValueRow(label: 'Campagne', value: order.campagneNom),
+                  if (order.campagneNom.isNotEmpty)
+                    _KeyValueRow(label: 'Campagne', value: order.campagneNom),
                   if (order.createdAt != null)
-                    _KeyValueRow(label: 'Commande créée le', value: _fmtAppDateTime(order.createdAt)),
+                    _KeyValueRow(
+                      label: 'Commande créée le',
+                      value: _fmtAppDateTime(order.createdAt),
+                    ),
                 ],
               ),
             ),
@@ -560,8 +649,16 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
           // -------------------------------------------------------------- Notes
           // Consignes du gérant en encarts très visibles (§ demande) ; le
           // widget ne rend rien quand la note est vide.
-          NoteCallout(role: NoteRole.preparateur, text: order.notePreparateur, margin: const EdgeInsets.only(top: 12)),
-          NoteCallout(role: NoteRole.livreur, text: order.noteLivreur, margin: const EdgeInsets.only(top: 12)),
+          NoteCallout(
+            role: NoteRole.preparateur,
+            text: order.notePreparateur,
+            margin: const EdgeInsets.only(top: 12),
+          ),
+          NoteCallout(
+            role: NoteRole.livreur,
+            text: order.noteLivreur,
+            margin: const EdgeInsets.only(top: 12),
+          ),
 
           // ----------------------------------------------------- Envoyer au chat
           // Proposé dès qu'une photo de préparation existe, au gérant comme au
@@ -575,9 +672,15 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: (order.livreurId == null || _sharing) ? null : _share,
+                onPressed: (order.livreurId == null || _sharing)
+                    ? null
+                    : _share,
                 icon: _sharing
-                    ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                    ? const SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     : const Icon(Icons.chat_bubble_outline),
                 label: Text(
                   _sharing
@@ -608,7 +711,10 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
           if (actions != null || canCancel || canDelete) ...[
             const Divider(height: 28),
             if (_busy)
-              const Padding(padding: EdgeInsets.only(bottom: 10), child: LinearProgressIndicator(minHeight: 2)),
+              const Padding(
+                padding: EdgeInsets.only(bottom: 10),
+                child: LinearProgressIndicator(minHeight: 2),
+              ),
             ?actions,
             if (canCancel || canDelete) ...[
               if (actions != null) const SizedBox(height: 10),
@@ -622,7 +728,9 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
                       onPressed: _busy ? null : _cancel,
                       icon: const Icon(Icons.block_outlined),
                       label: const Text('Annuler la commande'),
-                      style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red,
+                      ),
                     ),
                   if (canDelete)
                     TextButton.icon(
@@ -721,12 +829,16 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
 
     // LIVREUR en cours de livraison : "Livré" et "Retour" sont deux issues
     // possibles, pas une succession.
-    if (isLivreur && order.statutCourant == OrderStatus.enLivraison && isJourJ(order.dateCommande, UserRole.livreur)) {
+    if (isLivreur &&
+        order.statutCourant == OrderStatus.enLivraison &&
+        isJourJ(order.dateCommande, UserRole.livreur)) {
       return Row(
         children: [
           Expanded(
             child: FilledButton.icon(
-              onPressed: _busy ? null : () => _ouvrir(OrderStatus.livre, 'Livré'),
+              onPressed: _busy
+                  ? null
+                  : () => _ouvrir(OrderStatus.livre, 'Livré'),
               icon: const Icon(Icons.local_shipping_outlined),
               label: const Text('Livré'),
             ),
@@ -734,7 +846,9 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
           const SizedBox(width: 10),
           Expanded(
             child: OutlinedButton.icon(
-              onPressed: _busy ? null : () => _ouvrir(OrderStatus.retour, 'Retour'),
+              onPressed: _busy
+                  ? null
+                  : () => _ouvrir(OrderStatus.retour, 'Retour'),
               icon: const Icon(Icons.undo),
               label: const Text('Retour'),
               style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
@@ -746,9 +860,15 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
 
     // Préparateur et livreur : leur action du moment, jouée elle aussi sans
     // quitter la fiche. Un employé sans sous-rôle ne voit aucun bouton.
-    final action = _nextAction(order, isPreparateur: isPreparateur, isLivreur: isLivreur);
+    final action = _nextAction(
+      order,
+      isPreparateur: isPreparateur,
+      isLivreur: isLivreur,
+    );
     if (action == null) return null;
-    final roleCommande = isPreparateur ? UserRole.preparateur : UserRole.livreur;
+    final roleCommande = isPreparateur
+        ? UserRole.preparateur
+        : UserRole.livreur;
     final bloque = !isJourJ(order.dateCommande, roleCommande);
     // Livreur hors jour J (§ demande) : le bouton reste visible mais
     // désactivé, avec le moment où il se débloquera — comme sur la tournée
@@ -761,16 +881,25 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
     return SizedBox(
       width: double.infinity,
       child: FilledButton.icon(
-        onPressed: (bloque || _busy) ? null : () => _ouvrir(action.target, action.label),
+        onPressed: (bloque || _busy)
+            ? null
+            : () => _ouvrir(action.target, action.label),
         icon: Icon(action.icon),
         label: Text(label),
       ),
     );
   }
 
-  Widget _actionButton(_ActionOption option, {required VoidCallback? onPressed}) {
+  Widget _actionButton(
+    _ActionOption option, {
+    required VoidCallback? onPressed,
+  }) {
     if (option.isAssign) {
-      return OutlinedButton.icon(onPressed: onPressed, icon: Icon(option.icon), label: Text(option.label));
+      return OutlinedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(option.icon),
+        label: Text(option.label),
+      );
     }
     if (option.target == OrderStatus.retour) {
       return OutlinedButton.icon(
@@ -780,7 +909,11 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
         style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
       );
     }
-    return FilledButton.icon(onPressed: onPressed, icon: Icon(option.icon), label: Text(option.label));
+    return FilledButton.icon(
+      onPressed: onPressed,
+      icon: Icon(option.icon),
+      label: Text(option.label),
+    );
   }
 }
 
@@ -796,9 +929,10 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text.toUpperCase(),
-      style: Theme.of(
-        context,
-      ).textTheme.labelSmall?.copyWith(letterSpacing: 2, color: Theme.of(context).colorScheme.onSurfaceVariant),
+      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+        letterSpacing: 2,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
     );
   }
 }
@@ -832,14 +966,19 @@ class _ArticlesCard extends StatelessWidget {
                       item.libelle,
                       style: TextStyle(
                         fontWeight: FontWeight.w600,
-                        decoration: item.retourne ? TextDecoration.lineThrough : null,
+                        decoration: item.retourne
+                            ? TextDecoration.lineThrough
+                            : null,
                         color: item.retourne ? scheme.onSurfaceVariant : null,
                       ),
                     ),
                   ),
                   if (item.retourne) ...[
                     const SizedBox(width: 8),
-                    const StatusChip(label: 'Rapporté', color: Color(0xFFEF4444)),
+                    const StatusChip(
+                      label: 'Rapporté',
+                      color: Color(0xFFEF4444),
+                    ),
                   ],
                 ],
               ),
@@ -856,12 +995,23 @@ class _ArticlesCard extends StatelessWidget {
                     children: [
                       Text(
                         '${_ar(item.prixUnitaire!)} / unité',
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                       if (item.aRemise) ...[
                         if (item.prixCatalogue != null)
-                          Text(_ar(item.prixCatalogue!), style: small.copyWith(decoration: TextDecoration.lineThrough)),
-                        StatusChip(label: 'Remise −${_ar(item.remiseUnitaire)}', color: _remiseColor(context)),
+                          Text(
+                            _ar(item.prixCatalogue!),
+                            style: small.copyWith(
+                              decoration: TextDecoration.lineThrough,
+                            ),
+                          ),
+                        StatusChip(
+                          label: 'Remise −${_ar(item.remiseUnitaire)}',
+                          color: _remiseColor(context),
+                        ),
                       ],
                     ],
                   ),
@@ -875,12 +1025,18 @@ class _ArticlesCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       'Remise accordée',
-                      style: TextStyle(fontWeight: FontWeight.w500, color: _remiseColor(context)),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
+                        color: _remiseColor(context),
+                      ),
                     ),
                   ),
                   Text(
                     '−${_ar(order.remiseTotal)}',
-                    style: TextStyle(fontWeight: FontWeight.w500, color: _remiseColor(context)),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w500,
+                      color: _remiseColor(context),
+                    ),
                   ),
                 ],
               ),
@@ -893,9 +1049,12 @@ class _ArticlesCard extends StatelessWidget {
 
   static String _meta(OrderItem item) {
     final parts = [
-      if (item.categoryName != null && item.categoryName!.isNotEmpty) 'Type : ${item.categoryName}',
-      if (item.typeName != null && item.typeName!.isNotEmpty) 'Sous-type : ${item.typeName}',
-      if (item.brandName != null && item.brandName!.isNotEmpty) 'Marque : ${item.brandName}',
+      if (item.categoryName != null && item.categoryName!.isNotEmpty)
+        ' ${item.categoryName}',
+      if (item.typeName != null && item.typeName!.isNotEmpty)
+        ' ${item.typeName}',
+      if (item.brandName != null && item.brandName!.isNotEmpty)
+        ' ${item.brandName}',
       if (item.quantite > 0) 'Quantité : ${item.quantite}',
     ];
     return parts.isEmpty ? 'Sans métadonnées' : parts.join(' • ');
@@ -904,7 +1063,12 @@ class _ArticlesCard extends StatelessWidget {
 
 /// Ligne « libellé à gauche / valeur à droite » de la grille d'informations.
 class _KeyValueRow extends StatelessWidget {
-  const _KeyValueRow({required this.label, required this.value, this.onTap, this.bold = false});
+  const _KeyValueRow({
+    required this.label,
+    required this.value,
+    this.onTap,
+    this.bold = false,
+  });
   final String label;
   final String value;
   final VoidCallback? onTap;
@@ -943,7 +1107,11 @@ class _KeyValueRow extends StatelessWidget {
 /// Encadré de la confirmation intégrée : « Confirmer : {label} » + aide pour
 /// la photo, puis le formulaire.
 class _InlineConfirmCard extends StatelessWidget {
-  const _InlineConfirmCard({required this.label, required this.showPhoto, required this.child});
+  const _InlineConfirmCard({
+    required this.label,
+    required this.showPhoto,
+    required this.child,
+  });
   final String label;
   final bool showPhoto;
   final Widget child;
@@ -1006,7 +1174,10 @@ class _HistoriqueEntry extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: InkWell(
-                onTap: () => launchUrl(Uri.parse(h.photo!), mode: LaunchMode.externalApplication),
+                onTap: () => launchUrl(
+                  Uri.parse(h.photo!),
+                  mode: LaunchMode.externalApplication,
+                ),
                 child: Row(
                   children: [
                     ClipRRect(
@@ -1027,7 +1198,10 @@ class _HistoriqueEntry extends StatelessWidget {
                     const SizedBox(width: 8),
                     Text(
                       'Voir / télécharger la photo',
-                      style: TextStyle(color: scheme.primary, decoration: TextDecoration.underline),
+                      style: TextStyle(
+                        color: scheme.primary,
+                        decoration: TextDecoration.underline,
+                      ),
                     ),
                   ],
                 ),
@@ -1047,9 +1221,17 @@ class _OrderTimelineCard extends StatelessWidget {
   final Order order;
 
   static const _milestones = [
-    (OrderStatus.enPreparation, Icons.build_outlined, 'Préparation commencée le'),
+    (
+      OrderStatus.enPreparation,
+      Icons.build_outlined,
+      'Préparation commencée le',
+    ),
     (OrderStatus.prete, Icons.inventory_2_outlined, 'Prête le'),
-    (OrderStatus.enLivraison, Icons.local_shipping_outlined, 'En livraison depuis le'),
+    (
+      OrderStatus.enLivraison,
+      Icons.local_shipping_outlined,
+      'En livraison depuis le',
+    ),
     (OrderStatus.livre, Icons.check_circle_outline, 'Livrée le'),
     (OrderStatus.retour, Icons.undo, 'Retour le'),
   ];
@@ -1084,7 +1266,12 @@ class _OrderTimelineCard extends StatelessWidget {
               reached: order.dateCommande != null,
             ),
             for (final (status, icon, label) in _milestones)
-              _TimelineRow(icon: icon, label: label, date: timestamps[status], reached: timestamps.containsKey(status)),
+              _TimelineRow(
+                icon: icon,
+                label: label,
+                date: timestamps[status],
+                reached: timestamps.containsKey(status),
+              ),
           ],
         ),
       ),
@@ -1093,7 +1280,12 @@ class _OrderTimelineCard extends StatelessWidget {
 }
 
 class _TimelineRow extends StatelessWidget {
-  const _TimelineRow({required this.icon, required this.label, required this.date, required this.reached});
+  const _TimelineRow({
+    required this.icon,
+    required this.label,
+    required this.date,
+    required this.reached,
+  });
   final IconData icon;
   final String label;
   final DateTime? date;
@@ -1112,7 +1304,10 @@ class _TimelineRow extends StatelessWidget {
             child: Text.rich(
               TextSpan(
                 children: [
-                  TextSpan(text: '$label ', style: Theme.of(context).textTheme.bodyMedium),
+                  TextSpan(
+                    text: '$label ',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
                   TextSpan(
                     text: _fmtAppDateTime(date),
                     style: const TextStyle(fontWeight: FontWeight.w700),
@@ -1220,7 +1415,10 @@ class _CancelOrderDialogState extends State<_CancelOrderDialog> {
   @override
   Widget build(BuildContext context) {
     final order = widget.order;
-    final motValide = motConfirmationValide(kMotConfirmationAnnulation, _saisie.text);
+    final motValide = motConfirmationValide(
+      kMotConfirmationAnnulation,
+      _saisie.text,
+    );
     return AlertDialog(
       title: Text('Annuler la commande ${order.numero} ?'),
       content: SizedBox(
@@ -1249,7 +1447,9 @@ class _CancelOrderDialogState extends State<_CancelOrderDialog> {
             const SizedBox(height: 6),
             TextField(
               controller: _saisie,
-              decoration: const InputDecoration(hintText: kMotConfirmationAnnulation),
+              decoration: const InputDecoration(
+                hintText: kMotConfirmationAnnulation,
+              ),
               autocorrect: false,
               enableSuggestions: false,
               textCapitalization: TextCapitalization.characters,
@@ -1258,13 +1458,21 @@ class _CancelOrderDialogState extends State<_CancelOrderDialog> {
             ),
             if (_error != null) ...[
               const SizedBox(height: 8),
-              Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              Text(
+                _error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
             ],
           ],
         ),
       ),
       actions: [
-        TextButton(onPressed: _cancelling ? null : () => Navigator.of(context).pop(false), child: const Text('Retour')),
+        TextButton(
+          onPressed: _cancelling
+              ? null
+              : () => Navigator.of(context).pop(false),
+          child: const Text('Retour'),
+        ),
         FilledButton(
           style: FilledButton.styleFrom(backgroundColor: Colors.red),
           onPressed: (_cancelling || !motValide) ? null : _confirm,
@@ -1313,15 +1521,23 @@ class _DeleteOrderDialogState extends State<_DeleteOrderDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Cette action est définitive — la commande de ${order.clientNom} sera supprimée.'),
+          Text(
+            'Cette action est définitive — la commande de ${order.clientNom} sera supprimée.',
+          ),
           if (_error != null) ...[
             const SizedBox(height: 8),
-            Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            Text(
+              _error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
           ],
         ],
       ),
       actions: [
-        TextButton(onPressed: _deleting ? null : () => Navigator.of(context).pop(false), child: const Text('Annuler')),
+        TextButton(
+          onPressed: _deleting ? null : () => Navigator.of(context).pop(false),
+          child: const Text('Annuler'),
+        ),
         FilledButton(
           style: FilledButton.styleFrom(backgroundColor: Colors.red),
           onPressed: _deleting ? null : _confirm,
@@ -1346,16 +1562,23 @@ class _EditLivraisonDialog extends ConsumerStatefulWidget {
   final Order order;
 
   @override
-  ConsumerState<_EditLivraisonDialog> createState() => _EditLivraisonDialogState();
+  ConsumerState<_EditLivraisonDialog> createState() =>
+      _EditLivraisonDialogState();
 }
 
 class _EditLivraisonDialogState extends ConsumerState<_EditLivraisonDialog> {
   late String _zone = widget.order.livraisonZone;
   late PaymentMode _modePaiement = widget.order.modePaiement;
   // Heure « au mur » d'Antananarivo, comme le régime complet (EditOrderDialog).
-  late DateTime? _dateCommande = widget.order.dateCommande == null ? null : appLocal(widget.order.dateCommande!);
-  late final _adresseController = TextEditingController(text: widget.order.adresseLivraison ?? '');
-  late final _noteLivreurController = TextEditingController(text: widget.order.noteLivreur ?? '');
+  late DateTime? _dateCommande = widget.order.dateCommande == null
+      ? null
+      : appLocal(widget.order.dateCommande!);
+  late final _adresseController = TextEditingController(
+    text: widget.order.adresseLivraison ?? '',
+  );
+  late final _noteLivreurController = TextEditingController(
+    text: widget.order.noteLivreur ?? '',
+  );
   bool _submitting = false;
   String? _error;
 
@@ -1380,15 +1603,25 @@ class _EditLivraisonDialogState extends ConsumerState<_EditLivraisonDialog> {
             widget.order.id,
             modePaiement: _modePaiement.apiValue,
             livraisonZone: _zone,
-            adresseLivraison: _recuperation ? '' : _adresseController.text.trim(),
+            adresseLivraison: _recuperation
+                ? ''
+                : _adresseController.text.trim(),
             // Envoyée seulement si renseignée, comme le web (`date_commande`).
-            dateCommande: _dateCommande == null ? null : appWallClockToUtc(_dateCommande!),
-            noteLivreur: _recuperation ? '' : _noteLivreurController.text.trim(),
+            dateCommande: _dateCommande == null
+                ? null
+                : appWallClockToUtc(_dateCommande!),
+            noteLivreur: _recuperation
+                ? ''
+                : _noteLivreurController.text.trim(),
           );
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Commande ${widget.order.numero} — livraison mise à jour')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Commande ${widget.order.numero} — livraison mise à jour',
+          ),
+        ),
+      );
       Navigator.of(context).pop();
     } catch (e) {
       if (mounted) setState(() => _error = ApiClient.messageFromError(e));
@@ -1399,7 +1632,9 @@ class _EditLivraisonDialogState extends ConsumerState<_EditLivraisonDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final zones = ref.watch(deliveryZonesProvider).asData?.value ?? const <DeliveryZoneOption>[];
+    final zones =
+        ref.watch(deliveryZonesProvider).asData?.value ??
+        const <DeliveryZoneOption>[];
     // Zones actives (+ la zone courante même désactivée), jamais le retrait
     // sur place : en régime restreint on ne change pas le type de commande.
     final zoneItems = [
@@ -1408,7 +1643,12 @@ class _EditLivraisonDialogState extends ConsumerState<_EditLivraisonDialog> {
           DropdownMenuItem(value: z.code, child: Text(z.label)),
     ];
     if (!_recuperation && !zoneItems.any((i) => i.value == _zone)) {
-      zoneItems.add(DropdownMenuItem(value: _zone, child: Text(DeliveryZoneCatalog.labelFor(_zone))));
+      zoneItems.add(
+        DropdownMenuItem(
+          value: _zone,
+          child: Text(DeliveryZoneCatalog.labelFor(_zone)),
+        ),
+      );
     }
 
     return AlertDialog(
@@ -1426,20 +1666,29 @@ class _EditLivraisonDialogState extends ConsumerState<_EditLivraisonDialog> {
               ),
               if (_error != null) ...[
                 const SizedBox(height: 10),
-                Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
               ],
               if (!_recuperation) ...[
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   initialValue: _zone,
-                  decoration: const InputDecoration(labelText: 'Zone de livraison'),
+                  decoration: const InputDecoration(
+                    labelText: 'Zone de livraison',
+                  ),
                   items: zoneItems,
-                  onChanged: _submitting ? null : (v) => setState(() => _zone = v ?? _zone),
+                  onChanged: _submitting
+                      ? null
+                      : (v) => setState(() => _zone = v ?? _zone),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _adresseController,
-                  decoration: const InputDecoration(labelText: 'Adresse de livraison'),
+                  decoration: const InputDecoration(
+                    labelText: 'Adresse de livraison',
+                  ),
                   enabled: !_submitting,
                 ),
               ],
@@ -1459,8 +1708,13 @@ class _EditLivraisonDialogState extends ConsumerState<_EditLivraisonDialog> {
               DropdownButtonFormField<PaymentMode>(
                 initialValue: _modePaiement,
                 decoration: const InputDecoration(labelText: 'Paiement'),
-                items: [for (final m in PaymentMode.values) DropdownMenuItem(value: m, child: Text(m.label))],
-                onChanged: _submitting ? null : (v) => setState(() => _modePaiement = v ?? _modePaiement),
+                items: [
+                  for (final m in PaymentMode.values)
+                    DropdownMenuItem(value: m, child: Text(m.label)),
+                ],
+                onChanged: _submitting
+                    ? null
+                    : (v) => setState(() => _modePaiement = v ?? _modePaiement),
               ),
               // La note du livreur reste utile en cours de tournée : c'est par
               // elle qu'on lui transmet une consigne de dernière minute.
@@ -1468,7 +1722,9 @@ class _EditLivraisonDialogState extends ConsumerState<_EditLivraisonDialog> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: _noteLivreurController,
-                  decoration: const InputDecoration(labelText: 'Note pour le livreur (optionnel)'),
+                  decoration: const InputDecoration(
+                    labelText: 'Note pour le livreur (optionnel)',
+                  ),
                   maxLines: 2,
                   enabled: !_submitting,
                 ),
@@ -1478,7 +1734,10 @@ class _EditLivraisonDialogState extends ConsumerState<_EditLivraisonDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: _submitting ? null : () => Navigator.of(context).pop(), child: const Text('Annuler')),
+        TextButton(
+          onPressed: _submitting ? null : () => Navigator.of(context).pop(),
+          child: const Text('Annuler'),
+        ),
         FilledButton(
           onPressed: _submitting ? null : _submit,
           child: Text(_submitting ? 'Enregistrement...' : 'Enregistrer'),

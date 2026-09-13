@@ -190,6 +190,45 @@ class _CaisseScreenState extends ConsumerState<CaisseScreen> {
     if (ok == true) _snack('Mouvement ajouté');
   }
 
+  /// Correction d'un mouvement de la session ouverte (§ demande).
+  Future<void> _editMovement(int magasinId, CaisseMovement m) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => _MovementDialog(magasinId: magasinId, existing: m),
+    );
+    if (ok == true) _snack('Mouvement modifié');
+  }
+
+  /// Suppression après confirmation — le solde attendu est recalculé.
+  Future<void> _deleteMovement(int magasinId, CaisseMovement m) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Supprimer ce mouvement ?'),
+        content: Text(
+          '${m.isIn ? 'Entrée' : 'Sortie'} de ${_money(m.amount)} — « ${m.reason} » (${_formatDateTime(m.createdAt)}).\n'
+          'Le solde attendu de la session est recalculé. Cette action est irréversible.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Annuler')),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            icon: const Icon(Icons.delete_outline, size: 18),
+            label: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ref.read(currentCaisseProvider(magasinId).notifier).deleteMovement(m.id);
+      _snack('Mouvement supprimé');
+    } catch (e) {
+      _snack(ApiClient.messageFromError(e));
+    }
+  }
+
   /// Toasts d'erreur de chargement (sonner du web) — les données
   /// précédentes restent affichées.
   void _toastOnError<T>(AsyncValue<T>? previous, AsyncValue<T> next, String prefix) {
@@ -300,6 +339,9 @@ class _CaisseScreenState extends ConsumerState<CaisseScreen> {
             onOpen: () => _openOpenDialog(magasinId),
             onMovement: () => _openMovementDialog(magasinId),
             onClose: session == null ? null : () => _openCloseDialog(magasinId, session),
+            // Modifier / supprimer : session ouverte uniquement (§ demande).
+            onEditMovement: session != null && session.isOpen ? (m) => _editMovement(magasinId, m) : null,
+            onDeleteMovement: session != null && session.isOpen ? (m) => _deleteMovement(magasinId, m) : null,
           ),
           const SizedBox(height: 16),
           _SummaryCard(

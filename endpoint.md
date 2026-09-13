@@ -114,7 +114,7 @@ Les messages métier sont en français ; les messages génériques de DRF/simple
 - **Envoi de fichiers** (photos de statut, logos, images de chat, import de sauvegarde) : `multipart/form-data` ; sinon `application/json`.
 - **Méthodes** : `PATCH` pour les modifications partielles ; certaines vues n'exposent qu'un sous-ensemble de méthodes (voir chaque section — le reste renvoie `405`).
 
-Méthodes volontairement désactivées (`http_method_names`, réponse `405 {"detail": "Method \"PUT\" not allowed."}`) : `PUT` sur les commandes, zones, types de dépense, dépenses, campagnes et catégories de caisse (utiliser `PATCH`) ; `PUT`/`PATCH` sur les variantes (le stock se modifie via `adjust/`) et sur les mouvements de caisse ; `PUT`/`PATCH`/`DELETE` sur les sessions de caisse (utiliser `open/` et `close/`).
+Méthodes volontairement désactivées (`http_method_names`, réponse `405 {"detail": "Method \"PUT\" not allowed."}`) : `PUT` sur les commandes, zones, types de dépense, dépenses, campagnes et catégories de caisse (utiliser `PATCH`) ; `PUT`/`PATCH` sur les variantes (le stock se modifie via `adjust/`) et `PUT` sur les mouvements de caisse ; `PUT`/`PATCH`/`DELETE` sur les sessions de caisse (utiliser `open/` et `close/`).
 
 ## Rôles et permissions
 
@@ -1759,7 +1759,19 @@ Réponse `200` : objet mouvement (forme ci-dessus).
 Erreurs :
 - `404` — `{"detail": "No CaisseMovement matches the given query."}`.
 
-### `DELETE /api/users/caisse/movements/{id}/` — Supprimer un mouvement
+### `PATCH /api/users/caisse/movements/{id}/` — Corriger un mouvement (session ouverte)
+**Rôle** : gérant · **Vue** : `CaisseMovementViewSet.partial_update` (users/views.py)
+
+Effet : modifie le type, le montant, le motif et la catégorie d'un mouvement **tant que sa session est ouverte** ; une entrée perd sa catégorie ; le solde attendu de la session est recalculé.
+
+Requête :
+```json
+{ "movement_type": "out", "amount": "402000", "reason": "REDOTPAY", "category": 3 }
+```
+
+Réponse `200` : le mouvement mis à jour (même forme que la création). Erreurs : `400` — `["Cette session de caisse est fermée : ses mouvements ne peuvent plus être modifiés."]`, `["Une catégorie ne s'applique qu'aux sorties."]` ; `403` hors gérant ; `404`.
+
+### `DELETE /api/users/caisse/movements/{id}/` — Supprimer un mouvement (session ouverte)
 **Rôle** : `GERANT` · **Vue** : `CaisseMovementViewSet.destroy` (views.py)
 
 Effet : supprime le mouvement (aucun recalcul d'une session déjà fermée). Signal : `data_update` `caisse_movement` / `deleted`.
