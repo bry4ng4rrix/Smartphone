@@ -105,8 +105,26 @@ class CaisseRepository {
     return CaisseMovement.fromJson(response.data as Map<String, dynamic>);
   }
 
-  /// `deleteMovement(id)` — présent dans le client web, non utilisé par la
-  /// page `/caisse` (aucune action de ligne).
+  /// `PATCH /users/caisse/movements/{id}/` — correction d'un mouvement d'une
+  /// session encore ouverte (§ demande) ; `categoryId` null = sans catégorie.
+  Future<CaisseMovement> updateMovement(
+    int id, {
+    required String movementType,
+    required double amount,
+    required String reason,
+    int? categoryId,
+  }) async {
+    final response = await _dio.patch('users/caisse/movements/$id/', data: {
+      'movement_type': movementType,
+      'amount': amount,
+      'reason': reason,
+      'category': movementType == 'out' ? categoryId : null,
+    });
+    return CaisseMovement.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  /// `DELETE /users/caisse/movements/{id}/` — suppression d'un mouvement
+  /// d'une session encore ouverte (le serveur refuse sinon).
   Future<void> deleteMovement(int id) async {
     await _dio.delete('users/caisse/movements/$id/');
   }

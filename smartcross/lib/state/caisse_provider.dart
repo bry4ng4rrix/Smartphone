@@ -130,6 +130,26 @@ class CurrentCaisseNotifier extends AsyncNotifier<CaisseSession?> {
     ref.invalidate(caissePeriodProvider);
     await _afterAction();
   }
+
+  /// Correction d'un mouvement de la session ouverte (§ demande).
+  Future<void> updateMovement(
+    int id, {
+    required String movementType,
+    required double amount,
+    required String reason,
+    int? categoryId,
+  }) async {
+    await _repo.updateMovement(id, movementType: movementType, amount: amount, reason: reason, categoryId: categoryId);
+    ref.invalidate(caissePeriodProvider);
+    await _afterAction();
+  }
+
+  /// Suppression d'un mouvement de la session ouverte (§ demande).
+  Future<void> deleteMovement(int id) async {
+    await _repo.deleteMovement(id);
+    ref.invalidate(caissePeriodProvider);
+    await _afterAction();
+  }
 }
 
 // `retry: null` sur tous les providers réseau de la page : Riverpod 3

@@ -570,6 +570,8 @@ class _MovementList extends StatelessWidget {
     required this.maxHeight,
     required this.emptyText,
     this.showCategory = false,
+    this.onEdit,
+    this.onDelete,
   });
 
   final List<CaisseMovement> movements;
@@ -578,6 +580,10 @@ class _MovementList extends StatelessWidget {
 
   /// Titre `{reason} · {category_name}` (liste de la période uniquement).
   final bool showCategory;
+
+  /// Modifier / supprimer un mouvement (session ouverte uniquement, § demande).
+  final ValueChanged<CaisseMovement>? onEdit;
+  final ValueChanged<CaisseMovement>? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -605,7 +611,8 @@ class _MovementList extends StatelessWidget {
                 padding: EdgeInsets.zero,
                 itemCount: movements.length,
                 separatorBuilder: (_, _) => Divider(height: 1, color: scheme.outlineVariant),
-                itemBuilder: (context, i) => _MovementRow(movement: movements[i], showCategory: showCategory),
+                itemBuilder: (context, i) =>
+                    _MovementRow(movement: movements[i], showCategory: showCategory, onEdit: onEdit, onDelete: onDelete),
               ),
             ),
     );
@@ -613,10 +620,12 @@ class _MovementList extends StatelessWidget {
 }
 
 class _MovementRow extends StatelessWidget {
-  const _MovementRow({required this.movement, required this.showCategory});
+  const _MovementRow({required this.movement, required this.showCategory, this.onEdit, this.onDelete});
 
   final CaisseMovement movement;
   final bool showCategory;
+  final ValueChanged<CaisseMovement>? onEdit;
+  final ValueChanged<CaisseMovement>? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -648,6 +657,24 @@ class _MovementRow extends StatelessWidget {
             '${m.isIn ? '+' : '-'}${_money(m.amount)}',
             style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: color),
           ),
+          // Crayon / corbeille (session ouverte uniquement), comme sur le web.
+          if (onEdit != null)
+            IconButton(
+              tooltip: 'Modifier le mouvement',
+              visualDensity: VisualDensity.compact,
+              iconSize: 18,
+              onPressed: () => onEdit!(m),
+              icon: const Icon(Icons.edit_outlined),
+            ),
+          if (onDelete != null)
+            IconButton(
+              tooltip: 'Supprimer le mouvement',
+              visualDensity: VisualDensity.compact,
+              iconSize: 18,
+              color: scheme.error,
+              onPressed: () => onDelete!(m),
+              icon: const Icon(Icons.delete_outline),
+            ),
         ],
       ),
     );
@@ -664,12 +691,16 @@ class _SessionCard extends StatelessWidget {
     required this.onOpen,
     required this.onMovement,
     required this.onClose,
+    this.onEditMovement,
+    this.onDeleteMovement,
   });
 
   final CaisseSession? session;
   final VoidCallback onOpen;
   final VoidCallback onMovement;
   final VoidCallback? onClose;
+  final ValueChanged<CaisseMovement>? onEditMovement;
+  final ValueChanged<CaisseMovement>? onDeleteMovement;
 
   @override
   Widget build(BuildContext context) {
@@ -754,6 +785,8 @@ class _SessionCard extends StatelessWidget {
                 movements: s.movements.reversed.toList(),
                 maxHeight: 256,
                 emptyText: 'Aucun mouvement pour l\'instant',
+                onEdit: onEditMovement,
+                onDelete: onDeleteMovement,
               ),
             ],
           ],
@@ -1449,8 +1482,11 @@ class _CloseDialogState extends ConsumerState<_CloseDialog> {
 // -----------------------------------------------------------------------------
 
 class _MovementDialog extends ConsumerStatefulWidget {
-  const _MovementDialog({required this.magasinId});
+  const _MovementDialog({required this.magasinId, this.existing});
   final int magasinId;
+
+  /// Mouvement à corriger (null = ajout).
+  final CaisseMovement? existing;
 
   @override
   ConsumerState<_MovementDialog> createState() => _MovementDialogState();
@@ -1465,6 +1501,18 @@ class _MovementDialogState extends ConsumerState<_MovementDialog> {
   int? _categoryId;
   bool _submitting = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.existing;
+    if (e != null) {
+      _movementType = e.isIn ? 'in' : 'out';
+      _amountController.text = e.amount == e.amount.roundToDouble() ? e.amount.toInt().toString() : e.amount.toString();
+      _reasonController.text = e.reason;
+      _categoryId = e.categoryId;
+    }
+  }
 
   @override
   void dispose() {
@@ -1490,16 +1538,32 @@ class _MovementDialogState extends ConsumerState<_MovementDialog> {
       _error = null;
     });
     try {
-      await ref.read(currentCaisseProvider(widget.magasinId).notifier).addMovement(
-            movementType: _movementType,
-            amount: amount,
-            reason: reason,
-            categoryId: _movementType == 'out' ? _categoryId : null,
-          );
+      final notifier = ref.read(currentCaisseProvider(widget.magasinId).notifier);
+      final existing = widget.existing;
+      if (existing != null) {
+        await notifier.updateMovement(
+          existing.id,
+          movementType: _movementType,
+          amount: amount,
+          reason: reason,
+          categoryId: _movementType == 'out' ? _categoryId : null,
+        );
+      } else {
+        await notifier.addMovement(
+          movementType: _movementType,
+          amount: amount,
+          reason: reason,
+          categoryId: _movementType == 'out' ? _categoryId : null,
+        );
+      }
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       final message = ApiClient.messageFromError(e);
-      if (mounted) setState(() => _error = message.isEmpty ? 'Erreur lors de l’ajout du mouvement' : message);
+      if (mounted) {
+        setState(() => _error = message.isEmpty
+            ? (widget.existing != null ? 'Erreur lors de la modification du mouvement' : 'Erreur lors de l’ajout du mouvement')
+            : message);
+      }
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -1514,16 +1578,22 @@ class _MovementDialogState extends ConsumerState<_MovementDialog> {
     final categories = categoriesAsync.value ?? const <CaisseCategory>[];
     final isOut = _movementType == 'out';
 
+    final edition = widget.existing != null;
     return AlertDialog(
       scrollable: true,
-      title: const Text('Ajouter un mouvement'),
+      title: Text(edition ? 'Modifier le mouvement' : 'Ajouter un mouvement'),
       content: SizedBox(
         width: 400,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Apport ou retrait d\'espèces dans la caisse.', style: Theme.of(context).textTheme.bodySmall),
+            Text(
+              edition
+                  ? 'Correction du mouvement du ${_formatDateTime(widget.existing!.createdAt)} — le solde attendu est recalculé.'
+                  : 'Apport ou retrait d\'espèces dans la caisse.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
             const SizedBox(height: 12),
             if (_error != null) ...[
               Text(_error!, style: TextStyle(color: scheme.error)),
@@ -1596,8 +1666,8 @@ class _MovementDialogState extends ConsumerState<_MovementDialog> {
           onPressed: _submitting ? null : _submit,
           icon: _submitting
               ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-              : const Icon(Icons.add, size: 18),
-          label: const Text('Ajouter'),
+              : Icon(edition ? Icons.edit_outlined : Icons.add, size: 18),
+          label: Text(edition ? 'Enregistrer' : 'Ajouter'),
         ),
       ],
     );
