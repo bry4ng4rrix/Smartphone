@@ -775,6 +775,13 @@ def approuver_commande_client(*, order, user, note=""):
         order=order, ancien_statut=STATUT_ATTENTE_APPROBATION, nouveau_statut="NOUVELLE", changed_by=user,
         note=note or "Commande client approuvée",
     )
+    # Comme une commande saisie en interne (create_order), une commande client
+    # réserve son stock dès qu'elle entre dans le circuit, c'est-à-dire ici.
+    for item in order.items.select_related("product_variant"):
+        apply_stock_movement(
+            product_variant=item.product_variant, movement_type="SORTIE", quantite=item.quantite,
+            origine="COMMANDE", user=user, reference=order.numero, note="Commande client approuvée",
+        )
     _notify_commande_role(
         magasin=order.magasin,
         commande_role="PREPARATEUR",
@@ -794,7 +801,7 @@ def approuver_commande_client(*, order, user, note=""):
 @transaction.atomic
 def refuser_commande_client(*, order, user, note=""):
     """Le gérant refuse une commande client en attente : elle est annulée
-    (aucun stock n'avait été touché) avec le motif dans l'historique."""
+    (le stock n'est réservé qu'à l'approbation) avec le motif dans l'historique."""
     if user_commande_role(user) != "GERANT":
         raise PermissionDenied("Seul le gérant peut refuser une commande client.")
     if order.statut_courant != STATUT_ATTENTE_APPROBATION:
@@ -814,14 +821,21 @@ def refuser_commande_client(*, order, user, note=""):
 @transaction.atomic
 def annuler_commande_par_client(*, order, note=""):
     """Annulation par le client lui-même : possible tant que la préparation
-    n'a pas commencé ("En attente d'approbation" ou "Nouvelle" — le stock
-    n'a pas encore bougé). Au-delà, il doit contacter la boutique."""
+    n'a pas commencé ("En attente d'approbation" ou "Nouvelle"). Une commande
+    déjà approuvée avait réservé son stock : il revient en rayon. Au-delà, il
+    doit contacter la boutique."""
     if order.statut_courant not in _CLIENT_CANCELABLE_STATUSES:
         raise ValidationError(
             f"Cette commande est '{order.get_statut_courant_display()}' — elle ne peut plus être "
             "annulée depuis l'espace client, contactez la boutique."
         )
     old_status = order.statut_courant
+    if old_status in _STOCK_DEDUCTED_STATUSES:
+        for item in order.items.select_related("product_variant"):
+            apply_stock_movement(
+                product_variant=item.product_variant, movement_type="ENTREE", quantite=item.quantite,
+                origine="ANNULATION", reference=order.numero, note="Annulée par le client",
+            )
     order.statut_courant = "ANNULEE"
     order.save(update_fields=["statut_courant", "updated_at"])
     OrderStatusHistory.objects.create(

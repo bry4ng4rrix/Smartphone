@@ -111,7 +111,15 @@ export default function CaissePage() {
   // épargne, boosts — tout est calculé côté serveur, filtré par période.
   const [preset, setPreset] = useState<PeriodPreset>('month');
   const [custom, setCustom] = useState({ from: '', to: '' });
-  const period = periodeDepuisPreset(preset, custom);
+  // Période personnalisée = plage libre (du → au) ; les préréglages viennent de lib/reports.
+  const period = (() => {
+    if (preset === 'custom' && custom.from && custom.to) {
+      const [from, to] = custom.from <= custom.to ? [custom.from, custom.to] : [custom.to, custom.from];
+      return { from, to };
+    }
+    const p = periodeDepuisPreset(preset === 'custom' ? 'month' : preset);
+    return { from: p.from, to: p.to };
+  })();
   const [tresorerie, setTresorerie] = useState<Tresorerie | null>(null);
   const [journal, setJournal] = useState<LigneJournal[] | null>(null);
   const [ventes, setVentes] = useState<LigneVenteResultat[] | null>(null);

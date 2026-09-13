@@ -7,10 +7,10 @@ Une commande client :
 * est créée en "EN_ATTENTE_APPROBATION" (le gérant l'approuve ensuite, ce
   qui la fait entrer dans le workflow habituel — voir
   orders/services.py::approuver_commande_client) ;
-* ne touche PAS le stock (la déduction se fait, comme pour toute commande,
-  au passage "En préparation" via apply_stock_movement) — mais la
-  disponibilité est vérifiée ici, sous verrou, pour ne pas accepter ce qui
-  n'est plus en rayon ;
+* ne touche PAS le stock tant qu'elle n'est pas approuvée (la réservation
+  se fait à l'approbation, quand elle devient "Nouvelle" — voir
+  orders/services.py::approuver_commande_client) — mais la disponibilité est
+  vérifiée ici, sous verrou, pour ne pas accepter ce qui n'est plus en rayon ;
 * prend les prix catalogue du moment (snapshot OrderItem.prix_unitaire) ;
   le client peut envoyer le prix qu'il a vu (`prix_attendu`) pour être
   averti si le prix a changé entre-temps.
