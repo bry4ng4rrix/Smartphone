@@ -21,9 +21,10 @@ import {
   Plus, Trash2, Wallet, Receipt, Truck, Info, Check, Save, Search,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { CostSummary, STATUTS_RECEPTION } from '@/components/suppliers/cost-summary';
+import { CostSummary } from '@/components/suppliers/cost-summary';
 import {
-  METHODES_ALLOCATION, MODES_TRANSPORT, fmtAr, fmtDate, fmtDevise, labelOf, statutInfo,
+  METHODES_ALLOCATION, MODES_TRANSPORT, STATUTS_RECEPTION, actionPossible, fmtAr, fmtDate, fmtDevise, fmtTaux,
+  labelOf, messageErreur, statutInfo,
 } from '@/components/suppliers/supplier-status';
 import {
   ArriverDialog,
@@ -118,12 +119,6 @@ function SectionTitle({ icon: Icon, children, action }: { icon: React.ComponentT
   );
 }
 
-const ACTIONS_PREPARER = ['COMMANDE', 'PARTIELLEMENT_PAYE', 'PAYE'];
-const ACTIONS_EXPEDIER = ['COMMANDE', 'PARTIELLEMENT_PAYE', 'PAYE', 'PREPARE'];
-const ACTIONS_ARRIVER = ['COMMANDE', 'PARTIELLEMENT_PAYE', 'PAYE', 'PREPARE', 'EN_TRANSIT'];
-const ACTIONS_RECEVOIR = ['COMMANDE', 'PARTIELLEMENT_PAYE', 'PAYE', 'PREPARE', 'EN_TRANSIT', 'ARRIVE', 'PARTIELLEMENT_RECU'];
-const ACTIONS_FINALISER = ['PARTIELLEMENT_RECU', 'RECU'];
-
 /* -------------------------------------------------------------------------- */
 /* Page                                                                        */
 /* -------------------------------------------------------------------------- */
@@ -150,13 +145,14 @@ export default function SupplierOrderDetailPage() {
       setOrder(data);
       setIntrouvable(false);
       setErreur(null);
-    } catch (err: any) {
-      const msg: string = err?.message || '';
-      if (/404|introuvable|not found|matches the given query|pas trouvé|no supplierorder/i.test(msg)) {
+    } catch (err) {
+      const msg = messageErreur(err, 'Erreur de chargement');
+      // DRF get_object → 404 {"detail": "No SupplierOrder matches the given query."} (ou traduit).
+      if (/404|introuvable|not found|matches the given query|ne correspond|pas trouvé/i.test(msg)) {
         setIntrouvable(true);
       } else {
-        setErreur(msg || 'Erreur de chargement');
-        if (!silent) toast.error(msg || 'Erreur de chargement');
+        setErreur(msg);
+        if (!silent) toast.error(msg);
       }
     } finally {
       if (!silent) setLoading(false);
@@ -172,19 +168,19 @@ export default function SupplierOrderDetailPage() {
       await fn();
       toast.success(succes);
       await load(true);
-    } catch (err: any) {
-      toast.error(err.message || 'Action impossible');
+    } catch (err) {
+      toast.error(messageErreur(err, 'Action impossible'));
     } finally {
       setActing(null);
     }
   };
 
   const supprimerPaiement = (p: any) => {
-    if (!confirm(`Supprimer le paiement de ${fmtDevise(p.montant, p.devise)} du ${fmtDate(p.date)} ?`)) return;
+    if (!window.confirm(`Supprimer le paiement de ${fmtDevise(p.montant, p.devise)} du ${fmtDate(p.date)} ?`)) return;
     action(`paiement-${p.id}`, () => djangoClient.suppliers.deletePayment(order.id, p.id), 'Paiement supprimé');
   };
   const supprimerFrais = (f: any) => {
-    if (!confirm(`Supprimer le frais « ${f.type_label} » de ${fmtDevise(f.montant, f.devise)} ?`)) return;
+    if (!window.confirm(`Supprimer le frais « ${f.type_label} » de ${fmtDevise(f.montant, f.devise)} ?`)) return;
     action(`frais-${f.id}`, () => djangoClient.suppliers.deleteFee(order.id, f.id), 'Frais supprimé — coût recalculé');
   };
 
@@ -262,7 +258,7 @@ export default function SupplierOrderDetailPage() {
   const si = statutInfo(statut);
   const finalise = statut === 'COUT_FINALISE';
   const modifiable = !finalise;
-  const enReception = STATUTS_RECEPTION.includes(statut);
+  const enReception = (STATUTS_RECEPTION as string[]).includes(statut);
   const devise: string = order.devise || 'MGA';
   const taux = Number(order.taux_change) || 1;
   const lines: any[] = order.lines || [];
@@ -305,7 +301,7 @@ export default function SupplierOrderDetailPage() {
                 ) : (
                   <span>Fournisseur non renseigné</span>
                 )}
-                {' · '}créé le {fmtDate(order.date)}
+                {' · '}du {fmtDate(order.date)}
                 {order.magasin_name ? ` · ${order.magasin_name}` : ''}
               </p>
             </div>
@@ -319,32 +315,32 @@ export default function SupplierOrderDetailPage() {
                 <Pencil className="h-4 w-4 mr-1.5" /> Modifier
               </Button>
             )}
-            {statut === 'BROUILLON' && (
+            {actionPossible('commander', statut) && (
               <Button onClick={() => action('commander', () => djangoClient.suppliers.commander(order.id), 'Commande passée au fournisseur')} disabled={busy}>
                 <ShoppingCart className="h-4 w-4 mr-1.5" /> Commander
               </Button>
             )}
-            {ACTIONS_PREPARER.includes(statut) && (
+            {actionPossible('preparer', statut) && (
               <Button variant="outline" onClick={() => action('preparer', () => djangoClient.suppliers.preparer(order.id), 'Marchandise préparée par le fournisseur')} disabled={busy}>
                 <PackageCheck className="h-4 w-4 mr-1.5" /> Marquer préparé
               </Button>
             )}
-            {ACTIONS_EXPEDIER.includes(statut) && (
+            {actionPossible('expedier', statut) && (
               <Button variant={statut === 'PREPARE' ? 'default' : 'outline'} onClick={() => setDlg('expedier')} disabled={busy}>
                 <Ship className="h-4 w-4 mr-1.5" /> Expédier
               </Button>
             )}
-            {ACTIONS_ARRIVER.includes(statut) && (
+            {actionPossible('arriver', statut) && (
               <Button variant={statut === 'EN_TRANSIT' ? 'default' : 'outline'} onClick={() => setDlg('arriver')} disabled={busy}>
                 <Anchor className="h-4 w-4 mr-1.5" /> Marquer arrivé
               </Button>
             )}
-            {ACTIONS_RECEVOIR.includes(statut) && (
+            {actionPossible('receptionner', statut) && (
               <Button variant={statut === 'ARRIVE' || statut === 'PARTIELLEMENT_RECU' ? 'default' : 'outline'} onClick={() => setDlg('reception')} disabled={busy}>
                 <Boxes className="h-4 w-4 mr-1.5" /> {statut === 'PARTIELLEMENT_RECU' ? 'Réceptionner le reste' : 'Réceptionner'}
               </Button>
             )}
-            {ACTIONS_FINALISER.includes(statut) && (
+            {actionPossible('finaliser', statut) && (
               <Button onClick={() => setDlg('finaliser')} disabled={busy}>
                 <Lock className="h-4 w-4 mr-1.5" /> Finaliser le coût
               </Button>
@@ -397,10 +393,10 @@ export default function SupplierOrderDetailPage() {
             <InfoItem label="Fournisseur">
               {order.supplier ? <Link href={`/suppliers?fournisseur=${order.supplier}`} className="hover:underline">{order.supplier_nom}</Link> : '—'}
             </InfoItem>
-            <InfoItem label="Date de création">{fmtDate(order.date)}</InfoItem>
+            <InfoItem label="Date de commande">{fmtDate(order.date)}</InfoItem>
             <InfoItem label="Statut"><Badge className={si.color}>{si.label}</Badge></InfoItem>
             <InfoItem label="Devise / taux">
-              {devise}{devise !== 'MGA' ? ` · 1 ${devise} = ${fmtAr(taux)}` : ''}
+              {devise}{devise !== 'MGA' ? ` · 1 ${devise} = ${fmtTaux(taux)}` : ''}
             </InfoItem>
             <InfoItem label="Destination">{order.destination || '—'}</InfoItem>
             <InfoItem label="Méthode d'allocation des frais">{labelOf(METHODES_ALLOCATION, order.methode_allocation)}</InfoItem>

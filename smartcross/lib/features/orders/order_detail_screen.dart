@@ -750,8 +750,9 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
     if (action == null) return null;
     final roleCommande = isPreparateur ? UserRole.preparateur : UserRole.livreur;
     final bloque = !isJourJ(order.dateCommande, roleCommande);
-    // Livreur hors jour J : aucun bouton, pas même grisé.
-    if (isLivreur && bloque) return null;
+    // Livreur hors jour J (§ demande) : le bouton reste visible mais
+    // désactivé, avec le moment où il se débloquera — comme sur la tournée
+    // et la liste web.
     // Ce que le bouton doit annoncer, c'est le moment où il se débloquera —
     // pas la date de livraison.
     final label = bloque && order.dateCommande != null

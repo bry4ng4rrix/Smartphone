@@ -62,6 +62,35 @@ export const STATUTS_EN_COURS: Statut[] = [
   'COMMANDE', 'PARTIELLEMENT_PAYE', 'PAYE', 'PREPARE', 'EN_TRANSIT', 'ARRIVE', 'PARTIELLEMENT_RECU', 'RECU',
 ];
 
+/** Marchandise considérée arrivée à Madagascar (services.STATUTS_ARRIVES). */
+export const STATUTS_ARRIVES: Statut[] = ['ARRIVE', 'PARTIELLEMENT_RECU', 'RECU', 'COUT_FINALISE'];
+
+/** Une réception a eu lieu : le coût est calculé sur les quantités reçues (services.STATUTS_RECEPTION). */
+export const STATUTS_RECEPTION: Statut[] = ['PARTIELLEMENT_RECU', 'RECU', 'COUT_FINALISE'];
+
+/**
+ * Statuts depuis lesquels chaque action du workflow est acceptée par l'API
+ * (suppliers/services.py : commander, preparer, expedier, arriver,
+ * receive_supplier_order, finaliser_cout). Les boutons de la page de détail
+ * ne sont affichés que dans ces cas.
+ *
+ * `receptionner` : l'API accepte aussi BROUILLON (elle passe alors la
+ * commande en « Commandé »), mais l'interface demande de commander d'abord.
+ */
+export const TRANSITIONS: Record<'commander' | 'preparer' | 'expedier' | 'arriver' | 'receptionner' | 'finaliser', Statut[]> = {
+  commander: ['BROUILLON'],
+  preparer: ['COMMANDE', 'PARTIELLEMENT_PAYE', 'PAYE'],
+  expedier: ['COMMANDE', 'PARTIELLEMENT_PAYE', 'PAYE', 'PREPARE'],
+  arriver: ['COMMANDE', 'PARTIELLEMENT_PAYE', 'PAYE', 'PREPARE', 'EN_TRANSIT'],
+  receptionner: ['COMMANDE', 'PARTIELLEMENT_PAYE', 'PAYE', 'PREPARE', 'EN_TRANSIT', 'ARRIVE', 'PARTIELLEMENT_RECU'],
+  finaliser: ['PARTIELLEMENT_RECU', 'RECU'],
+};
+
+/** L'action `action` est-elle proposée pour ce statut ? */
+export function actionPossible(action: keyof typeof TRANSITIONS, statut: string | null | undefined): boolean {
+  return !!statut && (TRANSITIONS[action] as string[]).includes(statut);
+}
+
 export const DEVISES: { value: Devise; label: string; symbole: string }[] = [
   { value: 'MGA', label: 'Ariary (MGA)', symbole: 'Ar' },
   { value: 'USD', label: 'Dollar US (USD)', symbole: '$' },
@@ -132,6 +161,7 @@ export function labelOf(list: { value: string; label: string }[], value: string 
 
 const fmtAriary = new Intl.NumberFormat('fr-MG', { maximumFractionDigits: 0 });
 const fmtDeux = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtTauxNombre = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 4 });
 
 /** Montant en ariary arrondi : « 1 250 000 Ar ». */
 export function fmtAr(n: number | string | null | undefined): string {
@@ -147,6 +177,13 @@ export function fmtDevise(montant: number | string | null | undefined, devise: s
   const symbole = DEVISES.find((d) => d.value === devise)?.symbole ?? devise;
   if (montant === null || montant === undefined || montant === '' || Number.isNaN(v)) return `0,00 ${symbole}`;
   return `${fmtDeux.format(v)} ${symbole}`;
+}
+
+/** Taux de change (Ar pour 1 unité de devise), jusqu'à 4 décimales : « 4 512,5 Ar ». */
+export function fmtTaux(n: number | string | null | undefined): string {
+  const v = Number(n);
+  if (n === null || n === undefined || n === '' || Number.isNaN(v)) return '—';
+  return fmtTauxNombre.format(v) + ' Ar';
 }
 
 /** Nombre entier avec séparateurs : « 1 250 ». */

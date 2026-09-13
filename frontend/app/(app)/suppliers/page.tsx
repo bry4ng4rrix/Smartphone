@@ -8,8 +8,8 @@
  * finalisé). Le détail d'un approvisionnement vit sur `/suppliers/[id]`.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { djangoClient } from '@/lib/django-client';
 import { useCurrentUser } from '@/lib/auth/useCurrentUser';
 import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh';
@@ -43,7 +43,7 @@ import { toast } from 'sonner';
 import { SupplierFormDialog } from '@/components/suppliers/supplier-form-dialog';
 import { SupplierOrderCreateDialog } from '@/components/suppliers/supplier-order-create-dialog';
 import {
-  STATUTS, fmtAr, fmtDate, fmtDevise, fmtNombre, fmtPourcent, messageErreur, statutInfo,
+  STATUTS, fmtAr, fmtDate, fmtDevise, fmtNombre, fmtPourcent, fmtTaux, messageErreur, statutInfo,
 } from '@/components/suppliers/supplier-status';
 
 const PAR_PAGE = 15;
@@ -51,11 +51,29 @@ const TOUS = '__tous__';
 
 type Onglet = 'fournisseurs' | 'approvisionnements';
 
+/** `?fournisseur={id}` (lien depuis la page de détail) → identifiant valide ou `null`. */
+function fournisseurDepuisUrl(params: URLSearchParams): string | null {
+  const v = params.get('fournisseur');
+  return v && /^\d+$/.test(v) ? v : null;
+}
+
 export default function SuppliersPage() {
+  // `useSearchParams` impose une frontière Suspense au build (même convention que /dashboard).
+  return (
+    <Suspense fallback={<div className="p-4 sm:p-6"><Skeleton className="h-64 w-full" /></div>}>
+      <SuppliersContent />
+    </Suspense>
+  );
+}
+
+function SuppliersContent() {
   const { isGerant, loading: userLoading } = useCurrentUser();
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const fournisseurUrl = fournisseurDepuisUrl(searchParams);
 
-  const [onglet, setOnglet] = useState<Onglet>('fournisseurs');
+  const [onglet, setOnglet] = useState<Onglet>(fournisseurUrl ? 'approvisionnements' : 'fournisseurs');
 
   // --- Indicateurs -------------------------------------------------------- //
   const [kpis, setKpis] = useState<any | null>(null);
@@ -71,7 +89,7 @@ export default function SuppliersPage() {
 
   // --- Approvisionnements ------------------------------------------------- //
   const [filtreStatut, setFiltreStatut] = useState<string>(TOUS);
-  const [filtreFournisseur, setFiltreFournisseur] = useState<string>(TOUS);
+  const [filtreFournisseur, setFiltreFournisseur] = useState<string>(fournisseurUrl ?? TOUS);
   const [rechercheAppro, setRechercheAppro] = useState('');
   const rechercheApproDeb = useDebouncedValue(rechercheAppro, 250);
   const [appros, setAppros] = useState<any[]>([]);
@@ -143,6 +161,24 @@ export default function SuppliersPage() {
   useEffect(() => { if (isGerant) chargerAppros(); }, [isGerant, chargerAppros]);
   useEffect(() => { setPage(1); }, [filtreFournisseur, filtreStatut, rechercheApproDeb]);
 
+  // Navigation vers /suppliers?fournisseur={id} alors que la page est déjà montée
+  // (autre fournisseur depuis une page de détail) : on applique le filtre.
+  useEffect(() => {
+    if (!fournisseurUrl) return;
+    setFiltreFournisseur(fournisseurUrl);
+    setOnglet('approvisionnements');
+  }, [fournisseurUrl]);
+
+  /** Reflète le filtre fournisseur dans l'URL (lien partageable, retour arrière). */
+  const ecrireFiltreUrl = useCallback((id: string | null) => {
+    const q = new URLSearchParams(searchParams.toString());
+    if (id && id !== TOUS) q.set('fournisseur', id); else q.delete('fournisseur');
+    const qs = q.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [router, pathname, searchParams]);
+
+  const changerFiltreFournisseur = (v: string) => { setFiltreFournisseur(v); ecrireFiltreUrl(v); };
+
   const toutRecharger = useCallback((silent = false) => {
     chargerKpis(silent);
     chargerFournisseurs(silent);
@@ -160,7 +196,7 @@ export default function SuppliersPage() {
   const ouvrirModificationFournisseur = (s: any) => { setFormSupplier(s); setFormOpen(true); };
   const ouvrirNouvelAppro = (s: any | null = null) => { setCreateSupplier(s); setCreateOpen(true); };
   const voirHistorique = (s: any) => {
-    setFiltreFournisseur(String(s.id));
+    changerFiltreFournisseur(String(s.id));
     setFiltreStatut(TOUS);
     setRechercheAppro('');
     setOnglet('approvisionnements');
@@ -413,7 +449,7 @@ export default function SuppliersPage() {
                 {STATUTS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
               </SelectContent>
             </Select>
-            <Select value={filtreFournisseur} onValueChange={setFiltreFournisseur}>
+            <Select value={filtreFournisseur} onValueChange={changerFiltreFournisseur}>
               <SelectTrigger className="w-full sm:w-56"><SelectValue placeholder="Fournisseur" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value={TOUS}>Tous les fournisseurs</SelectItem>
@@ -432,7 +468,7 @@ export default function SuppliersPage() {
             {(filtreStatut !== TOUS || filtreFournisseur !== TOUS || rechercheAppro) && (
               <Button
                 variant="ghost"
-                onClick={() => { setFiltreStatut(TOUS); setFiltreFournisseur(TOUS); setRechercheAppro(''); }}
+                onClick={() => { setFiltreStatut(TOUS); changerFiltreFournisseur(TOUS); setRechercheAppro(''); }}
               >
                 <X className="h-4 w-4 mr-1" /> Réinitialiser
               </Button>
@@ -497,7 +533,7 @@ export default function SuppliersPage() {
                               <TableCell className="whitespace-nowrap">
                                 {o.devise}
                                 {o.devise !== 'MGA' && o.taux_change && (
-                                  <span className="block text-xs text-muted-foreground">1 = {fmtAr(o.taux_change)}</span>
+                                  <span className="block text-xs text-muted-foreground">1 {o.devise} = {fmtTaux(o.taux_change)}</span>
                                 )}
                               </TableCell>
                               <TableCell className="text-right tabular-nums whitespace-nowrap">

@@ -8,12 +8,12 @@ import {
 } from '@/components/ui/table';
 import { Lock, Calculator } from 'lucide-react';
 import { fmtAppDateTime } from '@/lib/timezone';
-import { TYPES_FRAIS, fmtAr, fmtDevise, labelOf } from '@/components/suppliers/supplier-status';
+import {
+  STATUTS_RECEPTION, TYPES_FRAIS, fmtAr, fmtDevise, fmtNombre, labelOf,
+} from '@/components/suppliers/supplier-status';
 
-const nf0 = new Intl.NumberFormat('fr-MG', { maximumFractionDigits: 0 });
-
-/** Statuts pour lesquels le coût est calculé sur les quantités reçues. */
-export const STATUTS_RECEPTION = ['PARTIELLEMENT_RECU', 'RECU', 'COUT_FINALISE'];
+/** Ré-export (compatibilité) : la source est `supplier-status.ts`. */
+export { STATUTS_RECEPTION };
 
 /* -------------------------------------------------------------------------- */
 /* Synthèse du coût réel                                                       */
@@ -38,7 +38,7 @@ const TYPES_PRINCIPAUX = ['TRANSPORT', 'DOUANE', 'TAXES'];
 export function CostSummary({ order }: { order: any }) {
   const devise: string = order?.devise || 'MGA';
   const taux = Number(order?.taux_change) || 1;
-  const enReception = STATUTS_RECEPTION.includes(order?.statut);
+  const enReception = (STATUTS_RECEPTION as string[]).includes(order?.statut);
   const finalise = order?.statut === 'COUT_FINALISE';
   const lines: any[] = order?.lines || [];
   const fraisParType: { type: string; label: string; montant_mga: number | string }[] = order?.frais_par_type || [];
@@ -125,7 +125,7 @@ export function CostSummary({ order }: { order: any }) {
                 <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
                   {enReception ? 'Quantité reçue' : 'Quantité commandée'}
                 </p>
-                <p className="text-xl font-bold tabular-nums">{nf0.format(quantite)} <span className="text-sm font-normal text-muted-foreground">pièces</span></p>
+                <p className="text-xl font-bold tabular-nums">{fmtNombre(quantite)} <span className="text-sm font-normal text-muted-foreground">pièces</span></p>
               </div>
               <div className="rounded-md bg-background border p-3">
                 <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Coût moyen</p>
@@ -200,7 +200,7 @@ export function CostSummary({ order }: { order: any }) {
                           {l.brand_name ? `${l.brand_name} ` : ''}{l.reference_name}
                         </TableCell>
                         <TableCell>{l.couleur || '—'}</TableCell>
-                        <TableCell className="text-right tabular-nums">{nf0.format(q)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{fmtNombre(q)}</TableCell>
                         <TableCell className="text-right tabular-nums">{fmtAr(achatU)}</TableCell>
                         <TableCell className="text-right tabular-nums">{fmtAr(fraisU)}</TableCell>
                         <TableCell className="text-right tabular-nums font-semibold">{fmtAr(revient)}</TableCell>
