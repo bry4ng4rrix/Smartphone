@@ -22,7 +22,6 @@ import {
   appDatetimeLocalValue,
   appDatetimeLocalToIso,
   actionOuverte,
-  affichageOuvert,
   fmtOuverture,
   dernierJourOuvert,
   type RoleCommande,
@@ -315,6 +314,12 @@ export default function OrdersPage() {
   >([]);
   // Filtres livreur (vue "Ma tournée") : statut + date (un seul jour).
   const [livreurStatutFilter, setLivreurStatutFilter] = useState("ALL");
+  // Livreur (§ demande) : TOUTES ses commandes assignées restent visibles,
+  // quelle que soit la date ; tri par date (les plus récentes d'abord par
+  // défaut) et filtre de période pour retrouver vite celles d'aujourd'hui,
+  // des jours suivants ou en retard.
+  const [livreurTri, setLivreurTri] = useState<"RECENTES" | "ANCIENNES" | "LIVRAISON_PROCHE" | "LIVRAISON_LOINTAINE">("RECENTES");
+  const [livreurPeriode, setLivreurPeriode] = useState<"TOUTES" | "AUJOURDHUI" | "A_VENIR" | "PASSEES">("TOUTES");
   // Le livreur voit TOUTES ses commandes, y compris celles des jours
   // suivants (planning) — § demande : seules les ACTIONS sont bloquées hors
   // jour J, pas l'affichage. Son filtre de date part donc vide.
@@ -816,12 +821,44 @@ export default function OrdersPage() {
   const displayedOrders = useMemo(() => {
     const creeLe = (o: any) =>
       o.created_at ? new Date(o.created_at).getTime() : 0;
-    const base =
-      isLivreur && viewMode === "ACTIF"
-        ? searchableOrders.filter((o: any) => affichageOuvert(o.date_commande))
-        : searchableOrders;
-    return [...base].sort((a, b) => creeLe(b) - creeLe(a));
-  }, [searchableOrders, isLivreur, viewMode]);
+    const livraisonLe = (o: any) =>
+      o.date_commande ? new Date(o.date_commande).getTime() : 0;
+    if (!(isLivreur && viewMode === "ACTIF")) {
+      return [...searchableOrders].sort((a, b) => creeLe(b) - creeLe(a));
+    }
+    // Livreur : toutes les commandes assignées restent affichées (aucun
+    // filtre jour J à l'affichage — seuls les boutons d'action sont
+    // conditionnés au jour J), filtre de période puis tri choisi.
+    const today = appToday();
+    const base = searchableOrders.filter((o: any) => {
+      if (livreurPeriode === "TOUTES") return true;
+      const jour = o.date_commande ? appDayKey(o.date_commande) : "";
+      if (livreurPeriode === "AUJOURDHUI") return jour === today;
+      if (livreurPeriode === "A_VENIR") return jour > today;
+      return jour !== "" && jour < today;
+    });
+    const tri: Record<string, (a: any, b: any) => number> = {
+      RECENTES: (a, b) => creeLe(b) - creeLe(a),
+      ANCIENNES: (a, b) => creeLe(a) - creeLe(b),
+      LIVRAISON_PROCHE: (a, b) => livraisonLe(a) - livraisonLe(b),
+      LIVRAISON_LOINTAINE: (a, b) => livraisonLe(b) - livraisonLe(a),
+    };
+    return [...base].sort(tri[livreurTri]);
+  }, [searchableOrders, isLivreur, viewMode, livreurTri, livreurPeriode]);
+
+  // Pastille « quand livrer » d'une commande (vue livreur) : Aujourd'hui,
+  // Demain, à venir (date) ou en retard.
+  const livraisonBadge = (o: any) => {
+    if (!o.date_commande) return null;
+    const jour = appDayKey(o.date_commande);
+    const today = appToday();
+    const heure = fmtAppDateTime(o.date_commande);
+    if (jour === today) return { label: `Aujourd'hui · ${heure.slice(-5)}`, className: "bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-200" };
+    if (jour < today) return { label: `En retard · ${fmtAppDate(o.date_commande)}`, className: "bg-red-100 text-red-800 border-red-300 dark:bg-red-900/40 dark:text-red-200" };
+    const demain = appDayKey(new Date(new Date(`${today}T12:00:00+03:00`).getTime() + 86_400_000));
+    if (jour === demain) return { label: `Demain · ${heure.slice(-5)}`, className: "bg-sky-100 text-sky-800 border-sky-300 dark:bg-sky-900/40 dark:text-sky-200" };
+    return { label: `À venir · ${heure}`, className: "bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-200" };
+  };
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
@@ -924,7 +961,35 @@ export default function OrdersPage() {
       {isLivreur && viewMode === "ACTIF" && (
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Date</Label>
+            <Label className="text-xs text-muted-foreground">Période</Label>
+            <Select value={livreurPeriode} onValueChange={(v) => setLivreurPeriode(v as any)}>
+              <SelectTrigger className="w-[170px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="TOUTES">Toutes les commandes</SelectItem>
+                <SelectItem value="AUJOURDHUI">Aujourd'hui</SelectItem>
+                <SelectItem value="A_VENIR">Jours suivants</SelectItem>
+                <SelectItem value="PASSEES">En retard / passées</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Trier par</Label>
+            <Select value={livreurTri} onValueChange={(v) => setLivreurTri(v as any)}>
+              <SelectTrigger className="w-[220px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="RECENTES">Plus récentes d'abord</SelectItem>
+                <SelectItem value="ANCIENNES">Plus anciennes d'abord</SelectItem>
+                <SelectItem value="LIVRAISON_PROCHE">Livraison la plus proche</SelectItem>
+                <SelectItem value="LIVRAISON_LOINTAINE">Livraison la plus lointaine</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Date précise</Label>
             <Input
               type="date"
               value={livreurDate}
@@ -941,7 +1006,7 @@ export default function OrdersPage() {
               className="w-full"
             />
           </div>
-          {(livreurStatutFilter !== "ALL" || livreurDate || searchQuery) && (
+          {(livreurStatutFilter !== "ALL" || livreurDate || searchQuery || livreurPeriode !== "TOUTES" || livreurTri !== "RECENTES") && (
             <Button
               variant="ghost"
               size="sm"
@@ -949,6 +1014,8 @@ export default function OrdersPage() {
                 setLivreurStatutFilter("ALL");
                 setLivreurDate("");
                 setSearchQuery("");
+                setLivreurPeriode("TOUTES");
+                setLivreurTri("RECENTES");
               }}
             >
               Réinitialiser
@@ -1219,11 +1286,22 @@ export default function OrdersPage() {
                         onClick={() => setDetail(order)}
                       >
                         <TableCell className="align-top">
-                          <Badge
-                            className={statutInfo(order.statut_courant).color}
-                          >
-                            {statutInfo(order.statut_courant).label}
-                          </Badge>
+                          <div className="space-y-1.5">
+                            <Badge
+                              className={statutInfo(order.statut_courant).color}
+                            >
+                              {statutInfo(order.statut_courant).label}
+                            </Badge>
+                            {/* Livreur : quand livrer, lisible d'un coup d'œil. */}
+                            {isLivreur && viewMode === "ACTIF" && (() => {
+                              const b = livraisonBadge(order);
+                              return b ? (
+                                <div>
+                                  <Badge variant="outline" className={`whitespace-nowrap ${b.className}`}>{b.label}</Badge>
+                                </div>
+                              ) : null;
+                            })()}
+                          </div>
                         </TableCell>
 
                         <TableCell className="align-top max-w-[280px]">
@@ -1412,8 +1490,7 @@ export default function OrdersPage() {
                                 </Select>
                               )}
                             {!isGerant &&
-                              action &&
-                              !(isLivreur && notYetDue) && (
+                              action && (
                                 <IconAction
                                   label={
                                     notYetDue
@@ -1445,8 +1522,7 @@ export default function OrdersPage() {
                               )}
                             {(isLivreur || isGerant) &&
                               order.statut_courant === "EN_LIVRAISON" &&
-                              !isGerant &&
-                              !(isLivreur && notYetDue) && (
+                              !isGerant && (
                                 <IconAction
                                   label={
                                     notYetDue

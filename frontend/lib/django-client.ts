@@ -1223,29 +1223,86 @@ class DjangoAPIClient {
 
   // ==================== Suppliers Service (module Commandes Fournisseur, §7.6) ====================
   suppliers = {
-    list: async (magasinId?: number) => {
-      const q = magasinId ? `?magasin_id=${magasinId}` : ''
-      return this.get<any[]>(`/suppliers/orders/${q}`)
+    // ---- Approvisionnements (SupplierOrder) ----
+    list: async (params?: { magasin_id?: number; supplier?: number; statut?: string; search?: string } | number) => {
+      const q = new URLSearchParams()
+      if (typeof params === 'number') {
+        if (params) q.set('magasin_id', String(params))
+      } else if (params) {
+        for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== '') q.set(k, String(v))
+      }
+      const qs = q.toString()
+      return this.get<any[]>(`/suppliers/orders/${qs ? `?${qs}` : ''}`)
     },
 
     getById: async (id: number) => {
       return this.get<any>(`/suppliers/orders/${id}/`)
     },
 
+    /** Indicateurs de la page Fournisseurs (nb fournisseurs, en cours, en transit, arrivés, montants…). */
+    kpis: async () => this.get<any>('/suppliers/orders/kpis/'),
+
     create: async (data: {
       description?: string
-      prix_fournisseur: number | string
-      fret_import: number | string
-      douane: number | string
-      lines: { product_variant: number; quantite: number }[]
+      supplier?: number | null
+      devise?: 'MGA' | 'USD' | 'EUR' | 'CNY'
+      taux_change?: number | string | null
+      methode_allocation?: 'VALEUR' | 'QUANTITE' | 'MANUEL'
+      date?: string
+      destination?: string
+      statut?: 'BROUILLON' | 'COMMANDE'
+      // Première version (montants MGA) — toujours acceptés
+      prix_fournisseur?: number | string
+      fret_import?: number | string
+      douane?: number | string
+      lines: { product_variant: number; quantite: number; prix_unitaire?: number | string | null; allocation_manuelle_mga?: number | string | null }[]
       magasin_id?: number
     }) => {
       return this.post<any>('/suppliers/orders/', data)
     },
 
-    receive: async (id: number) => {
-      return this.post<any>(`/suppliers/orders/${id}/receive/`)
+    /** Modification (données générales, transport, méthode d'allocation, lignes) tant que le coût n'est pas finalisé. */
+    update: async (id: number, data: Record<string, unknown>) => this.patch<any>(`/suppliers/orders/${id}/`, data),
+
+    // Workflow
+    commander: async (id: number) => this.post<any>(`/suppliers/orders/${id}/commander/`),
+    preparer: async (id: number) => this.post<any>(`/suppliers/orders/${id}/preparer/`),
+    expedier: async (id: number, data: { date_expedition?: string | null; transporteur?: string; mode_transport?: string; tracking?: string; lieu_depart?: string; destination?: string }) =>
+      this.post<any>(`/suppliers/orders/${id}/expedier/`, data),
+    arriver: async (id: number, date_arrivee?: string) => this.post<any>(`/suppliers/orders/${id}/arriver/`, date_arrivee ? { date_arrivee } : {}),
+    /** Réception : sans `lines` = tout ce qui reste ; sinon quantités reçues MAINTENANT par ligne (partielle). */
+    receive: async (id: number, lines?: { line_id: number; quantite_recue: number }[]) =>
+      this.post<any>(`/suppliers/orders/${id}/receive/`, lines ? { lines } : {}),
+    finaliser: async (id: number, mettre_a_jour_prix_achat = true) =>
+      this.post<any>(`/suppliers/orders/${id}/finaliser/`, { mettre_a_jour_prix_achat }),
+
+    // Paiements fournisseur (historisés, multi-devises)
+    addPayment: async (id: number, data: { montant: number | string; devise: string; taux_change?: number | string | null; date?: string; type_paiement?: string; methode?: string; reference?: string; commentaire?: string }) =>
+      this.post<any>(`/suppliers/orders/${id}/payments/`, data),
+    deletePayment: async (id: number, paymentId: number) => this.delete<any>(`/suppliers/orders/${id}/payments/${paymentId}/`),
+
+    // Frais d'importation (douane, transport, taxes…)
+    addFee: async (id: number, data: { type_frais: string; montant: number | string; devise: string; taux_change?: number | string | null; date?: string; description?: string; prestataire?: string }) =>
+      this.post<any>(`/suppliers/orders/${id}/fees/`, data),
+    deleteFee: async (id: number, feeId: number) => this.delete<any>(`/suppliers/orders/${id}/fees/${feeId}/`),
+
+    // ---- Fiches fournisseur ----
+    suppliersList: async (params?: { search?: string; actif?: boolean }) => {
+      const q = new URLSearchParams()
+      if (params?.search) q.set('search', params.search)
+      if (params?.actif) q.set('actif', '1')
+      const qs = q.toString()
+      return this.get<any[]>(`/suppliers/suppliers/${qs ? `?${qs}` : ''}`)
     },
+    supplierGet: async (id: number) => this.get<any>(`/suppliers/suppliers/${id}/`),
+    supplierCreate: async (data: { nom: string; pays?: string; contact?: string; telephone?: string; email?: string; adresse?: string; notes?: string; devise?: string; actif?: boolean }) =>
+      this.post<any>('/suppliers/suppliers/', data),
+    supplierUpdate: async (id: number, data: Record<string, unknown>) => this.patch<any>(`/suppliers/suppliers/${id}/`, data),
+    supplierDelete: async (id: number) => this.delete<void>(`/suppliers/suppliers/${id}/`),
+
+    // ---- Coût de revient (masonkarena) ----
+    /** Sans `variantId` : 200 dernières entrées d'historique de la société. */
+    costHistory: async (variantId?: number) => this.get<any>(`/suppliers/cost-history/${variantId ? `?variant=${variantId}` : ''}`),
   }
 
   // ==================== Backup Service (admin only) ====================

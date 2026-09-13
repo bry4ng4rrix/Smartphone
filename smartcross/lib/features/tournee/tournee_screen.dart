@@ -33,23 +33,93 @@ const _tourneeStatutFilters = <({String? value, String label})>[
   (value: 'LIVRE', label: 'Livrées'),
 ];
 
-/// Tournée du jour (§ demande) : le livreur ne voit QUE les commandes dont
-/// la fenêtre d'affichage est ouverte — le jour de livraison, et 5 h avant.
-/// Une commande du lundi n'apparaît donc qu'à partir du dimanche 19h00, heure
-/// de Madagascar ; les suivantes restent invisibles tant que leur fenêtre
-/// n'est pas ouverte : sa tournée ne montre que ce qui le concerne
-/// maintenant. Son onglet Historique, lui, n'est pas filtré : c'est un
+/// Période de la tournée (`livreurPeriode` de page.tsx) : filtre CLIENT sur
+/// le jour de livraison prévu, comparé au jour métier d'Antananarivo. Par
+/// défaut « Toutes » : le livreur voit TOUT son planning.
+enum _LivreurPeriode {
+  toutes('Toutes les commandes'),
+  aujourdhui("Aujourd'hui"),
+  aVenir('Jours suivants'),
+  passees('En retard / passées');
+
+  const _LivreurPeriode(this.label);
+  final String label;
+}
+
+/// Tri de la tournée (`livreurTri` de page.tsx). Par défaut la commande la
+/// plus récemment CRÉÉE en tête, dès l'ouverture de l'écran.
+enum _LivreurTri {
+  recentes("Plus récentes d'abord"),
+  anciennes("Plus anciennes d'abord"),
+  livraisonProche('Livraison la plus proche'),
+  livraisonLointaine('Livraison la plus lointaine');
+
+  const _LivreurTri(this.label);
+  final String label;
+}
+
+/// Liste affichée de « Ma tournée » (`displayedOrders` du web, vue livreur
+/// ACTIF) : TOUTES les commandes assignées renvoyées par le serveur restent
+/// visibles — plus aucun filtre d'affichage jour J. Seuls les boutons
+/// d'action sont conditionnés au jour J (minuit le jour de livraison, voir
+/// core/app_time.dart::actionOuverte). Puis le filtre de période et le tri
+/// choisis. Son onglet Historique, lui, n'est pas concerné : c'est un
 /// journal.
-///
-/// Le bouton d'action reste soumis à sa propre règle, plus stricte : minuit
-/// le jour de livraison (voir core/app_time.dart).
-///
-/// Les commandes retenues sont classées la plus récemment CRÉÉE en tête.
-List<Order> _tourneeDuJour(Iterable<Order> orders) {
+List<Order> _displayedOrders(Iterable<Order> orders, _LivreurPeriode periode, _LivreurTri tri) {
+  final today = appToday();
   int creeLe(Order o) => o.createdAt?.millisecondsSinceEpoch ?? 0;
-  final visibles = orders.where((o) => affichageOuvert(o.dateCommande)).toList();
-  visibles.sort((a, b) => creeLe(b).compareTo(creeLe(a)));
+  int livraisonLe(Order o) => o.dateCommande?.millisecondsSinceEpoch ?? 0;
+
+  bool retenue(Order o) {
+    if (periode == _LivreurPeriode.toutes) return true;
+    final jour = o.dateCommande == null ? null : appDay(o.dateCommande!);
+    switch (periode) {
+      case _LivreurPeriode.toutes:
+        return true;
+      case _LivreurPeriode.aujourdhui:
+        return jour != null && jour.isAtSameMomentAs(today);
+      case _LivreurPeriode.aVenir:
+        return jour != null && jour.isAfter(today);
+      case _LivreurPeriode.passees:
+        return jour != null && jour.isBefore(today);
+    }
+  }
+
+  final visibles = orders.where(retenue).toList();
+  switch (tri) {
+    case _LivreurTri.recentes:
+      visibles.sort((a, b) => creeLe(b).compareTo(creeLe(a)));
+    case _LivreurTri.anciennes:
+      visibles.sort((a, b) => creeLe(a).compareTo(creeLe(b)));
+    case _LivreurTri.livraisonProche:
+      visibles.sort((a, b) => livraisonLe(a).compareTo(livraisonLe(b)));
+    case _LivreurTri.livraisonLointaine:
+      visibles.sort((a, b) => livraisonLe(b).compareTo(livraisonLe(a)));
+  }
   return visibles;
+}
+
+/// Pastille « quand livrer » d'une commande (`livraisonBadge` du web) :
+/// « Aujourd'hui · HH:mm » (vert), « Demain · HH:mm » (bleu), « À venir ·
+/// JJ/MM/AAAA HH:mm » (gris) ou « En retard · JJ/MM/AAAA » (rouge) — jour
+/// métier d'Antananarivo. `null` sans date de livraison prévue.
+({String label, Color color})? _livraisonBadge(Order o) {
+  final date = o.dateCommande;
+  if (date == null) return null;
+  final jour = appDay(date);
+  final today = appToday();
+  final demain = today.add(const Duration(days: 1));
+  final local = appLocal(date);
+  if (jour.isAtSameMomentAs(today)) {
+    return (label: "Aujourd'hui · ${_heureFmt.format(local)}", color: const Color(0xFF059669));
+  }
+  if (jour.isBefore(today)) {
+    return (label: 'En retard · ${_dayFmt.format(local)}', color: const Color(0xFFDC2626));
+  }
+  if (jour.isAtSameMomentAs(demain)) {
+    return (label: 'Demain · ${_heureFmt.format(local)}', color: const Color(0xFF0284C7));
+  }
+  return (label: 'À venir · ${_dateTimeFmt.format(local)}', color: const Color(0xFF64748B));
 }
 
 // Tous les horodatages sont affichés à l'heure d'Antananarivo (fuseau du
@@ -57,6 +127,7 @@ List<Order> _tourneeDuJour(Iterable<Order> orders) {
 // du jour J et avec le serveur (voir core/app_time.dart).
 final _dayFmt = DateFormat('dd/MM/yyyy');
 final _dateTimeFmt = DateFormat('dd/MM/yyyy HH:mm');
+final _heureFmt = DateFormat('HH:mm');
 
 /// Recherche texte GLOBALE côté client (`searchableOrders` du web) : numéro,
 /// client, adresse, téléphones, zone, préparateur, livreur, statut, articles

@@ -530,17 +530,23 @@ Les sections suivantes détaillent chaque route, application par application.
   - [GET /api/orders/reports/orders/ — Commandes](#get-apiordersreportsorders-commandes)
   - [GET /api/orders/reports/deliveries/ — Livraisons](#get-apiordersreportsdeliveries-livraisons)
   - [GET /api/orders/reports/marketing/ — Marketing](#get-apiordersreportsmarketing-marketing)
-- **Suppliers (commandes fournisseur)**
-  - [Calcul des coûts (suppliers/services.py::recompute_costs)](#calcul-des-coûts-suppliersservicespyrecompute_costs)
-  - [Objet SupplierOrder (réponse)](#objet-supplierorder-réponse)
-  - [Commandes fournisseur](#commandes-fournisseur)
-  - [GET /api/suppliers/orders/ — Lister les commandes fournisseur](#get-apisuppliersorders-lister-les-commandes-fournisseur)
-  - [POST /api/suppliers/orders/ — Créer une commande fournisseur](#post-apisuppliersorders-créer-une-commande-fournisseur)
-  - [GET /api/suppliers/orders/{id}/ — Détail d'une commande fournisseur](#get-apisuppliersordersid-détail-dune-commande-fournisseur)
-  - [PUT /api/suppliers/orders/{id}/ — Remplacement (non disponible)](#put-apisuppliersordersid-remplacement-non-disponible)
-  - [PATCH /api/suppliers/orders/{id}/ — Modification partielle (non disponible)](#patch-apisuppliersordersid-modification-partielle-non-disponible)
-  - [DELETE /api/suppliers/orders/{id}/ — Suppression (non disponible)](#delete-apisuppliersordersid-suppression-non-disponible)
-  - [POST /api/suppliers/orders/{id}/receive/ — Réceptionner la commande (entrée en stock)](#post-apisuppliersordersidreceive-réceptionner-la-commande-entrée-en-stock)
+- **Suppliers (approvisionnements fournisseur)**
+- **Fournisseurs**
+  - [GET /api/suppliers/suppliers/ — Liste des fournisseurs](#get-apisupplierssuppliers-liste-des-fournisseurs)
+  - [POST /api/suppliers/suppliers/ — Créer un fournisseur](#post-apisupplierssuppliers-créer-un-fournisseur)
+  - [GET /api/suppliers/suppliers/{id}/ — Fiche fournisseur](#get-apisupplierssuppliersid-fiche-fournisseur)
+  - [PATCH /api/suppliers/suppliers/{id}/ — Modifier · DELETE /api/suppliers/suppliers/{id}/ — Supprimer / désactiver](#patch-apisupplierssuppliersid-modifier-delete-apisupplierssuppliersid-supprimer-désactiver)
+- **Approvisionnements**
+  - [GET /api/suppliers/orders/kpis/ — Indicateurs de la page](#get-apisuppliersorderskpis-indicateurs-de-la-page)
+  - [GET /api/suppliers/orders/ — Liste · GET /api/suppliers/orders/{id}/ — Détail](#get-apisuppliersorders-liste-get-apisuppliersordersid-détail)
+  - [POST /api/suppliers/orders/ — Créer un approvisionnement](#post-apisuppliersorders-créer-un-approvisionnement)
+  - [PATCH /api/suppliers/orders/{id}/ — Modifier](#patch-apisuppliersordersid-modifier)
+  - [POST /api/suppliers/orders/{id}/commander/ · …/preparer/ · …/expedier/ · …/arriver/ — Avancer le workflow](#post-apisuppliersordersidcommander-preparer-expedier-arriver-avancer-le-workflow)
+  - [POST /api/suppliers/orders/{id}/receive/ — Réceptionner (entrée en stock)](#post-apisuppliersordersidreceive-réceptionner-entrée-en-stock)
+  - [POST /api/suppliers/orders/{id}/finaliser/ — Finaliser le coût de revient](#post-apisuppliersordersidfinaliser-finaliser-le-coût-de-revient)
+  - [GET|POST /api/suppliers/orders/{id}/payments/ · DELETE /api/suppliers/orders/{id}/payments/{pid}/ — Paiements fournisseur](#getpost-apisuppliersordersidpayments-delete-apisuppliersordersidpaymentspid-paiements-fournisseur)
+  - [GET|POST /api/suppliers/orders/{id}/fees/ · DELETE /api/suppliers/orders/{id}/fees/{fid}/ — Frais d'importation](#getpost-apisuppliersordersidfees-delete-apisuppliersordersidfeesfid-frais-dimportation)
+  - [GET /api/suppliers/cost-history/ — Coût de revient actuel et historique](#get-apisupplierscost-history-coût-de-revient-actuel-et-historique)
 - **Espace client (nouveau — app `clients`)**
   - [Catalogue public](#catalogue-public)
   - [GET /api/boutiques/ — Boutiques](#get-apiboutiques-boutiques)
@@ -5720,345 +5726,164 @@ Erreurs communes aux huit sections :
 
 ---
 
-## Suppliers (commandes fournisseur)
+## Suppliers (approvisionnements fournisseur)
 
-Préfixe d'URL : `/api/suppliers/` (routeur DRF `DefaultRouter`, ressource `orders`, basename `supplier-order`). Module §7.6 : une commande fournisseur regroupe un lot de marchandise (lignes par variante de produit) et ses coûts d'achat — prix fournisseur, fret/import, douane — pour en déduire le **coût de revient réel** de chaque unité et la marge par rapport au prix de vente catalogue.
+Module Gérant → Fournisseurs (`/api/suppliers/`, `IsGerant` : `403` pour préparateur / livreur / client). Il suit le **coût réel** d'une importation jusqu'à Madagascar : paiements au fournisseur (historisés, multi-devises), transport, douane, taxes et autres frais, puis le **coût de revient par pièce** et son historique. Devise de référence : l'ariary (`MGA`) ; chaque montant conserve `montant` + `devise` + `taux_change` (Ar pour 1 unité) + `montant_mga`.
 
-Toutes les routes sont réservées au **Gérant** (`permission_classes = [IsGerant]`, c'est-à-dire `role = admin` ou `role = magasin`). Un employé (préparateur, livreur ou sans `commande_role`) reçoit `403` sur chacune d'elles ; un appel sans jeton reçoit `401`. Les commandes visibles sont limitées aux magasins accessibles à l'utilisateur (`get_accessible_magasins`).
+Workflow (`statut`) : `BROUILLON` → `COMMANDE` → (`PARTIELLEMENT_PAYE` / `PAYE`, dérivés des paiements) → `PREPARE` → `EN_TRANSIT` → `ARRIVE` → `PARTIELLEMENT_RECU` / `RECU` → `COUT_FINALISE`. Un approvisionnement finalisé est figé (`400` sur toute modification).
 
-Un seul serializer de sortie, `SupplierOrderSerializer` (`suppliers/serializers.py`), quel que soit le rôle. Les méthodes HTTP autorisées par la vue sont `GET`, `POST`, `HEAD`, `OPTIONS` (`http_method_names`) : **`PUT`, `PATCH` et `DELETE` renvoient `405`** — une commande fournisseur n'est ni modifiable ni supprimable via l'API une fois créée.
+Calcul (services.recompute_costs, en MGA) : valeur d'achat = Σ lignes (prix unitaire × quantité retenue × taux) — ou `prix_fournisseur` sur les commandes de la première version ; frais communs = `fret_import` + `douane` + Σ frais typés ; **valeur réelle** = valeur d'achat + frais ; frais alloués à chaque ligne selon `methode_allocation` (`VALEUR` proportionnel à la valeur d'achat — défaut —, `QUANTITE`, `MANUEL` = `allocation_manuelle_mga` par ligne) ; coût de revient unitaire = (valeur d'achat de la ligne + frais alloués) / quantité. La quantité retenue est la quantité **reçue** dès qu'une réception a eu lieu, la quantité commandée avant.
 
-### Calcul des coûts (`suppliers/services.py::recompute_costs`)
+Forme d'un approvisionnement (toutes les vues) :
+```json
+{
+  "id": 7, "magasin": 2, "magasin_name": "Boutique Centre", "supplier": 3, "supplier_nom": "Shenzhen Cases Co",
+  "numero": "SUP-2-20260913-0001", "date": "2026-09-13", "description": "Import Chine septembre",
+  "statut": "PARTIELLEMENT_PAYE", "statut_label": "Partiellement payé",
+  "devise": "USD", "taux_change": "4500.0000", "methode_allocation": "VALEUR",
+  "prix_fournisseur": "0.00", "fret_import": "0.00", "douane": "0.00",
+  "date_expedition": null, "transporteur": "", "mode_transport": "", "tracking": "", "lieu_depart": "", "destination": "Madagascar", "date_arrivee": null,
+  "total_qty": 150, "total_recu": 0,
+  "valeur_achat_mga": "11250000.00", "total_frais_mga": "2250000.00", "cout_total": "13500000.00", "cout_unitaire": "90000.00",
+  "total_paye_mga": "4500000.00", "total_paye_devise": "1000.00", "reste_a_payer_mga": "6750000.00", "pourcentage_paye": "40.0",
+  "frais_par_type": [ { "type": "TRANSPORT", "label": "Transport / expédition", "montant_mga": "2250000.00" } ],
+  "lines": [
+    { "id": 11, "product_variant": 40, "reference_name": "Coque A", "brand_name": "Apple", "couleur": "Noir", "prix_vente": "150000.00",
+      "quantite": 100, "quantite_recue": 0, "reste_a_recevoir": 100, "prix_unitaire": "20.0000", "total_fournisseur_devise": "2000.00",
+      "allocation_manuelle_mga": null, "valeur_achat_mga": "9000000.00", "frais_alloues_mga": "1800000.00",
+      "cout_unitaire_calcule": "108000.00", "total_ligne": "10800000.00", "marge_unitaire": "42000.00" }
+  ],
+  "payments": [
+    { "id": 4, "date": "2026-09-01", "type_paiement": "ACOMPTE", "type_label": "Acompte", "methode": "VIREMENT", "methode_label": "Virement bancaire",
+      "montant": "1000.00", "devise": "USD", "taux_change": "4500.0000", "montant_mga": "4500000.00", "reference": "TT-001", "commentaire": "", "justificatif": null,
+      "created_by_name": "Gérant", "created_at": "2026-09-13T10:00:00+03:00" }
+  ],
+  "fees": [
+    { "id": 2, "type_frais": "TRANSPORT", "type_label": "Transport / expédition", "date": "2026-09-10", "montant": "500.00", "devise": "USD",
+      "taux_change": "4500.0000", "montant_mga": "2250000.00", "description": "Fret aérien", "prestataire": "DHL", "justificatif": null,
+      "created_by_name": "Gérant", "created_at": "2026-09-13T10:05:00+03:00" }
+  ],
+  "created_at": "2026-09-13T09:58:00+03:00", "received_at": null, "finalise_at": null
+}
+```
 
-Exécuté automatiquement à la création :
+### Fournisseurs
 
-- `total_qty` = somme des `quantite` des lignes ;
-- `cout_total` = `prix_fournisseur` + `fret_import` + `douane` ;
-- `cout_unitaire` = `cout_total` / `total_qty` (0 si aucune quantité) ;
-- sur chaque ligne : `cout_unitaire_calcule` = `cout_unitaire` (identique pour toutes les lignes, quel que soit le produit) et `total_ligne` = `cout_unitaire` × `quantite` ;
-- `marge_unitaire` (lecture seule, calculée à la volée) = `prix_vente` de la référence produit − `cout_unitaire_calcule`.
+### `GET /api/suppliers/suppliers/` — Liste des fournisseurs
+**Rôle** : gérant · **Vue** : `SupplierViewSet` (suppliers/views.py) · `?search=` (nom, pays, contact, e-mail), `?actif=1`
 
-### Objet `SupplierOrder` (réponse)
-
-| Champ | Type | Description |
-| --- | --- | --- |
-| `id` | entier | Identifiant. |
-| `magasin` | entier | Id du `MagasinProfile` propriétaire (lecture seule, déduit à la création). |
-| `numero` | chaîne | Généré automatiquement : `SUP-<magasin_id>-<AAAAMMJJ>-<séquence sur 4 chiffres>`, unique. |
-| `date` | date ISO | Date de la commande (défaut : date du jour, heure d'Antananarivo). |
-| `description` | chaîne ou `null` | Libellé libre (fournisseur, lot…). |
-| `statut` | chaîne | `BROUILLON` (défaut à la création), `COMMANDE`, `RECU`. Seule la transition vers `RECU` est exposée par l'API (action `receive`) ; `COMMANDE` n'est atteignable que via l'administration Django. |
-| `prix_fournisseur`, `fret_import`, `douane` | chaîne décimale | Montants en Ar, 2 décimales. |
-| `total_qty` | entier | Calculé. |
-| `cout_total`, `cout_unitaire` | chaîne décimale | Calculés. |
-| `lines` | liste | Lignes (voir ci-dessous). |
-| `created_at` | datetime ISO | Horodatage de création. |
-| `received_at` | datetime ISO ou `null` | Renseigné lors de la réception. |
-
-Ligne (`SupplierOrderLineSerializer`) : `id`, `product_variant` (id de `ProductVariant`), `reference_name`, `couleur`, `quantite`, `cout_unitaire_calcule`, `total_ligne`, `marge_unitaire`.
-
-### Commandes fournisseur
-
-### `GET /api/suppliers/orders/` — Lister les commandes fournisseur
-**Rôle** : Gérant (`IsGerant`) · **Vue** : `SupplierOrderViewSet.list` (suppliers/views.py)
-
-Effet : aucun. Renvoie les commandes fournisseur des magasins accessibles à l'utilisateur, les plus récentes en premier (`ordering = ["-created_at"]`), avec leurs lignes. Pas de pagination : la réponse est un tableau JSON.
-
-| Paramètre | Où | Type | Obligatoire | Description |
-| --- | --- | --- | --- | --- |
-| `magasin_id` | query | entier | non | Restreint aux commandes de ce magasin. Un `magasin_id` non accessible donne simplement une liste vide (le filtre s'applique après le scoping par `get_accessible_magasins`). |
-
-Réponse `200` :
+Réponse `200` (résumé financier calculé sur les approvisionnements visibles) :
 ```json
 [
-  {
-    "id": 1,
-    "magasin": 2,
-    "numero": "SUP-2-20260913-0001",
-    "date": "2026-09-13",
-    "description": "Lot Pixel — fournisseur Shenzhen",
-    "statut": "RECU",
-    "prix_fournisseur": "180000.00",
-    "fret_import": "15000.00",
-    "douane": "5000.00",
-    "total_qty": 10,
-    "cout_total": "200000.00",
-    "cout_unitaire": "20000.00",
-    "lines": [
-      {
-        "id": 1,
-        "product_variant": 727,
-        "reference_name": "pixel 10 pro xl",
-        "couleur": "Standard",
-        "quantite": 6,
-        "cout_unitaire_calcule": "20000.00",
-        "total_ligne": "120000.00",
-        "marge_unitaire": "10000.00"
-      },
-      {
-        "id": 2,
-        "product_variant": 728,
-        "reference_name": "Pixel 6 Pro",
-        "couleur": "Standard",
-        "quantite": 4,
-        "cout_unitaire_calcule": "20000.00",
-        "total_ligne": "80000.00",
-        "marge_unitaire": "10000.00"
-      }
-    ],
-    "created_at": "2026-09-13T09:12:41.318402+03:00",
-    "received_at": "2026-09-13T10:05:02.774119+03:00"
-  }
+  { "id": 3, "nom": "Shenzhen Cases Co", "pays": "Chine", "contact": "Li Wei", "telephone": "+86 755 0000", "email": "sales@szcases.cn",
+    "adresse": "Shenzhen, Guangdong", "notes": "", "devise": "USD", "actif": true,
+    "nb_approvisionnements": 2, "total_achats_mga": "11250000.00", "total_paye_mga": "4500000.00", "reste_a_payer_mga": "6750000.00",
+    "total_frais_mga": "2250000.00", "valeur_recue_mga": "0.00",
+    "dernier_approvisionnement": { "id": 7, "numero": "SUP-2-20260913-0001", "statut": "PARTIELLEMENT_PAYE", "statut_label": "Partiellement payé", "date": "2026-09-13" },
+    "created_at": "2026-09-13T09:00:00+03:00" }
 ]
 ```
 
-Erreurs :
-- `401` — `{"detail": "Authentication credentials were not provided."}` : sans en-tête `Authorization`.
-- `401` — `{"detail": "Given token not valid for any token type", "code": "token_not_valid", "messages": [{"token_class": "AccessToken", "token_type": "access", "message": "Token is expired"}]}` : jeton d'accès expiré ou invalide.
-- `403` — `{"detail": "You do not have permission to perform this action."}` : utilisateur `employer` (préparateur, livreur ou sans rôle commande).
+### `POST /api/suppliers/suppliers/` — Créer un fournisseur
+Requête :
+```json
+{ "nom": "Guangzhou Tech", "pays": "Chine", "contact": "Chen", "telephone": "+86 20 0000", "email": "gz@ex.com", "adresse": "", "notes": "", "devise": "USD" }
+```
+Réponse `201` : la fiche. Erreurs : `400` — `{"nom": ["This field is required."]}`, `{"email": ["Enter a valid email address."]}`.
 
-### `POST /api/suppliers/orders/` — Créer une commande fournisseur
-**Rôle** : Gérant (`IsGerant`) · **Vue** : `SupplierOrderViewSet.create` (suppliers/views.py) — validation par `SupplierOrderCreateSerializer`, création par `services.create_supplier_order`
+### `GET /api/suppliers/suppliers/{id}/` — Fiche fournisseur
+Réponse `200` : la fiche (ci-dessus) + `"approvisionnements": [ …approvisionnements complets, du plus récent au plus ancien… ]`.
 
-Effet : crée la commande (statut `BROUILLON`, `numero` généré, `created_by` = utilisateur courant) et ses lignes dans une transaction, puis calcule `total_qty`, `cout_total`, `cout_unitaire` et les snapshots de chaque ligne. **Le stock n'est pas modifié** à ce stade (seule la réception l'alimente). Le signal `post_save` diffuse sur le WebSocket `/ws/data/` un événement `{"model": "supplier_order", "action": "created", "id": <id>, "magasin_id": <id>}` aux groupes `data_admin_<admin_id>` et `data_magasin_<magasin_id>` (puis un `"updated"` lors du recalcul des coûts). Aucune notification n'est créée.
+### `PATCH /api/suppliers/suppliers/{id}/` — Modifier · `DELETE /api/suppliers/suppliers/{id}/` — Supprimer / désactiver
+`PATCH` accepte les mêmes champs que la création. `DELETE` → `204` ; un fournisseur déjà utilisé par un approvisionnement n'est pas supprimé mais **désactivé** (`actif: false`).
 
+### Approvisionnements
+
+### `GET /api/suppliers/orders/kpis/` — Indicateurs de la page
+Réponse `200` :
+```json
+{ "nb_fournisseurs": 4, "en_cours": 3, "en_transit": 1, "arrives": 2, "finalises": 5, "nb_approvisionnements": 9,
+  "total_achats_mga": "85000000.00", "total_paye_mga": "70000000.00", "reste_a_payer_mga": "15000000.00", "total_frais_mga": "21000000.00", "valeur_recue_mga": "64000000.00" }
+```
+
+### `GET /api/suppliers/orders/` — Liste · `GET /api/suppliers/orders/{id}/` — Détail
+`?magasin_id=`, `?supplier=`, `?statut=EN_TRANSIT,ARRIVE`, `?search=` (numéro, description, fournisseur, tracking). Réponse : tableau / objet « approvisionnement » (forme ci-dessus).
+
+### `POST /api/suppliers/orders/` — Créer un approvisionnement
 | Paramètre | Où | Type | Obligatoire | Description |
 | --- | --- | --- | --- | --- |
-| `magasin_id` (ou `magasin`) | corps | entier | non* | Magasin cible (`resolve_magasin_for_request`). *Obligatoire seulement si l'utilisateur accède à plusieurs magasins ; sinon l'unique magasin accessible est utilisé. Doit appartenir aux magasins accessibles. |
-| `description` | corps | chaîne | non | Libellé libre, chaîne vide acceptée (défaut `""`). |
-| `prix_fournisseur` | corps | décimal (nombre ou chaîne) | non | Prix d'achat de la marchandise en Ar, max 14 chiffres dont 2 décimales, défaut `0`. |
-| `fret_import` | corps | décimal | non | Frais de fret/import en Ar, mêmes règles, défaut `0`. |
-| `douane` | corps | décimal | non | Frais de douane en Ar, mêmes règles, défaut `0`. |
-| `lines` | corps | liste d'objets | oui | Au moins une ligne. |
-| `lines[].product_variant` | corps | entier | oui | Id d'un `ProductVariant` existant (le queryset n'est pas restreint au magasin : n'importe quelle variante existante est acceptée). |
-| `lines[].quantite` | corps | entier ≥ 1 | oui | Quantité commandée. |
+| supplier | corps | int | non | Fournisseur (doit appartenir à la société). |
+| devise | corps | MGA \| USD \| EUR \| CNY | non | Devise des prix unitaires (défaut MGA). |
+| taux_change | corps | décimal | si devise ≠ MGA | Ar pour 1 unité de devise. |
+| methode_allocation | corps | VALEUR \| QUANTITE \| MANUEL | non | Répartition des frais communs (défaut VALEUR). |
+| lines | corps | liste | oui | `[{ "product_variant", "quantite", "prix_unitaire" (devise), "allocation_manuelle_mga"? }]`. |
+| date, description, destination, statut (BROUILLON \| COMMANDE) | corps | | non | |
+| prix_fournisseur, fret_import, douane | corps | décimal MGA | non | Montants globaux de la première version (toujours acceptés). |
+| magasin_id | corps | int | si plusieurs magasins | |
 
 Requête :
 ```json
-{
-  "magasin_id": 2,
-  "description": "Lot Pixel — fournisseur Shenzhen",
-  "prix_fournisseur": "180000.00",
-  "fret_import": "15000.00",
-  "douane": "5000.00",
-  "lines": [
-    { "product_variant": 727, "quantite": 6 },
-    { "product_variant": 728, "quantite": 4 }
-  ]
-}
+{ "supplier": 3, "devise": "USD", "taux_change": "4500", "methode_allocation": "VALEUR", "description": "Import Chine septembre", "statut": "COMMANDE",
+  "lines": [ { "product_variant": 40, "quantite": 100, "prix_unitaire": "20" }, { "product_variant": 41, "quantite": 50, "prix_unitaire": "10" } ] }
 ```
+Réponse `201` : l'approvisionnement. Erreurs : `400` — `{"taux_change": ["Le taux de change (Ar pour 1 unité de devise) est requis."]}`, `{"supplier": ["Ce fournisseur n'appartient pas à votre société."]}`, `{"lines": ["Au moins une ligne est requise."]}`.
 
-Réponse `201` :
+### `PATCH /api/suppliers/orders/{id}/` — Modifier
+Champs : description, supplier, devise, taux_change, methode_allocation, date, prix_fournisseur, fret_import, douane, date_expedition, transporteur, mode_transport, tracking, lieu_depart, destination, date_arrivee, `lines` (liste complète : `id` pour une ligne existante, sans `id` = nouvelle ; une ligne absente est supprimée si rien n'a été reçu). Recalcule les coûts.
+
+Erreurs : `400` — `["Cet approvisionnement est finalisé : son coût de revient ne peut plus changer."]`, `{"lines": ["Ligne Coque A (Noir) : 60 déjà reçu(s), quantité minimale 60."]}`.
+
+### `POST /api/suppliers/orders/{id}/commander/` · `…/preparer/` · `…/expedier/` · `…/arriver/` — Avancer le workflow
+- `commander/` : BROUILLON → COMMANDE (sans corps).
+- `preparer/` : COMMANDE / PARTIELLEMENT_PAYE / PAYE → PREPARE.
+- `expedier/` → EN_TRANSIT, corps facultatif : `{ "date_expedition": "2026-09-15", "transporteur": "DHL", "mode_transport": "AERIEN", "tracking": "DHL123", "lieu_depart": "Shenzhen", "destination": "Antananarivo" }`.
+- `arriver/` → ARRIVE, corps facultatif `{ "date_arrivee": "2026-09-20" }` (défaut aujourd'hui).
+
+Réponse `200` : l'approvisionnement. Erreurs : `400` — `["Transition impossible : l'approvisionnement est 'Réceptionné'."]`.
+
+### `POST /api/suppliers/orders/{id}/receive/` — Réceptionner (entrée en stock)
+Effet : pour chaque quantité reçue, un mouvement de stock `ENTREE` / origine `FOURNISSEUR` via `apply_stock_movement` ; `quantite_recue` mise à jour ; statut `RECU` si tout est arrivé, sinon `PARTIELLEMENT_RECU` ; coûts recalculés sur les quantités reçues. Sans corps : réception de tout ce qui reste (première version).
+
+Requête (partielle) :
 ```json
-{
-  "id": 1,
-  "magasin": 2,
-  "numero": "SUP-2-20260913-0001",
-  "date": "2026-09-13",
-  "description": "Lot Pixel — fournisseur Shenzhen",
-  "statut": "BROUILLON",
-  "prix_fournisseur": "180000.00",
-  "fret_import": "15000.00",
-  "douane": "5000.00",
-  "total_qty": 10,
-  "cout_total": "200000.00",
-  "cout_unitaire": "20000.00",
-  "lines": [
-    {
-      "id": 1,
-      "product_variant": 727,
-      "reference_name": "pixel 10 pro xl",
-      "couleur": "Standard",
-      "quantite": 6,
-      "cout_unitaire_calcule": "20000.00",
-      "total_ligne": "120000.00",
-      "marge_unitaire": "10000.00"
-    },
-    {
-      "id": 2,
-      "product_variant": 728,
-      "reference_name": "Pixel 6 Pro",
-      "couleur": "Standard",
-      "quantite": 4,
-      "cout_unitaire_calcule": "20000.00",
-      "total_ligne": "80000.00",
-      "marge_unitaire": "10000.00"
-    }
-  ],
-  "created_at": "2026-09-13T09:12:41.318402+03:00",
-  "received_at": null
-}
+{ "lines": [ { "line_id": 11, "quantite_recue": 60 }, { "line_id": 12, "quantite_recue": 50 } ] }
 ```
+Réponse `200` : l'approvisionnement. Erreurs : `400` — `{"lines": ["Coque A (Noir) : 50 reçu(s) pour 40 restant(s) à recevoir."]}`, `["Cette commande fournisseur a déjà été reçue."]`, `["Aucune quantité reçue."]`.
 
-Erreurs :
-- `400` — `{"lines": ["This field is required."]}` : clé `lines` absente.
-- `400` — `{"lines": ["Au moins une ligne est requise."]}` : `lines` est une liste vide.
-- `400` — `{"lines": {"non_field_errors": ["Expected a list of items but got type \"dict\"."]}}` : `lines` n'est pas une liste.
-- `400` — `{"lines": [{}, {"product_variant": ["Invalid pk \"9999\" - object does not exist."]}]}` : variante inexistante (l'erreur est indexée à la position de la ligne fautive, les lignes valides donnant `{}`).
-- `400` — `{"lines": [{"product_variant": ["This field is required."], "quantite": ["This field is required."]}]}` : ligne incomplète.
-- `400` — `{"lines": [{"quantite": ["Ensure this value is greater than or equal to 1."]}]}` : quantité 0 ou négative.
-- `400` — `{"lines": [{"quantite": ["A valid integer is required."]}]}` : quantité non entière.
-- `400` — `{"prix_fournisseur": ["A valid number is required."]}` : montant non numérique (idem pour `fret_import`, `douane`).
-- `400` — `{"prix_fournisseur": ["Ensure that there are no more than 2 decimal places."]}` ou `["Ensure that there are no more than 14 digits in total."]` : format décimal hors limites.
-- `400` — `{"magasin_id": "Ce champ est requis (plusieurs magasins accessibles)."}` : admin de plusieurs magasins sans `magasin_id`.
-- `403` — `{"detail": "Magasin non autorisé."}` : `magasin_id` fourni mais hors des magasins accessibles (ou inexistant).
-- `403` — `{"detail": "You do not have permission to perform this action."}` : utilisateur non gérant.
-- `401` — `{"detail": "Authentication credentials were not provided."}` : non authentifié.
+### `POST /api/suppliers/orders/{id}/finaliser/` — Finaliser le coût de revient
+Effet : nécessite `RECU` ou `PARTIELLEMENT_RECU` ; fige les snapshots, écrit une entrée d'historique de coût par variante reçue (`VariantCostHistory`, jamais écrasée) et, si `mettre_a_jour_prix_achat` (défaut `true`), met à jour `prix_achat` de chaque référence avec le coût de revient (moyenne pondérée si plusieurs couleurs) — base des marges des rapports.
 
-### `GET /api/suppliers/orders/{id}/` — Détail d'une commande fournisseur
-**Rôle** : Gérant (`IsGerant`) · **Vue** : `SupplierOrderViewSet.retrieve` (suppliers/views.py)
+Requête : `{ "mettre_a_jour_prix_achat": true }`. Réponse `200` : l'approvisionnement (`statut` `COUT_FINALISE`, `finalise_at`). Erreurs : `400` — `["Réceptionnez la marchandise avant de finaliser le coût."]`, `["Cet approvisionnement est déjà finalisé."]`.
 
-Effet : aucun. Renvoie la commande avec ses lignes, si elle appartient à un magasin accessible.
-
-| Paramètre | Où | Type | Obligatoire | Description |
-| --- | --- | --- | --- | --- |
-| `id` | chemin | entier | oui | Identifiant de la commande fournisseur. |
-| `magasin_id` | query | entier | non | Même filtre que la liste ; si la commande n'est pas de ce magasin, `404`. |
-
-Réponse `200` :
+### `GET|POST /api/suppliers/orders/{id}/payments/` · `DELETE /api/suppliers/orders/{id}/payments/{pid}/` — Paiements fournisseur
+Requête `POST` :
 ```json
-{
-  "id": 1,
-  "magasin": 2,
-  "numero": "SUP-2-20260913-0001",
-  "date": "2026-09-13",
-  "description": "Lot Pixel — fournisseur Shenzhen",
-  "statut": "BROUILLON",
-  "prix_fournisseur": "180000.00",
-  "fret_import": "15000.00",
-  "douane": "5000.00",
-  "total_qty": 10,
-  "cout_total": "200000.00",
-  "cout_unitaire": "20000.00",
-  "lines": [
-    {
-      "id": 1,
-      "product_variant": 727,
-      "reference_name": "pixel 10 pro xl",
-      "couleur": "Standard",
-      "quantite": 6,
-      "cout_unitaire_calcule": "20000.00",
-      "total_ligne": "120000.00",
-      "marge_unitaire": "10000.00"
-    }
-  ],
-  "created_at": "2026-09-13T09:12:41.318402+03:00",
-  "received_at": null
-}
+{ "montant": "1000", "devise": "USD", "taux_change": "4500", "date": "2026-09-01", "type_paiement": "ACOMPTE", "methode": "VIREMENT", "reference": "TT-001", "commentaire": "Premier versement" }
 ```
+`taux_change` facultatif si la devise est celle de la commande (taux de la commande repris). Réponse `201` : l'approvisionnement (statut de paiement recalculé). Erreurs : `400` — `{"montant": ["Le montant doit être supérieur à 0."]}`, `{"taux_change": ["Le taux de change (Ar pour 1 unité) est requis."]}`. `DELETE` → `200` avec l'approvisionnement ; `400` `["Paiement introuvable."]`.
 
-Erreurs :
-- `404` — `{"detail": "No SupplierOrder matches the given query."}` : id inexistant ou commande d'un magasin non accessible.
-- `403` — `{"detail": "You do not have permission to perform this action."}` : utilisateur non gérant.
-- `401` — `{"detail": "Authentication credentials were not provided."}` : non authentifié.
+### `GET|POST /api/suppliers/orders/{id}/fees/` · `DELETE /api/suppliers/orders/{id}/fees/{fid}/` — Frais d'importation
+Types : `TRANSPORT`, `DOUANE`, `TAXES`, `TRANSIT`, `TRANSPORT_LOCAL`, `PORTUAIRE`, `DOSSIER`, `AGENCE`, `ASSURANCE`, `MANUTENTION`, `AUTRE`.
 
-### `PUT /api/suppliers/orders/{id}/` — Remplacement (non disponible)
-**Rôle** : — · **Vue** : `SupplierOrderViewSet` (suppliers/views.py), méthode exclue par `http_method_names = ["get", "post", "head", "options"]`
-
-Effet : aucun. La méthode n'est pas autorisée ; le contrôle de méthode s'exécute avant les permissions, donc la réponse est identique quel que soit le rôle (y compris non authentifié). Pour corriger une commande fournisseur, en recréer une (elle reste en `BROUILLON` tant qu'elle n'est pas reçue).
-
-| Paramètre | Où | Type | Obligatoire | Description |
-| --- | --- | --- | --- | --- |
-| `id` | chemin | entier | oui | Identifiant de la commande fournisseur. |
-
-Erreurs :
-- `405` — `{"detail": "Method \"PUT\" not allowed."}` : toujours.
-
-### `PATCH /api/suppliers/orders/{id}/` — Modification partielle (non disponible)
-**Rôle** : — · **Vue** : `SupplierOrderViewSet` (suppliers/views.py), méthode exclue par `http_method_names`
-
-Effet : aucun. Méthode non autorisée pour tous les rôles.
-
-| Paramètre | Où | Type | Obligatoire | Description |
-| --- | --- | --- | --- | --- |
-| `id` | chemin | entier | oui | Identifiant de la commande fournisseur. |
-
-Erreurs :
-- `405` — `{"detail": "Method \"PATCH\" not allowed."}` : toujours.
-
-### `DELETE /api/suppliers/orders/{id}/` — Suppression (non disponible)
-**Rôle** : — · **Vue** : `SupplierOrderViewSet` (suppliers/views.py), méthode exclue par `http_method_names`
-
-Effet : aucun. Méthode non autorisée pour tous les rôles ; une commande fournisseur ne se supprime que depuis l'administration Django.
-
-| Paramètre | Où | Type | Obligatoire | Description |
-| --- | --- | --- | --- | --- |
-| `id` | chemin | entier | oui | Identifiant de la commande fournisseur. |
-
-Erreurs :
-- `405` — `{"detail": "Method \"DELETE\" not allowed."}` : toujours.
-
-### `POST /api/suppliers/orders/{id}/receive/` — Réceptionner la commande (entrée en stock)
-**Rôle** : Gérant (`IsGerant`) · **Vue** : `SupplierOrderViewSet.receive` (@action `detail=True`, `methods=["post"]`, suppliers/views.py) — logique dans `services.receive_supplier_order`
-
-Effet : dans une transaction, pour chaque ligne, `catalog.services.apply_stock_movement` verrouille la variante (`select_for_update`), **incrémente `stock_actuel` de `quantite`** et crée un `StockMovement` `{"type": "ENTREE", "origine": "FOURNISSEUR", "quantite": <quantite>, "reference": "<numero de la commande>", "user": <gérant>}` ; la commande passe à `statut = "RECU"` et `received_at = maintenant`. Une `Notification` `{"notif_type": "supplier_order", "message": "Commande fournisseur SUP-2-20260913-0001 reçue — stock mis à jour", "magasin": <magasin_id>}` est ensuite créée et poussée sur `/ws/notifications/` (groupes `notifications_admin_<admin_id>` et `notifications_magasin_<magasin_id>`). Sur `/ws/data/`, les signaux diffusent `product_variant/updated` et `stock_movement/created` pour chaque ligne, puis `supplier_order/updated`. Pas de corps de requête attendu (un corps éventuel est ignoré). L'opération n'est pas rejouable : une seconde réception est refusée.
-
-| Paramètre | Où | Type | Obligatoire | Description |
-| --- | --- | --- | --- | --- |
-| `id` | chemin | entier | oui | Identifiant de la commande fournisseur (doit être d'un magasin accessible). |
-| `magasin_id` | query | entier | non | Même filtre que la liste ; commande d'un autre magasin → `404`. |
-
-Réponse `200` :
+Requête `POST` :
 ```json
-{
-  "id": 1,
-  "magasin": 2,
-  "numero": "SUP-2-20260913-0001",
-  "date": "2026-09-13",
-  "description": "Lot Pixel — fournisseur Shenzhen",
-  "statut": "RECU",
-  "prix_fournisseur": "180000.00",
-  "fret_import": "15000.00",
-  "douane": "5000.00",
-  "total_qty": 10,
-  "cout_total": "200000.00",
-  "cout_unitaire": "20000.00",
-  "lines": [
-    {
-      "id": 1,
-      "product_variant": 727,
-      "reference_name": "pixel 10 pro xl",
-      "couleur": "Standard",
-      "quantite": 6,
-      "cout_unitaire_calcule": "20000.00",
-      "total_ligne": "120000.00",
-      "marge_unitaire": "10000.00"
-    },
-    {
-      "id": 2,
-      "product_variant": 728,
-      "reference_name": "Pixel 6 Pro",
-      "couleur": "Standard",
-      "quantite": 4,
-      "cout_unitaire_calcule": "20000.00",
-      "total_ligne": "80000.00",
-      "marge_unitaire": "10000.00"
-    }
-  ],
-  "created_at": "2026-09-13T09:12:41.318402+03:00",
-  "received_at": "2026-09-13T10:05:02.774119+03:00"
-}
+{ "type_frais": "DOUANE", "montant": "5000000", "devise": "MGA", "date": "2026-09-20", "prestataire": "Douanes Toamasina", "description": "Déclaration + taxes" }
 ```
+Réponse `201` : l'approvisionnement (frais réparties, coûts recalculés). Erreurs identiques aux paiements.
 
-Message reçu sur `/ws/notifications/` après la réception :
+### `GET /api/suppliers/cost-history/` — Coût de revient actuel et historique
+`?variant={id}` :
 ```json
-{
-  "id": 87,
-  "notif_type": "supplier_order",
-  "message": "Commande fournisseur SUP-2-20260913-0001 reçue — stock mis à jour",
-  "magasin": 2,
-  "magasin_name": "Smartphone.Mg",
-  "is_read": false,
-  "created_at": "2026-09-13T10:05:02.801553+03:00"
-}
+{ "variant": 40, "reference_name": "Coque A", "couleur": "Noir", "prix_achat_reference": "63000.00", "prix_vente": "150000.00",
+  "cout_actuel_mga": "63000.00", "cout_moyen_pondere_mga": "85500.00",
+  "historique": [
+    { "id": 9, "product_variant": 40, "reference_name": "Coque A", "couleur": "Noir", "supplier_order": 8, "numero": "SUP-2-20260913-0002", "supplier_nom": "Shenzhen Cases Co",
+      "date": "2026-09-25", "quantite": 100, "valeur_achat_unitaire_mga": "63000.00", "frais_unitaire_mga": "0.00", "cout_revient_unitaire_mga": "63000.00" },
+    { "id": 5, "product_variant": 40, "reference_name": "Coque A", "couleur": "Noir", "supplier_order": 7, "numero": "SUP-2-20260913-0001", "supplier_nom": "Shenzhen Cases Co",
+      "date": "2026-09-20", "quantite": 100, "valeur_achat_unitaire_mga": "90000.00", "frais_unitaire_mga": "18000.00", "cout_revient_unitaire_mga": "108000.00" }
+  ] }
 ```
-
-Erreurs :
-- `400` — `["['Cette commande fournisseur a déjà été reçue.']"]` : la commande est déjà en statut `RECU` (le `ValidationError` Django est converti en `DRFValidationError(str(exc))`, d'où la liste JSON contenant la représentation textuelle de l'exception ; rien n'est modifié).
-- `404` — `{"detail": "No SupplierOrder matches the given query."}` : id inexistant ou commande d'un magasin non accessible.
-- `403` — `{"detail": "You do not have permission to perform this action."}` : utilisateur non gérant.
-- `401` — `{"detail": "Authentication credentials were not provided."}` : non authentifié.
-- `405` — `{"detail": "Method \"GET\" not allowed."}` : appel en `GET` sur cette action (seul `POST` est déclaré).
+`cout_actuel_mga` = dernier approvisionnement finalisé (masonkarena), `cout_moyen_pondere_mga` = moyenne pondérée par les quantités sur tout l'historique. Sans `variant` : les 200 dernières entrées de la société. Erreurs : `404` — `{"detail": "Variante introuvable."}`.
 
 ---
 
