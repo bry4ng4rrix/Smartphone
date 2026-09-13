@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Loader2, Settings2, TrendingDown, TrendingUp } from 'lucide-react';
 import { fmtAr, fmtDate, fmtNb, fmtPct } from '@/lib/reports';
 import { ReportTable } from '@/components/reports/report-table';
+import { NEG, POS, signe } from './ui';
 
 export interface StatsGain {
   nb_ventes: number;
@@ -35,10 +36,13 @@ export interface RepartitionPct {
   depenses: number;
 }
 
-const Ligne = ({ label, valeur, signe, bold, cls }: { label: string; valeur: number; signe?: '+' | '−'; bold?: boolean; cls?: string }) => (
-  <div className={`flex items-center justify-between gap-2 text-sm ${bold ? 'font-semibold border-t pt-2 mt-1' : ''}`}>
-    <span className={bold ? '' : 'text-muted-foreground'}>{signe && <span className="inline-block w-4 text-center">{signe}</span>}{label}</span>
-    <span className={`tabular-nums ${cls || ''}`}>{fmtAr(valeur)}</span>
+const Ligne = ({ label, valeur, op, bold, cls }: { label: string; valeur: number; op?: '+' | '−'; bold?: boolean; cls?: string }) => (
+  <div className={`flex items-baseline justify-between gap-3 ${bold ? 'text-base font-semibold border-t pt-2 mt-1' : 'text-sm'}`}>
+    <span className={`min-w-0 ${bold ? '' : 'text-muted-foreground'}`}>
+      {op && <span className="inline-block w-4 text-center font-mono text-xs">{op}</span>}
+      {label}
+    </span>
+    <span className={`tabular-nums whitespace-nowrap ${cls || ''}`}>{fmtAr(valeur)}</span>
   </div>
 );
 
@@ -77,11 +81,11 @@ export function SectionGain({
   const perte = gain && Number(gain.gain_reel) < 0;
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-      <Card>
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4">
+      <Card className={`border-l-4 ${perte ? 'border-l-red-500' : 'border-l-emerald-500'}`}>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
-            {perte ? <TrendingDown className="h-4 w-4 text-red-600" /> : <TrendingUp className="h-4 w-4 text-emerald-600" />} Gain réel
+            {perte ? <TrendingDown className={`h-4 w-4 ${NEG}`} aria-hidden /> : <TrendingUp className={`h-4 w-4 ${POS}`} aria-hidden />} Gain réel
           </CardTitle>
           <CardDescription className="text-xs">
             {periode && `${fmtDate(periode.from)} → ${fmtDate(periode.to)} · `}
@@ -98,15 +102,15 @@ export function SectionGain({
                 {gain.nb_pertes > 0 && <Badge variant="destructive" className="ml-2 text-[10px]">{gain.nb_pertes} vente(s) à perte</Badge>}
               </p>
               <Ligne label="Chiffre d'affaires (produits)" valeur={gain.ca_produits} />
-              <Ligne label="Livraison facturée au client" valeur={gain.livraison_client} signe="+" />
-              <Ligne label="Coût d'achat" valeur={gain.cout_achat} signe="−" />
-              <Ligne label="Frais agences de livraison" valeur={gain.frais_agence} signe="−" />
-              <Ligne label="Boost / publicité (part des articles vendus)" valeur={gain.part_boost} signe="−" />
+              <Ligne label="Livraison facturée au client" valeur={gain.livraison_client} op="+" />
+              <Ligne label="Coût d'achat" valeur={gain.cout_achat} op="−" />
+              <Ligne label="Frais agences de livraison" valeur={gain.frais_agence} op="−" />
+              <Ligne label="Boost / publicité (part des articles vendus)" valeur={gain.part_boost} op="−" />
               <Ligne
                 label={perte ? 'PERTE RÉELLE' : 'GAIN RÉEL'}
                 valeur={gain.gain_reel}
                 bold
-                cls={perte ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}
+                cls={perte ? NEG : POS}
               />
             </div>
           )}
@@ -114,36 +118,40 @@ export function SectionGain({
       </Card>
 
       <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0 pb-3">
+        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between space-y-0 pb-3">
           <div>
             <CardTitle className="text-base">Répartition du gain</CardTitle>
             <CardDescription className="text-xs">
               Appliquée automatiquement à chaque vente rentable ; la part épargne est versée au compte d&apos;épargne. Un gain nul ou négatif n&apos;est pas réparti.
             </CardDescription>
           </div>
-          <Button variant="outline" size="sm" className="h-8 shrink-0" onClick={ouvrir} disabled={!pct}>
-            <Settings2 className="h-4 w-4 mr-1" /> Paramètres
+          <Button variant="outline" size="sm" className="h-9 sm:h-8 shrink-0 self-start" onClick={ouvrir} disabled={!pct}>
+            <Settings2 className="h-4 w-4 mr-1" aria-hidden /> Paramètres
           </Button>
         </CardHeader>
         <CardContent>
           {loading || !gain || !pct ? (
             <Skeleton className="h-40" />
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-3">
+              <div className="flex items-baseline justify-between gap-3 text-sm">
+                <span className="text-muted-foreground">Gain réel réparti</span>
+                <span className={`font-semibold tabular-nums whitespace-nowrap ${perte ? NEG : POS}`}>{fmtAr(gain.gain_reel)}</span>
+              </div>
               {(
                 [
-                  ['Réapprovisionnement', pct.reappro, gain.repartition.reappro, 'bg-blue-500'],
-                  ['Épargne', pct.epargne, gain.repartition.epargne, 'bg-emerald-500'],
-                  ['Dépenses courantes', pct.depenses, gain.repartition.depenses, 'bg-amber-500'],
+                  ['Réapprovisionnement', pct.reappro, gain.repartition.reappro, 'bg-blue-500 dark:bg-blue-400'],
+                  ['Épargne', pct.epargne, gain.repartition.epargne, 'bg-emerald-500 dark:bg-emerald-400'],
+                  ['Dépenses courantes', pct.depenses, gain.repartition.depenses, 'bg-amber-500 dark:bg-amber-400'],
                 ] as const
               ).map(([label, p, montant, couleur]) => (
                 <div key={label} className="space-y-1">
-                  <div className="flex items-center justify-between text-sm">
-                    <span>{label} <span className="text-muted-foreground">· {fmtPct(Number(p))}</span></span>
-                    <span className="font-medium tabular-nums">{fmtAr(montant)}</span>
+                  <div className="flex items-baseline justify-between gap-3 text-sm">
+                    <span className="min-w-0">{label} <span className="text-muted-foreground whitespace-nowrap">· {fmtPct(Number(p))}</span></span>
+                    <span className="font-medium tabular-nums whitespace-nowrap">{fmtAr(montant)}</span>
                   </div>
-                  <div className="h-1.5 rounded bg-muted overflow-hidden">
-                    <div className={`h-full ${couleur}`} style={{ width: `${Number(p)}%` }} />
+                  <div className="h-2 rounded-full bg-muted overflow-hidden" role="progressbar" aria-label={label} aria-valuenow={Number(p)} aria-valuemin={0} aria-valuemax={100}>
+                    <div className={`h-full rounded-full transition-[width] duration-500 ${couleur}`} style={{ width: `${Number(p)}%` }} />
                   </div>
                 </div>
               ))}
@@ -169,7 +177,7 @@ export function SectionGain({
                 <Input type="number" min={0} max={100} step="0.01" value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} />
               </div>
             ))}
-            <p className={`text-sm font-medium ${total === 100 ? 'text-emerald-600' : 'text-red-600'}`}>Total : {total} %{total !== 100 && ' — doit faire 100 %'}</p>
+            <p className={`text-sm font-medium ${total === 100 ? POS : NEG}`} aria-live="polite">Total : {total} %{total !== 100 && ' — doit faire 100 %'}</p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEdit(false)} disabled={saving}>Annuler</Button>
@@ -201,12 +209,33 @@ export function TableVentes({ ventes, loading, error }: { ventes: LigneVenteResu
         { key: 'nb_articles', label: 'Art.', align: 'right' },
         { key: 'total_client', label: 'Total client', align: 'right', render: (r) => fmtAr(r.total_client), export: (r) => r.total_client },
         { key: 'cout_achat', label: "Coût d'achat", align: 'right', render: (r) => fmtAr(r.cout_achat) },
-        { key: 'resultat_livraison', label: 'Livraison (client − agence)', align: 'right', render: (r) => <span className={Number(r.resultat_livraison) < 0 ? 'text-red-600' : ''}>{fmtAr(r.resultat_livraison)}</span> },
+        { key: 'resultat_livraison', label: 'Livraison (client − agence)', align: 'right', render: (r) => <span className={Number(r.resultat_livraison) < 0 ? NEG : ''}>{fmtAr(r.resultat_livraison)}</span> },
         { key: 'part_boost', label: 'Boost', align: 'right', render: (r) => fmtAr(r.part_boost) },
-        { key: 'gain_reel', label: 'Gain réel', align: 'right', render: (r) => <span className={`font-semibold ${Number(r.gain_reel) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{fmtAr(r.gain_reel)}</span> },
+        { key: 'gain_reel', label: 'Gain réel', align: 'right', render: (r) => <span className={`font-semibold ${signe(r.gain_reel)}`}>{fmtAr(r.gain_reel)}</span> },
         { key: 'part_epargne', label: 'Épargne', align: 'right', render: (r) => fmtAr(r.part_epargne) },
         { key: 'encaissement', label: 'Argent', render: (r) => (r.annule ? <Badge variant="outline">Annulée</Badge> : r.encaissement ? <Badge variant={r.encaissement_statut === 'REMIS' ? 'default' : 'secondary'}>{r.encaissement}</Badge> : <span className="text-muted-foreground text-xs">historique</span>) },
       ]}
+      carteMobile={(r) => (
+        <div className="space-y-1.5">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className={`text-sm font-medium ${r.annule ? 'line-through text-muted-foreground' : ''}`}>{r.numero}</p>
+              <p className="text-xs text-muted-foreground truncate">{fmtDate(r.date_vente)} · {r.client}{r.livreur ? ` · ${r.livreur}` : ''}</p>
+            </div>
+            <span className={`text-sm font-semibold tabular-nums whitespace-nowrap ${signe(r.gain_reel)}`}>{fmtAr(r.gain_reel)}</span>
+          </div>
+          <dl className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+            <dt className="text-muted-foreground">Total client</dt><dd className="text-right tabular-nums">{fmtAr(r.total_client)}</dd>
+            <dt className="text-muted-foreground">Coût d'achat</dt><dd className="text-right tabular-nums">{fmtAr(r.cout_achat)}</dd>
+            <dt className="text-muted-foreground">Livraison (client − agence)</dt><dd className={`text-right tabular-nums ${Number(r.resultat_livraison) < 0 ? NEG : ''}`}>{fmtAr(r.resultat_livraison)}</dd>
+            <dt className="text-muted-foreground">Boost</dt><dd className="text-right tabular-nums">{fmtAr(r.part_boost)}</dd>
+            <dt className="text-muted-foreground">Épargne</dt><dd className="text-right tabular-nums">{fmtAr(r.part_epargne)}</dd>
+          </dl>
+          <div>
+            {r.annule ? <Badge variant="outline">Annulée</Badge> : r.encaissement ? <Badge variant={r.encaissement_statut === 'REMIS' ? 'default' : 'secondary'}>{r.encaissement}</Badge> : <span className="text-xs text-muted-foreground">historique</span>}
+          </div>
+        </div>
+      )}
       lignes={ventes}
       loading={loading}
       error={error}

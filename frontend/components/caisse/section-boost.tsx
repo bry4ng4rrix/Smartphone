@@ -69,8 +69,8 @@ export function SectionBoost({ boosts, loading, error, magasinId, sessionOuverte
         titre="Boost / publicité"
         description="Une dépense globale par période, répartie sur le nombre réel d'articles vendus pendant cette période (pas sur le nombre de commandes). Coût par article = montant / articles vendus ; 0 article vendu = pas de division, coût 0."
         actions={
-          <Button size="sm" className="h-8" onClick={() => setOuvert(true)}>
-            <Plus className="h-4 w-4 mr-1" /> Boost
+          <Button size="sm" className="h-9 sm:h-8" onClick={() => setOuvert(true)}>
+            <Plus className="h-4 w-4 mr-1" aria-hidden /> Nouveau boost
           </Button>
         }
         colonnes={[
@@ -82,6 +82,19 @@ export function SectionBoost({ boosts, loading, error, magasinId, sessionOuverte
           { key: 'cout_par_article', label: 'Coût boost / article', align: 'right', render: (r) => (r.articles_vendus ? <span className="font-medium">{fmtAr(r.cout_par_article)}</span> : <Badge variant="outline">aucun article vendu</Badge>), export: (r) => r.cout_par_article },
           { key: 'en_caisse', label: 'Caisse', render: (r) => (r.en_caisse ? <Badge>Sortie enregistrée</Badge> : <span className="text-xs text-muted-foreground">hors caisse</span>), export: (r) => (r.en_caisse ? 'oui' : 'non') },
         ]}
+        carteMobile={(r) => (
+          <div className="space-y-1">
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-sm font-medium break-words">{r.nom}</p>
+              <span className="text-sm font-semibold tabular-nums whitespace-nowrap">{fmtAr(r.montant)}</span>
+            </div>
+            <p className="text-xs text-muted-foreground">{r.plateforme_label} · {fmtDate(r.date_debut)} → {r.date_fin ? fmtDate(r.date_fin) : 'en cours'}</p>
+            <p className="text-xs">
+              {fmtNb(r.articles_vendus)} article(s) vendu(s) · coût/article : {r.articles_vendus ? <span className="font-medium">{fmtAr(r.cout_par_article)}</span> : <Badge variant="outline" className="text-[10px]">aucun article vendu</Badge>}
+            </p>
+            {r.en_caisse ? <Badge className="text-[10px]">Sortie enregistrée en caisse</Badge> : <span className="text-[11px] text-muted-foreground">hors caisse</span>}
+          </div>
+        )}
         lignes={boosts}
         loading={loading}
         error={error}

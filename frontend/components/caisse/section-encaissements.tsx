@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Skeleton } from '@/components/ui/skeleton';
 import { HandCoins, Loader2 } from 'lucide-react';
 import { fmtAr, fmtDate, fmtNb } from '@/lib/reports';
+import { WARN } from './ui';
 
 export interface Encaissements {
   lignes: { id: number; numero: string; client: string; montant: number; source: string; source_label: string; livreur_id: number | null; livreur: string; date_commande: string }[];
@@ -62,7 +63,7 @@ export function SectionEncaissements({
           <p className="text-sm text-muted-foreground text-center py-4">Tout l&apos;argent des ventes livrées est en caisse.</p>
         ) : (
           <div className="space-y-2">
-            {!sessionOuverte && <p className="text-xs text-amber-600">Ouvrez la caisse pour enregistrer une remise.</p>}
+            {!sessionOuverte && <p className={`text-xs ${WARN}`} role="status">Ouvrez la caisse pour enregistrer une remise.</p>}
             {data.par_livreur.map((p) => (
               <div key={p.livreur_id ?? 'comptoir'} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg border p-3">
                 <div className="min-w-0">
@@ -71,7 +72,7 @@ export function SectionEncaissements({
                     encaissé {fmtAr(p.brut)}{Number(p.depenses) > 0 && ` − frais de tournée acceptés ${fmtAr(p.depenses)}`} → net à remettre <span className="font-medium text-foreground">{fmtAr(p.net)}</span>
                   </p>
                 </div>
-                <Button size="sm" onClick={() => setCible(p)} disabled={!sessionOuverte}>
+                <Button size="sm" className="h-9 sm:h-8 w-full sm:w-auto" onClick={() => setCible(p)} disabled={!sessionOuverte}>
                   Enregistrer la remise
                 </Button>
               </div>
@@ -80,8 +81,8 @@ export function SectionEncaissements({
               <summary className="cursor-pointer text-muted-foreground">Détail des {fmtNb(data.lignes.length)} vente(s) en attente</summary>
               <ul className="mt-2 space-y-1">
                 {data.lignes.map((l) => (
-                  <li key={l.id} className="flex justify-between gap-2 border-b py-1 last:border-0">
-                    <span className="truncate">{fmtDate(l.date_commande)} · {l.numero} · {l.client} <span className="text-muted-foreground">({l.livreur || l.source_label})</span></span>
+                  <li key={l.id} className="flex justify-between gap-2 border-b py-1.5 last:border-0">
+                    <span className="min-w-0 break-words">{fmtDate(l.date_commande)} · {l.numero} · {l.client} <span className="text-muted-foreground">({l.livreur || l.source_label})</span></span>
                     <span className="tabular-nums shrink-0">{fmtAr(l.montant)}</span>
                   </li>
                 ))}

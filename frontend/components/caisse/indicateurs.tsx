@@ -23,17 +23,17 @@ function Indicateur({
   titre, valeur, detail, icon: Icon, couleur, loading,
 }: { titre: string; valeur?: string; detail?: string; icon: React.ComponentType<{ className?: string }>; couleur?: string; loading?: boolean }) {
   return (
-    <Card>
-      <CardHeader className="pb-2">
+    <Card className="gap-2 py-4">
+      <CardHeader className="pb-0 px-4">
         <CardDescription className="flex items-center gap-1.5 text-xs">
-          <Icon className="h-3.5 w-3.5" />
+          <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
           {titre}
         </CardDescription>
-        {loading ? <Skeleton className="h-7 w-32 mt-1" /> : <CardTitle className={`text-xl sm:text-2xl tabular-nums ${couleur || ''}`}>{valeur}</CardTitle>}
+        {loading ? <Skeleton className="h-7 w-32 mt-1" /> : <CardTitle className={`text-xl sm:text-2xl tabular-nums leading-tight break-words ${couleur || ''}`}>{valeur}</CardTitle>}
       </CardHeader>
       {detail && !loading && (
-        <CardContent className="pt-0">
-          <p className="text-xs text-muted-foreground">{detail}</p>
+        <CardContent className="pt-0 px-4">
+          <p className="text-xs text-muted-foreground leading-snug">{detail}</p>
         </CardContent>
       )}
     </Card>
@@ -50,7 +50,7 @@ export function IndicateursCaisse({ data, loading }: { data: Indicateurs | null;
         titre="Espèces disponibles maintenant"
         icon={Banknote}
         valeur={data ? fmtAr(data.espece_disponible) : '—'}
-        couleur={data && n(data.espece_disponible) < 0 ? 'text-red-600' : 'text-emerald-600 dark:text-emerald-400'}
+        couleur={data && n(data.espece_disponible) < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}
         detail={
           data
             ? `Solde caisse ${fmtAr(data.solde_caisse)} − épargne réservée ${fmtAr(data.epargne)}${data.session_ouverte ? '' : ' · caisse fermée (dernier montant compté)'}${!data.epargne_couverte ? ' · épargne non couverte par la caisse' : ''}`

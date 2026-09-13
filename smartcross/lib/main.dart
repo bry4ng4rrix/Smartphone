@@ -10,8 +10,6 @@ import 'state/theme_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Notifications système (messages, commandes…) — canaux Android et
-  // gestion d'un lancement par appui sur une notification.
   await PushNotificationsService.instance.init();
   runApp(const ProviderScope(child: SmartphoneMgApp()));
 }
@@ -21,14 +19,9 @@ class SmartphoneMgApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Instancie le bootstrap WebSocket une seule fois à la racine — il
-    // écoute lui-même les changements d'auth pour se (dé)connecter.
     ref.watch(realtimeBootstrapProvider);
-    // Relaie le flux temps réel vers la barre de notifications du téléphone
-    // quand l'app n'est pas au premier plan.
     ref.watch(pushNotificationsBootstrapProvider);
     final router = ref.watch(routerProvider);
-    // Clair / sombre / système — bouton Soleil / Lune de la TopBar.
     final themeMode = ref.watch(themeModeProvider);
 
     return MaterialApp.router(

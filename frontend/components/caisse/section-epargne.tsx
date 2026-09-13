@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { AlertTriangle, Loader2, PiggyBank } from 'lucide-react';
 import { fmtAr, fmtDateHeure } from '@/lib/reports';
 import { ReportTable } from '@/components/reports/report-table';
+import { INFO, NEG, POS, signe } from './ui';
 
 export interface MouvementEpargne {
   id: number; type: 'VERSEMENT' | 'RETRAIT' | 'CORRECTION'; type_label: string; montant: number; solde_apres: number;
@@ -51,15 +52,15 @@ export function SectionEpargne({
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0 pb-3">
+        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between space-y-0 pb-3">
           <div>
-            <CardTitle className="flex items-center gap-2 text-base"><PiggyBank className="h-4 w-4" /> Épargne</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-base"><PiggyBank className="h-4 w-4" aria-hidden /> Épargne</CardTitle>
             <CardDescription className="text-xs">
               Alimentée automatiquement à chaque vente rentable (part épargne du gain réel). Intouchable par défaut : un retrait est une opération exceptionnelle, confirmée et tracée.
             </CardDescription>
           </div>
-          <Button variant="outline" size="sm" className="h-8 shrink-0" onClick={() => setOuvert(true)} disabled={loading || !solde || Number(solde) <= 0}>
-            Retirer
+          <Button variant="outline" size="sm" className="h-9 sm:h-8 shrink-0 self-start" onClick={() => setOuvert(true)} disabled={loading || !solde || Number(solde) <= 0}>
+            Retirer de l&apos;épargne
           </Button>
         </CardHeader>
         <CardContent>
@@ -67,9 +68,9 @@ export function SectionEpargne({
             <Skeleton className="h-16" />
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div><p className="text-xs text-muted-foreground">Total accumulé</p><p className="text-2xl font-bold tabular-nums text-blue-600 dark:text-blue-400">{fmtAr(solde ?? 0)}</p></div>
-              <div><p className="text-xs text-muted-foreground">Versé sur la période</p><p className="text-lg font-semibold tabular-nums text-emerald-600">+{fmtAr(versePeriode ?? 0)}</p></div>
-              <div><p className="text-xs text-muted-foreground">Retiré sur la période</p><p className="text-lg font-semibold tabular-nums text-red-600">−{fmtAr(retirePeriode ?? 0)}</p></div>
+              <div><p className="text-xs text-muted-foreground">Total accumulé</p><p className={`text-2xl font-bold tabular-nums ${INFO}`}>{fmtAr(solde ?? 0)}</p></div>
+              <div><p className="text-xs text-muted-foreground">Versé sur la période</p><p className={`text-lg font-semibold tabular-nums ${POS}`}>+{fmtAr(versePeriode ?? 0)}</p></div>
+              <div><p className="text-xs text-muted-foreground">Retiré sur la période</p><p className={`text-lg font-semibold tabular-nums ${NEG}`}>−{fmtAr(retirePeriode ?? 0)}</p></div>
             </div>
           )}
         </CardContent>
@@ -80,11 +81,24 @@ export function SectionEpargne({
         colonnes={[
           { key: 'created_at', label: 'Date', render: (r) => fmtDateHeure(r.created_at) },
           { key: 'type_label', label: 'Type', render: (r) => <Badge variant={TYPE_VARIANT[r.type] || 'outline'}>{r.type_label}</Badge> },
-          { key: 'montant', label: 'Montant', align: 'right', render: (r) => <span className={Number(r.montant) < 0 ? 'text-red-600' : 'text-emerald-600'}>{Number(r.montant) > 0 ? '+' : ''}{fmtAr(r.montant)}</span> },
+          { key: 'montant', label: 'Montant', align: 'right', render: (r) => <span className={signe(r.montant)}>{Number(r.montant) > 0 ? '+' : ''}{fmtAr(r.montant)}</span> },
           { key: 'solde_apres', label: 'Solde après', align: 'right', render: (r) => <span className="font-medium tabular-nums">{fmtAr(r.solde_apres)}</span> },
           { key: 'motif', label: 'Motif', render: (r) => <span>{r.motif}{r.order_numero && <span className="text-muted-foreground"> · {r.order_numero}</span>}</span> },
           { key: 'created_by_name', label: 'Par', render: (r) => r.created_by_name || 'Automatique' },
         ]}
+        carteMobile={(r) => (
+          <div className="space-y-1">
+            <div className="flex items-start justify-between gap-2">
+              <Badge variant={TYPE_VARIANT[r.type] || 'outline'}>{r.type_label}</Badge>
+              <span className={`text-sm font-semibold tabular-nums whitespace-nowrap ${signe(r.montant)}`}>{Number(r.montant) > 0 ? '+' : ''}{fmtAr(r.montant)}</span>
+            </div>
+            <p className="text-sm break-words">{r.motif}{r.order_numero && <span className="text-muted-foreground"> · {r.order_numero}</span>}</p>
+            <p className="text-xs text-muted-foreground flex justify-between gap-2">
+              <span>{fmtDateHeure(r.created_at)}{r.created_by_name ? ` · ${r.created_by_name}` : ' · Automatique'}</span>
+              <span>Solde : <span className="font-medium text-foreground tabular-nums">{fmtAr(r.solde_apres)}</span></span>
+            </p>
+          </div>
+        )}
         lignes={historique}
         loading={loading}
         error={error}
@@ -107,7 +121,7 @@ export function SectionEpargne({
                 <div className="space-y-1">
                   <Label>Montant (Ar)</Label>
                   <Input type="number" min={1} max={Number(solde ?? 0)} value={montant} onChange={(e) => setMontant(e.target.value)} autoFocus />
-                  {m > Number(solde ?? 0) && <p className="text-xs text-red-600">Supérieur à l&apos;épargne disponible.</p>}
+                  {m > Number(solde ?? 0) && <p className={`text-xs ${NEG}`} role="alert">Supérieur à l&apos;épargne disponible.</p>}
                 </div>
                 <div className="space-y-1">
                   <Label>Motif</Label>
@@ -122,7 +136,7 @@ export function SectionEpargne({
           ) : (
             <>
               <DialogHeader>
-                <DialogTitle className="flex items-center gap-2 text-red-600"><AlertTriangle className="h-5 w-5" /> Attention</DialogTitle>
+                <DialogTitle className={`flex items-center gap-2 ${NEG}`}><AlertTriangle className="h-5 w-5" aria-hidden /> Attention</DialogTitle>
                 <DialogDescription asChild>
                   <div className="text-sm text-foreground space-y-2 pt-1">
                     <p>Vous êtes sur le point de retirer <span className="font-semibold">{fmtAr(m)}</span> de l&apos;épargne.</p>

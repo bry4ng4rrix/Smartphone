@@ -36,6 +36,7 @@ export function ReportTable<T>({
   exportNom,
   actions,
   compact,
+  carteMobile,
 }: {
   titre?: string;
   description?: ReactNode;
@@ -49,6 +50,9 @@ export function ReportTable<T>({
   exportNom?: string;
   actions?: ReactNode;
   compact?: boolean;
+  /** Rendu d'une ligne en carte sous `md` : le tableau ne s'affiche alors
+   *  qu'à partir de cette largeur (pas de tableau horizontal sur mobile). */
+  carteMobile?: (row: T, index: number) => ReactNode;
 }) {
   const [page, setPage] = useState(0);
   const total = lignes?.length ?? 0;
@@ -95,7 +99,20 @@ export function ReportTable<T>({
       return <p className="text-sm text-muted-foreground text-center py-8">{vide}</p>;
     }
     return (
-      <div className="overflow-x-auto">
+      <>
+        {carteMobile && (
+          <ul className="md:hidden divide-y">
+            {visibles.map((row, i) => {
+              const index = pageCourante * pageSize + i;
+              return (
+                <li key={rowKey ? rowKey(row, index) : index} className="px-4 py-3">
+                  {carteMobile(row, index)}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      <div className={`overflow-x-auto ${carteMobile ? 'hidden md:block' : ''}`}>
         <Table className={compact ? 'text-xs' : 'text-sm'}>
           <TableHeader>
             <TableRow>
@@ -122,18 +139,19 @@ export function ReportTable<T>({
           </TableBody>
         </Table>
       </div>
+      </>
     );
   };
 
   return (
     <Card className="print:break-inside-avoid">
       {(titre || actions || exportNom) && (
-        <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0 pb-3">
+        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between space-y-0 pb-3">
           <div className="min-w-0">
             {titre && <CardTitle className="text-base">{titre}</CardTitle>}
             {description && <CardDescription className="text-xs mt-0.5">{description}</CardDescription>}
           </div>
-          <div className="flex items-center gap-1 shrink-0 print:hidden">
+          <div className="flex flex-wrap items-center gap-1 shrink-0 print:hidden">
             {actions}
             {exportNom && (
               <Button variant="ghost" size="sm" className="h-8 px-2" onClick={exporter} disabled={!total} aria-label="Exporter en Excel">
@@ -151,13 +169,13 @@ export function ReportTable<T>({
               {pageCourante * pageSize + 1}–{Math.min(total, (pageCourante + 1) * pageSize)} sur {total}
             </span>
             <div className="flex items-center gap-1">
-              <Button variant="outline" size="icon" className="h-7 w-7" disabled={pageCourante === 0} onClick={() => setPage(pageCourante - 1)} aria-label="Page précédente">
+              <Button variant="outline" size="icon" className="h-8 w-8" disabled={pageCourante === 0} onClick={() => setPage(pageCourante - 1)} aria-label="Page précédente">
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <span className="px-1">
                 {pageCourante + 1}/{pages}
               </span>
-              <Button variant="outline" size="icon" className="h-7 w-7" disabled={pageCourante >= pages - 1} onClick={() => setPage(pageCourante + 1)} aria-label="Page suivante">
+              <Button variant="outline" size="icon" className="h-8 w-8" disabled={pageCourante >= pages - 1} onClick={() => setPage(pageCourante + 1)} aria-label="Page suivante">
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
