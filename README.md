@@ -1,333 +1,117 @@
-# Application Stock - Gestion de Users et Produits
+# Smartphone.Mg — gestion de boutique d'accessoires téléphone
 
-## 📋 Description
+Application de gestion pour une boutique d'accessoires (Madagascar) :
+catalogue et stock, commandes clients avec préparation et livraison, caisse,
+fournisseurs, messagerie interne, notifications et centre de rapports.
+Elle existe en **web** (Next.js) et en **application mobile** (Flutter), toutes
+deux branchées sur la **même API Django**.
 
-Cette application Django gère un système multi-rôles pour la gestion de stock avec trois types d'utilisateurs :
-- **Admin**: Gère l'ensemble du système
-- **Magasin**: Gère son propre magasin et ses produits
-- **Employer**: Travaille dans un magasin et gère les produits assignés
+## 1. Les trois parties du projet
 
-## 🏗️ Structure de l'application
+| Dossier | Rôle | Technologie |
+| --- | --- | --- |
+| racine — `Stock/`, `users/`, `catalog/`, `orders/`, `suppliers/` | API backend + WebSocket temps réel | Django 6, Django REST Framework, Channels (Daphne), JWT |
+| `frontend/` | Application web (gérant, préparateur, livreur) | Next.js 16, shadcn/ui, recharts |
+| `smartcross/` | Application mobile (mêmes fonctionnalités que le web) | Flutter, Riverpod, go_router |
 
-```
-users/
-├── models.py           # Modèles de données
-├── views.py            # Vues API
-├── urls.py             # Configuration des URLs
-├── serializers.py      # Sérialiseurs DRF
-├── authentication.py   # Authentification JWT personnalisée
-├── permissions.py      # Permissions personnalisées
-└── admin.py            # Administration Django
-```
+Base de données : SQLite en local par défaut (zéro configuration), **PostgreSQL en
+production** (`DB_ENGINE` dans l'environnement). L'assistant et les rapports IA
+utilisent **Ollama** (modèle local sur le serveur), appelé par le frontend
+Next.js — l'application mobile passe par cette même route.
 
-## 🗄️ Modèles de données
+## 2. Rôles et fonctionnalités
 
-### CustomUser
-Modèle utilisateur personnalisé héritant de `AbstractUser`
+| Rôle | Ce qu'il fait |
+| --- | --- |
+| **Gérant** (administrateur / gérant de magasin) | Tableau de bord (rapports), commandes (création avec remise par article, modification, assignation, correction d'état), catalogue et stock, caisse, fournisseurs, transferts, bilan des livreurs et validation de leurs dépenses, comptes de l'équipe, paramètres (zones de livraison, types de dépense) |
+| **Préparateur** | Dépôt : commandes à préparer (photo de préparation), retraits sur place |
+| **Livreur** | Tournée du jour, confirmation de livraison (articles remis / rapportés), bilan du jour, déclaration de dépenses |
+| Tous | Messagerie interne, notifications (temps réel + notifications système sur mobile) |
 
-**Champs:**
-- `full_name`: Nom complet
-- `email`: Email unique (USERNAME_FIELD)
-- `phone`: Numéro de téléphone (optionnel)
-- `role`: Rôle de l'utilisateur (admin/magasin/employer)
-- `is_confirmed`: Statut de confirmation du compte
-- `created_at`: Date de création
-- `updated_at`: Date de dernière mise à jour
+Cycle d'une commande : `Nouvelle → En préparation → Prête → En livraison → Livrée / Retour`
+(+ `Annulée`). Le stock sort à la préparation et revient au retour ou à
+l'annulation. Les dates métier sont en heure d'**Antananarivo** (règle du
+« jour J » : le préparateur agit dès 19 h la veille, le livreur à partir de minuit).
 
-**Rôles disponibles:**
-- `admin`: Accès complet, admin Django
-- `magasin`: Gère un magasin spécifique
-- `employer`: Employé d'un magasin
+## 3. Lancer le projet en local
 
-### AdminProfile
-Profil pour les administrateurs
+### Backend (API sur http://127.0.0.1:8010)
 
-**Champs:**
-- `user`: Relation OneToOne avec CustomUser
-- `company_name`: Nom de l'entreprise
-- `logo`: Logo de l'entreprise
-
-### MagasinProfile
-Profil pour les gérants de magasin
-
-**Champs:**
-- `user`: Relation OneToOne avec CustomUser
-- `admin`: ForeignKey vers l'admin propriétaire
-- `shop_name`: Nom du magasin
-- `shop_logo`: Logo du magasin
-
-### EmployerProfile
-Profil pour les employés
-
-**Champs:**
-- `user`: Relation OneToOne avec CustomUser
-- `magasin`: ForeignKey vers le magasin (optionnel)
-- `admin`: ForeignKey vers l'admin (optionnel)
-- `position`: Poste de l'employé
-
-### Product
-Modèle pour les produits en stock
-
-**Champs:**
-- `name`: Nom du produit
-- `reference`: Référence unique
-- `brand`: Marque (optionnel)
-- `category`: Catégorie
-- `description`: Description (optionnel)
-- `unit_price`: Prix unitaire
-- `initial_quantity`: Quantité initiale
-- `alert_threshold`: Seuil d'alerte
-- `expiry_date`: Date d'expiration (optionnel)
-- `magasin`: ForeignKey vers MagasinProfile
-- `image1`, `image2`, `image3`: Images du produit (optionnelles)
-
-## 🔌 API Endpoints
-
-Base URL: `/api/users/`
-
-### Authentification
-
-#### POST `/api/users/login/`
-Connexion personnalisée avec JWT
-- **Body**: `{ "username": "email", "password": "password" }`
-- **Response**: Tokens JWT (access + refresh)
-- **Note**: Vérifie que le compte est confirmé (`is_confirmed=True`)
-
-#### POST `/api/users/refresh/`
-Rafraîchir le token d'accès
-- **Body**: `{ "refresh": "refresh_token" }`
-- **Response**: Nouveau access token
-
-### Gestion des utilisateurs
-
-#### POST `/api/users/register/`
-Inscription d'un nouvel utilisateur
-- **Body**: 
-  ```json
-  {
-    "full_name": "string",
-    "email": "string",
-    "password": "string",
-    "phone": "string",
-    "role": "admin|magasin|employer",
-    "company_name": "string",  // Pour admin
-    "shop_name": "string",      // Pour magasin
-    "position": "string",       // Pour employer
-    "admin_email": "string"     // Email de l'admin (pour magasin/employer)
-  }
-  ```
-- **Response**: Message de succès
-
-#### GET `/api/users/me/`
-Profil de l'utilisateur connecté
-- **Auth**: Requis (JWT token)
-- **Response**: Informations de l'utilisateur connecté
-
-#### PUT `/api/users/approve/<user_id>/`
-Approuver un compte utilisateur
-- **Auth**: Requis (admin ou magasin uniquement)
-- **Response**: Message de succès
-
-### Gestion des produits
-
-#### GET `/api/users/products/`
-Liste des produits
-- **Auth**: Requis
-- **Filtrage par rôle:**
-  - Admin: Tous les produits
-  - Magasin: Produits de son magasin
-  - Employer: Produits de son magasin
-
-#### POST `/api/users/products/`
-Créer un produit
-- **Auth**: Requis (admin ou magasin uniquement)
-- **Body**: Données du produit + `magasin` (optionnel pour admin)
-
-#### GET `/api/users/products/<id>/`
-Détails d'un produit
-- **Auth**: Requis
-
-#### PUT `/api/users/products/<id>/`
-Mettre à jour un produit (complet)
-- **Auth**: Requis (admin uniquement)
-
-#### PATCH `/api/users/products/<id>/`
-Mise à jour partielle d'un produit
-- **Auth**: Requis (admin uniquement)
-
-#### DELETE `/api/users/products/<id>/`
-Supprimer un produit
-- **Auth**: Requis (admin uniquement)
-
-## 🔐 Authentification & Permissions
-
-### JWT Token
-L'application utilise `rest_framework_simplejwt` pour l'authentification.
-
-**CustomTokenObtainPairSerializer:**
-- Vérifie que `is_confirmed=True` avant d'attribuer un token
-- Retourne une erreur si le compte n'est pas approuvé
-
-### Permissions personnalisées
-
-#### IsAdmin
-Accès réservé aux utilisateurs avec `role="admin"`
-
-#### IsMagasin
-Accès réservé aux utilisateurs avec `role="magasin"`
-
-#### IsEmployer
-Accès réservé aux utilisateurs avec `role="employer"`
-
-## 🚀 Comment ajouter de nouvelles fonctionnalités
-
-### 1. Ajouter un nouveau modèle
-
-Dans `models.py`:
-```python
-class NouveauModele(models.Model):
-    nom = models.CharField(max_length=255)
-    description = models.TextField()
-    created_at = models.DateTimeField(auto_now_add=True)
-    
-    def __str__(self):
-        return self.nom
-```
-
-Puis créer les migrations:
 ```bash
-python manage.py makemigrations
-python manage.py migrate
+python -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python manage.py migrate
+.venv/bin/python manage.py seed_smartphone      # catalogue réel + comptes de démo
+.venv/bin/python manage.py runserver 8010       # toujours préciser 8010
 ```
 
-### 2. Créer un sérialiseur
+Pour travailler contre PostgreSQL en local, renseigner `.env.local` (mêmes
+variables que `.env.example`) puis utiliser `./run_local.sh` (ou
+`./run_local.sh migrate`, `./run_local.sh shell` …) : le script charge
+`.env.local` avant `manage.py`.
 
-Dans `serializers.py`:
-```python
-class NouveauModeleSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = NouveauModele
-        fields = "__all__"
+### Web (http://localhost:3010)
+
+```bash
+cd frontend && npm install && npm run dev
 ```
 
-### 3. Créer une vue
+`frontend/.env` doit contenir `NEXT_PUBLIC_DJANGO_API_URL=http://localhost:8010/api`
+(et `OLLAMA_BASE_URL` / `OLLAMA_MODEL_*` pour l'assistant, voir `.env.example`).
 
-**Option A - APIView (pour endpoints personnalisés):**
-```python
-from rest_framework.views import APIView
-from rest_framework.response import Response
+### Mobile (Flutter)
 
-class NouvelleVue(APIView):
-    permission_classes = [IsAuthenticated]  # Optionnel
-    
-    def get(self, request):
-        # Logique GET
-        return Response({"data": "resultat"})
-    
-    def post(self, request):
-        # Logique POST
-        return Response({"message": "créé"})
+```bash
+cd smartcross && flutter pub get && flutter run
 ```
 
-**Option B - ViewSet (pour CRUD standard):**
-```python
-from rest_framework import viewsets
+L'app pointe par défaut sur le serveur de production
+(`kDefaultServerUrl` dans `smartcross/lib/core/api_client.dart`). Pour un
+serveur local, utiliser l'écran **« Configuration du serveur »** depuis la
+connexion (ex. `http://10.0.2.2:8010` sur l'émulateur Android) ; le bouton
+« Serveur par défaut » ramène à la production.
 
-class NouveauViewSet(viewsets.ModelViewSet):
-    queryset = NouveauModele.objects.all()
-    serializer_class = NouveauModeleSerializer
-    permission_classes = [IsAuthenticated]
+APK : `cd smartcross && flutter build apk --release`.
+
+## 4. Déploiement (VPS, Docker)
+
+Tout est décrit pas à pas dans **`roadmap.md`** (prérequis, variables,
+première installation, import du catalogue, mises à jour, sauvegardes,
+Ollama, dépannage). En résumé :
+
+```bash
+cp .env.example .env          # puis remplir les valeurs (secret, base, domaine…)
+docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-### 4. Ajouter l'URL
+Services : PostgreSQL et Redis (internes), backend Django sur le port `8010`,
+frontend Next.js sur le port `3010`. Ollama tourne directement sur le serveur.
 
-**Pour APIView:**
-```python
-from .views import NouvelleVue
+## 5. Points d'entrée de l'API
 
-urlpatterns = [
-    path("nouveau-endpoint/", NouvelleVue.as_view()),
-] + router.urls
-```
+Toutes les routes sont sous `/api/` (authentification JWT) :
 
-**Pour ViewSet:**
-```python
-from .views import NouveauViewSet
+| Préfixe | Contenu |
+| --- | --- |
+| `/api/users/` | comptes, connexion, magasins, caisse, notifications, messagerie |
+| `/api/catalog/` | catégories, sous-types, marques, couleurs, références, variantes, mouvements de stock, import/export Excel, notes produit |
+| `/api/orders/` | commandes, zones de livraison, dépenses des livreurs, campagnes marketing, rapports (`reports/{overview,sales,financial,expenses,stock,orders,deliveries,marketing}/`) |
+| `/api/suppliers/` | commandes fournisseur |
 
-router.register(
-    r"nouveaux",
-    NouveauViewSet,
-    basename="nouveaux"
-)
-```
+Temps réel (WebSocket, jeton en paramètre `token`) : `/ws/notifications/`
+(notifications), `/ws/data/` (changements de données), `/ws/chat/` (messagerie).
 
-### 5. Créer une permission personnalisée
+## 6. Documents utiles
 
-Dans `permissions.py`:
-```python
-class IsCustomPermission(BasePermission):
-    def has_permission(self, request, view):
-        return (
-            request.user.is_authenticated
-            and request.user.role == "role_specifique"
-        )
-```
+| Fichier | Contenu |
+| --- | --- |
+| `roadmap.md` | Déploiement, environnement, sauvegardes, Ollama, centre de rapports |
+| `FLUTTER_FEATURE_PARITY.md` | Checklist de parité web → mobile, route par route, avec les écarts documentés |
+| `FLUTTER_MIGRATION.md`, `PARITY_CHECKLIST.md` | Inventaire initial du frontend et checklist de la première migration (historique) |
+| `.env.example` | Toutes les variables d'environnement commentées |
 
-Utilisation dans la vue:
-```python
-from .permissions import IsCustomPermission
+## 7. Conventions
 
-class NouvelleVue(APIView):
-    permission_classes = [IsCustomPermission]
-```
-
-### 6. Personnaliser l'authentification
-
-Dans `authentication.py`, vous pouvez modifier `CustomTokenObtainPairSerializer` pour ajouter des validations supplémentaires:
-```python
-class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
-    def validate(self, attrs):
-        data = super().validate(attrs)
-        # Ajouter vos validations personnalisées ici
-        if not self.user.is_active:
-            raise serializers.ValidationError("Compte inactif")
-        return data
-```
-
-## 📝 Workflow de développement
-
-1. **Modifier le modèle** si nécessaire
-2. **Créer les migrations**: `python manage.py makemigrations`
-3. **Appliquer les migrations**: `python manage.py migrate`
-4. **Créer/Modifier le sérialiseur** dans `serializers.py`
-5. **Créer/Modifier la vue** dans `views.py`
-6. **Ajouter l'URL** dans `urls.py`
-7. **Tester** avec Postman ou curl
-8. **Mettre à jour la documentation** (ce fichier)
-
-## 🔧 Configuration requise
-
-**Dépendances principales:**
-- Django
-- Django REST Framework
-- djangorestframework-simplejwt
-
-**Settings Django:**
-```python
-INSTALLED_APPS = [
-    ...
-    'rest_framework',
-    'rest_framework_simplejwt',
-    'users',
-]
-
-AUTH_USER_MODEL = 'users.CustomUser'
-```
-
-## 📚 Notes importantes
-
-- Les comptes magasin et employer doivent être approuvés par un admin ou un magasin (`is_confirmed=True`)
-- Seuls les admins peuvent modifier/supprimer des produits
-- Les magasins peuvent créer des produits pour leur propre magasin
-- Les employés ne peuvent voir que les produits de leur magasin
-- L'email sert de username pour la connexion
+- Le frontend Next.js est la référence fonctionnelle ; l'app Flutter le reproduit sur la même API.
+- Ne jamais coder de données métier en dur : migrations Django + `seed_smartphone`.
+- En local, `manage.py` sans `.env.local` utilise SQLite — pour agir sur PostgreSQL, toujours passer par `./run_local.sh`.
+- Les prix d'une commande sont figés à la commande (`prix_unitaire`, `prix_catalogue`) : une remise n'affecte jamais le catalogue ni le stock.

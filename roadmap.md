@@ -16,12 +16,12 @@ dans `smartcross/lib/core/api_client.dart` pour changer la valeur par défaut).
 
 ## 1. Vue d'ensemble
 
-| Dossier | Rôle | Techno |
-|---|---|---|
-| racine (`Stock/`, `catalog/`, `orders/`, `suppliers/`, `users/`) | API backend | Django 6 + DRF + Channels (WebSocket) |
-| `frontend/` | Application web | Next.js 16 |
-| `smartcross/` | Application mobile | Flutter |
-| `old/` | Ancienne implémentation de référence mono-tenant (si encore présente) | — |
+| Dossier                                                          | Rôle                                                                  | Techno                                |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------- |
+| racine (`Stock/`, `catalog/`, `orders/`, `suppliers/`, `users/`) | API backend                                                           | Django 6 + DRF + Channels (WebSocket) |
+| `frontend/`                                                      | Application web                                                       | Next.js 16                            |
+| `smartcross/`                                                    | Application mobile                                                    | Flutter                               |
+| `old/`                                                           | Ancienne implémentation de référence mono-tenant (si encore présente) | —                                     |
 
 Le backend est **multi-base** : SQLite en local (par défaut, zéro config),
 Postgres en production (via `DB_ENGINE`, voir §3). Aucune donnée métier
@@ -49,16 +49,16 @@ Copier le gabarit et le remplir :
 cp .env.example .env
 ```
 
-| Variable | Rôle | Exemple prod |
-|---|---|---|
-| `DJANGO_SECRET_KEY` | Clé Django — **jamais** la valeur par défaut en prod | générée (voir commentaire dans `.env.example`) |
-| `DEBUG` | Doit être `False` en production | `False` |
-| `ALLOWED_HOSTS` | Domaines/IP autorisés à servir l'API (séparés par des espaces) | `smartphone.mg 157.173.103.147` |
-| `CORS_ALLOWED_ORIGINS` | Origines autorisées à appeler l'API depuis un navigateur | `https://smartphone.mg` |
-| `CSRF_TRUSTED_ORIGINS` | Idem pour les requêtes avec cookies/CSRF | `https://smartphone.mg` |
-| `DB_ENGINE` | `django.db.backends.postgresql` en prod, `sqlite3` en local | `django.db.backends.postgresql` |
-| `DB_NAME` / `DB_USER` / `DB_PASSWORD` / `DB_HOST` / `DB_PORT` | Connexion Postgres (le service `db` du compose prod) | voir `.env.example` |
-| `NEXT_PUBLIC_DJANGO_API_URL` | URL publique de l'API, **inlinée dans le build** du frontend (pas modifiable après coup sans rebuild) | `https://smartphone.mg/api` |
+| Variable                                                      | Rôle                                                                                                  | Exemple prod                                   |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `DJANGO_SECRET_KEY`                                           | Clé Django — **jamais** la valeur par défaut en prod                                                  | générée (voir commentaire dans `.env.example`) |
+| `DEBUG`                                                       | Doit être `False` en production                                                                       | `False`                                        |
+| `ALLOWED_HOSTS`                                               | Domaines/IP autorisés à servir l'API (séparés par des espaces)                                        | `smartphone.mg 157.173.103.147`                |
+| `CORS_ALLOWED_ORIGINS`                                        | Origines autorisées à appeler l'API depuis un navigateur                                              | `https://smartphone.mg`                        |
+| `CSRF_TRUSTED_ORIGINS`                                        | Idem pour les requêtes avec cookies/CSRF                                                              | `https://smartphone.mg`                        |
+| `DB_ENGINE`                                                   | `django.db.backends.postgresql` en prod, `sqlite3` en local                                           | `django.db.backends.postgresql`                |
+| `DB_NAME` / `DB_USER` / `DB_PASSWORD` / `DB_HOST` / `DB_PORT` | Connexion Postgres (le service `db` du compose prod)                                                  | voir `.env.example`                            |
+| `NEXT_PUBLIC_DJANGO_API_URL`                                  | URL publique de l'API, **inlinée dans le build** du frontend (pas modifiable après coup sans rebuild) | `https://smartphone.mg/api`                    |
 
 `.env` est ignoré par git (`.gitignore`) — ne jamais le committer.
 
@@ -222,10 +222,10 @@ appelle `frontend/app/api/ai/analyze/route.ts`, qui interroge un modèle
 guide, ~10 s pour extraire une commande dictée, ~1-2 min pour un rapport).
 Deux variables permettent de séparer les usages si besoin :
 
-| Variable | Défaut | Usage |
-|---|---|---|
-| `OLLAMA_MODEL_FAST` | `qwen3:4b-instruct` | assistant (questions, commandes dictées), revue de doublons à l'import |
-| `OLLAMA_MODEL_ANALYSE` | `qwen3:4b-instruct` | analyse de la page Rapports, mode "rapport" de l'assistant |
+| Variable               | Défaut              | Usage                                                                  |
+| ---------------------- | ------------------- | ---------------------------------------------------------------------- |
+| `OLLAMA_MODEL_FAST`    | `qwen3:4b-instruct` | assistant (questions, commandes dictées), revue de doublons à l'import |
+| `OLLAMA_MODEL_ANALYSE` | `qwen3:4b-instruct` | analyse de la page Rapports, mode "rapport" de l'assistant             |
 
 Attention : le VPS (8 Go, CPU seul) ne peut pas garder deux modèles de 4B en
 RAM (OOM). Si deux modèles différents sont configurés, l'autre est déchargé
@@ -293,16 +293,16 @@ jours, semaine, mois, mois précédent, année, année précédente,
 personnalisée), granularité des séries (jour/semaine/mois/année), export
 Excel de chaque tableau et impression (Ctrl+P ou bouton « Imprimer / PDF »).
 
-| Onglet | Endpoint | Contenu |
-|---|---|---|
-| Vue générale | `GET /api/orders/reports/overview/` | KPI (CA, bénéfice net, commandes, panier moyen) avec période précédente, séries ventes/dépenses/bénéfices, répartition des statuts |
-| Ventes | `…/sales/` | CA, ventes, quantités, panier moyen ; ventes par produit / modèle / sous-type / catégorie / marque / couleur ; top & flop ; par livreur |
-| Financier | `…/financial/` | CA brut, coût d'achat, marge brute, dépenses, bénéfice net ; par produit / catégorie / sous-type ; comparaison |
-| Dépenses | `…/expenses/` | sorties de caisse + frais de tournée, par catégorie, évolution, marge livraison (facturé au client − coût réel), détail |
-| Stock | `…/stock/` | état actuel, valeur (achat), ruptures, réapprovisionnement, mouvements de la période, stock dormant (30/60/90/N jours) |
-| Commandes | `…/orders/` | KPI par statut, taux d'annulation / livraison / retour, répartition, par zone, par mode de paiement |
-| Livraisons | `…/deliveries/` | comparatif des livreurs (réussies, échouées, coût payé, coût moyen, marge, taux, délai moyen « En livraison → Livré »), par zone |
-| Marketing | `…/marketing/` | campagnes (`MarketingCampaign`), dépenses par plateforme, commandes et CA générés, ROI |
+| Onglet       | Endpoint                            | Contenu                                                                                                                                 |
+| ------------ | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Vue générale | `GET /api/orders/reports/overview/` | KPI (CA, bénéfice net, commandes, panier moyen) avec période précédente, séries ventes/dépenses/bénéfices, répartition des statuts      |
+| Ventes       | `…/sales/`                          | CA, ventes, quantités, panier moyen ; ventes par produit / modèle / sous-type / catégorie / marque / couleur ; top & flop ; par livreur |
+| Financier    | `…/financial/`                      | CA brut, coût d'achat, marge brute, dépenses, bénéfice net ; par produit / catégorie / sous-type ; comparaison                          |
+| Dépenses     | `…/expenses/`                       | sorties de caisse + frais de tournée, par catégorie, évolution, marge livraison (facturé au client − coût réel), détail                 |
+| Stock        | `…/stock/`                          | état actuel, valeur (achat), ruptures, réapprovisionnement, mouvements de la période, stock dormant (30/60/90/N jours)                  |
+| Commandes    | `…/orders/`                         | KPI par statut, taux d'annulation / livraison / retour, répartition, par zone, par mode de paiement                                     |
+| Livraisons   | `…/deliveries/`                     | comparatif des livreurs (réussies, échouées, coût payé, coût moyen, marge, taux, délai moyen « En livraison → Livré »), par zone        |
+| Marketing    | `…/marketing/`                      | campagnes (`MarketingCampaign`), dépenses par plateforme, commandes et CA générés, ROI                                                  |
 
 Paramètres communs : `date_from`, `date_to`, `prev_from`, `prev_to`
 (période de comparaison), `granularity`, `magasin_id` ; `dormant_days`
@@ -325,12 +325,12 @@ commandes et le CA générés restent à zéro : rien n'est estimé.
 
 ## 12. Dépannage courant
 
-| Symptôme | Piste |
-|---|---|
-| `psycopg2.OperationalError: could not connect to server` | Le service `db` n'a pas fini de démarrer — `backend` réessaiera au prochain restart ; vérifier `DB_HOST=db` (nom du service, pas `localhost`) |
-| Frontend appelle `127.0.0.1:8010` en prod | `NEXT_PUBLIC_DJANGO_API_URL` doit être fourni **avant** le build (c'est un `build.args`, pas juste une variable runtime — voir `frontend/Dockerfile`) ; rebuild avec `--build` après correction du `.env` |
-| Frontend inaccessible (rien ne répond sur `FRONTEND_PORT`) | Le conteneur `next start` doit recevoir `PORT=3010` (déjà réglé dans les deux compose) — sans ça il écoute sur 3000 alors que le mapping hôte cible 3010 |
-| 401 CORS/CSRF en prod | Vérifier que le domaine exact (avec `https://`) est bien dans `CORS_ALLOWED_ORIGINS`/`CSRF_TRUSTED_ORIGINS` |
-| "Impossible de contacter Ollama" sur la page Rapports | Ollama n'est pas lancé sur le VPS (`systemctl status ollama` / `ollama serve`), ou `host.docker.internal` ne résout pas depuis le conteneur — voir §10, remplacer `OLLAMA_BASE_URL` par l'IP du VPS |
-| `Limite d'appareils atteinte` en boucle pendant les tests | Purger les `Device` de test : `manage.py shell -c "from users.models import Device; Device.objects.filter(user__email='...').delete()"` |
-| Catalogue vide après un déploiement propre | `seed_smartphone` n'a pas été lancée (§6.3) — les migrations seules ne créent pas de données |
+| Symptôme                                                   | Piste                                                                                                                                                                                                     |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `psycopg2.OperationalError: could not connect to server`   | Le service `db` n'a pas fini de démarrer — `backend` réessaiera au prochain restart ; vérifier `DB_HOST=db` (nom du service, pas `localhost`)                                                             |
+| Frontend appelle `127.0.0.1:8010` en prod                  | `NEXT_PUBLIC_DJANGO_API_URL` doit être fourni **avant** le build (c'est un `build.args`, pas juste une variable runtime — voir `frontend/Dockerfile`) ; rebuild avec `--build` après correction du `.env` |
+| Frontend inaccessible (rien ne répond sur `FRONTEND_PORT`) | Le conteneur `next start` doit recevoir `PORT=3010` (déjà réglé dans les deux compose) — sans ça il écoute sur 3000 alors que le mapping hôte cible 3010                                                  |
+| 401 CORS/CSRF en prod                                      | Vérifier que le domaine exact (avec `https://`) est bien dans `CORS_ALLOWED_ORIGINS`/`CSRF_TRUSTED_ORIGINS`                                                                                               |
+| "Impossible de contacter Ollama" sur la page Rapports      | Ollama n'est pas lancé sur le VPS (`systemctl status ollama` / `ollama serve`), ou `host.docker.internal` ne résout pas depuis le conteneur — voir §10, remplacer `OLLAMA_BASE_URL` par l'IP du VPS       |
+| `Limite d'appareils atteinte` en boucle pendant les tests  | Purger les `Device` de test : `manage.py shell -c "from users.models import Device; Device.objects.filter(user__email='...').delete()"`                                                                   |
+| Catalogue vide après un déploiement propre                 | `seed_smartphone` n'a pas été lancée (§6.3) — les migrations seules ne créent pas de données                                                                                                              |
