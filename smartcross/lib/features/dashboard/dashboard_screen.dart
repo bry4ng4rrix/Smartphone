@@ -126,25 +126,6 @@ class DashboardScreen extends ConsumerWidget {
     final request = ReportRequest.pour(actif, filter, extra: extras);
     final filtres = ref.read(reportsFilterProvider.notifier);
 
-    final enTete = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Tableau de bord', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
-        const SizedBox(height: 2),
-        Text.rich(
-          TextSpan(
-            style: TextStyle(fontSize: 14, color: muted),
-            children: [
-              TextSpan(
-                text: actif.label,
-                style: TextStyle(fontWeight: FontWeight.w500, color: theme.colorScheme.onSurface),
-              ),
-              TextSpan(text: ' — ${actif.description}'),
-            ],
-          ),
-        ),
-      ],
-    );
     final boutonImprimer = OutlinedButton.icon(
       onPressed: () => _imprimer(context, ref, request, period),
       icon: const Icon(Icons.print_outlined, size: 16),
@@ -164,27 +145,10 @@ class DashboardScreen extends ConsumerWidget {
                 // Onglets des rapports tout en haut de la page (§ demande).
                 ReportTabs(actif: actif, onChange: ref.read(activeSectionProvider.notifier).set),
                 const SizedBox(height: 16),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    if (constraints.maxWidth >= 640) {
-                      return Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(child: enTete),
-                          const SizedBox(width: 12),
-                          boutonImprimer,
-                        ],
-                      );
-                    }
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [enTete, const SizedBox(height: 12), boutonImprimer],
-                    );
-                  },
-                ),
-                const SizedBox(height: 16),
-                // Comme la page web, `loading` n'est pas transmis aux filtres :
-                // le bouton Actualiser reste toujours actif.
+                // Pas de titre ni de sous-titre (§ demande) : filtres puis
+                // bouton d'impression aligné à droite. Comme la page web,
+                // `loading` n'est pas transmis aux filtres : le bouton
+                // Actualiser reste toujours actif.
                 ReportFilters(
                   filter: filter,
                   period: period,
@@ -192,7 +156,9 @@ class DashboardScreen extends ConsumerWidget {
                   onDate: filtres.setDate,
                   onReload: () => rechargerReports(ref),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 8),
+                Align(alignment: Alignment.centerRight, child: boutonImprimer),
+                const SizedBox(height: 12),
                 // Une seule section montée à la fois : rien n'est chargé
                 // pour les autres.
                 _section(actif, filter),

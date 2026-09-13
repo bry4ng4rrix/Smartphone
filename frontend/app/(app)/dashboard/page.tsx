@@ -106,29 +106,24 @@ function ReportsCenter() {
     );
   }
 
-  const section = SECTIONS.find((s) => s.key === actif)!;
-
   return (
     <div className="p-4 sm:p-6 space-y-4 print:p-0">
       {/* Onglets des rapports tout en haut de la page (§ demande). */}
       <ReportTabs actif={actif} onChange={changerOnglet} />
 
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Tableau de bord</h1>
-          <p className="text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">{section.label}</span> — {section.description}
-          </p>
+      {/* Pas de titre ni de sous-titre (§ demande) : filtres et bouton
+          d'impression sur la même ligne. */}
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <ReportFilters filtres={filtres} period={period} onChange={setFiltres} onReload={recharger} />
         </div>
-        <Button variant="outline" size="sm" className="print:hidden self-start" onClick={() => window.print()}>
+        <Button variant="outline" size="sm" className="print:hidden self-start sm:self-end h-9" onClick={() => window.print()}>
           <Printer className="h-4 w-4 mr-2" /> Imprimer / PDF
         </Button>
       </div>
 
-      <ReportFilters filtres={filtres} period={period} onChange={setFiltres} onReload={recharger} />
-
       <div className="hidden print:block text-xs text-muted-foreground">
-        Période du {period.from} au {period.to} (comparée à {period.prevFrom} → {period.prevTo})
+        {SECTIONS.find((s) => s.key === actif)?.label} — Période du {period.from} au {period.to} (comparée à {period.prevFrom} → {period.prevTo})
       </div>
 
       {/* Une seule section montée à la fois : rien n'est chargé pour les autres. */}

@@ -1218,7 +1218,7 @@ Fonctionnalités à garantir : 64
 Référence web : `app/(app)/dashboard/page.tsx` (ReportsCenter), `lib/reports.ts`, `components/reports/*` — la page Rapports a été supprimée côté web, le tableau de bord EST le centre de rapports à 8 sections.  
 Fonctionnalités à garantir : 63
 
-- [x] Titre `Tableau de bord` + sous-titre `{section.label} — {section.description}` de la section active
+- [x] Sans titre ni sous-titre (retirés le 13/09/2026) : onglets en tête de page, puis filtres et bouton « Imprimer / PDF »
 - [x] Squelettes pendant le chargement de l'utilisateur ; carte `Accès refusé — le tableau de bord est réservé au gérant.` si !isGerant (le serveur répond 403 de toute façon : `IsGerant` sur chaque vue d'orders/reporting.py)
 - [x] Bouton `Imprimer / PDF` (window.print côté web → PDF de la section affichée via les paquets pdf/printing : en-tête, `Période du … au … (comparée à … → …)`, KPI et tableaux)
 - [x] 8 sections, UNE SEULE montée à la fois : Vue générale, Ventes, Financier, Dépenses, Stock, Commandes, Livraisons, Marketing (libellés et descriptions de `SECTIONS`)
