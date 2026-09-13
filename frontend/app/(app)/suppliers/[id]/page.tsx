@@ -159,8 +159,9 @@ export default function SupplierOrderDetailPage() {
     }
   }, [id]);
 
-  useEffect(() => { load(); }, [load]);
-  useRealtimeRefresh(['supplier_order'], () => load(true));
+  // Chargement réservé au gérant (l'API renvoie 403 sinon).
+  useEffect(() => { if (isGerant) load(); }, [load, isGerant]);
+  useRealtimeRefresh(['supplier_order'], () => { if (isGerant) load(true); });
 
   const action = async (nom: string, fn: () => Promise<any>, succes: string) => {
     setActing(nom);

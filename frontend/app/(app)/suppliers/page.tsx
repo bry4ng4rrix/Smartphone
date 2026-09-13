@@ -37,7 +37,7 @@ import { KpiCard, KpiGrid } from '@/components/reports/kpi-card';
 import {
   Building2, ChevronLeft, ChevronRight, ClipboardList, Coins, ExternalLink, Eye, History,
   MoreHorizontal, PackageCheck, Pencil, Plus, Receipt, RefreshCw, Search, Ship, ShieldAlert,
-  Truck, Wallet, X,
+  Trash2, Truck, Wallet, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { SupplierFormDialog } from '@/components/suppliers/supplier-form-dialog';
@@ -202,6 +202,28 @@ function SuppliersContent() {
     setOnglet('approvisionnements');
   };
   const ouvrirAppro = (id: number) => router.push(`/suppliers/${id}`);
+
+  /**
+   * DELETE /suppliers/suppliers/{id}/ : le backend supprime la fiche si elle
+   * n'a aucun approvisionnement, sinon il la désactive (historique conservé).
+   */
+  const supprimerFournisseur = async (s: any) => {
+    const utilise = Number(s.nb_approvisionnements || 0) > 0;
+    const question = utilise
+      ? `« ${s.nom} » a ${fmtNombre(s.nb_approvisionnements)} approvisionnement(s) : il sera désactivé (l'historique est conservé). Continuer ?`
+      : `Supprimer définitivement le fournisseur « ${s.nom} » ?`;
+    if (!window.confirm(question)) return;
+    try {
+      await djangoClient.suppliers.supplierDelete(s.id);
+      toast.success(utilise ? 'Fournisseur désactivé' : 'Fournisseur supprimé');
+      if (ficheId === s.id) setFicheId(null);
+      chargerFournisseurs(true);
+      chargerTousFournisseurs();
+      chargerKpis(true);
+    } catch (err) {
+      toast.error(messageErreur(err, 'Suppression impossible'));
+    }
+  };
 
   const totalPages = Math.max(1, Math.ceil(appros.length / PAR_PAGE));
   const pageCourante = Math.min(page, totalPages);
@@ -424,6 +446,18 @@ function SuppliersContent() {
                                     <DropdownMenuItem onClick={() => voirHistorique(s)}>
                                       <History className="h-4 w-4 mr-2" /> Historique des approvisionnements
                                     </DropdownMenuItem>
+                                    {s.actif && (
+                                      <>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem
+                                          className="text-red-600 focus:text-red-600 dark:text-red-400"
+                                          onClick={() => supprimerFournisseur(s)}
+                                        >
+                                          <Trash2 className="h-4 w-4 mr-2" />
+                                          {Number(s.nb_approvisionnements || 0) > 0 ? 'Désactiver' : 'Supprimer'}
+                                        </DropdownMenuItem>
+                                      </>
+                                    )}
                                   </DropdownMenuContent>
                                 </DropdownMenu>
                               </div>

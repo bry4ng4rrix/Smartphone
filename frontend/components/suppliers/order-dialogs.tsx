@@ -19,6 +19,7 @@ import { AlertTriangle, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   DEVISES, METHODES_ALLOCATION, METHODES_PAIEMENT, MODES_TRANSPORT, TYPES_FRAIS, TYPES_PAIEMENT, fmtAr, fmtDevise,
+  fmtNombre, messageErreur,
 } from '@/components/suppliers/supplier-status';
 
 interface BaseProps {
@@ -37,6 +38,18 @@ const num = (v: string | number | null | undefined) => {
 /** Équivalent Ar d'un montant saisi dans une devise + taux. */
 const enAr = (montant: string, devise: string, taux: string) =>
   devise === 'MGA' ? num(montant) : num(montant) * num(taux);
+
+/**
+ * Montant décimal pour l'API : DRF (DecimalField) attend une chaîne — un
+ * nombre flottant (0.1 + 0.2…) peut dépasser le nombre de décimales admis.
+ * `decimales` : 2 pour les montants, 4 pour les prix unitaires et les taux.
+ */
+const dec = (v: string | number, decimales: number) => {
+  const n = num(v);
+  const f = n.toFixed(decimales);
+  // « 12.50 » → « 12.5 », « 12.00 » → « 12 » (lisible dans les erreurs renvoyées).
+  return f.includes('.') ? f.replace(/\.?0+$/, '') : f;
+};
 
 function DeviseTauxFields({
   devise, setDevise, taux, setTaux, order,
@@ -116,9 +129,9 @@ export function PaymentDialog({ open, onOpenChange, order, onSaved }: BaseProps)
     setSubmitting(true);
     try {
       await djangoClient.suppliers.addPayment(order.id, {
-        montant: num(montant),
+        montant: dec(montant, 2),
         devise,
-        taux_change: devise === 'MGA' ? 1 : num(taux),
+        taux_change: devise === 'MGA' ? '1' : dec(taux, 4),
         date,
         type_paiement: type,
         methode,
@@ -128,8 +141,8 @@ export function PaymentDialog({ open, onOpenChange, order, onSaved }: BaseProps)
       toast.success('Paiement enregistré');
       onOpenChange(false);
       onSaved();
-    } catch (err: any) {
-      toast.error(err.message || "Impossible d'enregistrer le paiement");
+    } catch (err) {
+      toast.error(messageErreur(err, "Impossible d'enregistrer le paiement"));
     } finally {
       setSubmitting(false);
     }
@@ -234,9 +247,9 @@ export function FeeDialog({ open, onOpenChange, order, onSaved }: BaseProps) {
     try {
       await djangoClient.suppliers.addFee(order.id, {
         type_frais: type,
-        montant: num(montant),
+        montant: dec(montant, 2),
         devise,
-        taux_change: devise === 'MGA' ? 1 : num(taux),
+        taux_change: devise === 'MGA' ? '1' : dec(taux, 4),
         date,
         prestataire,
         description,
@@ -244,8 +257,8 @@ export function FeeDialog({ open, onOpenChange, order, onSaved }: BaseProps) {
       toast.success('Frais enregistré — coût de revient recalculé');
       onOpenChange(false);
       onSaved();
-    } catch (err: any) {
-      toast.error(err.message || "Impossible d'enregistrer le frais");
+    } catch (err) {
+      toast.error(messageErreur(err, "Impossible d'enregistrer le frais"));
     } finally {
       setSubmitting(false);
     }
@@ -353,8 +366,8 @@ export function TransportDialog({
       }
       onOpenChange(false);
       onSaved();
-    } catch (err: any) {
-      toast.error(err.message || 'Enregistrement impossible');
+    } catch (err) {
+      toast.error(messageErreur(err, 'Enregistrement impossible'));
     } finally {
       setSubmitting(false);
     }
@@ -442,8 +455,8 @@ export function ArriverDialog({ open, onOpenChange, order, onSaved }: BaseProps)
       toast.success('Marchandise arrivée — vous pouvez saisir la douane et réceptionner');
       onOpenChange(false);
       onSaved();
-    } catch (err: any) {
-      toast.error(err.message || 'Enregistrement impossible');
+    } catch (err) {
+      toast.error(messageErreur(err, 'Enregistrement impossible'));
     } finally {
       setSubmitting(false);
     }
@@ -505,8 +518,8 @@ export function ReceptionDialog({ open, onOpenChange, order, onSaved }: BaseProp
       toast.success(partielle ? 'Réception partielle enregistrée — stock mis à jour' : 'Réception complète — stock mis à jour');
       onOpenChange(false);
       onSaved();
-    } catch (err: any) {
-      toast.error(err.message || 'Réception impossible');
+    } catch (err) {
+      toast.error(messageErreur(err, 'Réception impossible'));
     } finally {
       setSubmitting(false);
     }
@@ -596,8 +609,8 @@ export function FinaliserDialog({ open, onOpenChange, order, onSaved }: BaseProp
       toast.success('Coût de revient finalisé et historisé');
       onOpenChange(false);
       onSaved();
-    } catch (err: any) {
-      toast.error(err.message || 'Finalisation impossible');
+    } catch (err) {
+      toast.error(messageErreur(err, 'Finalisation impossible'));
     } finally {
       setSubmitting(false);
     }
@@ -611,7 +624,7 @@ export function FinaliserDialog({ open, onOpenChange, order, onSaved }: BaseProp
         <DialogHeader>
           <DialogTitle>Finaliser le coût de revient</DialogTitle>
           <DialogDescription>
-            Valeur réelle {fmtAr(order?.cout_total)} pour {order?.total_qty} pièce(s), soit {fmtAr(order?.cout_unitaire)} / pièce en moyenne.
+            Valeur réelle {fmtAr(order?.cout_total)} pour {fmtNombre(order?.total_qty)} pièce(s), soit {fmtAr(order?.cout_unitaire)} / pièce en moyenne.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
@@ -762,7 +775,7 @@ export function EditOrderDialog({ open, onOpenChange, order, onSaved }: BaseProp
         description,
         supplier: supplier ? Number(supplier) : null,
         devise,
-        taux_change: devise === 'MGA' ? 1 : num(taux),
+        taux_change: devise === 'MGA' ? '1' : dec(taux, 4),
         date: date || undefined,
         destination,
         methode_allocation: methode,
@@ -770,15 +783,15 @@ export function EditOrderDialog({ open, onOpenChange, order, onSaved }: BaseProp
           ...(l.id ? { id: l.id } : {}),
           product_variant: l.product_variant,
           quantite: Math.floor(num(l.quantite)),
-          prix_unitaire: num(l.prix_unitaire),
-          allocation_manuelle_mga: methode === 'MANUEL' ? (l.allocation_manuelle_mga === '' ? null : num(l.allocation_manuelle_mga)) : null,
+          prix_unitaire: dec(l.prix_unitaire, 4),
+          allocation_manuelle_mga: methode === 'MANUEL' ? (l.allocation_manuelle_mga === '' ? null : dec(l.allocation_manuelle_mga, 2)) : null,
         })),
       });
       toast.success('Approvisionnement mis à jour');
       onOpenChange(false);
       onSaved();
-    } catch (err: any) {
-      toast.error(err.message || 'Mise à jour impossible');
+    } catch (err) {
+      toast.error(messageErreur(err, 'Mise à jour impossible'));
     } finally {
       setSubmitting(false);
     }
