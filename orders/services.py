@@ -280,7 +280,10 @@ def create_order(*, magasin, client_nom, telephone, livraison_zone, items, telep
 # "En préparation" (voir change_order_status) — restreindre l'édition à
 # "Nouvelle" laissait donc une fenêtre quasi nulle pour la corriger
 # (§ demande). Au-delà, la commande est trop engagée (livreur en tournée...).
-_EDITABLE_STATUSES = {"NOUVELLE", "EN_PREPARATION"}
+# + "En attente d'approbation" : une commande client pas encore validée n'a
+# touché ni le stock ni le planning, le gérant peut la corriger librement
+# avant de l'approuver.
+_EDITABLE_STATUSES = {"EN_ATTENTE_APPROBATION", "NOUVELLE", "EN_PREPARATION"}
 
 # Le MODE DE PAIEMENT, lui, reste modifiable tant que la commande n'est pas
 # terminée (§ demande) : un client peut régler d'avance alors que le livreur
@@ -716,4 +719,97 @@ def cancel_order(*, order, user, note=""):
         order=order, ancien_statut=old_status, nouveau_statut="ANNULEE", changed_by=user, note=note,
     )
 
+    return order
+
+
+# =====================================================
+# ESPACE CLIENT — approbation des commandes passées en ligne (app `clients`)
+#
+# Une commande client naît en "EN_ATTENTE_APPROBATION" (voir
+# clients/services.py::create_client_order). Rien d'autre ne change dans le
+# workflow : une fois approuvée elle devient "Nouvelle" et suit exactement le
+# circuit existant (préparation, livraison, retour, annulation).
+# =====================================================
+
+STATUT_ATTENTE_APPROBATION = "EN_ATTENTE_APPROBATION"
+# Tant que la préparation n'a pas commencé, le client peut encore renoncer.
+_CLIENT_CANCELABLE_STATUSES = {STATUT_ATTENTE_APPROBATION, "NOUVELLE"}
+
+
+@transaction.atomic
+def approuver_commande_client(*, order, user, note=""):
+    """Le gérant valide une commande venue de l'espace client : elle passe à
+    "Nouvelle" et les préparateurs sont notifiés, comme pour une commande
+    saisie en interne (create_order)."""
+    if user_commande_role(user) != "GERANT":
+        raise PermissionDenied("Seul le gérant peut approuver une commande client.")
+    if order.statut_courant != STATUT_ATTENTE_APPROBATION:
+        raise ValidationError(
+            f"Cette commande est '{order.get_statut_courant_display()}' — seule une commande "
+            "en attente d'approbation peut être approuvée."
+        )
+    order.statut_courant = "NOUVELLE"
+    order.save(update_fields=["statut_courant", "updated_at"])
+    OrderStatusHistory.objects.create(
+        order=order, ancien_statut=STATUT_ATTENTE_APPROBATION, nouveau_statut="NOUVELLE", changed_by=user,
+        note=note or "Commande client approuvée",
+    )
+    _notify_commande_role(
+        magasin=order.magasin,
+        commande_role="PREPARATEUR",
+        notif_type="order",
+        message=f"Nouvelle commande {order.numero} — {order.client_nom} ({order.livraison_zone})",
+        order=order,
+    )
+    if order.client_id:
+        Notification.objects.create(
+            notif_type="order",
+            message=f"Commande {order.numero} approuvée — elle est en cours de traitement",
+            magasin=order.magasin,
+        )
+    return order
+
+
+@transaction.atomic
+def refuser_commande_client(*, order, user, note=""):
+    """Le gérant refuse une commande client en attente : elle est annulée
+    (aucun stock n'avait été touché) avec le motif dans l'historique."""
+    if user_commande_role(user) != "GERANT":
+        raise PermissionDenied("Seul le gérant peut refuser une commande client.")
+    if order.statut_courant != STATUT_ATTENTE_APPROBATION:
+        raise ValidationError(
+            f"Cette commande est '{order.get_statut_courant_display()}' — seule une commande "
+            "en attente d'approbation peut être refusée."
+        )
+    order.statut_courant = "ANNULEE"
+    order.save(update_fields=["statut_courant", "updated_at"])
+    OrderStatusHistory.objects.create(
+        order=order, ancien_statut=STATUT_ATTENTE_APPROBATION, nouveau_statut="ANNULEE", changed_by=user,
+        note=note or "Commande client refusée",
+    )
+    return order
+
+
+@transaction.atomic
+def annuler_commande_par_client(*, order, note=""):
+    """Annulation par le client lui-même : possible tant que la préparation
+    n'a pas commencé ("En attente d'approbation" ou "Nouvelle" — le stock
+    n'a pas encore bougé). Au-delà, il doit contacter la boutique."""
+    if order.statut_courant not in _CLIENT_CANCELABLE_STATUSES:
+        raise ValidationError(
+            f"Cette commande est '{order.get_statut_courant_display()}' — elle ne peut plus être "
+            "annulée depuis l'espace client, contactez la boutique."
+        )
+    old_status = order.statut_courant
+    order.statut_courant = "ANNULEE"
+    order.save(update_fields=["statut_courant", "updated_at"])
+    OrderStatusHistory.objects.create(
+        order=order, ancien_statut=old_status, nouveau_statut="ANNULEE", changed_by=None,
+        note=f"Annulée par le client{(' — ' + note) if note else ''}",
+    )
+    Notification.objects.create(
+        notif_type="order",
+        message=f"Commande {order.numero} annulée par le client {order.client_nom}",
+        magasin=order.magasin,
+    )
     return order

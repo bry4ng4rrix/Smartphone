@@ -39,6 +39,9 @@ INSTALLED_APPS = [
     'catalog',
     'orders',
     'suppliers',
+    # Espace client en ligne (catalogue public, comptes et commandes client)
+    # — extension additive, voir clients/.
+    'clients',
     'corsheaders',
 ]
 
@@ -176,6 +179,13 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
+    # Limitation de débit UNIQUEMENT pour les vues de l'espace client qui la
+    # déclarent (ScopedRateThrottle) — aucune vue interne n'est affectée.
+    'DEFAULT_THROTTLE_RATES': {
+        'client_auth': '20/min',
+        'client_public': '300/min',
+        'client_orders': '60/min',
+    },
 }
 
 

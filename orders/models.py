@@ -56,6 +56,10 @@ class Order(models.Model):
     jamais directement ici ni dans les vues."""
 
     STATUT_CHOICES = (
+        # Commande passée depuis l'espace client (app `clients`) : elle attend
+        # la validation du gérant avant d'entrer dans le workflow habituel
+        # (approbation -> "Nouvelle"). Aucun stock n'est touché à ce stade.
+        ("EN_ATTENTE_APPROBATION", "En attente d'approbation"),
         ("NOUVELLE", "Nouvelle"),
         ("EN_PREPARATION", "En préparation"),
         ("PRETE", "Prête"),
@@ -103,7 +107,8 @@ class Order(models.Model):
     # préparateur ne voit jamais la note du livreur, et inversement.
     note_preparateur = models.TextField(blank=True, null=True)
     note_livreur = models.TextField(blank=True, null=True)
-    statut_courant = models.CharField(max_length=20, choices=STATUT_CHOICES, default="NOUVELLE")
+    # max_length 30 : "EN_ATTENTE_APPROBATION" (espace client) dépasse 20.
+    statut_courant = models.CharField(max_length=30, choices=STATUT_CHOICES, default="NOUVELLE")
 
     created_by = models.ForeignKey(
         "users.CustomUser", on_delete=models.SET_NULL, null=True, blank=True, related_name="orders_created"
@@ -122,6 +127,12 @@ class Order(models.Model):
     # base réelle pour les commandes et le CA "générés" du rapport Marketing.
     campagne = models.ForeignKey(
         "orders.MarketingCampaign", on_delete=models.SET_NULL, null=True, blank=True, related_name="orders"
+    )
+    # Compte client de l'espace en ligne à l'origine de la commande (app
+    # `clients`) — null pour toute commande saisie en interne. Additif :
+    # rien ne change pour les commandes existantes.
+    client = models.ForeignKey(
+        "clients.Client", on_delete=models.SET_NULL, null=True, blank=True, related_name="orders"
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -159,6 +170,11 @@ class Order(models.Model):
         else:
             self.frais_livraison = 0
         super().save(*args, **kwargs)
+
+    @property
+    def est_commande_client(self):
+        """Vrai pour une commande passée depuis l'espace client."""
+        return self.client_id is not None
 
     @property
     def remise_total(self):
@@ -236,8 +252,8 @@ class OrderItem(models.Model):
 
 class OrderStatusHistory(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="status_history")
-    ancien_statut = models.CharField(max_length=20, choices=Order.STATUT_CHOICES, blank=True, null=True)
-    nouveau_statut = models.CharField(max_length=20, choices=Order.STATUT_CHOICES)
+    ancien_statut = models.CharField(max_length=30, choices=Order.STATUT_CHOICES, blank=True, null=True)
+    nouveau_statut = models.CharField(max_length=30, choices=Order.STATUT_CHOICES)
     changed_by = models.ForeignKey(
         "users.CustomUser", on_delete=models.SET_NULL, null=True, blank=True, related_name="order_status_changes"
     )

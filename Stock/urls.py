@@ -10,6 +10,8 @@ urlpatterns = [
     path('api/catalog/', include('catalog.urls')),
     path('api/orders/', include('orders.urls')),
     path('api/suppliers/', include('suppliers.urls')),
+    # Espace client (catalogue public, comptes et commandes client) — app `clients`.
+    path('api/', include('clients.urls')),
 ]
 
 urlpatterns += static(

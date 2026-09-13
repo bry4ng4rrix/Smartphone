@@ -10,7 +10,7 @@ deux branchées sur la **même API Django**.
 
 | Dossier | Rôle | Technologie |
 | --- | --- | --- |
-| racine — `Stock/`, `users/`, `catalog/`, `orders/`, `suppliers/` | API backend + WebSocket temps réel | Django 6, Django REST Framework, Channels (Daphne), JWT |
+| racine — `Stock/`, `users/`, `catalog/`, `orders/`, `suppliers/`, `clients/` | API backend + WebSocket temps réel (`clients/` = espace client en ligne, ajouté à côté de l'existant) | Django 6, Django REST Framework, Channels (Daphne), JWT |
 | `frontend/` | Application web (gérant, préparateur, livreur) | Next.js 16, shadcn/ui, recharts |
 | `smartcross/` | Application mobile (mêmes fonctionnalités que le web) | Flutter, Riverpod, go_router |
 
@@ -96,6 +96,8 @@ Toutes les routes sont sous `/api/` (authentification JWT) :
 | `/api/catalog/` | catégories, sous-types, marques, couleurs, références, variantes, mouvements de stock, import/export Excel, notes produit |
 | `/api/orders/` | commandes, zones de livraison, dépenses des livreurs, campagnes marketing, rapports (`reports/{overview,sales,financial,expenses,stock,orders,deliveries,marketing}/`) |
 | `/api/suppliers/` | commandes fournisseur |
+| `/api/produit/`, `/api/categories/`, `/api/type/`, `/api/sous-type/`, `/api/marque/`, `/api/couleurs/`, `/api/boutiques/` | **catalogue public** (sans authentification, sans prix d'achat ni stock chiffré) — app `clients` |
+| `/api/client/` | **espace client** : inscription, connexion (JWT distinct), profil, commandes client (créées « en attente d'approbation », validées par le gérant via `POST /api/orders/{id}/approuver/`) |
 
 Temps réel (WebSocket, jeton en paramètre `token`) : `/ws/notifications/`
 (notifications), `/ws/data/` (changements de données), `/ws/chat/` (messagerie).
@@ -107,6 +109,7 @@ Temps réel (WebSocket, jeton en paramètre `token`) : `/ws/notifications/`
 | `roadmap.md` | Déploiement, environnement, sauvegardes, Ollama, centre de rapports |
 | `FLUTTER_FEATURE_PARITY.md` | Checklist de parité web → mobile, route par route, avec les écarts documentés |
 | `FLUTTER_MIGRATION.md`, `PARITY_CHECKLIST.md` | Inventaire initial du frontend et checklist de la première migration (historique) |
+| `endpoint.md` | Référence complète de l'API (toutes les routes, exemples JSON, dont l'espace client) |
 | `.env.example` | Toutes les variables d'environnement commentées |
 
 ## 7. Conventions

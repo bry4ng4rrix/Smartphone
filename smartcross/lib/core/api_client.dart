@@ -169,6 +169,8 @@ class ApiClient {
         for (final key in ['error', 'detail', 'message']) {
           final v = data[key];
           if (v is String && v.isNotEmpty) return v;
+          // DRF renvoie parfois une liste de messages sous `detail`.
+          if (v is List && v.isNotEmpty) return v.join(', ');
         }
         // Erreurs de validation DRF : {"field": ["msg1", "msg2"]} ou
         // {"non_field_errors": [...]}
@@ -182,10 +184,25 @@ class ApiClient {
         });
         if (parts.isNotEmpty) return parts.join(' — ');
       }
+      // Erreur de validation DRF renvoyée sous forme de liste : ["message"].
+      if (data is List && data.isNotEmpty) return data.map((e) => e.toString()).join(', ');
       if (error.type == DioExceptionType.connectionTimeout ||
           error.type == DioExceptionType.receiveTimeout ||
           error.type == DioExceptionType.connectionError) {
         return 'Impossible de contacter le serveur. Vérifiez votre connexion et l\'URL configurée.';
+      }
+      // Réponse non JSON (page d'erreur du serveur) : un message lisible avec
+      // le code HTTP plutôt que le texte technique de Dio.
+      final status = error.response?.statusCode;
+      if (status != null) {
+        if (status >= 500) {
+          return 'Erreur du serveur ($status). Réessayez dans un instant ; si le problème persiste, '
+              'contactez l\'administrateur (journal du serveur).';
+        }
+        if (status == 401) return 'Session expirée — reconnectez-vous.';
+        if (status == 403) return 'Action non autorisée pour votre rôle.';
+        if (status == 404) return 'Élément introuvable (ou plus accessible).';
+        return 'Requête refusée par le serveur ($status).';
       }
       return error.message ?? 'Erreur réseau inconnue';
     }

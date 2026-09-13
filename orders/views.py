@@ -352,6 +352,38 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         return Response(self.get_serializer(order).data)
 
+    # --- Espace client : approbation des commandes passées en ligne -------- #
+
+    def _reponse_commande(self, order):
+        return Response(self.get_serializer(self.get_queryset().get(pk=order.pk)).data)
+
+    @action(detail=True, methods=["post"], url_path="approuver", permission_classes=[IsGerant])
+    def approuver(self, request, pk=None):
+        """POST /api/orders/{id}/approuver/ {note?} — le gérant valide une
+        commande venue de l'espace client ("En attente d'approbation" ->
+        "Nouvelle") ; elle entre alors dans le workflow habituel."""
+        order = self.get_object()
+        try:
+            services.approuver_commande_client(order=order, user=request.user, note=request.data.get("note", ""))
+        except PermissionDenied as exc:
+            raise DRFPermissionDenied(str(exc))
+        except ValidationError as exc:
+            raise DRFValidationError(exc.messages)
+        return self._reponse_commande(order)
+
+    @action(detail=True, methods=["post"], url_path="refuser", permission_classes=[IsGerant])
+    def refuser(self, request, pk=None):
+        """POST /api/orders/{id}/refuser/ {note?} — le gérant refuse une
+        commande client en attente : elle est annulée (stock intact)."""
+        order = self.get_object()
+        try:
+            services.refuser_commande_client(order=order, user=request.user, note=request.data.get("note", ""))
+        except PermissionDenied as exc:
+            raise DRFPermissionDenied(str(exc))
+        except ValidationError as exc:
+            raise DRFValidationError(exc.messages)
+        return self._reponse_commande(order)
+
     @action(detail=True, methods=["post"], url_path="corriger-statut")
     def corriger_statut(self, request, pk=None):
         """POST /api/orders/{id}/corriger-statut/ {statut, note} — corrige le

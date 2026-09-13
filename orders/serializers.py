@@ -97,6 +97,10 @@ class OrderGerantSerializer(serializers.ModelSerializer):
     preparateur_name = serializers.CharField(source="preparateur.full_name", read_only=True)
     livreur_name = serializers.CharField(source="livreur.full_name", read_only=True)
     campagne_nom = serializers.CharField(source="campagne.nom", read_only=True, default="")
+    # Espace client : compte à l'origine de la commande (null en interne) et
+    # drapeau pratique pour l'interface du gérant (additif, lecture seule).
+    client_email = serializers.EmailField(source="client.email", read_only=True, default=None)
+    est_commande_client = serializers.BooleanField(read_only=True)
 
     # Remise totale accordée sur la commande (0 sans remise) — visible par
     # tous les rôles pour l'annoncer au client, sans exposer les prix
@@ -109,7 +113,8 @@ class OrderGerantSerializer(serializers.ModelSerializer):
             "id", "magasin", "numero", "date_commande", "client_nom", "telephone", "telephone_2", "livraison_zone",
             "adresse_livraison", "mode_paiement", "frais_livraison", "total_a_payer", "remise_total",
             "note_preparateur", "note_livreur", "statut_courant",
-            "preparateur", "preparateur_name", "livreur", "livreur_name", "campagne", "campagne_nom", "items",
+            "preparateur", "preparateur_name", "livreur", "livreur_name", "campagne", "campagne_nom",
+            "client", "client_email", "est_commande_client", "items",
             "status_history", "created_at", "updated_at",
         ]
         read_only_fields = fields
