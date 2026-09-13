@@ -254,6 +254,9 @@ def create_order(*, magasin, client_nom, telephone, livraison_zone, items, telep
             order=order,
             product_variant=item["product_variant"],
             quantite=item.get("quantite", 1),
+            # Prix remisé accordé par le gérant (None = prix catalogue) —
+            # le catalogue n'est pas modifié, voir OrderItem.prix_catalogue.
+            prix_unitaire=item.get("prix_unitaire"),
         )
 
     order.recompute_total()
@@ -365,12 +368,13 @@ def update_order(*, order, user, client_nom=None, telephone=None, telephone_2=No
       'AJUSTEMENT', pour ne pas se confondre avec une préparation ou un retour
       normaux.
     * "Prête" / "En livraison" — seules les données de LIVRAISON restent
-      modifiables (§ demande) : mode de paiement, zone, adresse et note du
-      livreur. Un client peut régler d'avance une commande déjà partie, ou
-      donner une autre adresse au téléphone pendant que le livreur roule.
+      modifiables (§ demande) : mode de paiement, zone, adresse, date et
+      heure de livraison, et note du livreur. Un client peut régler d'avance
+      une commande déjà partie, donner une autre adresse au téléphone pendant
+      que le livreur roule, ou demander à être livré à un autre moment.
       Changer la zone met à jour les frais ET le total, donc le bilan du
-      livreur. Le client, le téléphone, la date et les articles restent
-      figés : la commande est trop engagée.
+      livreur. Le client, le téléphone et les articles restent figés : la
+      commande est trop engagée.
 
     Une commande terminée (livrée, retour, annulée) n'est plus modifiable du
     tout : son paiement est soldé et compté dans les bilans."""
@@ -385,20 +389,20 @@ def update_order(*, order, user, client_nom=None, telephone=None, telephone_2=No
             "client_nom": client_nom,
             "telephone": telephone,
             "telephone_2": telephone_2,
-            "date_commande": date_commande,
             "note_preparateur": note_preparateur,
             "items": items,
         }
         if any(v is not None for v in interdits.values()):
             raise ValidationError(
                 f"Cette commande est '{order.get_statut_courant_display()}' — "
-                "seuls le paiement, la zone, l'adresse et la note du livreur "
-                "peuvent encore être modifiés."
+                "seuls le paiement, la zone, l'adresse, la date de livraison et "
+                "la note du livreur peuvent encore être modifiés."
             )
         modifiables = {
             "mode_paiement": mode_paiement,
             "livraison_zone": livraison_zone,
             "adresse_livraison": adresse_livraison,
+            "date_commande": date_commande,
             "note_livreur": note_livreur,
         }
         if all(v is None for v in modifiables.values()):
@@ -441,6 +445,7 @@ def update_order(*, order, user, client_nom=None, telephone=None, telephone_2=No
         for item in items:
             OrderItem.objects.create(
                 order=order, product_variant=item["product_variant"], quantite=item.get("quantite", 1),
+                prix_unitaire=item.get("prix_unitaire"),
             )
         if stock_already_deducted:
             for item in order.items.select_related("product_variant"):

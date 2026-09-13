@@ -16,14 +16,29 @@ class OrderItem {
     this.typeName,
     this.categoryName,
     this.retourne = false,
+    this.prixCatalogue,
+    this.remiseUnitaire = 0,
   });
 
   final int id;
   final int? productVariantId;
   final String referenceName;
   final String couleur;
+
+  /// Prix appliqué à la commande (remisé ou non) — gérant seul, les autres
+  /// rôles ne reçoivent pas les prix unitaires.
   final double? prixUnitaire;
+
+  /// Prix catalogue au moment de la commande (gérant seul) — quand le gérant
+  /// a accordé une remise, `prixUnitaire` < `prixCatalogue` ; le catalogue et
+  /// le stock, eux, ne changent jamais (OrderItem.prix_catalogue côté serveur).
+  final double? prixCatalogue;
+
+  /// Remise accordée par unité (0 sans remise).
+  final double remiseUnitaire;
   final int quantite;
+
+  bool get aRemise => remiseUnitaire > 0;
   // Marque, sous-type (ProductType) et type (ProductCategory) — exposés par
   // les deux serializers (gérant/préparateur-livreur), voir
   // orders/serializers.py::OrderItemSerializer/OrderItemPublicSerializer.
@@ -48,6 +63,8 @@ class OrderItem {
       referenceName: asString(json['reference_name']),
       couleur: asString(json['couleur']),
       prixUnitaire: asDoubleOrNull(json['prix_unitaire']),
+      prixCatalogue: asDoubleOrNull(json['prix_catalogue']),
+      remiseUnitaire: asDouble(json['remise_unitaire']),
       quantite: asInt(json['quantite'], 1),
       brandName: asStringOrNull(json['brand_name']),
       typeName: asStringOrNull(json['type_name']),
@@ -113,6 +130,7 @@ class Order {
     this.modePaiement = PaymentMode.livraison,
     this.fraisLivraison,
     this.totalAPayer,
+    this.remiseTotal = 0,
     this.notePreparateur,
     this.noteLivreur,
     required this.statutCourant,
@@ -145,6 +163,12 @@ class Order {
   final PaymentMode modePaiement;
   final double? fraisLivraison;
   final double? totalAPayer;
+
+  /// Remise totale accordée sur les articles remis (`remise_total`, tous
+  /// rôles — pour l'annoncer au client sans exposer les prix unitaires).
+  final double remiseTotal;
+
+  bool get aRemise => remiseTotal > 0;
   // Deux notes distinctes, chacune destinée à un seul rôle (§ demande) — le
   // préparateur ne voit jamais celle du livreur, et inversement.
   final String? notePreparateur;
@@ -281,6 +305,7 @@ class Order {
       modePaiement: PaymentModeX.fromApi(asStringOrNull(json['mode_paiement'])),
       fraisLivraison: asDoubleOrNull(json['frais_livraison']),
       totalAPayer: asDoubleOrNull(json['total_a_payer']),
+      remiseTotal: asDouble(json['remise_total']),
       notePreparateur: asStringOrNull(json['note_preparateur']),
       noteLivreur: asStringOrNull(json['note_livreur']),
       statutCourant: OrderStatusX.fromApi(asString(json['statut_courant'])),
@@ -303,10 +328,19 @@ class Order {
 
 /// Un article du formulaire "Nouvelle commande" (§6 README), avant envoi.
 class OrderItemDraft {
-  OrderItemDraft({required this.productVariant, required this.quantite});
+  OrderItemDraft({required this.productVariant, required this.quantite, this.prixUnitaire});
 
   final int productVariant;
   final int quantite;
 
-  Map<String, dynamic> toJson() => {'product_variant': productVariant, 'quantite': quantite};
+  /// Prix remisé accordé par le gérant (≤ prix catalogue) ; null = prix
+  /// catalogue. Envoyé en `prix_unitaire` seulement s'il est renseigné —
+  /// comme `...(prix_vente < prix_catalogue ? { prix_unitaire } : {})` du web.
+  final double? prixUnitaire;
+
+  Map<String, dynamic> toJson() => {
+        'product_variant': productVariant,
+        'quantite': quantite,
+        'prix_unitaire': ?prixUnitaire,
+      };
 }

@@ -50,11 +50,15 @@ class OrderItemSerializer(serializers.ModelSerializer):
     type_name = serializers.CharField(source="product_variant.product_reference.type.nom", read_only=True)
     category_name = serializers.CharField(source="product_variant.product_reference.type.category.nom", read_only=True)
 
+    # Prix catalogue à la commande et remise unitaire accordée par le gérant
+    # (0 sans remise) — voir OrderItem.prix_catalogue.
+    remise_unitaire = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+
     class Meta:
         model = OrderItem
         fields = [
             "id", "product_variant", "reference_name", "brand_name", "type_name", "category_name",
-            "couleur", "prix_unitaire", "quantite", "retourne",
+            "couleur", "prix_unitaire", "prix_catalogue", "remise_unitaire", "quantite", "retourne",
         ]
 
 
@@ -94,11 +98,16 @@ class OrderGerantSerializer(serializers.ModelSerializer):
     livreur_name = serializers.CharField(source="livreur.full_name", read_only=True)
     campagne_nom = serializers.CharField(source="campagne.nom", read_only=True, default="")
 
+    # Remise totale accordée sur la commande (0 sans remise) — visible par
+    # tous les rôles pour l'annoncer au client, sans exposer les prix
+    # unitaires aux préparateurs / livreurs.
+    remise_total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+
     class Meta:
         model = Order
         fields = [
             "id", "magasin", "numero", "date_commande", "client_nom", "telephone", "telephone_2", "livraison_zone",
-            "adresse_livraison", "mode_paiement", "frais_livraison", "total_a_payer",
+            "adresse_livraison", "mode_paiement", "frais_livraison", "total_a_payer", "remise_total",
             "note_preparateur", "note_livreur", "statut_courant",
             "preparateur", "preparateur_name", "livreur", "livreur_name", "campagne", "campagne_nom", "items",
             "status_history", "created_at", "updated_at",
@@ -119,11 +128,16 @@ class OrderPreparateurSerializer(serializers.ModelSerializer):
     # préparer/remettre le colis à la bonne personne (§ demande).
     livreur_name = serializers.CharField(source="livreur.full_name", read_only=True)
 
+    # Remise totale accordée sur la commande (0 sans remise) — visible par
+    # tous les rôles pour l'annoncer au client, sans exposer les prix
+    # unitaires aux préparateurs / livreurs.
+    remise_total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+
     class Meta:
         model = Order
         fields = [
             "id", "numero", "date_commande", "client_nom", "telephone", "telephone_2", "livraison_zone", "adresse_livraison",
-            "mode_paiement", "frais_livraison", "total_a_payer", "statut_courant", "note_preparateur",
+            "mode_paiement", "frais_livraison", "total_a_payer", "remise_total", "statut_courant", "note_preparateur",
             "preparateur", "preparateur_name", "livreur", "livreur_name", "items", "created_at",
         ]
         read_only_fields = fields
@@ -140,11 +154,16 @@ class OrderLivreurSerializer(serializers.ModelSerializer):
     livreur_name = serializers.CharField(source="livreur.full_name", read_only=True)
     status_history = OrderStatusHistorySerializer(many=True, read_only=True)
 
+    # Remise totale accordée sur la commande (0 sans remise) — visible par
+    # tous les rôles pour l'annoncer au client, sans exposer les prix
+    # unitaires aux préparateurs / livreurs.
+    remise_total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+
     class Meta:
         model = Order
         fields = [
             "id", "numero", "date_commande", "client_nom", "telephone", "telephone_2", "livraison_zone", "adresse_livraison",
-            "mode_paiement", "frais_livraison", "total_a_payer", "statut_courant", "note_livreur",
+            "mode_paiement", "frais_livraison", "total_a_payer", "remise_total", "statut_courant", "note_livreur",
             "livreur", "livreur_name", "items", "status_history", "created_at",
         ]
         read_only_fields = fields
@@ -153,6 +172,21 @@ class OrderLivreurSerializer(serializers.ModelSerializer):
 class OrderCreateItemSerializer(serializers.Serializer):
     product_variant = serializers.PrimaryKeyRelatedField(queryset=ProductVariant.objects.all())
     quantite = serializers.IntegerField(min_value=1, default=1)
+    # Prix remisé (facultatif) : prix de vente appliqué à CETTE commande,
+    # au plus égal au prix catalogue. Le catalogue et le stock ne changent
+    # pas ; c'est ce prix que voient préparateur/livreur et qui entre dans le
+    # total et le bilan du livreur (§ demande). Absent = prix catalogue.
+    prix_unitaire = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0, required=False, allow_null=True)
+
+    def validate(self, attrs):
+        prix = attrs.get("prix_unitaire")
+        if prix is not None:
+            catalogue = attrs["product_variant"].product_reference.prix_vente
+            if prix > catalogue:
+                raise serializers.ValidationError(
+                    {"prix_unitaire": f"Le prix remisé ne peut pas dépasser le prix catalogue ({catalogue:.0f} Ar)."}
+                )
+        return attrs
 
 
 class OrderCreateSerializer(serializers.Serializer):

@@ -69,7 +69,11 @@ export interface CartItem {
   type_name: string;
   reference_id: number;
   reference_label: string;
+  /** Prix appliqué à la commande (remisé ou non) — envoyé en `prix_unitaire`
+   *  quand il diffère du catalogue. */
   prix_vente: number;
+  /** Prix catalogue de référence : le stock/catalogue ne changent jamais. */
+  prix_catalogue: number;
   variant_id: number;
   couleur: string;
   stock_actuel: number;
@@ -169,6 +173,7 @@ export function OrderItemsEditor({
         reference_id: selectedRef.id,
         reference_label: `${selectedRef.brand_name} ${selectedRef.reference_name}`,
         prix_vente: Number(selectedRef.prix_vente),
+        prix_catalogue: Number(selectedRef.prix_vente),
         variant_id: variantId,
         couleur: variant.couleur,
         stock_actuel: variant.stock_actuel,
@@ -377,28 +382,93 @@ export function OrderItemsEditor({
 
       {items.length > 0 && (
         <div className="space-y-2">
-          {items.map((it, idx) => (
-            <div
-              key={it.key}
-              className="flex items-center justify-between text-sm border rounded-md px-3 py-2"
-            >
-              <span>
-                {it.reference_label} ({it.couleur}) x{it.quantite}
-              </span>
-              <div className="flex items-center gap-3">
-                {showPrices && <span>{fmt(it.prix_vente * it.quantite)}</span>}
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() =>
-                    setItems((prev) => prev.filter((_, i) => i !== idx))
-                  }
-                >
-                  <Trash2 className="h-4 w-4 text-red-500" />
-                </Button>
+          {items.map((it, idx) => {
+            const remise = Math.max(it.prix_catalogue - it.prix_vente, 0);
+            return (
+              <div
+                key={it.key}
+                className="text-sm border rounded-md px-3 py-2 space-y-1.5"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span>
+                    {it.reference_label} ({it.couleur}) x{it.quantite}
+                  </span>
+                  <div className="flex items-center gap-3">
+                    {showPrices && (
+                      <span className="font-medium">{fmt(it.prix_vente * it.quantite)}</span>
+                    )}
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() =>
+                        setItems((prev) => prev.filter((_, i) => i !== idx))
+                      }
+                    >
+                      <Trash2 className="h-4 w-4 text-red-500" />
+                    </Button>
+                  </div>
+                </div>
+                {/* Remise par article (§ demande) : le gérant saisit le prix
+                    de vente appliqué à CETTE commande — le catalogue et le
+                    stock ne changent pas ; préparateur et livreur voient le
+                    prix remisé, qui entre dans le total et le bilan. */}
+                {showPrices && (
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <Label className="text-xs text-muted-foreground">Prix unitaire</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={it.prix_catalogue}
+                      step={100}
+                      value={it.prix_vente}
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        setItems((prev) =>
+                          prev.map((x, i) =>
+                            i === idx
+                              ? {
+                                  ...x,
+                                  prix_vente: Number.isFinite(v)
+                                    ? Math.min(Math.max(v, 0), x.prix_catalogue)
+                                    : x.prix_catalogue,
+                                }
+                              : x,
+                          ),
+                        );
+                      }}
+                      className="h-8 w-32 text-xs"
+                      aria-label="Prix unitaire remisé"
+                    />
+                    <span className="text-muted-foreground">
+                      catalogue {fmt(it.prix_catalogue)}
+                    </span>
+                    {remise > 0 ? (
+                      <>
+                        <Badge variant="secondary" className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+                          Remise −{fmt(remise)} / unité
+                        </Badge>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          onClick={() =>
+                            setItems((prev) =>
+                              prev.map((x, i) => (i === idx ? { ...x, prix_vente: x.prix_catalogue } : x)),
+                            )
+                          }
+                        >
+                          Annuler la remise
+                        </Button>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">(baisser pour accorder une remise)</span>
+                    )}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -541,6 +611,8 @@ export function CreateOrderDialog({
         items: items.map((it) => ({
           product_variant: it.variant_id,
           quantite: it.quantite,
+          // Prix remisé : envoyé seulement s'il diffère du catalogue.
+          ...(it.prix_vente < it.prix_catalogue ? { prix_unitaire: it.prix_vente } : {}),
         })),
       });
       let assignmentFailed = false;

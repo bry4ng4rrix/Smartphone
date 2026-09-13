@@ -329,13 +329,15 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
   }
 
   /// Régime restreint de « Modifier » au-delà de "En préparation"
-  /// (`livraisonSeule` du web) : seuls le paiement, la zone, l'adresse et la
-  /// note du livreur partent — le serveur refuserait tout autre champ.
+  /// (`livraisonSeule` du web) : seuls le paiement, la zone, l'adresse, la
+  /// date et l'heure de livraison (le client reporte son créneau, § demande)
+  /// et la note du livreur partent — le serveur refuserait tout autre champ.
   Future<Order> updateLivraison(
     int id, {
     String? modePaiement,
     String? livraisonZone,
     String? adresseLivraison,
+    DateTime? dateCommande,
     String? noteLivreur,
   }) {
     return updateOrder(
@@ -343,6 +345,7 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
       modePaiement: modePaiement,
       livraisonZone: livraisonZone,
       adresseLivraison: adresseLivraison,
+      dateCommande: dateCommande,
       noteLivreur: noteLivreur,
     );
   }

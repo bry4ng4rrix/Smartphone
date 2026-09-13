@@ -6,6 +6,7 @@ import { useCurrentUser } from "@/lib/auth/useCurrentUser";
 import { useRealtimeRefresh } from "@/lib/hooks/useRealtimeRefresh";
 import { useDeliveryZones } from "@/lib/hooks/useDeliveryZones";
 import { DateTimeInput } from "@/components/ui/datetime-input";
+import { NoteCallout } from "@/components/orders/note-callout";
 import {
   CreateOrderDialog,
   OrderItemsEditor,
@@ -1254,7 +1255,17 @@ export default function OrdersPage() {
                           </div>
                         </TableCell>
                         <TableCell className="align-top">
-                          {order.client_nom}
+                          <div className="space-y-1.5">
+                            <div>{order.client_nom}</div>
+                            {/* Consigne du gérant, impossible à manquer
+                                depuis la liste (§ demande). */}
+                            {isPreparateur && (
+                              <NoteCallout role="preparateur" text={order.note_preparateur} compact className="max-w-[260px]" />
+                            )}
+                            {isLivreur && (
+                              <NoteCallout role="livreur" text={order.note_livreur} compact className="max-w-[260px]" />
+                            )}
+                          </div>
                         </TableCell>
                         {isLivreur && (
                           <TableCell className="align-top max-w-[180px] truncate">
@@ -1603,8 +1614,31 @@ export default function OrdersPage() {
                             .filter(Boolean)
                             .join(" • ") || "Sans métadonnées"}
                         </div>
+                        {/* Prix unitaire (gérant seul : les autres rôles ne
+                            reçoivent pas les prix) avec la remise accordée. */}
+                        {it.prix_unitaire != null && (
+                          <div className="text-xs flex flex-wrap items-center gap-2">
+                            <span className="font-medium">{fmt(it.prix_unitaire)} / unité</span>
+                            {Number(it.remise_unitaire) > 0 && (
+                              <>
+                                <span className="line-through text-muted-foreground">
+                                  {fmt(it.prix_catalogue)}
+                                </span>
+                                <Badge variant="secondary" className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+                                  Remise −{fmt(it.remise_unitaire)}
+                                </Badge>
+                              </>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
+                    {Number(detail.remise_total) > 0 && (
+                      <div className="flex justify-between gap-4 border-t pt-2 text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                        <span>Remise accordée</span>
+                        <span>−{fmt(detail.remise_total)}</span>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1693,22 +1727,9 @@ export default function OrdersPage() {
                   )}
                 </div>
 
-                {detail.note_preparateur && (
-                  <div>
-                    <span className="text-muted-foreground">
-                      Note pour le préparateur
-                    </span>
-                    <p>{detail.note_preparateur}</p>
-                  </div>
-                )}
-                {detail.note_livreur && (
-                  <div>
-                    <span className="text-muted-foreground">
-                      Note pour le livreur
-                    </span>
-                    <p>{detail.note_livreur}</p>
-                  </div>
-                )}
+                {/* Consignes du gérant en encarts très visibles (§ demande). */}
+                <NoteCallout role="preparateur" text={detail.note_preparateur} />
+                <NoteCallout role="livreur" text={detail.note_livreur} />
 
                 {/* Partage dans la messagerie — proposé dès qu'une photo de
                     préparation existe, au gérant comme au préparateur, pour
@@ -2023,6 +2044,19 @@ export default function OrdersPage() {
                       (m) => m.value === actionNote.order.mode_paiement,
                     )?.label || actionNote.order.mode_paiement}
                   </span>
+                </div>
+              )}
+              {/* La consigne du gérant, bien en vue au moment d'agir. */}
+              {isPreparateur && (
+                <NoteCallout role="preparateur" text={actionNote.order.note_preparateur} />
+              )}
+              {(isLivreur || isGerant) && (
+                <NoteCallout role="livreur" text={actionNote.order.note_livreur} />
+              )}
+              {Number(actionNote.order.remise_total) > 0 && (
+                <div className="flex justify-between font-medium text-emerald-700 dark:text-emerald-300">
+                  <span>Remise accordée au client</span>
+                  <span>−{fmt(actionNote.order.remise_total)}</span>
                 </div>
               )}
               <div className="border-t pt-1.5">
@@ -2724,6 +2758,7 @@ function EditOrderDialog({
         reference_id: 0,
         reference_label: it.reference_name,
         prix_vente: Number(it.prix_unitaire),
+        prix_catalogue: Number(it.prix_catalogue ?? it.prix_unitaire),
         variant_id: it.product_variant,
         couleur: it.couleur,
         stock_actuel: Infinity,
@@ -2763,6 +2798,11 @@ function EditOrderDialog({
           livraison_zone: zone as any,
           adresse_livraison:
             zone === "RECUPERATION" ? "" : adresseLivraison.trim(),
+          // Date et heure de livraison modifiables même en cours de
+          // livraison (§ demande) — le client reporte son créneau.
+          ...(dateCommande
+            ? { date_commande: appDatetimeLocalToIso(dateCommande) }
+            : {}),
           note_livreur: zone === "RECUPERATION" ? "" : noteLivreur,
         });
         toast.success(`Commande ${order.numero} — livraison mise à jour`);
@@ -2785,6 +2825,7 @@ function EditOrderDialog({
         items: items.map((it) => ({
           product_variant: it.variant_id,
           quantite: it.quantite,
+          ...(it.prix_vente < it.prix_catalogue ? { prix_unitaire: it.prix_vente } : {}),
         })),
       });
       // Pré-assignation du préparateur/livreur — endpoints indépendants du
@@ -2832,7 +2873,7 @@ function EditOrderDialog({
           <DialogTitle>Modifier la commande {order?.numero}</DialogTitle>
           <DialogDescription>
             {livraisonSeule
-              ? "Commande déjà engagée : seules la zone, l'adresse, le paiement et la note du livreur restent modifiables. Changer la zone met à jour les frais et le bilan du livreur."
+              ? "Commande déjà engagée : seules la zone, l'adresse, le paiement, la date et l'heure de livraison et la note du livreur restent modifiables. Changer la zone met à jour les frais et le bilan du livreur."
               : 'Possible tant que la commande n\'est pas encore "Prête".'}
           </DialogDescription>
         </DialogHeader>
@@ -2933,6 +2974,15 @@ function EditOrderDialog({
                 </div>
               </div>
             )}
+
+        {/* Reporter la livraison reste possible en cours de tournée
+            (§ demande) : le champ est aussi proposé en régime restreint. */}
+        {livraisonSeule && (
+          <div className="space-y-2">
+            <Label>Date et heure de livraison</Label>
+            <DateTimeInput value={dateCommande} onChange={setDateCommande} />
+          </div>
+        )}
 
         {(livraisonSeule || zone !== "RECUPERATION") && (
           <div className="space-y-2">

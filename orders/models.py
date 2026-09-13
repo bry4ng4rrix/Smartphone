@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
@@ -158,6 +160,15 @@ class Order(models.Model):
             self.frais_livraison = 0
         super().save(*args, **kwargs)
 
+    @property
+    def remise_total(self):
+        """Somme des remises accordées sur les articles effectivement remis
+        (les articles rapportés ne sont pas facturés, leur remise non plus)."""
+        return sum(
+            (item.remise_unitaire * item.quantite for item in self.items.all() if not item.retourne),
+            Decimal("0"),
+        )
+
     def recompute_total(self):
         """Total à encaisser = articles effectivement remis + frais.
 
@@ -186,6 +197,13 @@ class OrderItem(models.Model):
     # Snapshot du prix au moment de la commande — l'historique reste correct
     # même si le prix catalogue change ensuite (§11 Smartreadme.md).
     prix_unitaire = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
+    # Prix catalogue au moment de la commande — quand le gérant accorde une
+    # remise sur un article, `prix_unitaire` est le prix remisé (celui que
+    # voient le préparateur et le livreur, et qui entre dans le total et le
+    # bilan) et `prix_catalogue` garde le prix de vente d'origine : le stock
+    # et le catalogue ne changent pas (§ demande). Null sur les commandes
+    # antérieures à cette fonctionnalité.
+    prix_catalogue = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, editable=False)
     quantite = models.PositiveIntegerField(default=1)
     # Article rapporté par le livreur lors d'une livraison partielle
     # (§ demande) : le client n'en a pas voulu, il repart en stock et sort du
@@ -198,9 +216,19 @@ class OrderItem(models.Model):
         verbose_name_plural = "Articles de commande"
 
     def save(self, *args, **kwargs):
+        if self.prix_catalogue is None:
+            self.prix_catalogue = self.product_variant.product_reference.prix_vente
         if self.prix_unitaire is None:
-            self.prix_unitaire = self.product_variant.product_reference.prix_vente
+            self.prix_unitaire = self.prix_catalogue
         super().save(*args, **kwargs)
+
+    @property
+    def remise_unitaire(self):
+        """Remise accordée par article (prix catalogue − prix remisé), 0 sans
+        remise ou sur une commande antérieure au prix catalogue."""
+        if self.prix_catalogue is None:
+            return Decimal("0")
+        return max(self.prix_catalogue - self.prix_unitaire, Decimal("0"))
 
     def __str__(self):
         return f"{self.product_variant} x{self.quantite} ({self.order.numero})"

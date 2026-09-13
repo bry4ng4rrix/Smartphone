@@ -710,7 +710,8 @@ class DjangoAPIClient {
       // Le `code` d'une zone créée dans Paramètres, ou 'RECUPERATION' —
       // voir orders/models.py::DeliveryZoneOption.
       livraison_zone: string
-      items: { product_variant: number; quantite: number }[]
+      // prix_unitaire : prix remisé facultatif (≤ prix catalogue), le catalogue ne change pas
+      items: { product_variant: number; quantite: number; prix_unitaire?: number | string }[]
       note_preparateur?: string
       note_livreur?: string
       adresse_livraison?: string
@@ -806,7 +807,7 @@ class DjangoAPIClient {
       date_commande?: string
       note_preparateur?: string
       note_livreur?: string
-      items?: { product_variant: number; quantite: number }[]
+      items?: { product_variant: number; quantite: number; prix_unitaire?: number | string }[]
     }) => {
       return this.patch<any>(`/orders/${id}/`, data)
     },

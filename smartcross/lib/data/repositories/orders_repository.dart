@@ -204,8 +204,9 @@ class OrdersRepository {
   /// * "Nouvelle" / "En préparation" — tout est modifiable (articles compris,
   ///   le stock est réajusté) ;
   /// * "Prête" / "En livraison" — seuls [modePaiement], [livraisonZone],
-  ///   [adresseLivraison] et [noteLivreur] sont acceptés (frais et total
-  ///   recalculés) ; tout autre champ est refusé par le serveur.
+  ///   [adresseLivraison], [dateCommande] et [noteLivreur] sont acceptés
+  ///   (frais et total recalculés) ; tout autre champ est refusé par le
+  ///   serveur.
   /// * Statut terminal — refus.
   ///
   /// Seuls les champs non nuls sont envoyés ; [telephone2] vide = effacer le
