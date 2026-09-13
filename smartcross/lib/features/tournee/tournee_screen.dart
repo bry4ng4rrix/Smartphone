@@ -71,7 +71,6 @@ List<Order> _displayedOrders(Iterable<Order> orders, _LivreurPeriode periode, _L
   int livraisonLe(Order o) => o.dateCommande?.millisecondsSinceEpoch ?? 0;
 
   bool retenue(Order o) {
-    if (periode == _LivreurPeriode.toutes) return true;
     final jour = o.dateCommande == null ? null : appDay(o.dateCommande!);
     switch (periode) {
       case _LivreurPeriode.toutes:
@@ -186,6 +185,11 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
   final _searchController = TextEditingController();
   String _search = '';
 
+  /// Période et tri de la tournée (filtres CLIENT, comme sur le web) — le
+  /// tri « plus récentes d'abord » s'applique dès l'ouverture.
+  _LivreurPeriode _periode = _LivreurPeriode.toutes;
+  _LivreurTri _tri = _LivreurTri.recentes;
+
   /// Bouton « Rafraîchir » : rechargement NON silencieux (repasse par l'état
   /// de chargement, comme le skeleton du web) — contrairement au temps réel
   /// et aux rechargements d'après action, silencieux.
@@ -222,12 +226,25 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
       _setFilter(statut == null ? filter.copyWith(clearStatut: true) : filter.copyWith(statut: statut));
 
   /// « Réinitialiser » : tous les statuts, aucune date (le filtre par défaut
-  /// du livreur — tout son planning), recherche vidée.
+  /// du livreur — tout son planning), recherche vidée, période « Toutes »
+  /// et tri « plus récentes d'abord ».
   void _reset() {
     _setFilter(jourJFilter(UserRole.livreur));
     _searchController.clear();
-    setState(() => _search = '');
+    setState(() {
+      _search = '';
+      _periode = _LivreurPeriode.toutes;
+      _tri = _LivreurTri.recentes;
+    });
   }
+
+  /// Un filtre s'écarte-t-il de la vue par défaut ? (affiche « Réinitialiser »)
+  bool _filtresActifs(OrdersFilter filter) =>
+      filter.statut != null ||
+      filter.dateDebut != null ||
+      _search.isNotEmpty ||
+      _periode != _LivreurPeriode.toutes ||
+      _tri != _LivreurTri.recentes;
 
   Future<void> _refresh() async {
     if (_view == _TourneeView.historique) {
@@ -262,7 +279,7 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
             Text(
               historique
                   ? 'Vos commandes déjà traitées, tous statuts — filtrables par date et heure.'
-                  : 'Commandes prêtes à récupérer, puis "Livré" ou "Retour" une fois la tournée faite.',
+                  : 'Toutes vos commandes assignées — les actions s\'ouvrent le jour de livraison.',
               style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               overflow: TextOverflow.ellipsis,
             ),
@@ -316,6 +333,32 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
                 },
               ),
             ),
+            // Période et tri (client, comme `livreurPeriode` / `livreurTri`
+            // du web) — toutes les commandes assignées restent chargées.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _FiltreDropdown<_LivreurPeriode>(
+                      label: 'Période',
+                      value: _periode,
+                      items: [for (final p in _LivreurPeriode.values) (value: p, label: p.label)],
+                      onChanged: (v) => setState(() => _periode = v),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _FiltreDropdown<_LivreurTri>(
+                      label: 'Trier par',
+                      value: _tri,
+                      items: [for (final t in _LivreurTri.values) (value: t, label: t.label)],
+                      onChanged: (v) => setState(() => _tri = v),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
               child: Row(
@@ -325,7 +368,7 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
                       onPressed: () => _pickDate(filter),
                       icon: const Icon(Icons.event_outlined),
                       label: Text(
-                        filter.dateDebut != null ? _dayFmt.format(filter.dateDebut!) : 'Date',
+                        filter.dateDebut != null ? _dayFmt.format(filter.dateDebut!) : 'Date précise',
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -363,7 +406,7 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
                       ),
                     ),
                   ),
-                  if (filter.statut != null || filter.dateDebut != null || _search.isNotEmpty) ...[
+                  if (_filtresActifs(filter)) ...[
                     const SizedBox(width: 4),
                     TextButton(onPressed: _reset, child: const Text('Réinitialiser')),
                   ],
@@ -377,7 +420,7 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
                 // dans les deux onglets (téléphones cliquables, boutons
                 // d'action quand le statut et le jour J s'y prêtent).
                 ? OrderHistoriqueView(cardBuilder: (context, order) => _TourneeCard(order: order))
-                : _TourneeActiveList(search: _search, refreshing: _refreshing),
+                : _TourneeActiveList(search: _search, periode: _periode, tri: _tri, refreshing: _refreshing),
           ),
         ],
       ),
@@ -385,11 +428,55 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
   }
 }
 
-/// Liste « Ma tournée » : les commandes du provider partagé, filtrées par la
-/// recherche et la fenêtre d'affichage, la plus récente en tête.
+/// Menu déroulant compact d'un filtre (« Période », « Trier par ») : un
+/// `DropdownButton` habillé en champ de formulaire, qui suit l'état de
+/// l'écran (donc « Réinitialiser » le remet bien à sa valeur par défaut).
+class _FiltreDropdown<T> extends StatelessWidget {
+  const _FiltreDropdown({required this.label, required this.value, required this.items, required this.onChanged});
+  final String label;
+  final T value;
+  final List<({T value, String label})> items;
+  final ValueChanged<T> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return InputDecorator(
+      decoration: InputDecoration(
+        labelText: label,
+        isDense: true,
+        contentPadding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<T>(
+          value: value,
+          isExpanded: true,
+          isDense: true,
+          style: Theme.of(context).textTheme.bodyMedium,
+          items: [
+            for (final it in items)
+              DropdownMenuItem<T>(value: it.value, child: Text(it.label, overflow: TextOverflow.ellipsis)),
+          ],
+          onChanged: (v) {
+            if (v != null) onChanged(v);
+          },
+        ),
+      ),
+    );
+  }
+}
+
+/// Liste « Ma tournée » : les commandes du provider partagé (tout le planning
+/// assigné), filtrées par la recherche et la période, dans l'ordre choisi.
 class _TourneeActiveList extends ConsumerWidget {
-  const _TourneeActiveList({required this.search, required this.refreshing});
+  const _TourneeActiveList({
+    required this.search,
+    required this.periode,
+    required this.tri,
+    required this.refreshing,
+  });
   final String search;
+  final _LivreurPeriode periode;
+  final _LivreurTri tri;
   final bool refreshing;
 
   @override
@@ -418,7 +505,7 @@ class _TourneeActiveList extends ConsumerWidget {
     }
 
     final q = search.trim().toLowerCase();
-    final displayed = _tourneeDuJour(orders.where((o) => _matches(o, q)));
+    final displayed = _displayedOrders(orders.where((o) => _matches(o, q)), periode, tri);
 
     return Column(
       children: [
@@ -433,7 +520,7 @@ class _TourneeActiveList extends ConsumerWidget {
                   const SliverFillRemaining(
                     hasScrollBody: false,
                     child: EmptyState(
-                      message: 'Aucune commande trouvée pour cette recherche.',
+                      message: 'Aucune commande pour ces filtres.',
                       icon: Icons.local_shipping_outlined,
                     ),
                   )
@@ -488,6 +575,7 @@ class _TourneeCard extends ConsumerWidget {
     final dateLigne = order.statutCourant == OrderStatus.livre
         ? (order.historyAt(OrderStatus.livre) ?? order.dateCommande)
         : order.dateCommande;
+    final livraison = _livraisonBadge(order);
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 5),
@@ -512,6 +600,14 @@ class _TourneeCard extends ConsumerWidget {
                   ),
                 ],
               ),
+              // Quand livrer, lisible d'un coup d'œil (pastille du web) — en
+              // plus de la ligne « Livraison prévue le » plus bas. Sans objet
+              // une fois la commande terminée (« En retard » sur une commande
+              // livrée n'aurait aucun sens).
+              if (!order.estTerminee && livraison != null) ...[
+                const SizedBox(height: 6),
+                _LivraisonBadge(label: livraison.label, color: livraison.color),
+              ],
               const SizedBox(height: 10),
               // Produit : tous les articles, référence + quantité, puis
               // sous-type / marque et pastille de couleur. Un article rapporté
@@ -607,11 +703,14 @@ class _TourneeCard extends ConsumerWidget {
 
   /// Action du moment (`nextAction` + bouton « Retour » du web) : Prête →
   /// « Récupérer (en livraison) » ; En livraison → « Livré » et « Retour »,
-  /// deux issues possibles. Hors jour J, AUCUN bouton n'est rendu — pas même
-  /// grisé (§ demande) : seule une ligne muette annonce la date, la commande
-  /// restant visible dans le planning. Les autres statuts n'ont pas d'action.
+  /// deux issues possibles. Hors jour J (minuit le jour de livraison —
+  /// `actionOuverte`), les boutons restent VISIBLES mais DÉSACTIVÉS et
+  /// annoncent « Disponible le … » : le livreur voit toute sa tournée à venir
+  /// et sait quand il pourra agir. Le serveur reste seul juge. Les autres
+  /// statuts n'ont pas d'action.
   List<Widget> _actions(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
+    final bloque = !actionOuverte(order.dateCommande, UserRole.livreur);
     switch (order.statutCourant) {
       case OrderStatus.enPreparation:
         // Visible pour planning uniquement — pas encore prête, rien à faire
@@ -627,39 +726,43 @@ class _TourneeCard extends ConsumerWidget {
           ),
         ];
       case OrderStatus.prete:
-        if (!isJourJ(order.dateCommande, UserRole.livreur)) {
-          return [const SizedBox(height: 10), _AttenteJourJ(order: order)];
-        }
+        // Bouton unique, pleine largeur : hors jour J il porte lui-même
+        // « Disponible le … » (comme la carte du dépôt et le web).
         return [
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: () => _confirm(context, ref, OrderStatus.enLivraison, 'Récupérer (en livraison)'),
-              icon: const Icon(Icons.local_shipping_outlined),
-              label: const Text('Récupérer (en livraison)'),
+              onPressed: bloque
+                  ? null
+                  : () => _confirm(context, ref, OrderStatus.enLivraison, 'Récupérer (en livraison)'),
+              icon: Icon(bloque ? Icons.schedule : Icons.local_shipping_outlined),
+              label: Text(
+                bloque ? _disponibleLabel(order) : 'Récupérer (en livraison)',
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ),
         ];
       case OrderStatus.enLivraison:
-        if (!isJourJ(order.dateCommande, UserRole.livreur)) {
-          return [const SizedBox(height: 10), _AttenteJourJ(order: order)];
-        }
+        // Deux boutons côte à côte : trop étroits pour porter chacun
+        // « Disponible le JJ/MM/AAAA à HHhMM » — ils gardent leur libellé,
+        // désactivés, et une ligne dessous annonce l'ouverture.
         return [
           const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: () => _confirm(context, ref, OrderStatus.livre, 'Livré'),
-                  icon: const Icon(Icons.local_shipping_outlined),
+                  onPressed: bloque ? null : () => _confirm(context, ref, OrderStatus.livre, 'Livré'),
+                  icon: Icon(bloque ? Icons.schedule : Icons.local_shipping_outlined),
                   label: const Text('Livré'),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () => _confirm(context, ref, OrderStatus.retour, 'Retour'),
+                  onPressed: bloque ? null : () => _confirm(context, ref, OrderStatus.retour, 'Retour'),
                   icon: const Icon(Icons.undo),
                   label: const Text('Retour'),
                   style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
@@ -667,6 +770,7 @@ class _TourneeCard extends ConsumerWidget {
               ),
             ],
           ),
+          if (bloque) ...[const SizedBox(height: 8), _AttenteJourJ(order: order)],
         ];
       case OrderStatus.nouvelle:
       case OrderStatus.livre:
@@ -723,10 +827,50 @@ class _PhoneLink extends StatelessWidget {
   }
 }
 
-/// Ligne muette affichée à la place des boutons tant que le jour J n'est pas
+/// Pastille « quand livrer » (badge `outline` coloré du web) : fond teinté,
+/// liseré et texte de la même couleur — lisible en clair comme en sombre.
+class _LivraisonBadge extends StatelessWidget {
+  const _LivraisonBadge({required this.label, required this.color});
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        border: Border.all(color: color.withValues(alpha: 0.55)),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.schedule, size: 13, color: color),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Ce que le bouton désactivé annonce : le moment où l'action se débloquera
+/// (`fmtOuverture` du web) — pas la date de livraison.
+String _disponibleLabel(Order order) => order.dateCommande == null
+    ? 'Pas encore disponible'
+    : 'Disponible le ${dueDateLabel(order.dateCommande!, UserRole.livreur)}';
+
+/// Ligne muette sous les boutons désactivés tant que le jour J n'est pas
 /// atteint : le livreur voit la commande dans son planning et sait quand il
-/// pourra agir, sans bouton inerte à cliquer. Ce que la ligne annonce, c'est
-/// le moment où l'action se débloquera — pas la date de livraison.
+/// pourra agir. Ce que la ligne annonce, c'est le moment où l'action se
+/// débloquera — pas la date de livraison.
 class _AttenteJourJ extends StatelessWidget {
   const _AttenteJourJ({required this.order});
   final Order order;
@@ -738,14 +882,7 @@ class _AttenteJourJ extends StatelessWidget {
       children: [
         Icon(Icons.schedule, size: 16, color: couleur),
         const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            order.dateCommande == null
-                ? 'Pas encore disponible'
-                : 'Disponible le ${dueDateLabel(order.dateCommande!, UserRole.livreur)}',
-            style: TextStyle(color: couleur),
-          ),
-        ),
+        Expanded(child: Text(_disponibleLabel(order), style: TextStyle(color: couleur))),
       ],
     );
   }
