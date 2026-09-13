@@ -1223,10 +1223,10 @@ Fonctionnalités à garantir : 63
 - [x] Bouton `Imprimer / PDF` (window.print côté web → PDF de la section affichée via les paquets pdf/printing : en-tête, `Période du … au … (comparée à … → …)`, KPI et tableaux)
 - [x] 8 sections, UNE SEULE montée à la fois : Vue générale, Ventes, Financier, Dépenses, Stock, Commandes, Livraisons, Marketing (libellés et descriptions de `SECTIONS`)
 - [x] Onglets sur écran large ; sur mobile bouton pleine largeur `Liste des rapports · {section}` ouvrant la liste (libellé + description + coche) ; onglet mémorisé (équivalent du `?tab=` de l'URL)
-- [x] Filtres communs : 8 préréglages `Aujourd'hui`, `7 derniers jours`, `Cette semaine`, `Ce mois`, `Mois précédent`, `Cette année`, `Année précédente`, `Personnalisée` (défaut : Ce mois)
-- [x] Champs `Du` / `Au` : toute saisie bascule en Personnalisée en conservant l'autre borne ; bornes inversées remises dans l'ordre
-- [x] `periodeDepuisPreset` : jour métier d'Antananarivo (appToday), semaine qui commence le lundi, période de comparaison = mois/année/semaine calendaires précédents pour les préréglages, fenêtre de même longueur juste avant pour 7 jours / personnalisée, personnalisée vide = 30 derniers jours
-- [x] Sélecteur `Granularité` : `Automatique` (≤ 31 j jour, ≤ 120 j semaine, ≤ 800 j mois, sinon année), `Jour`, `Semaine`, `Mois`, `Année`
+- [x] Filtres communs : liste déroulante « Période » (`Aujourd'hui`, `7 derniers jours`, `Cette semaine`, `Ce mois`, `Mois précédent`, `Cette année`, `Année précédente`, `Personnalisée` ; défaut : Ce mois) — remplace les anciens boutons et le choix de granularité (13/09/2026)
+- [x] Champ « Date » unique (date de référence, aujourd'hui par défaut) : le préréglage est calculé par rapport à elle ; `Personnalisée` = ce seul jour
+- [x] Granularité des séries automatique (≤ 31 j jour, ≤ 120 j semaine, ≤ 800 j mois, sinon année) — plus de sélecteur
+- [x] `periodeDepuisPreset(preset, référence)` : jour métier d'Antananarivo, semaine qui commence le lundi, comparaison = période calendaire précédente (préréglages) ou fenêtre de même longueur (7 jours)
 - [x] Ligne `{from} → {to} · comparé à {prevFrom} → {prevTo}` (dates JJ/MM/AAAA)
 - [x] Bouton Actualiser : vide le cache et recharge la section affichée (icône qui tourne pendant le chargement)
 - [x] Appels `GET /api/orders/reports/{section}/?date_from&date_to&prev_from&prev_to&granularity` (+ `dormant_days` pour Stock, `platform` pour Marketing) ; paramètres vides non envoyés

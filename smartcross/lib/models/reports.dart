@@ -136,8 +136,14 @@ int _longueur(String from, String to) => _jour(to).difference(_jour(from)).inDay
 /// `periodeDepuisPreset` du web — jour métier d'Antananarivo ([appToday]),
 /// semaine commençant le lundi, période personnalisée vide = 30 derniers
 /// jours, bornes inversées remises dans l'ordre.
-ReportPeriod periodeDepuisPreset(ReportPreset preset, {String? customFrom, String? customTo}) {
-  final t = appToday();
+/// Période d'un préréglage, calculée par rapport à une DATE DE RÉFÉRENCE
+/// ([reference], AAAA-MM-JJ ; aujourd'hui en jour métier d'Antananarivo par
+/// défaut) : « Ce mois » avec le 15/08 = du 1er au 15 août, « 7 derniers
+/// jours » = les 7 jours qui se terminent à cette date, etc.
+/// « Personnalisée » = ce seul jour. Même règle que `periodeDepuisPreset`
+/// du web (lib/reports.ts).
+ReportPeriod periodeDepuisPreset(ReportPreset preset, {String? reference}) {
+  final t = _parseIsoDay(reference) ?? appToday();
   final today = formatReportsDate(t);
   final y = t.year;
   final m = t.month; // 1..12
@@ -186,13 +192,17 @@ ReportPeriod periodeDepuisPreset(ReportPreset preset, {String? customFrom, Strin
         prevTo: '${y - 2}-12-31',
       );
     case ReportPreset.custom:
-      final from = (customFrom == null || customFrom.isEmpty) ? _addDays(today, -29) : customFrom;
-      final to = (customTo == null || customTo.isEmpty) ? today : customTo;
-      final a = from.compareTo(to) <= 0 ? from : to;
-      final b = from.compareTo(to) <= 0 ? to : from;
-      final p = _fenetrePrecedente(a, b);
-      return ReportPeriod(from: a, to: b, prevFrom: p.prevFrom, prevTo: p.prevTo);
+      // Un seul jour : celui choisi (comparé à la veille).
+      final hier = _addDays(today, -1);
+      return ReportPeriod(from: today, to: today, prevFrom: hier, prevTo: hier);
   }
+}
+
+/// `AAAA-MM-JJ` → DateTime (minuit local), null si absent ou invalide.
+DateTime? _parseIsoDay(String? v) {
+  if (v == null || !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(v)) return null;
+  final d = DateTime.tryParse(v);
+  return d == null ? null : DateTime(d.year, d.month, d.day);
 }
 
 /// `granulariteAuto` du web : granularité par défaut lisible pour une plage.

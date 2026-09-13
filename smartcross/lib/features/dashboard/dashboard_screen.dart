@@ -161,6 +161,9 @@ class DashboardScreen extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // Onglets des rapports tout en haut de la page (§ demande).
+                ReportTabs(actif: actif, onChange: ref.read(activeSectionProvider.notifier).set),
+                const SizedBox(height: 16),
                 LayoutBuilder(
                   builder: (context, constraints) {
                     if (constraints.maxWidth >= 640) {
@@ -186,13 +189,9 @@ class DashboardScreen extends ConsumerWidget {
                   filter: filter,
                   period: period,
                   onPreset: filtres.setPreset,
-                  onCustomFrom: filtres.setCustomFrom,
-                  onCustomTo: filtres.setCustomTo,
-                  onGranularity: filtres.setGranularity,
+                  onDate: filtres.setDate,
                   onReload: () => rechargerReports(ref),
                 ),
-                const SizedBox(height: 16),
-                ReportTabs(actif: actif, onChange: ref.read(activeSectionProvider.notifier).set),
                 const SizedBox(height: 16),
                 // Une seule section montée à la fois : rien n'est chargé
                 // pour les autres.

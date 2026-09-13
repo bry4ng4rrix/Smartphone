@@ -77,8 +77,14 @@ function fenetrePrecedente(from: string, to: string): { prevFrom: string; prevTo
   return { prevFrom: addDays(prevTo, -(longueur - 1)), prevTo };
 }
 
-export function periodeDepuisPreset(preset: PeriodPreset, custom?: { from: string; to: string }): Period {
-  const today = appToday();
+/**
+ * Période d'un préréglage, calculée par rapport à une DATE DE RÉFÉRENCE
+ * (aujourd'hui par défaut, en jour métier d'Antananarivo) : « Ce mois » avec
+ * le 15/08 = du 1er au 15 août, « 7 derniers jours » = les 7 jours qui se
+ * terminent à cette date, etc. « Personnalisée » = ce seul jour.
+ */
+export function periodeDepuisPreset(preset: PeriodPreset, reference?: string): Period {
+  const today = reference && /^\d{4}-\d{2}-\d{2}$/.test(reference) ? reference : appToday();
   const t = midi(today);
   const y = t.getFullYear();
   const m = t.getMonth();
@@ -120,12 +126,9 @@ export function periodeDepuisPreset(preset: PeriodPreset, custom?: { from: strin
     case 'prev_year':
       return { from: `${y - 1}-01-01`, to: `${y - 1}-12-31`, prevFrom: `${y - 2}-01-01`, prevTo: `${y - 2}-12-31` };
     case 'custom':
-    default: {
-      const from = custom?.from || addDays(today, -29);
-      const to = custom?.to || today;
-      const [a, b] = from <= to ? [from, to] : [to, from];
-      return { from: a, to: b, ...fenetrePrecedente(a, b) };
-    }
+    default:
+      // Un seul jour : celui choisi (comparé à la veille).
+      return { from: today, to: today, prevFrom: addDays(today, -1), prevTo: addDays(today, -1) };
   }
 }
 

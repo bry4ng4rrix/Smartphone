@@ -60,12 +60,12 @@ function ReportsCenter() {
 
   const [filtres, setFiltres] = useState<Filtres>({
     preset: 'month',
-    custom: { from: '', to: '' },
+    date: '',
     granularity: 'auto',
   });
   const [rechargement, setRechargement] = useState(0);
 
-  const period = useMemo(() => periodeDepuisPreset(filtres.preset, filtres.custom), [filtres.preset, filtres.custom]);
+  const period = useMemo(() => periodeDepuisPreset(filtres.preset, filtres.date || undefined), [filtres.preset, filtres.date]);
   const granularity = filtres.granularity === 'auto' ? granulariteAuto(period) : filtres.granularity;
 
   // Paramètres communs à toutes les sections — même clé de cache tant
@@ -110,6 +110,9 @@ function ReportsCenter() {
 
   return (
     <div className="p-4 sm:p-6 space-y-4 print:p-0">
+      {/* Onglets des rapports tout en haut de la page (§ demande). */}
+      <ReportTabs actif={actif} onChange={changerOnglet} />
+
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Tableau de bord</h1>
@@ -123,7 +126,6 @@ function ReportsCenter() {
       </div>
 
       <ReportFilters filtres={filtres} period={period} onChange={setFiltres} onReload={recharger} />
-      <ReportTabs actif={actif} onChange={changerOnglet} />
 
       <div className="hidden print:block text-xs text-muted-foreground">
         Période du {period.from} au {period.to} (comparée à {period.prevFrom} → {period.prevTo})

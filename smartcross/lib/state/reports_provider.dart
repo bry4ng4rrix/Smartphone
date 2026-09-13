@@ -62,36 +62,35 @@ final reportsAccessProvider = Provider<({bool loading, bool isGerant})>((ref) {
 class ReportsFilter {
   const ReportsFilter({
     this.preset = ReportPreset.month,
-    this.customFrom = '',
-    this.customTo = '',
+    this.date = '',
     this.granularity,
     this.reload = 0,
   });
 
   final ReportPreset preset;
-  final String customFrom;
-  final String customTo;
+
+  /// Date de référence unique (AAAA-MM-JJ) ; vide = aujourd'hui. Le
+  /// préréglage est calculé par rapport à elle (voir periodeDepuisPreset).
+  final String date;
   final ReportGranularity? granularity;
   final int reload;
 
-  /// `periodeDepuisPreset(filtres.preset, filtres.custom)`.
-  ReportPeriod get period => periodeDepuisPreset(preset, customFrom: customFrom, customTo: customTo);
+  /// `periodeDepuisPreset(filtres.preset, filtres.date || undefined)`.
+  ReportPeriod get period => periodeDepuisPreset(preset, reference: date.isEmpty ? null : date);
 
   /// Granularité envoyée au serveur : la valeur choisie, sinon l'automatique.
   ReportGranularity get granularityEffective => granularity ?? granulariteAuto(period);
 
   ReportsFilter copyWith({
     ReportPreset? preset,
-    String? customFrom,
-    String? customTo,
+    String? date,
     ReportGranularity? granularity,
     bool clearGranularity = false,
     int? reload,
   }) =>
       ReportsFilter(
         preset: preset ?? this.preset,
-        customFrom: customFrom ?? this.customFrom,
-        customTo: customTo ?? this.customTo,
+        date: date ?? this.date,
         granularity: clearGranularity ? null : (granularity ?? this.granularity),
         reload: reload ?? this.reload,
       );
@@ -100,13 +99,12 @@ class ReportsFilter {
   bool operator ==(Object other) =>
       other is ReportsFilter &&
       other.preset == preset &&
-      other.customFrom == customFrom &&
-      other.customTo == customTo &&
+      other.date == date &&
       other.granularity == granularity &&
       other.reload == reload;
 
   @override
-  int get hashCode => Object.hash(preset, customFrom, customTo, granularity, reload);
+  int get hashCode => Object.hash(preset, date, granularity, reload);
 }
 
 /// Filtres communs à toutes les sections. NON autoDispose : comme l'onglet,
@@ -116,21 +114,12 @@ class ReportsFilterNotifier extends Notifier<ReportsFilter> {
   @override
   ReportsFilter build() => const ReportsFilter();
 
+  /// Select « Période ».
   void setPreset(ReportPreset preset) => state = state.copyWith(preset: preset);
 
-  /// Champ « Du » : passe en période personnalisée en reprenant l'autre borne
-  /// de la période courante (`custom.to = preset === 'custom' ? custom.to :
-  /// period.to`).
-  void setCustomFrom(String from) {
-    final to = state.preset == ReportPreset.custom ? state.customTo : state.period.to;
-    state = state.copyWith(preset: ReportPreset.custom, customFrom: from, customTo: to);
-  }
-
-  /// Champ « Au » : idem.
-  void setCustomTo(String to) {
-    final from = state.preset == ReportPreset.custom ? state.customFrom : state.period.from;
-    state = state.copyWith(preset: ReportPreset.custom, customFrom: from, customTo: to);
-  }
+  /// Champ « Date » : date de référence unique, le préréglage courant est
+  /// recalculé par rapport à elle.
+  void setDate(String date) => state = state.copyWith(date: date);
 
   /// Select « Granularité » — `null` = « Automatique ».
   void setGranularity(ReportGranularity? g) =>
