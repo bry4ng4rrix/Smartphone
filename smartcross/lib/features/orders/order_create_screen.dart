@@ -10,12 +10,10 @@ import '../../core/app_time.dart';
 import '../../core/constants.dart';
 import '../../core/permissions.dart';
 import '../../data/repositories/orders_repository.dart' show StaffOption;
-import '../../models/campaign.dart';
 import '../../models/catalog.dart';
 import '../../models/delivery_zone.dart';
 import '../../models/order.dart';
 import '../../state/auth_provider.dart';
-import '../../state/campaigns_provider.dart';
 import '../../state/catalog_provider.dart';
 import '../../state/orders_provider.dart';
 import '../../widgets/order_confirm_dialog.dart' show arFmt;
@@ -845,10 +843,8 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
   int? _preparateurId;
   int? _livreurId;
 
-  // Campagne marketing d'origine (facultatif) — alimente le rapport
-  // Marketing. `null` = « Aucune » (remise à zéro à chaque ouverture, comme
-  // `setCampagneId("")` côté web — ici l'écran repart d'un état neuf).
-  int? _campagneId;
+  // Plus de choix de campagne : l'affectation à un boost est automatique,
+  // par période, côté serveur (finance/services.py::commandes_du_boost).
 
   @override
   void initState() {
@@ -862,17 +858,6 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
     if (!_isPreparateur) {
       _loadPreparateurs();
       _loadLivreurs();
-      // Le web recharge les campagnes actives à chaque ouverture du
-      // formulaire (`campaigns.list({ actif: true })`). Si la liste partagée
-      // est déjà en mémoire, elle est rechargée silencieusement (l'ancienne
-      // valeur reste affichée le temps de l'appel) ; sinon le `ref.watch` du
-      // build la charge une première fois. Un échec laisse simplement la
-      // liste vide (voir build).
-      if (ref.exists(campaignsProvider)) {
-        Future.microtask(() {
-          if (mounted) ref.invalidate(campaignsProvider);
-        });
-      }
     }
   }
 
@@ -965,8 +950,6 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
             modePaiement: _modePaiement.apiValue,
             // Champ vidé -> pas envoyé -> le serveur prend « maintenant ».
             dateCommande: _dateCommande == null ? null : appWallClockToUtc(_dateCommande!),
-            // Campagne envoyée seulement si choisie (`...(campagneId ? … : {})`).
-            campagne: _campagneId,
           );
       var assignmentFailed = false;
       if (_preparateurId != null) {
@@ -1042,13 +1025,6 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
         if (mounted && _zone.isEmpty) setState(() => _zone = zonesPayantes.first.code);
       });
     }
-    // Campagnes actives — `campaigns.list({ actif: true })` du web, chargées
-    // pour un non-préparateur seulement (le préparateur n'interroge pas le
-    // serveur). Erreur -> liste vide silencieuse, comme le `.catch` web : le
-    // champ n'apparaît alors pas.
-    final campagnes = _isPreparateur
-        ? const <MarketingCampaign>[]
-        : ref.watch(campaignsProvider).value ?? const <MarketingCampaign>[];
     final showPrices = !_isPreparateur;
     final wide = MediaQuery.sizeOf(context).width >= 600;
 
@@ -1196,24 +1172,6 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
                   ),
                 ],
               ),
-            ),
-          ],
-          // Campagne marketing d'origine — gérant seulement, et seulement s'il
-          // existe des campagnes actives (`!isPreparateur && campagnes.length
-          // > 0`) ; juste avant le bloc Paiement, comme sur le web.
-          if (!_isPreparateur && campagnes.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            _sectionTitle('Campagne marketing (facultatif)'),
-            OrderFormDropdown<int>(
-              value: _campagneId,
-              hintText: 'Aucune',
-              prefixIcon: Icons.campaign_outlined,
-              items: [
-                const DropdownMenuItem<int>(value: null, child: Text('Aucune')),
-                for (final c in campagnes)
-                  DropdownMenuItem(value: c.id, child: Text('${c.nom} · ${c.plateformeLabel}')),
-              ],
-              onChanged: (v) => setState(() => _campagneId = v),
             ),
           ],
           if (!_isPickup) ...[

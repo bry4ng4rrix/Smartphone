@@ -18,6 +18,9 @@ import { ReportTable } from '@/components/reports/report-table';
 export interface Boost {
   id: number; nom: string; plateforme: string; plateforme_label: string; type_periode: string; date_debut: string; date_fin: string | null;
   montant: number; articles_vendus: number; cout_par_article: number; actif: boolean; en_caisse: boolean;
+  /** Affectation automatique par période (serveur) : commandes concernées, livrées, CA généré, coût par commande. */
+  nb_commandes: number; nb_livrees: number; ca: number; cout_par_commande: number | null;
+  periode_effective?: { from: string; to: string; en_cours: boolean };
 }
 
 const PLATEFORMES = [['FACEBOOK', 'Facebook'], ['INSTAGRAM', 'Instagram'], ['TIKTOK', 'TikTok'], ['GOOGLE', 'Google'], ['AUTRE', 'Autre']] as const;
@@ -67,7 +70,7 @@ export function SectionBoost({ boosts, loading, error, magasinId, sessionOuverte
     <>
       <ReportTable
         titre="Boost / publicité"
-        description="Une dépense globale par période, répartie sur le nombre réel d'articles vendus pendant cette période (pas sur le nombre de commandes). Coût par article = montant / articles vendus ; 0 article vendu = pas de division, coût 0."
+        description="Une dépense globale par période. Les commandes de la période sont rattachées automatiquement au boost (rien à sélectionner) ; son montant est réparti dans le gain réel sur le nombre réel d'articles vendus pendant la période (coût par article = montant / articles vendus ; 0 article = coût 0). Le coût par commande est un indicateur."
         actions={
           <Button size="sm" className="h-9 sm:h-8" onClick={() => setOuvert(true)}>
             <Plus className="h-4 w-4 mr-1" aria-hidden /> Nouveau boost
@@ -78,6 +81,9 @@ export function SectionBoost({ boosts, loading, error, magasinId, sessionOuverte
           { key: 'plateforme_label', label: 'Plateforme' },
           { key: 'periode', label: 'Période', render: (r) => `${fmtDate(r.date_debut)} → ${r.date_fin ? fmtDate(r.date_fin) : 'en cours'}`, export: (r) => `${r.date_debut} → ${r.date_fin || ''}` },
           { key: 'montant', label: 'Montant', align: 'right', render: (r) => fmtAr(r.montant) },
+          { key: 'nb_commandes', label: 'Commandes concernées', align: 'right', render: (r) => `${fmtNb(r.nb_commandes)} (${fmtNb(r.nb_livrees)} livrées)`, export: (r) => r.nb_commandes },
+          { key: 'ca', label: 'CA généré', align: 'right', render: (r) => fmtAr(r.ca) },
+          { key: 'cout_par_commande', label: 'Coût boost / commande', align: 'right', render: (r) => (r.cout_par_commande === null ? <Badge variant="outline">aucune commande</Badge> : fmtAr(r.cout_par_commande)), export: (r) => r.cout_par_commande },
           { key: 'articles_vendus', label: 'Articles vendus', align: 'right', render: (r) => fmtNb(r.articles_vendus) },
           { key: 'cout_par_article', label: 'Coût boost / article', align: 'right', render: (r) => (r.articles_vendus ? <span className="font-medium">{fmtAr(r.cout_par_article)}</span> : <Badge variant="outline">aucun article vendu</Badge>), export: (r) => r.cout_par_article },
           { key: 'en_caisse', label: 'Caisse', render: (r) => (r.en_caisse ? <Badge>Sortie enregistrée</Badge> : <span className="text-xs text-muted-foreground">hors caisse</span>), export: (r) => (r.en_caisse ? 'oui' : 'non') },
@@ -89,6 +95,10 @@ export function SectionBoost({ boosts, loading, error, magasinId, sessionOuverte
               <span className="text-sm font-semibold tabular-nums whitespace-nowrap">{fmtAr(r.montant)}</span>
             </div>
             <p className="text-xs text-muted-foreground">{r.plateforme_label} · {fmtDate(r.date_debut)} → {r.date_fin ? fmtDate(r.date_fin) : 'en cours'}</p>
+            <p className="text-xs">
+              {fmtNb(r.nb_commandes)} commande(s) concernée(s) ({fmtNb(r.nb_livrees)} livrées) · CA {fmtAr(r.ca)}
+              {r.cout_par_commande !== null && <> · {fmtAr(r.cout_par_commande)} / commande</>}
+            </p>
             <p className="text-xs">
               {fmtNb(r.articles_vendus)} article(s) vendu(s) · coût/article : {r.articles_vendus ? <span className="font-medium">{fmtAr(r.cout_par_article)}</span> : <Badge variant="outline" className="text-[10px]">aucun article vendu</Badge>}
             </p>
@@ -109,7 +119,7 @@ export function SectionBoost({ boosts, loading, error, magasinId, sessionOuverte
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><Megaphone className="h-4 w-4" /> Nouveau boost</DialogTitle>
-            <DialogDescription>Le coût par article sera calculé automatiquement sur les articles vendus entre les deux dates.</DialogDescription>
+            <DialogDescription>Les commandes entre les deux dates seront rattachées automatiquement au boost ; le coût par article et par commande se calculent seuls, et se recalculent à chaque modification du montant ou des dates.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1"><Label>Nom</Label><Input value={f.nom} onChange={(e) => setF({ ...f, nom: e.target.value })} placeholder="Ex : Boost Facebook semaine 37" autoFocus /></div>

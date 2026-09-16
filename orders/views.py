@@ -261,35 +261,17 @@ class OrderViewSet(viewsets.ModelViewSet):
             created_by=request.user,
             preparateur=request.user if role == "PREPARATEUR" else None,
         )
-        campagne = data.get("campagne")
-        if campagne is not None:
-            self._verifier_campagne(campagne, order)
-            order.campagne = campagne
-            order.save(update_fields=["campagne"])
+        # Plus d'affectation manuelle à une campagne : elle est automatique,
+        # par période (finance/services.py::commandes_du_boost).
         response_serializer = OrderPreparateurSerializer if role == "PREPARATEUR" else OrderGerantSerializer
         return Response(response_serializer(order).data, status=status.HTTP_201_CREATED)
 
-    @staticmethod
-    def _verifier_campagne(campagne, order):
-        if campagne.magasin_id != order.magasin_id:
-            raise DRFValidationError({"campagne": "Cette campagne n'appartient pas au magasin de la commande."})
-
     @action(detail=True, methods=["post"], url_path="campagne", permission_classes=[IsGerant])
     def set_campagne(self, request, pk=None):
-        """Rattache (ou détache, campagne=null) une commande à une campagne
-        marketing — possible à tout moment, sans toucher au reste de la commande."""
-        order = self.get_object()
-        campagne_id = request.data.get("campagne")
-        campagne = None
-        if campagne_id not in (None, "", 0):
-            try:
-                campagne = MarketingCampaign.objects.get(id=campagne_id)
-            except (MarketingCampaign.DoesNotExist, ValueError, TypeError):
-                raise DRFValidationError({"campagne": "Campagne introuvable."})
-            self._verifier_campagne(campagne, order)
-        order.campagne = campagne
-        order.save(update_fields=["campagne"])
-        return Response(OrderGerantSerializer(order).data)
+        """Conservé pour les anciens clients : l'affectation est désormais
+        automatique par période, cette action ne fait plus rien et renvoie
+        la commande avec ses campagnes calculées."""
+        return Response(OrderGerantSerializer(self.get_object()).data)
 
     def partial_update(self, request, *args, **kwargs):
         order = self.get_object()
@@ -797,24 +779,30 @@ class MarketingCampaignViewSet(viewsets.ModelViewSet):
     @transaction.atomic
     def perform_create(self, serializer):
         campagne = serializer.save(magasin=resolve_magasin_for_request(self.request), created_by=self.request.user)
-        self._apres_ecriture(campagne)
+        self._apres_ecriture(campagne, periodes=[(campagne.date_debut, campagne.date_fin)])
 
     @transaction.atomic
     def perform_update(self, serializer):
-        self._apres_ecriture(serializer.save())
+        # Ancienne période mémorisée AVANT l'écriture : si les dates bougent
+        # (ou si le boost est désactivé), les ventes sorties de la période
+        # doivent aussi être recalculées.
+        avant = (serializer.instance.date_debut, serializer.instance.date_fin)
+        campagne = serializer.save()
+        self._apres_ecriture(campagne, periodes=[avant, (campagne.date_debut, campagne.date_fin)])
 
     @transaction.atomic
     def perform_destroy(self, instance):
-        magasin, d1, d2 = instance.magasin, instance.date_debut, instance.date_fin
+        magasin, periode = instance.magasin, (instance.date_debut, instance.date_fin)
         super().perform_destroy(instance)
         from finance import services as finance_services
 
-        finance_services.recalculer_ventes(magasin, d1, d2 or finance_services.timezone.localdate(), self.request.user)
+        finance_services.recalculer_apres_boost(magasin, [periode], self.request.user)
 
-    def _apres_ecriture(self, campagne):
+    def _apres_ecriture(self, campagne, periodes):
         """Un boost change la part de boost de toutes les ventes de sa
-        période : on les recalcule. `en_caisse: true` enregistre aussi la
-        dépense en sortie de caisse (une seule fois, référence BOOST:<id>)."""
+        période : on recalcule l'union des périodes (ancienne + nouvelle).
+        `en_caisse: true` enregistre aussi la dépense en sortie de caisse
+        (une seule fois, référence BOOST:<id>)."""
         from finance import services as finance_services
 
         if str(self.request.data.get("en_caisse", "")).lower() in ("1", "true"):
@@ -825,6 +813,4 @@ class MarketingCampaignViewSet(viewsets.ModelViewSet):
                 session, "out", campagne.montant, f"Boost {campagne.get_plateforme_display()} — {campagne.nom}",
                 "BOOST", f"BOOST:{campagne.id}", self.request.user,
             )
-        finance_services.recalculer_ventes(
-            campagne.magasin, campagne.date_debut, campagne.date_fin or finance_services.timezone.localdate(), self.request.user
-        )
+        finance_services.recalculer_apres_boost(campagne.magasin, periodes, self.request.user)

@@ -17,6 +17,14 @@ class MarketingCampaign {
     required this.note,
     required this.actif,
     required this.createdAt,
+    this.nbCommandes = 0,
+    this.nbLivrees = 0,
+    this.ca = 0,
+    this.coutParCommande,
+    this.coutParArticle = 0,
+    this.articlesVendus = 0,
+    this.periodeEffectiveTo,
+    this.enCours = false,
   });
 
   final int id;
@@ -37,6 +45,20 @@ class MarketingCampaign {
   final bool actif;
   final String? createdAt;
 
+  /// Affectation AUTOMATIQUE par période, calculée par le serveur
+  /// (`nb_commandes`, `nb_livrees`, `ca`, `cout_par_commande`,
+  /// `periode_effective`) : rien n'est recalculé côté app.
+  final int nbCommandes;
+  final int nbLivrees;
+  final num ca;
+  final num? coutParCommande;
+  final num coutParArticle;
+  final int articlesVendus;
+
+  /// Dernier jour couvert (`AAAA-MM-JJ`) — aujourd'hui pour un boost en cours.
+  final String? periodeEffectiveTo;
+  final bool enCours;
+
   factory MarketingCampaign.fromJson(Map<String, dynamic> json) => MarketingCampaign(
         id: asInt(json['id']),
         magasin: asIntOrNull(json['magasin']),
@@ -49,6 +71,14 @@ class MarketingCampaign {
         note: asString(json['note']),
         actif: asBool(json['actif']),
         createdAt: asStringOrNull(json['created_at']),
+        nbCommandes: asInt(json['nb_commandes']),
+        nbLivrees: asInt(json['nb_livrees']),
+        ca: asDouble(json['ca']),
+        coutParCommande: asDoubleOrNull(json['cout_par_commande']),
+        coutParArticle: asDouble(json['cout_par_article']),
+        articlesVendus: asInt(json['articles_vendus']),
+        periodeEffectiveTo: asStringOrNull((json['periode_effective'] as Map?)?['to']),
+        enCours: asBool((json['periode_effective'] as Map?)?['en_cours']),
       );
 
   Map<String, dynamic> toJson() => {

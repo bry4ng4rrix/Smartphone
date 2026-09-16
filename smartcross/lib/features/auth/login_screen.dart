@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 import '../../core/api_client.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../state/auth_provider.dart';
-import '../../widgets/app_logo.dart';
 
 /// Table de traduction des erreurs du web (`ERRORS` + `friendlyError()` dans
 /// `frontend/components/auth/login-form.tsx`) : matching par `includes`, la

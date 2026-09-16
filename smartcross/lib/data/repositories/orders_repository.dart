@@ -76,11 +76,8 @@ class OrdersRepository {
   /// prend maintenant (heure précise) ; [adresseLivraison] complète la zone
   /// (qui ne sert qu'au calcul des frais) pour que le livreur trouve le client.
   /// [telephone2] : second numéro facultatif, même format +261XXXXXXXXX
-  /// (chaîne vide = aucun). [campagne] : campagne marketing d'origine
-  /// (facultative, gérant) — envoyée seulement si choisie, comme
-  /// `...(campagneId ? { campagne } : {})` côté web ; le serveur refuse une
-  /// campagne d'un autre magasin (« Cette campagne n'appartient pas au
-  /// magasin de la commande. »).
+  /// (chaîne vide = aucun). Aucune campagne à indiquer : le serveur rattache
+  /// la commande aux boosts dont la période couvre sa date.
   Future<Order> create({
     required String clientNom,
     required String telephone,
@@ -93,7 +90,6 @@ class OrdersRepository {
     String adresseLivraison = '',
     String modePaiement = 'LIVRAISON',
     DateTime? dateCommande,
-    int? campagne,
     // Admin multi-magasins : magasin cible (facultatif, `magasin_id` du web).
     int? magasinId,
   }) async {
@@ -109,7 +105,6 @@ class OrdersRepository {
       'note_livreur': noteLivreur,
       'items': items.map((e) => e.toJson()).toList(),
       if (dateCommande != null) 'date_commande': dateCommande.toUtc().toIso8601String(),
-      'campagne': ?campagne,
     });
     return Order.fromJson(response.data as Map<String, dynamic>);
   }

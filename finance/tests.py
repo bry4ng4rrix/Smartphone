@@ -317,3 +317,210 @@ class ApiTests(ScenarioMixin, APITestCase):
         self.client.force_authenticate(user=self.livreur)
         self.assertEqual(self.client.get("/api/finance/dashboard/").status_code, 403)
         self.assertEqual(self.client.post("/api/finance/epargne/retrait/", {"montant": 1, "confirmation": True}, format="json").status_code, 403)
+
+
+class BoostAutomatiqueTests(ScenarioMixin, APITestCase):
+    """Affectation AUTOMATIQUE des commandes aux boosts par période (§ demande) :
+
+        boost du J-9 au J-6, 100 000 Ar — commandes A, B (J-9), C (J-8),
+        D (J-7), E (J-6) concernées ; F (J-5) non ; G (J-10) non.
+
+    Les dates sont relatives à aujourd'hui pour que le scénario reste
+    valable quel que soit le jour d'exécution (les boosts ne couvrent
+    jamais l'avenir : `date_fin_effective` ≤ aujourd'hui)."""
+
+    def setUp(self):
+        self.creer_scenario()
+        self.client.force_authenticate(user=self.gerant)
+        self.j = lambda n: self.aujourd_hui - timedelta(days=n)
+
+    def boost(self, debut, fin, montant="100000", **extra):
+        return MarketingCampaign.objects.create(
+            magasin=self.magasin, nom=extra.pop("nom", "Boost Facebook"), montant=D(montant), date_debut=debut, date_fin=fin, **extra
+        )
+
+    def ids(self, boost, **kw):
+        return set(services.commandes_du_boost(boost, **kw).values_list("id", flat=True))
+
+    # 1-5. bornes ---------------------------------------------------------- #
+
+    def test_bornes_de_la_periode(self):
+        b = self.boost(self.j(9), self.j(6))
+        avant = self.commande(jour=self.j(10))
+        debut = self.commande(jour=self.j(9))
+        pendant = self.commande(jour=self.j(8))
+        fin = self.commande(jour=self.j(6))
+        apres = self.commande(jour=self.j(5))
+        concernees = self.ids(b)
+        self.assertNotIn(avant.id, concernees)  # 1. avant le début
+        self.assertIn(debut.id, concernees)  # 2. exactement au début
+        self.assertIn(pendant.id, concernees)  # 3. pendant
+        self.assertIn(fin.id, concernees)  # 4. exactement à la fin (inclusive)
+        self.assertNotIn(apres.id, concernees)  # 5. après la fin
+
+    def test_bornes_heure_locale(self):
+        """Une commande à 00:00 le premier jour et à 23:59 le dernier jour
+        (heure d'Antananarivo) est incluse : la comparaison se fait sur le
+        jour LOCAL, pas sur l'instant UTC."""
+        b = self.boost(self.j(3), self.j(2))
+        tz = timezone.get_current_timezone()
+        minuit = order_services.create_order(
+            magasin=self.magasin, client_nom="C", telephone="+261341234567", livraison_zone=self.zone.code,
+            items=[{"product_variant": self.variante, "quantite": 1}], created_by=self.gerant,
+            date_commande=timezone.make_aware(timezone.datetime.combine(self.j(3), timezone.datetime.min.time()), tz),
+        )
+        tard = order_services.create_order(
+            magasin=self.magasin, client_nom="C", telephone="+261341234567", livraison_zone=self.zone.code,
+            items=[{"product_variant": self.variante, "quantite": 1}], created_by=self.gerant,
+            date_commande=timezone.make_aware(timezone.datetime.combine(self.j(2), timezone.datetime.min.time().replace(hour=23, minute=59)), tz),
+        )
+        self.assertEqual(self.ids(b), {minuit.id, tard.id})
+
+    # 6. boost en cours ---------------------------------------------------- #
+
+    def test_boost_en_cours_jusqu_a_maintenant(self):
+        b = self.boost(self.j(2), None)
+        hier = self.commande(jour=self.j(1))
+        aujourd_hui = self.commande()
+        demain = self.commande(jour=self.aujourd_hui + timedelta(days=1))
+        self.assertEqual(self.ids(b), {hier.id, aujourd_hui.id})
+        self.assertNotIn(demain.id, self.ids(b))
+        self.assertTrue(services.resume_boost(b)["periode_effective"]["en_cours"])
+
+    # 7-8. recalcul automatique ------------------------------------------- #
+
+    def test_modification_montant_recalcule(self):
+        b = self.boost(self.j(3), self.j(1), montant="50000")
+        vente = self.livrer(self.commande(jour=self.j(2)))
+        r = VenteResultat.objects.get(order=vente)
+        self.assertEqual(r.part_boost, D("50000"))
+        res = self.client.patch(f"/api/orders/campaigns/{b.id}/", {"montant": 100000}, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+        r.refresh_from_db()
+        self.assertEqual(r.part_boost, D("100000"))
+        self.assertEqual(r.gain_reel, D("28000") - D("6000") - D("4000") - D("100000"))
+
+    def test_modification_dates_recalcule_ancienne_et_nouvelle_periode(self):
+        b = self.boost(self.j(5), self.j(4), montant="30000")
+        dans_ancienne = self.livrer(self.commande(jour=self.j(5)))
+        dans_nouvelle = self.livrer(self.commande(jour=self.j(2)))
+        self.assertEqual(VenteResultat.objects.get(order=dans_ancienne).part_boost, D("30000"))
+        self.assertEqual(VenteResultat.objects.get(order=dans_nouvelle).part_boost, D("0"))
+        res = self.client.patch(f"/api/orders/campaigns/{b.id}/", {"date_debut": str(self.j(3)), "date_fin": str(self.j(1))}, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+        # La vente sortie de la période perd sa part, celle entrée la reçoit.
+        self.assertEqual(VenteResultat.objects.get(order=dans_ancienne).part_boost, D("0"))
+        self.assertEqual(VenteResultat.objects.get(order=dans_nouvelle).part_boost, D("30000"))
+
+    # 9-10. plusieurs boosts ---------------------------------------------- #
+
+    def test_campagnes_successives(self):
+        a = self.boost(self.j(9), self.j(6), nom="A")
+        b = self.boost(self.j(5), self.j(1), nom="B", montant="150000")
+        dans_a = self.commande(jour=self.j(7))
+        dans_b = self.commande(jour=self.j(3))
+        self.assertEqual(self.ids(a), {dans_a.id})
+        self.assertEqual(self.ids(b), {dans_b.id})
+
+    def test_chevauchement_chaque_boost_sur_sa_periode(self):
+        """Boost A J-8→J-3 et boost B J-5→J-1 : une vente du J-4 est concernée
+        par les deux et supporte une part de CHACUN (règle documentée sur
+        MarketingCampaign) ; les totaux du rapport la comptent une fois."""
+        a = self.boost(self.j(8), self.j(3), nom="A", montant="10000")
+        b = self.boost(self.j(5), self.j(1), nom="B", montant="20000")
+        commune = self.livrer(self.commande(jour=self.j(4)))
+        seulement_a = self.livrer(self.commande(jour=self.j(7)))
+        self.assertEqual(self.ids(a), {commune.id, seulement_a.id})
+        self.assertEqual(self.ids(b), {commune.id})
+        # A : 10 000 / 2 articles = 5 000 ; B : 20 000 / 1 article = 20 000.
+        self.assertEqual(VenteResultat.objects.get(order=commune).part_boost, D("25000"))
+        self.assertEqual(VenteResultat.objects.get(order=seulement_a).part_boost, D("5000"))
+        res = self.client.get(f"/api/orders/reports/marketing/?date_from={self.j(10)}&date_to={self.aujourd_hui}")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["totaux"]["commandes"], 2)  # dé-doublonné
+        par_nom = {l["nom"]: l for l in res.data["campagnes"]}
+        self.assertEqual(par_nom["A"]["commandes"], 2)
+        self.assertEqual(par_nom["B"]["commandes"], 1)
+
+    # 11-12. sans commande, désactivation / suppression -------------------- #
+
+    def test_aucune_commande_pendant_la_campagne(self):
+        b = self.boost(self.j(9), self.j(6))
+        self.commande(jour=self.j(2))
+        r = services.resume_boost(b)
+        self.assertEqual(r["nb_commandes"], 0)
+        self.assertIsNone(r["cout_par_commande"])
+        self.assertEqual(services.cout_boost_par_article(b), (services.ZERO, 0))
+
+    def test_desactivation_et_suppression_recalculent(self):
+        b = self.boost(self.j(3), self.j(1), montant="30000")
+        vente = self.livrer(self.commande(jour=self.j(2)))
+        self.assertEqual(VenteResultat.objects.get(order=vente).part_boost, D("30000"))
+        res = self.client.patch(f"/api/orders/campaigns/{b.id}/", {"actif": False}, format="json")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(VenteResultat.objects.get(order=vente).part_boost, D("0"))
+        b.refresh_from_db()
+        self.assertEqual(self.ids(b), set())  # boost inactif : plus rien de concerné
+        res = self.client.patch(f"/api/orders/campaigns/{b.id}/", {"actif": True}, format="json")
+        self.assertEqual(VenteResultat.objects.get(order=vente).part_boost, D("30000"))
+        res = self.client.delete(f"/api/orders/campaigns/{b.id}/")
+        self.assertEqual(res.status_code, 204)
+        self.assertEqual(VenteResultat.objects.get(order=vente).part_boost, D("0"))
+
+    # 13-14. Caisse et Rapports ------------------------------------------- #
+
+    def test_montants_caisse(self):
+        b = self.boost(self.j(3), self.j(1), montant="20000")
+        self.livrer(self.commande(jour=self.j(2), quantite=2))
+        annulee = self.commande(jour=self.j(2))
+        order_services.cancel_order(order=annulee, user=self.gerant)
+        res = self.client.get(f"/api/finance/dashboard/?date_from={self.j(3)}&date_to={self.j(1)}")
+        self.assertEqual(res.status_code, 200)
+        boost = next(x for x in res.data["boosts"] if x["id"] == b.id)
+        self.assertEqual(boost["nb_commandes"], 1)  # l'annulée n'est pas concernée
+        self.assertEqual(boost["nb_livrees"], 1)
+        self.assertEqual(boost["articles_vendus"], 2)
+        self.assertEqual(D(str(boost["cout_par_article"])), D("10000"))
+        self.assertEqual(D(str(boost["cout_par_commande"])), D("20000"))
+        self.assertEqual(D(str(boost["ca"])), D("53000"))  # 2 × 25 000 + 3 000 livraison
+        self.assertEqual(D(str(res.data["gain"]["part_boost"])), D("20000"))
+        # Même résumé sur l'API des campagnes.
+        res = self.client.get(f"/api/orders/campaigns/{b.id}/")
+        self.assertEqual(res.data["nb_commandes"], 1)
+        self.assertEqual(D(str(res.data["cout_par_commande"])), D("20000"))
+
+    def test_montants_rapports(self):
+        b = self.boost(self.j(9), self.j(6), montant="100000")
+        for n in (9, 9, 8, 7, 6):
+            self.livrer(self.commande(jour=self.j(n)))
+        self.commande(jour=self.j(5))  # hors période
+        res = self.client.get(f"/api/orders/reports/marketing/?date_from={self.j(10)}&date_to={self.aujourd_hui}")
+        self.assertEqual(res.status_code, 200)
+        ligne = next(l for l in res.data["campagnes"] if l["id"] == b.id)
+        self.assertEqual(ligne["commandes"], 5)
+        self.assertEqual(ligne["commandes_livrees"], 5)
+        self.assertEqual(D(str(ligne["ca"])), D("28000") * 5)
+        self.assertEqual(D(str(ligne["cout_par_commande"])), D("20000"))
+        self.assertEqual(D(str(ligne["marge_produits"])), D("19000") * 5)
+        self.assertEqual(res.data["totaux"]["commandes_sans_campagne"], 1)
+        # Fenêtre plus courte que le boost : seules les commandes de la fenêtre.
+        res = self.client.get(f"/api/orders/reports/marketing/?date_from={self.j(8)}&date_to={self.j(7)}")
+        ligne = next(l for l in res.data["campagnes"] if l["id"] == b.id)
+        self.assertEqual(ligne["commandes"], 2)
+
+    def test_creation_commande_sans_champ_campagne(self):
+        """L'API de création ignore `campagne` ; la commande expose ses
+        campagnes calculées."""
+        b = self.boost(self.j(1), None, nom="Auto")
+        res = self.client.post(
+            "/api/orders/",
+            {
+                "client_nom": "X", "telephone": "+261341234567", "livraison_zone": self.zone.code,
+                "items": [{"product_variant": self.variante.id, "quantite": 1}], "campagne": 999999,
+                "magasin_id": self.magasin.id,
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data["campagne_nom"], "Auto")
+        self.assertEqual([c["id"] for c in res.data["campagnes"]], [b.id])

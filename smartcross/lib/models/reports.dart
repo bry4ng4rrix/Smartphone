@@ -1171,6 +1171,7 @@ class Campagne {
     required this.benefice,
     required this.roiPct,
     required this.coutParCommande,
+    this.periodeEffectiveTo,
   });
 
   final int id;
@@ -1189,6 +1190,9 @@ class Campagne {
   final num? roiPct;
   final num? coutParCommande;
 
+  /// Dernier jour réellement couvert (aujourd'hui pour une campagne en cours).
+  final String? periodeEffectiveTo;
+
   factory Campagne.fromJson(Map<String, dynamic> json) => Campagne(
         id: asInt(json['id']),
         nom: asString(json['nom']),
@@ -1205,6 +1209,7 @@ class Campagne {
         benefice: asDouble(json['benefice']),
         roiPct: asDoubleOrNull(json['roi_pct']),
         coutParCommande: asDoubleOrNull(json['cout_par_commande']),
+        periodeEffectiveTo: asStringOrNull((json['periode_effective'] as Map?)?['to']),
       );
 
   static List<Campagne> liste(dynamic v) => _rows(v).map(Campagne.fromJson).toList();

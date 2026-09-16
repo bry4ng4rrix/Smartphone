@@ -130,8 +130,11 @@ class Order(models.Model):
     livreur = models.ForeignKey(
         "users.CustomUser", on_delete=models.SET_NULL, null=True, blank=True, related_name="orders_delivered"
     )
-    # Campagne marketing à l'origine de la commande (facultatif) — seule
-    # base réelle pour les commandes et le CA "générés" du rapport Marketing.
+    # HISTORIQUE — l'affectation d'une commande à une campagne est désormais
+    # AUTOMATIQUE, par période (finance/services.py::commandes_du_boost :
+    # date_commande entre date_debut et date_fin du boost). Ce champ n'est
+    # plus jamais renseigné ; il est conservé pour ne perdre aucune donnée
+    # ancienne (audit) et n'entre plus dans aucun calcul.
     campagne = models.ForeignKey(
         "orders.MarketingCampaign", on_delete=models.SET_NULL, null=True, blank=True, related_name="orders"
     )
@@ -148,6 +151,9 @@ class Order(models.Model):
         verbose_name = "Commande"
         verbose_name_plural = "Commandes"
         ordering = ["-created_at"]
+        # Toutes les recherches par période (boosts, rapports, jour J du
+        # livreur) filtrent sur magasin + date_commande.
+        indexes = [models.Index(fields=["magasin", "date_commande"], name="orders_order_mag_date_idx")]
 
     def generate_numero(self):
         today = timezone.localdate()
@@ -379,8 +385,9 @@ class LivreurExpense(models.Model):
 
 class MarketingCampaign(models.Model):
     """Campagne publicitaire (boost Facebook, TikTok…) : ce qu'elle a coûté et,
-    via Order.campagne, ce qu'elle a rapporté. Une dépense de campagne ne
-    passe pas par la caisse : ne pas la compter deux fois dans le résultat."""
+    via les commandes de sa PÉRIODE (affectation automatique), ce qu'elle a
+    rapporté. Une dépense de campagne ne passe pas par la caisse (sauf
+    `en_caisse`) : ne pas la compter deux fois dans le résultat."""
 
     PLATEFORME_CHOICES = (
         ("FACEBOOK", "Facebook"),
@@ -403,7 +410,17 @@ class MarketingCampaign(models.Model):
     )
     montant = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     # Boost par période (finance) : le montant est réparti sur les articles
-    # vendus entre date_debut et date_fin (bornes comprises).
+    # vendus entre date_debut et date_fin (bornes comprises, jour local du
+    # magasin — même référence `date_commande` que tout le reporting).
+    # `date_fin` vide = boost EN COURS : couvre jusqu'à aujourd'hui.
+    #
+    # AFFECTATION AUTOMATIQUE : une commande est « concernée » par un boost
+    # dès que sa date de livraison prévue tombe dans la période — aucune
+    # sélection manuelle (voir finance/services.py::commandes_du_boost).
+    # CHEVAUCHEMENT : deux boosts peuvent couvrir le même jour (deux
+    # plateformes en parallèle) ; chacun est réparti sur SA période et une
+    # commande de la zone commune est concernée par les deux, avec une part de
+    # chacun — pas de priorité arbitraire, pas d'interdiction.
     type_periode = models.CharField(max_length=15, choices=TYPE_PERIODE_CHOICES, default="PERSONNALISE")
     date_debut = models.DateField(default=timezone.localdate)
     date_fin = models.DateField(null=True, blank=True)
@@ -418,6 +435,17 @@ class MarketingCampaign(models.Model):
         verbose_name = "Campagne marketing"
         verbose_name_plural = "Campagnes marketing"
         ordering = ["-date_debut", "-created_at"]
+        indexes = [models.Index(fields=["magasin", "date_debut", "date_fin"], name="orders_campaign_periode_idx")]
 
     def __str__(self):
         return f"{self.nom} ({self.get_plateforme_display()})"
+
+    @property
+    def date_fin_effective(self):
+        """Dernier jour couvert : `date_fin`, ou aujourd'hui (jour local du
+        magasin) tant que le boost est en cours — jamais au-delà du présent."""
+        return self.date_fin or timezone.localdate()
+
+    def couvre(self, jour):
+        """Le jour (date locale) est-il dans la période, bornes comprises ?"""
+        return self.actif and self.date_debut <= jour <= self.date_fin_effective

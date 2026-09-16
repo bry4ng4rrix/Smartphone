@@ -29,7 +29,9 @@ Définitions (identiques à orders/reports.py) :
 
 Les dépenses de campagnes marketing (MarketingCampaign.montant) sont
 analytiques : elles n'entrent pas dans le bénéfice net, sauf si elles ont
-aussi été enregistrées en caisse (catégorie "Pub").
+aussi été enregistrées en caisse (catégorie "Pub"). Les commandes d'une
+campagne sont celles de sa période (finance/services.py::commandes_du_boost),
+jamais une sélection manuelle.
 """
 
 from collections import defaultdict
@@ -1004,30 +1006,27 @@ class MarketingReportView(_RapportView):
         if campagne_id:
             campagnes = campagnes.filter(id=campagne_id)
 
-        orders = ctx.orders().filter(campagne__in=campagnes)
-        livrees = orders.filter(statut_courant="LIVRE")
-        items = OrderItem.objects.filter(order__in=livrees, retourne=False)
-        stats = {
-            r["campagne"]: r
-            for r in orders.values("campagne").annotate(
-                commandes=Count("id"),
-                livrees=Count("id", filter=Q(statut_courant="LIVRE")),
-                ca=Coalesce(Sum("total_a_payer", filter=Q(statut_courant="LIVRE")), 0, output_field=_DEC),
-            )
-        }
-        marges = {
-            r["order__campagne"]: r["ca"] - r["cout"]
-            for r in items.values("order__campagne").annotate(
+        # Affectation AUTOMATIQUE par période (§ demande) : les commandes
+        # d'une campagne sont celles dont la date de livraison prévue tombe
+        # dans sa période, restreinte à la fenêtre du rapport — source
+        # unique finance/services.py::commandes_du_boost, la même que la
+        # caisse. Plus aucune sélection manuelle (Order.campagne ignoré).
+        # Chevauchement : une commande couverte par deux campagnes compte
+        # pour chacune ; les totaux, eux, dé-doublonnent les commandes.
+        from finance.services import commandes_du_boost, resume_boost
+
+        labels = dict(MarketingCampaign.PLATEFORME_CHOICES)
+        lignes = []
+        commandes_concernees = set()
+        for c in campagnes:
+            qs = commandes_du_boost(c, ctx.date_from, ctx.date_to)
+            r = resume_boost(c, ctx.date_from, ctx.date_to)
+            marge = OrderItem.objects.filter(order__in=qs.filter(statut_courant="LIVRE"), retourne=False).aggregate(
                 ca=Coalesce(Sum(F("prix_unitaire") * F("quantite")), 0, output_field=_DEC),
                 cout=Coalesce(Sum(F("quantite") * F("product_variant__product_reference__prix_achat")), 0, output_field=_DEC),
             )
-        }
-        labels = dict(MarketingCampaign.PLATEFORME_CHOICES)
-        lignes = []
-        for c in campagnes:
-            s = stats.get(c.id, {})
-            ca = s.get("ca", ZERO)
-            marge = marges.get(c.id, ZERO)
+            marge = marge["ca"] - marge["cout"]
+            commandes_concernees.update(qs.values_list("id", flat=True))
             lignes.append(
                 {
                     "id": c.id,
@@ -1036,15 +1035,16 @@ class MarketingReportView(_RapportView):
                     "plateforme_label": labels.get(c.plateforme, c.plateforme),
                     "date_debut": str(c.date_debut),
                     "date_fin": str(c.date_fin) if c.date_fin else None,
+                    "periode_effective": r["periode_effective"],
                     "actif": c.actif,
                     "depenses": c.montant,
-                    "commandes": s.get("commandes", 0),
-                    "commandes_livrees": s.get("livrees", 0),
-                    "ca": ca,
+                    "commandes": r["nb_commandes"],
+                    "commandes_livrees": r["nb_livrees"],
+                    "ca": r["ca"],
                     "marge_produits": marge,
                     "benefice": marge - c.montant,
-                    "roi_pct": _roi(ca, c.montant),
-                    "cout_par_commande": (c.montant / s["commandes"]) if s.get("commandes") else None,
+                    "roi_pct": _roi(r["ca"], c.montant),
+                    "cout_par_commande": r["cout_par_commande"],
                 }
             )
         lignes.sort(key=lambda l: (l["roi_pct"] is None, -(l["roi_pct"] or 0)))
@@ -1064,20 +1064,34 @@ class MarketingReportView(_RapportView):
             p["roi_pct"] = _roi(p["ca"], p["depenses"])
 
         depenses = sum((l["depenses"] for l in lignes), ZERO)
-        ca_total = sum((l["ca"] for l in lignes), ZERO)
         pub_caisse = _somme(ctx.caisse_sorties().filter(category__nom__iexact="Pub"), F("amount"))
         avec_roi = [l for l in lignes if l["roi_pct"] is not None]
+        # Totaux sur les commandes DISTINCTES (une commande couverte par deux
+        # campagnes qui se chevauchent n'est comptée qu'une fois ici).
+        distinctes = ctx.orders().filter(id__in=commandes_concernees)
+        agg = distinctes.aggregate(
+            n=Count("id"),
+            livrees=Count("id", filter=Q(statut_courant="LIVRE")),
+            ca=Coalesce(Sum("total_a_payer", filter=Q(statut_courant="LIVRE")), 0, output_field=_DEC),
+        )
+        ca_total = agg["ca"]
+        items_distincts = OrderItem.objects.filter(order__in=distinctes.filter(statut_courant="LIVRE"), retourne=False).aggregate(
+            ca=Coalesce(Sum(F("prix_unitaire") * F("quantite")), 0, output_field=_DEC),
+            cout=Coalesce(Sum(F("quantite") * F("product_variant__product_reference__prix_achat")), 0, output_field=_DEC),
+        )
         return {
             "totaux": {
                 "depenses_campagnes": depenses,
                 "depenses_pub_caisse": pub_caisse,
-                "commandes": sum(l["commandes"] for l in lignes),
-                "commandes_livrees": sum(l["commandes_livrees"] for l in lignes),
+                "commandes": agg["n"],
+                "commandes_livrees": agg["livrees"],
                 "ca": ca_total,
-                "marge_produits": sum((l["marge_produits"] for l in lignes), ZERO),
+                "marge_produits": items_distincts["ca"] - items_distincts["cout"],
                 "roi_pct": _roi(ca_total, depenses),
                 "nb_campagnes": len(lignes),
-                "commandes_sans_campagne": ctx.orders().filter(campagne__isnull=True).count(),
+                # Commandes de la période (non annulées) qu'aucune campagne
+                # ne couvre — calculé par période, plus par FK manuelle.
+                "commandes_sans_campagne": ctx.orders().exclude(statut_courant="ANNULEE").exclude(id__in=commandes_concernees).count(),
             },
             "campagnes": lignes,
             "par_plateforme": sorted(par_plateforme.values(), key=lambda p: -float(p["depenses"])),

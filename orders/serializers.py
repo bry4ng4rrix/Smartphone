@@ -1,3 +1,4 @@
+from django.utils import timezone
 from rest_framework import serializers
 
 from catalog.models import ProductVariant
@@ -96,7 +97,12 @@ class OrderGerantSerializer(serializers.ModelSerializer):
     status_history = OrderStatusHistorySerializer(many=True, read_only=True)
     preparateur_name = serializers.CharField(source="preparateur.full_name", read_only=True)
     livreur_name = serializers.CharField(source="livreur.full_name", read_only=True)
-    campagne_nom = serializers.CharField(source="campagne.nom", read_only=True, default="")
+    # Campagne(s) — AUTOMATIQUE par période (§ demande) : les boosts actifs
+    # dont la période couvre la date de livraison prévue, séparés par
+    # « , » s'il y en a plusieurs (chevauchement). `campagne` (FK manuelle
+    # historique) reste exposé en lecture, jamais renseigné.
+    campagne_nom = serializers.SerializerMethodField()
+    campagnes = serializers.SerializerMethodField()
     # Espace client : compte à l'origine de la commande (null en interne) et
     # drapeau pratique pour l'interface du gérant (additif, lecture seule).
     client_email = serializers.EmailField(source="client.email", read_only=True, default=None)
@@ -107,13 +113,35 @@ class OrderGerantSerializer(serializers.ModelSerializer):
     # unitaires aux préparateurs / livreurs.
     remise_total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
 
+    def _boosts_de(self, obj):
+        """Boosts couvrant la commande — une seule requête par magasin et par
+        sérialisation (cache sur l'instance), puis test en mémoire."""
+        cache = getattr(self, "_cache_boosts", None)
+        if cache is None:
+            cache = self._cache_boosts = {}
+        boosts = cache.get(obj.magasin_id)
+        if boosts is None:
+            boosts = cache[obj.magasin_id] = list(
+                MarketingCampaign.objects.filter(magasin_id=obj.magasin_id, actif=True).order_by("date_debut", "id")
+            )
+        if obj.date_commande is None:
+            return []
+        jour = timezone.localtime(obj.date_commande).date()
+        return [b for b in boosts if b.couvre(jour)]
+
+    def get_campagnes(self, obj):
+        return [{"id": b.id, "nom": b.nom, "plateforme": b.plateforme} for b in self._boosts_de(obj)]
+
+    def get_campagne_nom(self, obj):
+        return ", ".join(b.nom for b in self._boosts_de(obj))
+
     class Meta:
         model = Order
         fields = [
             "id", "magasin", "numero", "date_commande", "client_nom", "telephone", "telephone_2", "livraison_zone",
             "adresse_livraison", "mode_paiement", "frais_livraison", "total_a_payer", "remise_total",
             "note_preparateur", "note_livreur", "statut_courant",
-            "preparateur", "preparateur_name", "livreur", "livreur_name", "campagne", "campagne_nom",
+            "preparateur", "preparateur_name", "livreur", "livreur_name", "campagne", "campagne_nom", "campagnes",
             "client", "client_email", "est_commande_client", "items",
             "status_history", "created_at", "updated_at",
         ]
@@ -217,9 +245,9 @@ class OrderCreateSerializer(serializers.Serializer):
     note_preparateur = serializers.CharField(required=False, allow_blank=True, default="")
     note_livreur = serializers.CharField(required=False, allow_blank=True, default="")
     items = OrderCreateItemSerializer(many=True)
-    campagne = serializers.PrimaryKeyRelatedField(
-        queryset=MarketingCampaign.objects.all(), required=False, allow_null=True
-    )
+    # Plus de champ `campagne` : l'affectation à un boost est automatique
+    # par période (finance/services.py::commandes_du_boost). Une valeur
+    # envoyée par un ancien client est simplement ignorée.
 
     def validate_livraison_zone(self, value):
         return _validate_zone_code(value, self.context["request"].user)
@@ -327,10 +355,46 @@ class LivreurExpenseSerializer(serializers.ModelSerializer):
 
 
 class MarketingCampaignSerializer(serializers.ModelSerializer):
+    """Campagne / boost. Les commandes concernées ne se choisissent pas :
+    elles sont déduites de la période (finance/services.py::commandes_du_boost)
+    et résumées ici — `nb_commandes`, `nb_livrees`, `ca`, `cout_par_commande`,
+    `periode_effective` — en plus du coût financier par article."""
+
     plateforme_label = serializers.CharField(source="get_plateforme_display", read_only=True)
     articles_vendus = serializers.SerializerMethodField()
     cout_par_article = serializers.SerializerMethodField()
     en_caisse = serializers.SerializerMethodField()
+    nb_commandes = serializers.SerializerMethodField()
+    nb_livrees = serializers.SerializerMethodField()
+    ca = serializers.SerializerMethodField()
+    cout_par_commande = serializers.SerializerMethodField()
+    periode_effective = serializers.SerializerMethodField()
+
+    def _resume(self, obj):
+        # Un seul calcul par campagne et par sérialisation.
+        cache = getattr(self, "_cache_resume", None)
+        if cache is None:
+            cache = self._cache_resume = {}
+        if obj.pk not in cache:
+            from finance.services import resume_boost
+
+            cache[obj.pk] = resume_boost(obj)
+        return cache[obj.pk]
+
+    def get_nb_commandes(self, obj):
+        return self._resume(obj)["nb_commandes"]
+
+    def get_nb_livrees(self, obj):
+        return self._resume(obj)["nb_livrees"]
+
+    def get_ca(self, obj):
+        return self._resume(obj)["ca"]
+
+    def get_cout_par_commande(self, obj):
+        return self._resume(obj)["cout_par_commande"]
+
+    def get_periode_effective(self, obj):
+        return self._resume(obj)["periode_effective"]
 
     def get_articles_vendus(self, obj):
         from finance.services import cout_boost_par_article
@@ -350,6 +414,7 @@ class MarketingCampaignSerializer(serializers.ModelSerializer):
             "id", "magasin", "nom", "plateforme", "plateforme_label", "montant", "type_periode",
             "date_debut", "date_fin", "note", "actif", "created_at",
             "articles_vendus", "cout_par_article", "en_caisse",
+            "nb_commandes", "nb_livrees", "ca", "cout_par_commande", "periode_effective",
         ]
         read_only_fields = ["magasin", "created_at"]
 

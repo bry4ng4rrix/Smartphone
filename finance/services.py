@@ -32,7 +32,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import DecimalField, F, Q, Sum
+from django.db.models import Count, DecimalField, F, Q, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -99,7 +99,68 @@ def repartir(gain, pct_reappro, pct_epargne, pct_depenses):
 
 
 def _fin_boost(boost):
-    return boost.date_fin or timezone.localdate()
+    return boost.date_fin_effective
+
+
+def commandes_du_boost(boost, date_from=None, date_to=None):
+    """SOURCE UNIQUE de l'affectation automatique commande ↔ boost (§ demande) :
+    les commandes du magasin dont la date de livraison prévue
+    (`date_commande`, jour local Antananarivo — la référence de tout le
+    reporting) tombe entre `date_debut` et `date_fin` du boost, BORNES
+    COMPRISES ; boost en cours (`date_fin` vide) → jusqu'à aujourd'hui. Les
+    commandes annulées ne sont pas concernées (rien généré). Aucune
+    sélection manuelle : `Order.campagne` n'entre plus en jeu.
+
+    `date_from` / `date_to` restreignent en plus à une fenêtre (rapport sur
+    une période plus courte que le boost).
+
+    Chevauchement de deux boosts : chacun retourne SES commandes ; une
+    commande dans la zone commune apparaît pour les deux (règle documentée
+    sur MarketingCampaign)."""
+    qs = Order.objects.filter(magasin=boost.magasin).exclude(statut_courant="ANNULEE")
+    if not boost.actif:
+        # Boost désactivé : plus aucune commande concernée, plus aucune part
+        # de coût (cohérent avec boosts_couvrant / MarketingCampaign.couvre).
+        return qs.none()
+    d1, d2 = boost.date_debut, _fin_boost(boost)
+    if date_from and date_from > d1:
+        d1 = date_from
+    if date_to and date_to < d2:
+        d2 = date_to
+    if d1 > d2:
+        return qs.none()
+    return qs.filter(date_commande__date__gte=d1, date_commande__date__lte=d2)
+
+
+def resume_boost(boost, date_from=None, date_to=None):
+    """Indicateurs d'un boost, calculés par requête (jamais stockés) :
+    commandes concernées, livrées, CA généré (commandes livrées), coût du
+    boost par commande, période effective. Le coût financier retenu dans le
+    gain réel reste le coût PAR ARTICLE (cout_boost_par_article) — le coût
+    par commande n'est qu'un indicateur d'affichage."""
+    qs = commandes_du_boost(boost, date_from, date_to)
+    agg = qs.aggregate(
+        nb=Count("id"),
+        livrees=Count("id", filter=Q(statut_courant="LIVRE")),
+        ca=Coalesce(Sum("total_a_payer", filter=Q(statut_courant="LIVRE")), 0, output_field=_DEC),
+    )
+    nb = agg["nb"] or 0
+    return {
+        "nb_commandes": nb,
+        "nb_livrees": agg["livrees"] or 0,
+        "ca": q2(agg["ca"]),
+        "cout_par_commande": q2(Decimal(boost.montant) / nb) if nb else None,
+        "periode_effective": {"from": str(boost.date_debut), "to": str(_fin_boost(boost)), "en_cours": boost.date_fin is None},
+    }
+
+
+def boosts_couvrant_commande(order):
+    """Boosts actifs du magasin qui couvrent la date de la commande
+    (l'inverse de commandes_du_boost) — pour afficher « Campagne » sur une
+    commande. Liste vide sans date ou hors de toute période."""
+    if order.date_commande is None:
+        return MarketingCampaign.objects.none()
+    return boosts_couvrant(order.magasin, timezone.localtime(order.date_commande).date())
 
 
 def articles_vendus(magasin, date_from, date_to):
@@ -348,6 +409,19 @@ def recalculer_ventes(magasin, date_from, date_to, user=None):
             _aligner_epargne(resultat, user)
             modifies += 1
     return modifies
+
+
+@transaction.atomic
+def recalculer_apres_boost(magasin, periodes, user=None):
+    """Recalcul automatique après création / modification / désactivation /
+    suppression d'un boost (§ demande) : toutes les ventes de l'UNION des
+    périodes concernées — l'ancienne ET la nouvelle — sont recalculées, pour
+    que les ventes sorties de la période perdent leur part et que celles qui
+    y entrent la reçoivent. `periodes` : liste de (date_debut, date_fin)."""
+    periodes = [(d1, d2 or timezone.localdate()) for d1, d2 in periodes if d1]
+    if not periodes:
+        return 0
+    return recalculer_ventes(magasin, min(p[0] for p in periodes), max(p[1] for p in periodes), user)
 
 
 @transaction.atomic
@@ -623,6 +697,8 @@ def boosts_periode(magasins, date_from, date_to):
                 "type_periode": b.type_periode, "date_debut": str(b.date_debut), "date_fin": str(b.date_fin) if b.date_fin else None,
                 "montant": b.montant, "articles_vendus": n, "cout_par_article": par_article, "actif": b.actif,
                 "en_caisse": f"BOOST:{b.id}" in en_caisse,
+                # Affectation automatique par période (§ demande).
+                **resume_boost(b),
             }
         )
     return out

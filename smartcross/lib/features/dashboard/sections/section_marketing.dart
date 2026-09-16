@@ -34,7 +34,7 @@ String _roiCampagneTexte(num? roi) => roi == null ? 'n/a (coût 0)' : fmtPct(roi
 String _roiTexte(num? roi) => roi == null ? 'n/a' : fmtPct(roi, signe: true);
 
 const String _texteRoi =
-    "ROI = (CA généré − coût de la campagne) / coût × 100. Le CA généré vient des commandes rattachées à la campagne (champ « Campagne » à la création d'une commande) et livrées sur la période. Bénéfice attribué = marge produits de ces commandes − coût de la campagne.";
+    "Les commandes sont rattachées AUTOMATIQUEMENT à une campagne : toute commande dont la date de livraison prévue tombe dans la période de la campagne (bornes comprises ; campagne en cours = jusqu'à aujourd'hui) est concernée — rien à sélectionner à la création. ROI = (CA généré − coût de la campagne) / coût × 100 ; CA généré = commandes concernées et livrées ; bénéfice attribué = marge produits de ces commandes − coût de la campagne. Deux campagnes qui se chevauchent comptent chacune les commandes de leur période (les totaux ne les comptent qu'une fois).";
 
 /// Colonnes communes des tableaux « plus / moins rentables ».
 final List<ReportColumn<Campagne>> _colonnesRentabilite = [
@@ -133,11 +133,19 @@ class _SectionMarketingState extends ConsumerState<SectionMarketing> {
     ),
     ReportColumn(
       key: 'commandes',
-      label: 'Commandes',
+      label: 'Commandes concernées',
       align: TextAlign.right,
       valeur: (r) => r.commandes,
       render: (r, _) => Text(_commandesTexte(r)),
       export: (r) => r.commandes,
+    ),
+    ReportColumn(
+      key: 'cout_par_commande',
+      label: 'Coût boost / commande',
+      align: TextAlign.right,
+      valeur: (r) => r.coutParCommande ?? -1,
+      render: (r, _) => Text(r.coutParCommande == null ? 'aucune commande' : fmtAr(r.coutParCommande!)),
+      export: (r) => r.coutParCommande,
     ),
     ReportColumn(
       key: 'ca',
@@ -309,7 +317,7 @@ class _SectionMarketingState extends ConsumerState<SectionMarketing> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          '$_texteRoi${sansCampagne > 0 ? ' ${fmtNb(sansCampagne)} commandes de la période ne sont rattachées à aucune campagne.' : ''}',
+          '$_texteRoi${sansCampagne > 0 ? ' ${fmtNb(sansCampagne)} commandes de la période ne sont couvertes par aucune campagne.' : ''}',
           style: TextStyle(fontSize: 12, color: muted),
         ),
         const SizedBox(height: 16),

@@ -907,7 +907,9 @@ class DjangoAPIClient {
     return q.toString()
   }
 
-  // Campagnes marketing (rapport Marketing, formulaire de commande).
+  // Campagnes marketing / boosts (rapport Marketing, caisse) — les
+  // commandes concernées sont déduites de la période par le serveur
+  // (`nb_commandes`, `nb_livrees`, `ca`, `cout_par_commande`, `periode_effective`).
   campaigns = {
     list: async (params?: { magasin_id?: number; actif?: boolean }) => {
       const q = new URLSearchParams()
@@ -926,7 +928,11 @@ class DjangoAPIClient {
     update: async (id: number, data: Record<string, unknown>) =>
       this.patch<any>(`/orders/campaigns/${id}/`, data),
     delete: async (id: number) => this.delete(`/orders/campaigns/${id}/`),
-    /** Rattache (ou détache avec null) une commande à une campagne. */
+    /**
+     * @deprecated L'affectation commande ↔ campagne est automatique par
+     * période côté serveur ; l'endpoint ne fait plus rien et renvoie la
+     * commande avec ses campagnes calculées. Conservé pour compatibilité.
+     */
     setOrderCampaign: async (orderId: number, campagne: number | null) =>
       this.post<any>(`/orders/${orderId}/campagne/`, { campagne }),
   }

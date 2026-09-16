@@ -318,6 +318,8 @@ export interface DeliveriesData {
 
 export interface Campagne {
   id: number; nom: string; plateforme: string; plateforme_label: string; date_debut: string; date_fin: string | null; actif: boolean;
+  /** Période réellement couverte : jusqu'à aujourd'hui pour un boost en cours. */
+  periode_effective?: { from: string; to: string; en_cours: boolean };
   depenses: number; commandes: number; commandes_livrees: number; ca: number; marge_produits: number; benefice: number;
   roi_pct: number | null; cout_par_commande: number | null;
 }

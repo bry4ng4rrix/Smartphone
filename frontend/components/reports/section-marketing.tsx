@@ -82,9 +82,10 @@ export function SectionMarketing({ params, enabled }: { params: ReportParams; en
   const colonnes: Colonne<Campagne>[] = [
     { key: 'nom', label: 'Campagne', render: (r) => <span className="font-medium">{r.nom}{!r.actif && <Badge variant="outline" className="ml-2">Inactive</Badge>}</span> },
     { key: 'plateforme_label', label: 'Plateforme' },
-    { key: 'periode', label: 'Période', render: (r) => `${fmtDate(r.date_debut)}${r.date_fin ? ` → ${fmtDate(r.date_fin)}` : ' → en cours'}`, export: (r) => `${r.date_debut} → ${r.date_fin || ''}` },
-    { key: 'depenses', label: 'Dépenses', align: 'right', render: (r) => fmtAr(r.depenses) },
-    { key: 'commandes', label: 'Commandes', align: 'right', render: (r) => `${fmtNb(r.commandes)} (${fmtNb(r.commandes_livrees)} livrées)`, export: (r) => r.commandes },
+    { key: 'periode', label: 'Période', render: (r) => `${fmtDate(r.date_debut)}${r.date_fin ? ` → ${fmtDate(r.date_fin)}` : ` → en cours (${r.periode_effective ? fmtDate(r.periode_effective.to) : "aujourd'hui"})`}`, export: (r) => `${r.date_debut} → ${r.date_fin || ''}` },
+    { key: 'depenses', label: 'Montant', align: 'right', render: (r) => fmtAr(r.depenses) },
+    { key: 'commandes', label: 'Commandes concernées', align: 'right', render: (r) => `${fmtNb(r.commandes)} (${fmtNb(r.commandes_livrees)} livrées)`, export: (r) => r.commandes },
+    { key: 'cout_par_commande', label: 'Coût boost / commande', align: 'right', render: (r) => (r.cout_par_commande === null ? <Badge variant="outline">aucune commande</Badge> : fmtAr(r.cout_par_commande)), export: (r) => r.cout_par_commande },
     { key: 'ca', label: 'CA généré', align: 'right', render: (r) => fmtAr(r.ca) },
     { key: 'marge_produits', label: 'Marge produits', align: 'right', render: (r) => fmtAr(r.marge_produits) },
     { key: 'benefice', label: 'Bénéfice attribué', align: 'right', render: (r) => <span className={r.benefice < 0 ? 'text-red-600' : ''}>{fmtAr(r.benefice)}</span> },
@@ -113,9 +114,11 @@ export function SectionMarketing({ params, enabled }: { params: ReportParams; en
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">
-        ROI = (CA généré − coût de la campagne) / coût × 100. Le CA généré vient des commandes rattachées à la campagne (champ « Campagne » à la
-        création d&apos;une commande) et livrées sur la période. Bénéfice attribué = marge produits de ces commandes − coût de la campagne.
-        {t && Number(t.commandes_sans_campagne) > 0 && ` ${fmtNb(t.commandes_sans_campagne)} commandes de la période ne sont rattachées à aucune campagne.`}
+        Les commandes sont rattachées <strong>automatiquement</strong> à une campagne : toute commande dont la date de livraison prévue tombe dans la
+        période de la campagne (bornes comprises ; campagne en cours = jusqu&apos;à aujourd&apos;hui) est concernée — rien à sélectionner à la création.
+        ROI = (CA généré − coût de la campagne) / coût × 100 ; CA généré = commandes concernées et livrées ; bénéfice attribué = marge produits de ces
+        commandes − coût de la campagne. Deux campagnes qui se chevauchent comptent chacune les commandes de leur période (les totaux ne les comptent qu&apos;une fois).
+        {t && Number(t.commandes_sans_campagne) > 0 && ` ${fmtNb(t.commandes_sans_campagne)} commandes de la période ne sont couvertes par aucune campagne.`}
       </p>
 
       <KpiGrid cols={4}>
@@ -127,7 +130,7 @@ export function SectionMarketing({ params, enabled }: { params: ReportParams; en
 
       <ReportTable
         titre="Campagnes"
-        description="Campagnes actives sur la période. Créez-les ici, puis rattachez les commandes concernées."
+        description="Campagnes de la période. Renseignez nom, plateforme, dates et montant : les commandes concernées et le coût par commande se calculent seuls."
         actions={
           <div className="flex items-center gap-1">
             <Select value={plateforme} onValueChange={setPlateforme}>

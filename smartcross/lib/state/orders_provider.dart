@@ -232,7 +232,6 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
     String modePaiement = 'LIVRAISON',
     DateTime? dateCommande,
     // Campagne marketing d'origine (facultative) — voir OrdersRepository.create.
-    int? campagne,
   }) async {
     final order = await _repo.create(
       clientNom: clientNom,
@@ -245,7 +244,6 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
       adresseLivraison: adresseLivraison,
       modePaiement: modePaiement,
       dateCommande: dateCommande,
-      campagne: campagne,
     );
     await refreshSilencieux();
     return order;
