@@ -153,6 +153,8 @@ const historyAt = (order: any, statut: string) =>
   (order.status_history || []).find((h: any) => h.nouveau_statut === statut)
     ?.timestamp;
 
+import { OrdersStatusCounts, type CompteurStatut } from "@/components/orders/status-counts";
+
 const STATUTS = [
   {
     value: "NOUVELLE",
@@ -176,6 +178,28 @@ const STATUTS = [
 ];
 const statutInfo = (s: string) =>
   STATUTS.find((x) => x.value === s) || STATUTS[0];
+
+/**
+ * Statuts comptés dans l'en-tête du tableau, par rôle (§ demande) : chacun
+ * ne voit que les états qui le concernent.
+ *
+ * - Livreur  : ce qu'il doit récupérer, ce qu'il roule, ce qu'il a clos.
+ * - Préparateur : sa file de préparation, puis ce que ses commandes sont
+ *   devenues.
+ * - Gérant   : tout le workflow.
+ */
+const STATUTS_COMPTEURS: Record<string, string[]> = {
+  LIVREUR: ["PRETE", "EN_LIVRAISON", "LIVRE", "RETOUR", "ANNULEE"],
+  PREPARATEUR: [
+    "NOUVELLE",
+    "EN_PREPARATION",
+    "PRETE",
+    "EN_LIVRAISON",
+    "LIVRE",
+    "RETOUR",
+  ],
+  GERANT: STATUTS.map((s) => s.value),
+};
 
 /**
  * Mot à retaper avant de confirmer une transition (§ demande).
@@ -326,6 +350,9 @@ export default function OrdersPage() {
   const [livreurDate, setLivreurDate] = useState("");
   // Filtre préparateur (vue "À préparer"/"Récupérations") : date (un seul jour).
   const [preparateurDate, setPreparateurDate] = useState(() => appToday());
+  // Filtre de statut du préparateur sur sa vue active : piloté uniquement
+  // par les compteurs du haut de tableau (§ demande), "ALL" par défaut.
+  const [preparateurStatut, setPreparateurStatut] = useState("ALL");
 
   useEffect(() => {
     if (!isGerant) return;
@@ -339,10 +366,12 @@ export default function OrdersPage() {
     async (silent = false) => {
       if (!silent) setLoading(true);
       try {
+        // Le statut n'est PAS envoyé au serveur : la liste est chargée tous
+        // statuts confondus pour que les compteurs du haut de tableau soient
+        // exacts, puis filtrée côté client (voir compteursStatut /
+        // ordersFiltresStatut) — le résultat affiché est identique.
         const filters: any = {};
         if (isGerant) {
-          if (statutFilter !== "ALL" && statutFilter !== "NON_LIVREE")
-            filters.statut = statutFilter;
           if (gerantDate) {
             filters.date_debut = gerantDate;
             filters.date_fin = gerantDate;
@@ -356,7 +385,6 @@ export default function OrdersPage() {
             filters.date_from = appDatetimeLocalToIso(historiqueFrom);
           if (historiqueTo)
             filters.date_to = appDatetimeLocalToIso(historiqueTo);
-          if (historiqueStatut !== "ALL") filters.statut = historiqueStatut;
         }
         // Préparateur/livreur : sur le jour par défaut, la fenêtre va
         // jusqu'au dernier jour déjà ouvert — après 19h00 elle inclut donc
@@ -370,9 +398,6 @@ export default function OrdersPage() {
               : preparateurDate;
         }
         if (isLivreur && viewMode === "ACTIF") {
-          if (livreurStatutFilter !== "ALL") {
-            filters.statut = livreurStatutFilter;
-          }
           // Filtre facultatif : sans date choisie, le serveur renvoie tout
           // le planning du livreur.
           if (livreurDate) {
@@ -388,9 +413,11 @@ export default function OrdersPage() {
         if (!silent) setLoading(false);
       }
     },
+    // `statutFilter` / `historiqueStatut` / `livreurStatutFilter` n'y sont
+    // plus : changer de statut ne relance aucune requête, le filtrage est
+    // désormais local (voir ordersFiltresStatut).
     [
       isGerant,
-      statutFilter,
       gerantDate,
       preparateurFilterId,
       isPreparateur,
@@ -398,9 +425,7 @@ export default function OrdersPage() {
       viewMode,
       historiqueFrom,
       historiqueTo,
-      historiqueStatut,
       preparateurDate,
-      livreurStatutFilter,
       livreurDate,
     ],
   );
@@ -759,9 +784,7 @@ export default function OrdersPage() {
               ? o.livraison_zone === "RECUPERATION"
               : o.livraison_zone !== "RECUPERATION",
           )
-        : isGerant && statutFilter === "NON_LIVREE"
-          ? orders.filter((o) => o.statut_courant !== "LIVRE")
-          : orders;
+        : orders;
 
   const searchableOrders = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -803,6 +826,93 @@ export default function OrdersPage() {
   }, [visibleOrders, searchQuery]);
 
   /**
+   * Statut filtré sur la vue courante — chaque rôle a le sien (§ existant) :
+   * le gérant filtre sa journée, le préparateur/livreur leur historique, le
+   * livreur sa tournée. "ALL" = aucun filtre.
+   */
+  const statutActif =
+    viewMode === "HISTORIQUE"
+      ? historiqueStatut
+      : isGerant
+        ? statutFilter
+        : isLivreur
+          ? livreurStatutFilter
+          : preparateurStatut;
+
+  const setStatutActif = (v: string) => {
+    if (viewMode === "HISTORIQUE") setHistoriqueStatut(v);
+    else if (isGerant) setStatutFilter(v);
+    else if (isLivreur) setLivreurStatutFilter(v);
+    else setPreparateurStatut(v);
+  };
+
+  /**
+   * Compteurs affichés au-dessus du tableau : calculés sur la liste déjà
+   * filtrée (date, recherche, onglet) mais AVANT le filtre de statut, pour
+   * qu'un filtre actif ne mette pas les autres compteurs à zéro.
+   */
+  const compteursStatut = useMemo<CompteurStatut[]>(() => {
+    const parStatut = new Map<string, number>();
+    for (const o of searchableOrders) {
+      const s = o.statut_courant || "NOUVELLE";
+      parStatut.set(s, (parStatut.get(s) || 0) + 1);
+    }
+    const roleCompteurs = isGerant
+      ? "GERANT"
+      : isLivreur
+        ? "LIVREUR"
+        : "PREPARATEUR";
+    const statutsDuRole = STATUTS_COMPTEURS[roleCompteurs];
+    const connus = new Set(statutsDuRole);
+    const compteurs: CompteurStatut[] = [
+      { value: "ALL", label: "Toutes", count: searchableOrders.length },
+    ];
+    if (isGerant && viewMode === "ACTIF") {
+      compteurs.push({
+        value: "NON_LIVREE",
+        label: "Pas encore livrée",
+        count: searchableOrders.filter((o: any) => o.statut_courant !== "LIVRE")
+          .length,
+      });
+    }
+    // Statut hors liste du rôle mais présent dans SES commandes (ex :
+    // commande de l'espace client en attente d'approbation) : on l'affiche
+    // quand même, sinon son compte manquerait au total.
+    for (const [value, count] of parStatut) {
+      if (!connus.has(value) && count > 0) {
+        compteurs.push({
+          value,
+          label:
+            STATUTS.find((x) => x.value === value)?.label ??
+            value
+              .split("_")
+              .map((m) => m.charAt(0) + m.slice(1).toLowerCase())
+              .join(" "),
+          count,
+        });
+      }
+    }
+    for (const value of statutsDuRole) {
+      compteurs.push({
+        value,
+        label: STATUTS.find((x) => x.value === value)?.label ?? value,
+        count: parStatut.get(value) || 0,
+      });
+    }
+    return compteurs;
+  }, [searchableOrders, isGerant, isLivreur, viewMode]);
+
+  /** Liste après application du filtre de statut de la vue. */
+  const ordersFiltresStatut = useMemo(() => {
+    if (!statutActif || statutActif === "ALL") return searchableOrders;
+    if (statutActif === "NON_LIVREE")
+      return searchableOrders.filter((o: any) => o.statut_courant !== "LIVRE");
+    return searchableOrders.filter(
+      (o: any) => o.statut_courant === statutActif,
+    );
+  }, [searchableOrders, statutActif]);
+
+  /**
    * Liste finalement affichée, pour les TROIS rôles : la commande la plus
    * récemment CRÉÉE en haut (§ demande).
    *
@@ -824,13 +934,13 @@ export default function OrdersPage() {
     const livraisonLe = (o: any) =>
       o.date_commande ? new Date(o.date_commande).getTime() : 0;
     if (!(isLivreur && viewMode === "ACTIF")) {
-      return [...searchableOrders].sort((a, b) => creeLe(b) - creeLe(a));
+      return [...ordersFiltresStatut].sort((a, b) => creeLe(b) - creeLe(a));
     }
     // Livreur : toutes les commandes assignées restent affichées (aucun
     // filtre jour J à l'affichage — seuls les boutons d'action sont
     // conditionnés au jour J), filtre de période puis tri choisi.
     const today = appToday();
-    const base = searchableOrders.filter((o: any) => {
+    const base = ordersFiltresStatut.filter((o: any) => {
       if (livreurPeriode === "TOUTES") return true;
       const jour = o.date_commande ? appDayKey(o.date_commande) : "";
       if (livreurPeriode === "AUJOURDHUI") return jour === today;
@@ -844,7 +954,7 @@ export default function OrdersPage() {
       LIVRAISON_LOINTAINE: (a, b) => livraisonLe(b) - livraisonLe(a),
     };
     return [...base].sort(tri[livreurTri]);
-  }, [searchableOrders, isLivreur, viewMode, livreurTri, livreurPeriode]);
+  }, [ordersFiltresStatut, isLivreur, viewMode, livreurTri, livreurPeriode]);
 
   // Pastille « quand livrer » d'une commande (vue livreur) : Aujourd'hui,
   // Demain, à venir (date) ou en retard.
@@ -1109,35 +1219,6 @@ export default function OrdersPage() {
       )}
 
       {isGerant && (
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant={statutFilter === "ALL" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setStatutFilter("ALL")}
-          >
-            Toutes
-          </Button>
-          <Button
-            variant={statutFilter === "NON_LIVREE" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setStatutFilter("NON_LIVREE")}
-          >
-            Pas encore livrée
-          </Button>
-          {STATUTS.map((s) => (
-            <Button
-              key={s.value}
-              variant={statutFilter === s.value ? "default" : "outline"}
-              size="sm"
-              onClick={() => setStatutFilter(s.value)}
-            >
-              {s.label}
-            </Button>
-          ))}
-        </div>
-      )}
-
-      {isGerant && (
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Date</Label>
@@ -1213,6 +1294,16 @@ export default function OrdersPage() {
       )}
 
       <Card>
+        {/* En-tête du tableau : nombre de commandes par statut (§ demande) —
+            statuts propres au rôle, chaque pastille filtre aussi la liste. */}
+        <CardHeader className="px-4 sm:px-6 pb-3">
+          <OrdersStatusCounts
+            compteurs={compteursStatut}
+            value={statutActif}
+            onChange={setStatutActif}
+            loading={loading}
+          />
+        </CardHeader>
         <CardContent className="p-0">
           {loading ? (
             <div className="p-6">
