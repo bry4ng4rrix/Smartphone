@@ -59,22 +59,39 @@ const toDateInputValue = (d: Date) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 };
 
+// Pastilles lisibles en clair ET en sombre (§ demande) : texte foncé sur fond
+// pastel le jour, texte clair sur fond teinté translucide la nuit. Classes
+// écrites en entier (Tailwind ne génère pas les classes construites
+// dynamiquement).
+const TEINTES: Record<string, string> = {
+  green: "font-normal border-green-200 text-green-700 bg-green-50/50 dark:border-green-500/40 dark:text-green-300 dark:bg-green-500/15",
+  cyan: "font-normal border-cyan-200 text-cyan-700 bg-cyan-50/50 dark:border-cyan-500/40 dark:text-cyan-300 dark:bg-cyan-500/15",
+  red: "font-normal border-red-200 text-red-700 bg-red-50/50 dark:border-red-500/40 dark:text-red-300 dark:bg-red-500/15",
+  amber: "font-normal border-amber-200 text-amber-700 bg-amber-50/50 dark:border-amber-500/40 dark:text-amber-300 dark:bg-amber-500/15",
+  indigo: "font-normal border-indigo-200 text-indigo-700 bg-indigo-50/50 dark:border-indigo-500/40 dark:text-indigo-300 dark:bg-indigo-500/15",
+  slate: "font-normal border-slate-200 text-slate-700 bg-slate-50/50 dark:border-slate-500/40 dark:text-slate-200 dark:bg-slate-500/20",
+  orange: "font-normal border-orange-200 text-orange-700 bg-orange-50/50 dark:border-orange-500/40 dark:text-orange-300 dark:bg-orange-500/15",
+  purple: "font-normal border-purple-200 text-purple-700 bg-purple-50/50 dark:border-purple-500/40 dark:text-purple-300 dark:bg-purple-500/15",
+  blue: "font-normal border-blue-200 text-blue-700 bg-blue-50/50 dark:border-blue-500/40 dark:text-blue-300 dark:bg-blue-500/15",
+};
+const teinte = (color: string) => TEINTES[color] ?? TEINTES.orange;
+
 const getMovementTypeBadgeClass = (type: string) => {
   switch (type) {
     case "Réception fournisseur":
-      return "font-normal border-green-200 text-green-700 bg-green-50/50";
+      return teinte("green");
     case "Retour de commande":
-      return "font-normal border-cyan-200 text-cyan-700 bg-cyan-50/50";
+      return teinte("cyan");
     case "Annulation de commande":
-      return "font-normal border-red-200 text-red-700 bg-red-50/50";
+      return teinte("red");
     case "Préparation de commande":
-      return "font-normal border-amber-200 text-amber-700 bg-amber-50/50";
+      return teinte("amber");
     case "Commande livrée":
-      return "font-normal border-indigo-200 text-indigo-700 bg-indigo-50/50";
+      return teinte("indigo");
     case "Ajustement manuel":
-      return "font-normal border-slate-200 text-slate-700 bg-slate-50/50";
+      return teinte("slate");
     default:
-      return "font-normal border-orange-200 text-orange-700 bg-orange-50/50";
+      return teinte("orange");
   }
 };
 
@@ -96,10 +113,10 @@ const parseVariantEntries = (
     });
 
 const getChangeBadgeClass = (change: number, movementType: string) => {
-  if (movementType === "Transfert") return "bg-blue-50 text-blue-700";
-  if (change > 0) return "bg-green-50 text-green-700";
-  if (change < 0) return "bg-red-50 text-red-700";
-  return "bg-orange-50 text-orange-700";
+  if (movementType === "Transfert") return "bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300";
+  if (change > 0) return "bg-green-50 text-green-700 dark:bg-green-500/15 dark:text-green-300";
+  if (change < 0) return "bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300";
+  return "bg-orange-50 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300";
 };
 
 export default function MovementsPage() {
@@ -618,7 +635,7 @@ export default function MovementsPage() {
                               return (
                                 <Badge
                                   variant="outline"
-                                  className="font-normal border-purple-200 text-sky-700 bg-purple-50/50"
+                                  className={teinte("purple")}
                                 >
                                   {v.name} {v.qty > 0 ? "+" : ""}
                                   {v.qty}
@@ -630,7 +647,7 @@ export default function MovementsPage() {
                                 <HoverCardTrigger asChild>
                                   <Badge
                                     variant="outline"
-                                    className="font-normal border-purple-200 text-purple-700 bg-purple-50/50 cursor-default"
+                                    className={`${teinte("purple")} cursor-default`}
                                   >
                                     {variants.length} variantes
                                   </Badge>
@@ -641,7 +658,7 @@ export default function MovementsPage() {
                                       <Badge
                                         key={i}
                                         variant="outline"
-                                        className="font-normal border-purple-200 text-purple-700 bg-purple-50/50"
+                                        className={teinte("purple")}
                                       >
                                         {v.name} {v.qty > 0 ? "+" : ""}
                                         {v.qty}
@@ -690,7 +707,7 @@ export default function MovementsPage() {
                           <TableCell className="text-sm">
                             <Badge
                               variant="outline"
-                              className="font-normal border-blue-200 text-blue-700 bg-blue-50/50"
+                              className={teinte("blue")}
                             >
                               {m.magasin_name || "-"}
                             </Badge>
@@ -880,7 +897,7 @@ function DailyMovementsTable({
                         <TableCell className="text-sm">
                           <Badge
                             variant="outline"
-                            className="font-normal border-blue-200 text-blue-700 bg-blue-50/50"
+                            className={teinte("blue")}
                           >
                             {m.magasin_name || "-"}
                           </Badge>
