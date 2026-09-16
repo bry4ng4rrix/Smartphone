@@ -1886,8 +1886,9 @@ export default function OrdersPage() {
                             .filter(Boolean)
                             .join(" • ") || "Sans métadonnées"}
                         </div>
-                        {/* Prix unitaire (gérant seul : les autres rôles ne
-                            reçoivent pas les prix) avec la remise accordée. */}
+                        {/* Prix de l'article — gérant et préparateur
+                            (§ demande) ; le livreur, lui, ne voit que le
+                            total à encaisser. Remise accordée affichée. */}
                         {it.prix_unitaire != null && (
                           <div className="text-xs flex flex-wrap items-center gap-2">
                             <span className="font-medium">
@@ -2350,11 +2351,18 @@ export default function OrdersPage() {
                 <span className="text-muted-foreground">Articles</span>
                 <ul className="mt-1 space-y-0.5">
                   {(actionNote.order.items || []).map((it: any, i: number) => (
-                    <li key={i} className="flex justify-between">
-                      <span>
+                    <li key={i} className="flex justify-between gap-3">
+                      <span className="min-w-0">
                         {it.reference_name} ({it.couleur})
                       </span>
-                      <span>x{it.quantite}</span>
+                      {/* Prix de l'article : visible du gérant et du
+                          préparateur (§ demande). */}
+                      <span className="whitespace-nowrap">
+                        x{it.quantite}
+                        {it.prix_unitaire != null
+                          ? ` · ${fmt(Number(it.prix_unitaire) * Number(it.quantite || 1))}`
+                          : ""}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -3003,6 +3011,11 @@ function EditOrderDialog({
   const [livreurs, setLivreurs] = useState<
     { id: number; full_name: string; available: boolean }[]
   >([]);
+  // Couleur choisie par article (id article -> id variante) et couleurs
+  // disponibles de chaque référence : le client change souvent d'avis sur la
+  // couleur alors que la commande est déjà prête (§ demande).
+  const [couleurParItem, setCouleurParItem] = useState<Record<number, string>>({});
+  const [variantesParRef, setVariantesParRef] = useState<Record<number, any[]>>({});
 
   // Au-delà de "En préparation" la commande est trop engagée pour tout
   // modifier, mais les données de LIVRAISON doivent rester ajustables : le
@@ -3012,6 +3025,44 @@ function EditOrderDialog({
   // orders/services.py::update_order, qui refuserait le reste de toute façon.
   const livraisonSeule =
     !!order && !["NOUVELLE", "EN_PREPARATION"].includes(order.statut_courant);
+
+  // Couleurs disponibles pour chaque article de la commande — chargées à
+  // l'ouverture, une requête par référence distincte.
+  useEffect(() => {
+    if (!order) {
+      setVariantesParRef({});
+      setCouleurParItem({});
+      return;
+    }
+    const items: any[] = order.items || [];
+    setCouleurParItem(
+      Object.fromEntries(
+        items.map((it) => [it.id, String(it.product_variant)]),
+      ),
+    );
+    const refs = [
+      ...new Set(
+        items
+          .map((it) => it.product_reference)
+          .filter((r): r is number => typeof r === "number"),
+      ),
+    ];
+    if (refs.length === 0) return;
+    let annule = false;
+    Promise.all(
+      refs.map((ref) =>
+        djangoClient.catalog.variants
+          .list(ref)
+          .then((v) => [ref, v] as const)
+          .catch(() => [ref, []] as const),
+      ),
+    ).then((paires) => {
+      if (!annule) setVariantesParRef(Object.fromEntries(paires));
+    });
+    return () => {
+      annule = true;
+    };
+  }, [order]);
 
   useEffect(() => {
     if (!order) return;
@@ -3084,6 +3135,27 @@ function EditOrderDialog({
     }
     setSubmitting(true);
     try {
+      // Changements de couleur : endpoint dédié, autorisé même quand la
+      // commande est déjà engagée (stock des deux couleurs ajusté, total et
+      // historique mis à jour côté serveur).
+      const couleursModifiees = (order.items || []).filter(
+        (it: any) =>
+          couleurParItem[it.id] &&
+          Number(couleurParItem[it.id]) !== it.product_variant,
+      );
+      for (const it of couleursModifiees) {
+        await djangoClient.orders.changerCouleur(order.id, {
+          item_id: it.id,
+          product_variant: Number(couleurParItem[it.id]),
+        });
+      }
+      if (couleursModifiees.length) {
+        toast.success(
+          couleursModifiees.length === 1
+            ? "Couleur modifiée — stock mis à jour"
+            : `${couleursModifiees.length} couleurs modifiées — stock mis à jour`,
+        );
+      }
       if (livraisonSeule) {
         await djangoClient.orders.update(order.id, {
           mode_paiement: modePaiement as any,
@@ -3167,10 +3239,77 @@ function EditOrderDialog({
           <DialogTitle>Modifier la commande {order?.numero}</DialogTitle>
           <DialogDescription>
             {livraisonSeule
-              ? "Commande déjà engagée : seules la zone, l'adresse, le paiement, la date et l'heure de livraison et la note du livreur restent modifiables. Changer la zone met à jour les frais et le bilan du livreur."
+              ? "Commande déjà engagée : la couleur des articles, la zone, l'adresse, le paiement, la date et l'heure de livraison et la note du livreur restent modifiables. Le stock, les frais et le bilan du livreur suivent automatiquement."
               : 'Possible tant que la commande n\'est pas encore "Prête".'}
           </DialogDescription>
         </DialogHeader>
+
+        {/* Couleur des articles : modifiable à TOUTE étape non terminée
+            (§ demande) — le client change d'avis alors que la commande est
+            déjà prête. Le serveur ajuste le stock des deux couleurs, le
+            total et l'historique (orders/services.py::changer_couleur_item). */}
+        {livraisonSeule && (order?.items || []).some((it: any) => !it.retourne) && (
+          <div className="space-y-2">
+            <Label>Couleur des articles</Label>
+            <div className="space-y-2">
+              {(order?.items || [])
+                .filter((it: any) => !it.retourne)
+                .map((it: any) => {
+                  const variantes = variantesParRef[it.product_reference] || [];
+                  const choisie = couleurParItem[it.id] ?? String(it.product_variant);
+                  const modifiee = Number(choisie) !== it.product_variant;
+                  return (
+                    <div
+                      key={it.id}
+                      className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">
+                          {[it.brand_name, it.reference_name].filter(Boolean).join(" ")}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {it.type_name} · Quantité : {it.quantite}
+                        </p>
+                      </div>
+                      <div className="sm:w-56">
+                        <Select
+                          value={choisie}
+                          onValueChange={(v) =>
+                            setCouleurParItem((prev) => ({ ...prev, [it.id]: v }))
+                          }
+                          disabled={variantes.length <= 1}
+                        >
+                          <SelectTrigger
+                            className={`w-full ${modifiee ? "border-primary ring-1 ring-primary/30" : ""}`}
+                            aria-label={`Couleur de ${it.reference_name}`}
+                          >
+                            <SelectValue placeholder={it.couleur || "Couleur"} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(variantes.length
+                              ? variantes
+                              : [{ id: it.product_variant, couleur: it.couleur, stock_actuel: null }]
+                            ).map((v: any) => (
+                              <SelectItem key={v.id} value={String(v.id)}>
+                                {v.couleur}
+                                {v.stock_actuel !== null && v.stock_actuel !== undefined
+                                  ? ` — stock ${v.stock_actuel}`
+                                  : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Changer la couleur remet l&apos;ancienne en stock et sort la nouvelle ; le
+              préparateur et le livreur en sont informés. Le prix et le total ne changent pas.
+            </p>
+          </div>
+        )}
 
         {/* Régime restreint : au-delà de "En préparation" seul le
             mode de paiement reste modifiable (§ demande). Tout le

@@ -380,6 +380,93 @@ def corriger_statut(*, order, user, nouveau_statut, note=""):
 
 
 @transaction.atomic
+def changer_couleur_item(*, order, item_id, product_variant, user):
+    """Change la COULEUR d'un article, même sur une commande déjà engagée
+    (« Prête », « En livraison ») — § demande.
+
+    Le client change souvent d'avis sur la couleur alors que la commande est
+    déjà préparée : c'est la seule modification d'article encore autorisée à
+    ce stade, parce qu'elle ne touche ni au prix ni au total (même
+    référence, donc même prix catalogue), seulement au stock.
+
+    Tout ce qui en dépend suit automatiquement :
+      * l'ancienne couleur revient en stock, la nouvelle en sort
+        (mouvements 'AJUSTEMENT', tracés au numéro de commande) ;
+      * le total est recalculé (inchangé, sauf remise conservée) ;
+      * le changement est écrit dans l'historique de la commande, donc
+        visible du préparateur et du livreur.
+
+    Une commande terminée (livrée, retour, annulée) reste figée : son
+    paiement est soldé et compté dans les bilans.
+    """
+    if user_commande_role(user) != "GERANT":
+        raise PermissionDenied("Seul le gérant peut changer la couleur d'un article.")
+    if order.statut_courant in _TERMINAL_STATUSES:
+        raise ValidationError(
+            f"Cette commande est '{order.get_statut_courant_display()}' — elle ne peut plus être modifiée."
+        )
+
+    try:
+        item = order.items.select_related("product_variant__product_reference").get(pk=item_id)
+    except OrderItem.DoesNotExist:
+        raise ValidationError("Cet article n'appartient pas à la commande.")
+
+    if item.retourne:
+        raise ValidationError("Cet article a été rapporté : sa couleur ne se change plus.")
+    ancienne = item.product_variant
+    if product_variant.pk == ancienne.pk:
+        raise ValidationError("C'est déjà la couleur de cet article.")
+    if product_variant.product_reference_id != ancienne.product_reference_id:
+        raise ValidationError(
+            "Seule la couleur peut être changée : le nouvel article doit être le même produit."
+        )
+
+    # Le stock est réservé depuis la création : l'ancienne couleur revient en
+    # rayon, la nouvelle en sort. Origine 'AJUSTEMENT' pour ne pas se
+    # confondre avec une préparation, un retour ou une annulation réels.
+    apply_stock_movement(
+        product_variant=ancienne, movement_type="ENTREE", quantite=item.quantite,
+        origine="AJUSTEMENT", user=user, reference=order.numero,
+        note=f"Changement de couleur — {ancienne.couleur} rendue",
+    )
+    apply_stock_movement(
+        product_variant=product_variant, movement_type="SORTIE", quantite=item.quantite,
+        origine="AJUSTEMENT", user=user, reference=order.numero,
+        note=f"Changement de couleur — {product_variant.couleur} prise",
+    )
+
+    item.product_variant = product_variant
+    item.save(update_fields=["product_variant"])
+    # Même référence, donc même prix : le total ne bouge pas. On le recalcule
+    # quand même pour que rien ne puisse diverger en silence.
+    order.recompute_total()
+
+    OrderStatusHistory.objects.create(
+        order=order,
+        ancien_statut=order.statut_courant,
+        nouveau_statut=order.statut_courant,
+        changed_by=user,
+        note=(
+            f"Couleur modifiée : {ancienne.product_reference.reference_name} "
+            f"{ancienne.couleur} → {product_variant.couleur}"
+        )[:255],
+    )
+
+    _notify_commande_role(
+        magasin=order.magasin,
+        commande_role="PREPARATEUR" if order.statut_courant in ("NOUVELLE", "EN_PREPARATION") else "LIVREUR",
+        notif_type="order",
+        message=(
+            f"Commande {order.numero} — couleur changée : "
+            f"{ancienne.product_reference.reference_name} {ancienne.couleur} → {product_variant.couleur}"
+        ),
+        order=order,
+    )
+    order.refresh_from_db()
+    return order
+
+
+@transaction.atomic
 def update_order(*, order, user, client_nom=None, telephone=None, telephone_2=None, livraison_zone=None, adresse_livraison=None,
                   mode_paiement=None, date_commande=None, note_preparateur=None, note_livreur=None, items=None):
     """Modification d'une commande (gérant uniquement, voir
@@ -420,8 +507,9 @@ def update_order(*, order, user, client_nom=None, telephone=None, telephone_2=No
         if any(v is not None for v in interdits.values()):
             raise ValidationError(
                 f"Cette commande est '{order.get_statut_courant_display()}' — "
-                "seuls le paiement, la zone, l'adresse, la date de livraison et "
-                "la note du livreur peuvent encore être modifiés."
+                "seuls le paiement, la zone, l'adresse, la date de livraison, "
+                "la note du livreur et la COULEUR des articles peuvent encore "
+                "être modifiés (voir changer_couleur_item)."
             )
         modifiables = {
             "mode_paiement": mode_paiement,

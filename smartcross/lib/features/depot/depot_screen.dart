@@ -1106,7 +1106,15 @@ class _ResumeCommande extends StatelessWidget {
           if (order.aRemise) row('Remise accordée au client', '−${arFmt(order.remiseTotal)}', color: remiseColor),
           const Divider(height: 16),
           Text('Articles', style: muted),
-          for (final item in order.items) row(item.libelle, 'x${item.quantite}'),
+          // Prix de l'article à côté de la quantité — le préparateur le voit
+          // (§ demande), pas les frais de livraison ni le total.
+          for (final item in order.items)
+            row(
+              item.libelle,
+              item.prixUnitaire == null
+                  ? 'x${item.quantite}'
+                  : 'x${item.quantite} · ${arFmt(item.prixUnitaire! * item.quantite)}',
+            ),
           if (order.totalAPayer != null) ...[
             const Divider(height: 16),
             if (!recup && order.fraisLivraison != null) ...[

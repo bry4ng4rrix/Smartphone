@@ -770,6 +770,11 @@ class DjangoAPIClient {
         ...(itemsLivres ? { items_livres: itemsLivres } : {}),
       })
     },
+    /** Change la couleur d'un article — possible même sur une commande
+     *  déjà « Prête » / « En livraison » (stock des deux couleurs ajusté). */
+    changerCouleur: async (id: number, data: { item_id: number; product_variant: number }) => {
+      return this.post<any>(`/orders/${id}/changer-couleur/`, data)
+    },
     cancel: async (id: number, note?: string) => {
       return this.post<any>(`/orders/${id}/cancel/`, { note })
     },

@@ -620,12 +620,14 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
                   // Rien ne reste à encaisser quand le client a déjà payé
                   // d'avance : afficher un "Total à payer" ferait croire au
                   // livreur qu'il doit encore réclamer la somme (§ demande).
-                  if (!order.estPrepayee)
+                  // Le PRÉPARATEUR ne le reçoit pas du tout (il voit le prix
+                  // de chaque article, pas la livraison ni le total — voir
+                  // orders/serializers.py::OrderPreparateurSerializer) :
+                  // `totalAPayer` est alors nul et la ligne disparaît.
+                  if (!order.estPrepayee && order.totalAPayer != null)
                     _KeyValueRow(
                       label: 'Total à payer',
-                      value: order.totalAPayer == null
-                          ? '-'
-                          : _ar(order.totalAPayer!),
+                      value: _ar(order.totalAPayer!),
                       bold: true,
                     ),
                   if (order.preparateurName != null)

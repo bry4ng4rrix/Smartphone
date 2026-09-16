@@ -46,6 +46,9 @@ class OrderItemSerializer(serializers.ModelSerializer):
     """Vue complète d'un article — gérant uniquement (inclut le prix)."""
 
     reference_name = serializers.CharField(source="product_variant.product_reference.reference_name", read_only=True)
+    # Référence du produit : sert à proposer ses autres couleurs quand le
+    # gérant change la couleur d'un article (voir changer_couleur_item).
+    product_reference = serializers.IntegerField(source="product_variant.product_reference_id", read_only=True)
     couleur = serializers.CharField(source="product_variant.couleur", read_only=True)
     brand_name = serializers.CharField(source="product_variant.product_reference.brand.nom", read_only=True)
     type_name = serializers.CharField(source="product_variant.product_reference.type.nom", read_only=True)
@@ -58,8 +61,9 @@ class OrderItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrderItem
         fields = [
-            "id", "product_variant", "reference_name", "brand_name", "type_name", "category_name",
-            "couleur", "prix_unitaire", "prix_catalogue", "remise_unitaire", "quantite", "retourne",
+            "id", "product_variant", "product_reference", "reference_name", "brand_name", "type_name",
+            "category_name", "couleur", "prix_unitaire", "prix_catalogue", "remise_unitaire", "quantite",
+            "retourne",
         ]
 
 
@@ -77,6 +81,21 @@ class OrderItemPublicSerializer(serializers.ModelSerializer):
         fields = [
             "id", "reference_name", "brand_name", "type_name", "category_name", "couleur", "quantite",
             "retourne",
+        ]
+
+
+class OrderItemPreparateurSerializer(OrderItemPublicSerializer):
+    """Articles vus par le PRÉPARATEUR : comme la vue publique, plus le prix
+    de l'article (§ demande). Il annonce le prix au client au comptoir et
+    vérifie ce qu'il prépare ; en revanche les frais de livraison et le
+    total à payer ne le concernent pas (voir OrderPreparateurSerializer) —
+    c'est le livreur qui encaisse."""
+
+    remise_unitaire = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+
+    class Meta(OrderItemPublicSerializer.Meta):
+        fields = OrderItemPublicSerializer.Meta.fields + [
+            "prix_unitaire", "prix_catalogue", "remise_unitaire",
         ]
 
 
@@ -150,12 +169,15 @@ class OrderGerantSerializer(serializers.ModelSerializer):
 
 class OrderPreparateurSerializer(serializers.ModelSerializer):
     """Module Dépôt — Préparateur (§7.2) : N° commande, Client, Téléphone,
-    Produit + Couleur, Zone. Pas de détail des prix unitaires ni de données de
-    coût/marge — seuls le sous-total (prix de vente), les frais de livraison
-    et le total sont exposés, pour le résumé affiché avant confirmation
-    d'une action (§ demande)."""
+    Produit + Couleur, Zone.
 
-    items = OrderItemPublicSerializer(many=True, read_only=True)
+    Il voit le PRIX DE CHAQUE ARTICLE (§ demande) — ce qu'il prépare et
+    annonce au comptoir — mais ni les frais de livraison ni le total à
+    payer : l'encaissement est l'affaire du livreur, et ces montants
+    brouillaient sa fiche. Toujours aucune donnée de coût ni de marge.
+    """
+
+    items = OrderItemPreparateurSerializer(many=True, read_only=True)
     preparateur_name = serializers.CharField(source="preparateur.full_name", read_only=True)
     # Qui livrera cette commande : le préparateur a besoin de le savoir pour
     # préparer/remettre le colis à la bonne personne (§ demande).
@@ -170,7 +192,7 @@ class OrderPreparateurSerializer(serializers.ModelSerializer):
         model = Order
         fields = [
             "id", "numero", "date_commande", "client_nom", "telephone", "telephone_2", "livraison_zone", "adresse_livraison",
-            "mode_paiement", "frais_livraison", "total_a_payer", "remise_total", "statut_courant", "note_preparateur",
+            "mode_paiement", "remise_total", "statut_courant", "note_preparateur",
             "preparateur", "preparateur_name", "livreur", "livreur_name", "items", "created_at",
         ]
         read_only_fields = fields

@@ -377,6 +377,38 @@ class OrderViewSet(viewsets.ModelViewSet):
             raise DRFValidationError(exc.messages)
         return self._reponse_commande(order)
 
+    @action(detail=True, methods=["post"], url_path="changer-couleur", permission_classes=[IsGerant])
+    def changer_couleur(self, request, pk=None):
+        """POST /api/orders/{id}/changer-couleur/ {item_id, product_variant}
+
+        Change la couleur d'un article même sur une commande déjà « Prête »
+        ou « En livraison » (§ demande) : le client change d'avis, le stock
+        des deux couleurs est ajusté et l'historique en garde la trace.
+        Voir services.changer_couleur_item.
+        """
+        from catalog.models import ProductVariant
+
+        order = self.get_object()
+        item_id = request.data.get("item_id")
+        variant_id = request.data.get("product_variant")
+        if not item_id or not variant_id:
+            raise DRFValidationError("L'article et la nouvelle couleur sont requis.")
+        try:
+            variante = ProductVariant.objects.select_related("product_reference").get(pk=variant_id)
+        except (ProductVariant.DoesNotExist, ValueError, TypeError):
+            raise DRFValidationError({"product_variant": "Couleur introuvable."})
+        if variante.product_reference.type.category.magasin_id != order.magasin_id:
+            raise DRFValidationError({"product_variant": "Cet article n'appartient pas au magasin de la commande."})
+        try:
+            order = services.changer_couleur_item(
+                order=order, item_id=item_id, product_variant=variante, user=request.user,
+            )
+        except PermissionDenied as exc:
+            raise DRFPermissionDenied(str(exc))
+        except ValidationError as exc:
+            raise DRFValidationError(str(exc))
+        return self._reponse_commande(order)
+
     @action(detail=True, methods=["post"], url_path="corriger-statut")
     def corriger_statut(self, request, pk=None):
         """POST /api/orders/{id}/corriger-statut/ {statut, note} — corrige le

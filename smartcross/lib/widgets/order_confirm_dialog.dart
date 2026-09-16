@@ -204,7 +204,15 @@ class _OrderConfirmDialog extends ConsumerWidget {
                 ),
               const Divider(height: 20),
               Text('Articles', style: muted),
-              for (final item in order.items) row(item.libelle, 'x${item.quantite}'),
+              // Prix de l'article quand le rôle le reçoit (gérant,
+              // préparateur — § demande).
+              for (final item in order.items)
+                row(
+                  item.libelle,
+                  item.prixUnitaire == null
+                      ? 'x${item.quantite}'
+                      : 'x${item.quantite} · ${arFmt(item.prixUnitaire! * item.quantite)}',
+                ),
               // Commande déjà réglée : le livreur n'a rien à encaisser, on
               // masque tous les montants et on l'annonce clairement (§ demande).
               if (hideAmounts) ...[
