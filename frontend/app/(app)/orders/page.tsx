@@ -153,7 +153,10 @@ const historyAt = (order: any, statut: string) =>
   (order.status_history || []).find((h: any) => h.nouveau_statut === statut)
     ?.timestamp;
 
-import { OrdersStatusCounts, type CompteurStatut } from "@/components/orders/status-counts";
+import {
+  OrdersStatusCounts,
+  type CompteurStatut,
+} from "@/components/orders/status-counts";
 
 const STATUTS = [
   {
@@ -343,8 +346,12 @@ export default function OrdersPage() {
   // demain à 00:00 apparaît ce soir à minuit pile ; les jours suivants ne
   // sont jamais affichés. Les livraisons en retard restent consultables par
   // le filtre de période. Tri par date (les plus récentes d'abord par défaut).
-  const [livreurTri, setLivreurTri] = useState<"RECENTES" | "ANCIENNES" | "LIVRAISON_PROCHE" | "LIVRAISON_LOINTAINE">("RECENTES");
-  const [livreurPeriode, setLivreurPeriode] = useState<"AUJOURDHUI" | "PASSEES" | "JOUR_J">("AUJOURDHUI");
+  const [livreurTri, setLivreurTri] = useState<
+    "RECENTES" | "ANCIENNES" | "LIVRAISON_PROCHE" | "LIVRAISON_LOINTAINE"
+  >("RECENTES");
+  const [livreurPeriode, setLivreurPeriode] = useState<
+    "AUJOURDHUI" | "PASSEES" | "JOUR_J"
+  >("AUJOURDHUI");
   // Le filtre de date serveur part vide : c'est l'ouverture du jour J
   // (minuit, Madagascar) qui décide de l'affichage, pas une date choisie.
   const [livreurDate, setLivreurDate] = useState("");
@@ -969,6 +976,7 @@ export default function OrdersPage() {
     void horloge;
     const today = appToday();
     const base = ordersFiltresStatut.filter((o: any) => {
+      if (livreurDate) return true;
       if (!actionOuverte(o.date_commande, "LIVREUR")) return false;
       if (livreurPeriode === "JOUR_J") return true;
       const jour = o.date_commande ? appDayKey(o.date_commande) : "";
@@ -982,7 +990,15 @@ export default function OrdersPage() {
       LIVRAISON_LOINTAINE: (a, b) => livraisonLe(b) - livraisonLe(a),
     };
     return [...base].sort(tri[livreurTri]);
-  }, [ordersFiltresStatut, isLivreur, viewMode, livreurTri, livreurPeriode, horloge]);
+  }, [
+    ordersFiltresStatut,
+    isLivreur,
+    viewMode,
+    livreurTri,
+    livreurPeriode,
+    livreurDate,
+    horloge,
+  ]);
 
   // Pastille « quand livrer » d'une commande (vue livreur) : Aujourd'hui,
   // Demain, à venir (date) ou en retard.
@@ -991,11 +1007,32 @@ export default function OrdersPage() {
     const jour = appDayKey(o.date_commande);
     const today = appToday();
     const heure = fmtAppDateTime(o.date_commande);
-    if (jour === today) return { label: `Aujourd'hui · ${heure.slice(-5)}`, className: "bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-200" };
-    if (jour < today) return { label: `En retard · ${fmtAppDate(o.date_commande)}`, className: "bg-red-100 text-red-800 border-red-300 dark:bg-red-900/40 dark:text-red-200" };
-    const demain = appDayKey(new Date(new Date(`${today}T12:00:00+03:00`).getTime() + 86_400_000));
-    if (jour === demain) return { label: `Demain · ${heure.slice(-5)}`, className: "bg-sky-100 text-sky-800 border-sky-300 dark:bg-sky-900/40 dark:text-sky-200" };
-    return { label: `À venir · ${heure}`, className: "bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-200" };
+    if (jour === today)
+      return {
+        label: `Aujourd'hui · ${heure.slice(-5)}`,
+        className:
+          "bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-200",
+      };
+    if (jour < today)
+      return {
+        label: `En retard · ${fmtAppDate(o.date_commande)}`,
+        className:
+          "bg-red-100 text-red-800 border-red-300 dark:bg-red-900/40 dark:text-red-200",
+      };
+    const demain = appDayKey(
+      new Date(new Date(`${today}T12:00:00+03:00`).getTime() + 86_400_000),
+    );
+    if (jour === demain)
+      return {
+        label: `Demain · ${heure.slice(-5)}`,
+        className:
+          "bg-sky-100 text-sky-800 border-sky-300 dark:bg-sky-900/40 dark:text-sky-200",
+      };
+    return {
+      label: `À venir · ${heure}`,
+      className:
+        "bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-200",
+    };
   };
 
   return (
@@ -1100,7 +1137,10 @@ export default function OrdersPage() {
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Période</Label>
-            <Select value={livreurPeriode} onValueChange={(v) => setLivreurPeriode(v as any)}>
+            <Select
+              value={livreurPeriode}
+              onValueChange={(v) => setLivreurPeriode(v as any)}
+            >
               <SelectTrigger className="w-[240px]">
                 <SelectValue />
               </SelectTrigger>
@@ -1113,20 +1153,31 @@ export default function OrdersPage() {
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Trier par</Label>
-            <Select value={livreurTri} onValueChange={(v) => setLivreurTri(v as any)}>
+            <Select
+              value={livreurTri}
+              onValueChange={(v) => setLivreurTri(v as any)}
+            >
               <SelectTrigger className="w-[220px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="RECENTES">Plus récentes d'abord</SelectItem>
-                <SelectItem value="ANCIENNES">Plus anciennes d'abord</SelectItem>
-                <SelectItem value="LIVRAISON_PROCHE">Livraison la plus proche</SelectItem>
-                <SelectItem value="LIVRAISON_LOINTAINE">Livraison la plus lointaine</SelectItem>
+                <SelectItem value="ANCIENNES">
+                  Plus anciennes d'abord
+                </SelectItem>
+                <SelectItem value="LIVRAISON_PROCHE">
+                  Livraison la plus proche
+                </SelectItem>
+                <SelectItem value="LIVRAISON_LOINTAINE">
+                  Livraison la plus lointaine
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Date précise</Label>
+            <Label className="text-xs text-muted-foreground">
+              Date précise
+            </Label>
             <Input
               type="date"
               value={livreurDate}
@@ -1143,7 +1194,11 @@ export default function OrdersPage() {
               className="w-full"
             />
           </div>
-          {(livreurStatutFilter !== "ALL" || livreurDate || searchQuery || livreurPeriode !== "AUJOURDHUI" || livreurTri !== "RECENTES") && (
+          {(livreurStatutFilter !== "ALL" ||
+            livreurDate ||
+            searchQuery ||
+            livreurPeriode !== "AUJOURDHUI" ||
+            livreurTri !== "RECENTES") && (
             <Button
               variant="ghost"
               size="sm"
@@ -1342,7 +1397,9 @@ export default function OrdersPage() {
           ) : displayedOrders.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-12">
               {isLivreur && viewMode === "ACTIF"
-                ? "Aucune commande pour aujourd'hui. Celles de demain apparaîtront ce soir à minuit (heure de Madagascar)."
+                ? livreurDate
+                  ? `Aucune commande assignée pour le ${livreurDate.split("-").reverse().join("/")}.`
+                  : "Aucune commande pour aujourd'hui. Celles de demain apparaîtront ce soir à minuit (heure de Madagascar) — ou choisissez une date précise pour les voir dès maintenant."
                 : "Aucune commande trouvée pour cette recherche."}
             </p>
           ) : (
@@ -1416,14 +1473,21 @@ export default function OrdersPage() {
                               {statutInfo(order.statut_courant).label}
                             </Badge>
                             {/* Livreur : quand livrer, lisible d'un coup d'œil. */}
-                            {isLivreur && viewMode === "ACTIF" && (() => {
-                              const b = livraisonBadge(order);
-                              return b ? (
-                                <div>
-                                  <Badge variant="outline" className={`whitespace-nowrap ${b.className}`}>{b.label}</Badge>
-                                </div>
-                              ) : null;
-                            })()}
+                            {isLivreur &&
+                              viewMode === "ACTIF" &&
+                              (() => {
+                                const b = livraisonBadge(order);
+                                return b ? (
+                                  <div>
+                                    <Badge
+                                      variant="outline"
+                                      className={`whitespace-nowrap ${b.className}`}
+                                    >
+                                      {b.label}
+                                    </Badge>
+                                  </div>
+                                ) : null;
+                              })()}
                           </div>
                         </TableCell>
 
@@ -1461,10 +1525,20 @@ export default function OrdersPage() {
                             {/* Consigne du gérant, impossible à manquer
                                 depuis la liste (§ demande). */}
                             {isPreparateur && (
-                              <NoteCallout role="preparateur" text={order.note_preparateur} compact className="max-w-[260px]" />
+                              <NoteCallout
+                                role="preparateur"
+                                text={order.note_preparateur}
+                                compact
+                                className="max-w-[260px]"
+                              />
                             )}
                             {isLivreur && (
-                              <NoteCallout role="livreur" text={order.note_livreur} compact className="max-w-[260px]" />
+                              <NoteCallout
+                                role="livreur"
+                                text={order.note_livreur}
+                                compact
+                                className="max-w-[260px]"
+                              />
                             )}
                           </div>
                         </TableCell>
@@ -1491,7 +1565,8 @@ export default function OrdersPage() {
                                 onClick={(e) => e.stopPropagation()}
                                 className="flex items-center gap-1 text-blue-600 hover:underline mt-0.5"
                               >
-                                <Phone className="h-3 w-3" /> {order.telephone_2}
+                                <Phone className="h-3 w-3" />{" "}
+                                {order.telephone_2}
                               </a>
                             )}
                           </TableCell>
@@ -1612,37 +1687,36 @@ export default function OrdersPage() {
                                   </SelectContent>
                                 </Select>
                               )}
-                            {!isGerant &&
-                              action && (
-                                <IconAction
-                                  label={
-                                    notYetDue
-                                      ? `Disponible le ${dueDateLabel}`
-                                      : action.label
+                            {!isGerant && action && (
+                              <IconAction
+                                label={
+                                  notYetDue
+                                    ? `Disponible le ${dueDateLabel}`
+                                    : action.label
+                                }
+                                icon={action.icon}
+                                disabled={notYetDue}
+                                showLabel
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (isGerant && action.assign) {
+                                    setAssignTarget({
+                                      order,
+                                      role:
+                                        action.target === "EN_PREPARATION"
+                                          ? "PREPARATEUR"
+                                          : "LIVREUR",
+                                    });
+                                  } else {
+                                    setActionNote({
+                                      order,
+                                      target: action.target,
+                                      label: action.label,
+                                    });
                                   }
-                                  icon={action.icon}
-                                  disabled={notYetDue}
-                                  showLabel
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (isGerant && action.assign) {
-                                      setAssignTarget({
-                                        order,
-                                        role:
-                                          action.target === "EN_PREPARATION"
-                                            ? "PREPARATEUR"
-                                            : "LIVREUR",
-                                      });
-                                    } else {
-                                      setActionNote({
-                                        order,
-                                        target: action.target,
-                                        label: action.label,
-                                      });
-                                    }
-                                  }}
-                                />
-                              )}
+                                }}
+                              />
+                            )}
                             {(isLivreur || isGerant) &&
                               order.statut_courant === "EN_LIVRAISON" &&
                               !isGerant && (
@@ -1817,13 +1891,18 @@ export default function OrdersPage() {
                             reçoivent pas les prix) avec la remise accordée. */}
                         {it.prix_unitaire != null && (
                           <div className="text-xs flex flex-wrap items-center gap-2">
-                            <span className="font-medium">{fmt(it.prix_unitaire)} / unité</span>
+                            <span className="font-medium">
+                              {fmt(it.prix_unitaire)} / unité
+                            </span>
                             {Number(it.remise_unitaire) > 0 && (
                               <>
                                 <span className="line-through text-muted-foreground">
                                   {fmt(it.prix_catalogue)}
                                 </span>
-                                <Badge variant="secondary" className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+                                <Badge
+                                  variant="secondary"
+                                  className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
+                                >
                                   Remise −{fmt(it.remise_unitaire)}
                                 </Badge>
                               </>
@@ -1927,7 +2006,10 @@ export default function OrdersPage() {
                 </div>
 
                 {/* Consignes du gérant en encarts très visibles (§ demande). */}
-                <NoteCallout role="preparateur" text={detail.note_preparateur} />
+                <NoteCallout
+                  role="preparateur"
+                  text={detail.note_preparateur}
+                />
                 <NoteCallout role="livreur" text={detail.note_livreur} />
 
                 {/* Partage dans la messagerie — proposé dès qu'une photo de
@@ -2021,8 +2103,9 @@ export default function OrdersPage() {
                           </p>
                           {detailInline.showPhoto && (
                             <p className="text-sm text-muted-foreground">
-                              Ajoutez si besoin une note et une photo prouvant que
-                              la préparation est faite — le livreur les verra.
+                              Ajoutez si besoin une note et une photo prouvant
+                              que la préparation est faite — le livreur les
+                              verra.
                             </p>
                           )}
                           <NoteForm
@@ -2247,10 +2330,16 @@ export default function OrdersPage() {
               )}
               {/* La consigne du gérant, bien en vue au moment d'agir. */}
               {isPreparateur && (
-                <NoteCallout role="preparateur" text={actionNote.order.note_preparateur} />
+                <NoteCallout
+                  role="preparateur"
+                  text={actionNote.order.note_preparateur}
+                />
               )}
               {(isLivreur || isGerant) && (
-                <NoteCallout role="livreur" text={actionNote.order.note_livreur} />
+                <NoteCallout
+                  role="livreur"
+                  text={actionNote.order.note_livreur}
+                />
               )}
               {Number(actionNote.order.remise_total) > 0 && (
                 <div className="flex justify-between font-medium text-emerald-700 dark:text-emerald-300">
@@ -2578,7 +2667,12 @@ function NoteForm({
    * stock et sort du total. Proposé seulement quand la commande compte
    * plusieurs articles — pointer un article unique n'apporterait rien.
    */
-  items?: { id: number; reference_name?: string; couleur?: string; quantite?: number }[];
+  items?: {
+    id: number;
+    reference_name?: string;
+    couleur?: string;
+    quantite?: number;
+  }[];
 }) {
   const [note, setNote] = useState("");
   const [photo, setPhoto] = useState<File | undefined>(undefined);
@@ -2715,8 +2809,8 @@ function NoteForm({
         <div className="space-y-2 rounded-md border bg-muted/10 p-3">
           <p className="text-sm font-medium">Articles remis au client</p>
           <p className="text-xs text-muted-foreground">
-            Décochez ce que vous rapportez : ces articles repartent en stock
-            et sortent du total à encaisser.
+            Décochez ce que vous rapportez : ces articles repartent en stock et
+            sortent du total à encaisser.
           </p>
           {items.map((it) => {
             const coche = livres.includes(it.id);
@@ -3024,7 +3118,9 @@ function EditOrderDialog({
         items: items.map((it) => ({
           product_variant: it.variant_id,
           quantite: it.quantite,
-          ...(it.prix_vente < it.prix_catalogue ? { prix_unitaire: it.prix_vente } : {}),
+          ...(it.prix_vente < it.prix_catalogue
+            ? { prix_unitaire: it.prix_vente }
+            : {}),
         })),
       });
       // Pré-assignation du préparateur/livreur — endpoints indépendants du
@@ -3141,38 +3237,37 @@ function EditOrderDialog({
                 />
               </div>
             </div>
-
           </>
         )}
 
-            {zone !== "RECUPERATION" && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label>Zone de livraison</Label>
-                  <Select value={zone} onValueChange={setZone}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {zoneOptions
-                        .filter((z) => z.value !== "RECUPERATION")
-                        .map((z) => (
-                          <SelectItem key={z.value} value={z.value}>
-                            {z.label}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Adresse de livraison</Label>
-                  <Input
-                    value={adresseLivraison}
-                    onChange={(e) => setAdresseLivraison(e.target.value)}
-                  />
-                </div>
-              </div>
-            )}
+        {zone !== "RECUPERATION" && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>Zone de livraison</Label>
+              <Select value={zone} onValueChange={setZone}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {zoneOptions
+                    .filter((z) => z.value !== "RECUPERATION")
+                    .map((z) => (
+                      <SelectItem key={z.value} value={z.value}>
+                        {z.label}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Adresse de livraison</Label>
+              <Input
+                value={adresseLivraison}
+                onChange={(e) => setAdresseLivraison(e.target.value)}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Reporter la livraison reste possible en cours de tournée
             (§ demande) : le champ est aussi proposé en régime restreint. */}
@@ -3245,7 +3340,6 @@ function EditOrderDialog({
                 onChange={(e) => setNotePreparateur(e.target.value)}
               />
             </div>
-
           </>
         )}
 

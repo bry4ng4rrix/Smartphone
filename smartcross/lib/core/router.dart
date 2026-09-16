@@ -2,12 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../features/auth/forgot_password_screen.dart';
 import '../features/auth/login_screen.dart';
 import '../features/auth/pending_approval_screen.dart';
-import '../features/auth/register_screen.dart';
 import '../features/auth/reset_password_screen.dart';
-import '../features/auth/verify_email_screen.dart';
 import '../features/auth/server_setup_screen.dart';
 import '../features/auth/splash_screen.dart';
 import '../features/alerts/alerts_screen.dart';
@@ -42,9 +39,6 @@ const _publicPrefixes = [
   '/login',
   '/server-setup',
   '/splash',
-  '/register',
-  '/forgot-password',
-  '/verify-email',
   '/pending-approval',
   '/auth/pending-approval',
 ];
@@ -99,9 +93,6 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/splash', builder: (context, state) => const SplashScreen()),
       GoRoute(path: '/server-setup', builder: (context, state) => const ServerSetupScreen()),
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
-      GoRoute(path: '/register', builder: (context, state) => const RegisterScreen()),
-      GoRoute(path: '/forgot-password', builder: (context, state) => const ForgotPasswordScreen()),
-      GoRoute(path: '/verify-email', builder: (context, state) => const VerifyEmailScreen()),
       // Le web a deux pages distinctes (/pending-approval et
       // /auth/pending-approval) au contenu quasi identique : elles sont
       // fusionnees ici en un seul ecran, joignable par les deux chemins.

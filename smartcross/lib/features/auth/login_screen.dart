@@ -303,35 +303,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             ),
                           ),
                           const SizedBox(height: 14),
-                          // Mot de passe : libellé à gauche, lien « Mot de
-                          // passe oublié ? » à droite sur la MÊME ligne (web).
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  'Mot de passe',
-                                  style: theme.textTheme.labelLarge?.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                              // Seul point d'entrée du flux « mot de passe
-                              // oublié », comme sur le web : sans ce lien la
-                              // route serait orpheline sur mobile.
-                              TextButton(
-                                onPressed: _loading
-                                    ? null
-                                    : () => context.push('/forgot-password'),
-                                style: TextButton.styleFrom(
-                                  visualDensity: VisualDensity.compact,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                  ),
-                                  textStyle: theme.textTheme.bodySmall,
-                                ),
-                                child: const Text('Mot de passe oublié ?'),
-                              ),
-                            ],
+                          // Plus de lien « Mot de passe oublié ? » : l'app ne
+                          // propose que la connexion (§ demande) — le gérant
+                          // gère les comptes et mots de passe.
+                          Text(
+                            'Mot de passe',
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                           const SizedBox(height: 6),
                           TextField(
@@ -379,24 +358,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                     ],
                                   )
                                 : const Text('Se connecter'),
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                'Pas encore de compte?',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: muted,
-                                ),
-                              ),
-                              TextButton(
-                                onPressed: _loading
-                                    ? null
-                                    : () => context.push('/register'),
-                                child: const Text('Créer un compte'),
-                              ),
-                            ],
                           ),
                         ],
                       ),

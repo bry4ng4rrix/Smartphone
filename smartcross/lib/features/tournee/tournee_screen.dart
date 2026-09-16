@@ -70,12 +70,17 @@ enum _LivreurTri {
 /// jours suivants ne sont jamais affichés ; les livraisons en retard le sont
 /// seulement sur demande (filtre de période). Puis le tri choisi. Son onglet Historique, lui, n'est pas concerné : c'est un
 /// journal.
-List<Order> _displayedOrders(Iterable<Order> orders, _LivreurPeriode periode, _LivreurTri tri) {
+List<Order> _displayedOrders(Iterable<Order> orders, _LivreurPeriode periode, _LivreurTri tri, {bool dateChoisie = false}) {
   final today = appToday();
   int creeLe(Order o) => o.createdAt?.millisecondsSinceEpoch ?? 0;
   int livraisonLe(Order o) => o.dateCommande?.millisecondsSinceEpoch ?? 0;
 
   bool retenue(Order o) {
+    // Une « Date précise » choisie (ex. demain, pour préparer sa tournée)
+    // affiche TOUTES les commandes de ce jour, déjà filtrées par le
+    // serveur : la règle jour J ne vaut que pour la vue par défaut, et les
+    // boutons d'action restent fermés hors jour J.
+    if (dateChoisie) return true;
     if (!actionOuverte(o.dateCommande, UserRole.livreur)) return false;
     final jour = o.dateCommande == null ? null : appDay(o.dateCommande!);
     switch (periode) {
@@ -650,7 +655,8 @@ class _TourneeActiveList extends ConsumerWidget {
     }
 
     final q = search.trim().toLowerCase();
-    final displayed = _displayedOrders(orders.where((o) => _matches(o, q)), periode, tri);
+    final dateChoisie = ref.watch(ordersFilterProvider.select((f) => f.dateDebut != null));
+    final displayed = _displayedOrders(orders.where((o) => _matches(o, q)), periode, tri, dateChoisie: dateChoisie);
 
     return Column(
       children: [
@@ -667,7 +673,9 @@ class _TourneeActiveList extends ConsumerWidget {
                   const SliverFillRemaining(
                     hasScrollBody: false,
                     child: EmptyState(
-                      message: "Aucune commande pour aujourd'hui. Celles de demain apparaîtront ce soir à minuit (heure de Madagascar).",
+                      message: dateChoisie
+                          ? 'Aucune commande assignée pour cette date.'
+                          : "Aucune commande pour aujourd'hui. Celles de demain apparaîtront ce soir à minuit (heure de Madagascar) — ou choisissez une date précise pour les voir dès maintenant.",
                       icon: Icons.local_shipping_outlined,
                     ),
                   )
