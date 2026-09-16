@@ -16,6 +16,7 @@ import '../../widgets/async_state_widgets.dart';
 import '../../widgets/note_callout.dart';
 import '../../widgets/order_confirm_dialog.dart';
 import '../../widgets/order_historique_view.dart';
+import '../../widgets/order_card_shell.dart';
 import '../../widgets/status_badge.dart';
 import '../orders/order_create_screen.dart' show modePaiementLabel, orderToast;
 
@@ -543,7 +544,7 @@ class _TourneeActiveList extends ConsumerWidget {
                   )
                 else
                   SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+                    padding: const EdgeInsets.fromLTRB(12, 6, 12, 28),
                     sliver: SliverList.builder(
                       itemCount: displayed.length,
                       itemBuilder: (context, i) => _TourneeCard(key: ValueKey(displayed[i].id), order: displayed[i]),
@@ -594,126 +595,171 @@ class _TourneeCard extends ConsumerWidget {
         : order.dateCommande;
     final livraison = _livraisonBadge(order);
 
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 5),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => context.push('/orders/${order.id}'),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  OrderStatusBadge(status: order.statutCourant),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      order.numero,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                      overflow: TextOverflow.ellipsis,
-                    ),
+    final actions = _actions(context, ref);
+    final totalStyle = TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: scheme.onSurface);
+
+    return OrderCardShell(
+      status: order.statutCourant,
+      onTap: () => context.push('/orders/${order.id}'),
+      // En-tête teinté : statut, numéro et — d'un coup d'œil — quand livrer.
+      header: Row(
+        children: [
+          OrderStatusBadge(status: order.statutCourant),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              order.numero,
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          // « En retard » sur une commande livrée n'aurait aucun sens.
+          if (!order.estTerminee && livraison != null) ...[
+            const SizedBox(width: 8),
+            _LivraisonBadge(label: livraison.label, color: livraison.color),
+          ],
+        ],
+      ),
+      // 5. L'action du moment, isolée en pied de carte.
+      footer: actions.isEmpty
+          ? null
+          : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: actions),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 1. Ce qu'il y a dans le colis — tous les articles, référence +
+          // quantité, sous-type / marque et pastille de couleur. Un article
+          // rapporté lors d'une livraison partielle est barré.
+          OrderCardSection(
+            label: 'Articles',
+            icon: Icons.inventory_2_outlined,
+            trailing: Text(
+              '${order.items.fold<int>(0, (n, it) => n + it.quantite)} pièce(s)',
+              style: muted.copyWith(fontWeight: FontWeight.w600),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final it in order.items) ...[
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          it.referenceName.isEmpty ? 'Article' : it.referenceName,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            decoration: it.retourne ? TextDecoration.lineThrough : null,
+                            color: it.retourne ? scheme.onSurfaceVariant : null,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text('x${it.quantite}', style: muted.copyWith(fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 2,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      if (it.typeName != null && it.typeName!.isNotEmpty) Text(it.typeName!, style: muted),
+                      if (it.brandName != null && it.brandName!.isNotEmpty) Text(it.brandName!, style: muted),
+                      if (it.couleur.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: scheme.outlineVariant),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(it.couleur, style: const TextStyle(fontSize: 10)),
+                        ),
+                      if (it.retourne) Text('rapporté', style: muted.copyWith(color: Colors.red)),
+                    ],
+                  ),
+                  if (it != order.items.last) const SizedBox(height: 6),
+                ],
+              ],
+            ),
+          ),
+          // 2. Qui, où, comment joindre — les deux numéros sont cliquables :
+          // le livreur appelle le second quand le premier ne répond pas.
+          OrderCardSection(
+            label: 'Client',
+            icon: Icons.person_outline,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(order.clientNom, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                const SizedBox(height: 2),
+                _IconLine(icon: Icons.place_outlined, text: adresse != null && adresse.isNotEmpty ? adresse : '-'),
+                if (order.telephone != null) _PhoneLink(numero: order.telephone!),
+                if (order.telephone2 != null) _PhoneLink(numero: order.telephone2!),
+                _IconLine(icon: Icons.local_shipping_outlined, text: DeliveryZoneCatalog.shortLabelFor(order.livraisonZone)),
+              ],
+            ),
+          ),
+          // 3. Consigne du gérant, impossible à manquer depuis la liste
+          // (§ demande) — cellule « Client » du tableau web, réservée au
+          // livreur (`isLivreur &&`).
+          if (isLivreur)
+            NoteCallout(
+              role: NoteRole.livreur,
+              text: order.noteLivreur,
+              compact: true,
+              margin: const EdgeInsets.only(bottom: 10),
+            ),
+          // 4. Argent et date : bandeau à part. Rien à encaisser quand le
+          // client a déjà payé d'avance — on masque le montant au livreur
+          // pour éviter toute confusion (§ demande).
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: order.estPrepayee
+                  ? const Color(0xFF059669).withValues(alpha: 0.12)
+                  : scheme.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: (order.estPrepayee ? const Color(0xFF059669) : scheme.primary).withValues(alpha: 0.35),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (order.estPrepayee)
+                  Row(
+                    children: [
+                      const Icon(Icons.check_circle_outline, size: 18, color: Color(0xFF059669)),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Déjà payé — rien à encaisser',
+                          style: totalStyle.copyWith(color: const Color(0xFF059669)),
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                  Row(
+                    children: [
+                      Icon(Icons.payments_outlined, size: 18, color: scheme.primary),
+                      const SizedBox(width: 6),
+                      Expanded(child: Text('Total à encaisser', style: muted.copyWith(fontWeight: FontWeight.w600))),
+                      Text(arFmt(order.totalAPayer ?? 0), style: totalStyle),
+                    ],
+                  ),
+                if (dateLigne != null) ...[
+                  const SizedBox(height: 4),
+                  _IconLine(
+                    icon: Icons.event_outlined,
+                    text: '${order.statutCourant == OrderStatus.livre ? 'Livrée le' : 'Livraison prévue le'} '
+                        '${_dateTimeFmt.format(appLocal(dateLigne))}',
                   ),
                 ],
-              ),
-              // Quand livrer, lisible d'un coup d'œil (pastille du web) — en
-              // plus de la ligne « Livraison prévue le » plus bas. Sans objet
-              // une fois la commande terminée (« En retard » sur une commande
-              // livrée n'aurait aucun sens).
-              if (!order.estTerminee && livraison != null) ...[
-                const SizedBox(height: 6),
-                _LivraisonBadge(label: livraison.label, color: livraison.color),
               ],
-              const SizedBox(height: 10),
-              // Produit : tous les articles, référence + quantité, puis
-              // sous-type / marque et pastille de couleur. Un article rapporté
-              // lors d'une livraison partielle est barré.
-              for (final it in order.items) ...[
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        it.referenceName.isEmpty ? 'Article' : it.referenceName,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          decoration: it.retourne ? TextDecoration.lineThrough : null,
-                          color: it.retourne ? scheme.onSurfaceVariant : null,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text('x${it.quantite}', style: muted),
-                  ],
-                ),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 2,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    if (it.typeName != null && it.typeName!.isNotEmpty) Text(it.typeName!, style: muted),
-                    if (it.brandName != null && it.brandName!.isNotEmpty) Text(it.brandName!, style: muted),
-                    if (it.couleur.isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: scheme.outlineVariant),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(it.couleur, style: const TextStyle(fontSize: 10)),
-                      ),
-                    if (it.retourne) Text('rapporté', style: muted.copyWith(color: Colors.red)),
-                  ],
-                ),
-                const SizedBox(height: 6),
-              ],
-              const Divider(height: 12),
-              _IconLine(icon: Icons.person_outline, text: order.clientNom),
-              _IconLine(icon: Icons.place_outlined, text: adresse != null && adresse.isNotEmpty ? adresse : '-'),
-              // Consigne du gérant, impossible à manquer depuis la liste
-              // (§ demande) — cellule « Client » du tableau web, réservée au
-              // livreur (`isLivreur &&`).
-              if (isLivreur)
-                NoteCallout(
-                  role: NoteRole.livreur,
-                  text: order.noteLivreur,
-                  compact: true,
-                  margin: const EdgeInsets.symmetric(vertical: 4),
-                ),
-              // Les deux numéros sont cliquables : le livreur appelle le
-              // second quand le premier ne répond pas (§ demande).
-              if (order.telephone != null) _PhoneLink(numero: order.telephone!),
-              if (order.telephone2 != null) _PhoneLink(numero: order.telephone2!),
-              _IconLine(icon: Icons.local_shipping_outlined, text: DeliveryZoneCatalog.shortLabelFor(order.livraisonZone)),
-              if (dateLigne != null)
-                _IconLine(
-                  icon: Icons.event_outlined,
-                  text: '${order.statutCourant == OrderStatus.livre ? 'Livrée le' : 'Livraison prévue le'} '
-                      '${_dateTimeFmt.format(appLocal(dateLigne))}',
-                ),
-              // Rien à encaisser : le client a déjà payé d'avance, on masque
-              // le montant au livreur pour éviter toute confusion (§ demande).
-              if (order.estPrepayee)
-                const Padding(
-                  padding: EdgeInsets.only(top: 4),
-                  child: Text(
-                    'Déjà payé — rien à encaisser',
-                    style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF059669)),
-                  ),
-                )
-              else
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    'Total à encaisser : ${arFmt(order.totalAPayer ?? 0)}',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-              ..._actions(context, ref),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -733,7 +779,6 @@ class _TourneeCard extends ConsumerWidget {
         // Visible pour planning uniquement — pas encore prête, rien à faire
         // ici pour le livreur.
         return [
-          const SizedBox(height: 10),
           Row(
             children: [
               Icon(Icons.hourglass_empty, size: 16, color: scheme.outline),
@@ -746,7 +791,6 @@ class _TourneeCard extends ConsumerWidget {
         // Bouton unique, pleine largeur : hors jour J il porte lui-même
         // « Disponible le … » (comme la carte du dépôt et le web).
         return [
-          const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
@@ -766,7 +810,6 @@ class _TourneeCard extends ConsumerWidget {
         // « Disponible le JJ/MM/AAAA à HHhMM » — ils gardent leur libellé,
         // désactivés, et une ligne dessous annonce l'ouverture.
         return [
-          const SizedBox(height: 12),
           Row(
             children: [
               Expanded(

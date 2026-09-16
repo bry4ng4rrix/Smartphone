@@ -59,20 +59,7 @@ const navigationItems: NavItem[] = [
     href: "/orders",
     icon: ShoppingCart,
   },
-  {
-    label: "Récupération",
-    href: "/pickup",
-    icon: PackageCheck,
-    adminOnly: true,
-  },
-  {
-    // Le livreur y voit SON bilan du jour ; le gérant y voit celui de
-    // chaque livreur, par onglet et par date (§ demande).
-    label: "Bilan du jour",
-    href: "/bilan",
-    icon: Receipt,
-    livreurOrGerant: true,
-  },
+
   {
     label: "Produits",
     href: "/products",
@@ -86,6 +73,21 @@ const navigationItems: NavItem[] = [
     icon: Wallet,
     hidePreparateur: true,
     hideLivreur: true,
+  },
+
+  {
+    // Le livreur y voit SON bilan du jour ; le gérant y voit celui de
+    // chaque livreur, par onglet et par date (§ demande).
+    label: "Bilan du jour",
+    href: "/bilan",
+    icon: Receipt,
+    livreurOrGerant: true,
+  },
+  {
+    label: "Récupération",
+    href: "/pickup",
+    icon: PackageCheck,
+    adminOnly: true,
   },
 
   {

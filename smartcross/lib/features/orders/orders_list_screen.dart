@@ -16,6 +16,7 @@ import '../../state/orders_provider.dart';
 import '../../widgets/assign_staff_dialog.dart';
 import '../../widgets/async_state_widgets.dart';
 import '../../widgets/order_confirm_dialog.dart';
+import '../../widgets/order_card_shell.dart';
 import '../../widgets/status_badge.dart';
 import '../depot/depot_screen.dart';
 import '../tournee/tournee_screen.dart';
@@ -715,185 +716,202 @@ class _OrderCard extends ConsumerWidget {
     final correctionCible = canManage ? order.correctionCible : null;
     final adresse = order.adresseLivraison;
 
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 5),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => context.push('/orders/${order.id}'),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  OrderStatusBadge(status: order.statutCourant),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      order.numero,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  if (order.totalAPayer != null)
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(arFmt(order.totalAPayer!), style: const TextStyle(fontWeight: FontWeight.w700)),
-                        if (order.estPrepayee && !order.estRecuperation)
-                          const Text(
-                            'Déjà payé',
-                            style: TextStyle(fontSize: 11, color: Color(0xFF059669), fontWeight: FontWeight.w600),
-                          ),
-                      ],
-                    ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              // Produit : tous les articles, référence + quantité, puis
-              // sous-type / marque et pastille de couleur.
-              for (final it in order.items) ...[
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        it.referenceName.isEmpty ? 'Article' : it.referenceName,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          decoration: it.retourne ? TextDecoration.lineThrough : null,
-                          color: it.retourne ? scheme.onSurfaceVariant : null,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text('x${it.quantite}', style: muted),
-                  ],
-                ),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 2,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    if (it.typeName != null && it.typeName!.isNotEmpty) Text(it.typeName!, style: muted),
-                    if (it.brandName != null && it.brandName!.isNotEmpty) Text(it.brandName!, style: muted),
-                    if (it.couleur.isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: scheme.outlineVariant),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(it.couleur, style: const TextStyle(fontSize: 10)),
-                      ),
-                    if (it.retourne) Text('rapporté', style: muted.copyWith(color: Colors.red)),
-                  ],
-                ),
-                const SizedBox(height: 6),
-              ],
-              const Divider(height: 12),
-              _IconLine(icon: Icons.person_outline, text: order.clientNom),
-              _IconLine(
-                icon: Icons.place_outlined,
-                // Adresse de livraison, sinon le libellé de zone (sans prix),
-                // sinon le code brut.
-                text: adresse != null && adresse.isNotEmpty ? adresse : DeliveryZoneCatalog.shortLabelFor(order.livraisonZone),
-              ),
-              if (dateLigne != null)
-                _IconLine(
-                  icon: Icons.event_outlined,
-                  text: '${order.statutCourant == OrderStatus.livre ? 'Livrée le' : 'Livraison prévue le'} '
-                      '${_dateTimeFmt.format(appLocal(dateLigne))}',
-                ),
-              // Assigné à — préparateur (avec l'heure de début de préparation)
-              // et/ou livreur (« Livré le » / « Prévu le »), sinon « - ».
-              if (order.preparateurName == null && order.livreurName == null)
-                _IconLine(icon: Icons.group_outlined, text: 'Assigné à : -')
-              else ...[
-                if (order.preparateurName != null)
-                  _IconLine(
-                    icon: Icons.inventory_2_outlined,
-                    text: '${order.preparateurName}${preparedAt != null ? ' · ${_fmtDT(preparedAt)}' : ''}',
-                  ),
-                if (order.livreurName != null)
-                  _IconLine(
-                    icon: Icons.local_shipping_outlined,
-                    text: '${order.livreurName}'
-                        '${livreurAt != null ? ' · ${order.statutCourant == OrderStatus.livre ? 'Livré le ' : 'Prévu le '}${_fmtDT(livreurAt)}' : ''}',
+    final hasActions = actions.isNotEmpty || correctionCible != null || canEdit || canCancel || canDelete;
+
+    return OrderCardShell(
+      status: order.statutCourant,
+      onTap: () => context.push('/orders/${order.id}'),
+      // En-tête teinté : statut, numéro, montant.
+      header: Row(
+        children: [
+          OrderStatusBadge(status: order.statutCourant),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              order.numero,
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (order.totalAPayer != null)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(arFmt(order.totalAPayer!), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+                if (order.estPrepayee && !order.estRecuperation)
+                  const Text(
+                    'Déjà payé',
+                    style: TextStyle(fontSize: 11, color: Color(0xFF059669), fontWeight: FontWeight.w600),
                   ),
               ],
-              if (actions.isNotEmpty || correctionCible != null || canEdit || canCancel || canDelete) ...[
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  alignment: WrapAlignment.end,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    if (actions.isNotEmpty)
-                      PopupMenuButton<_GerantAction>(
-                        tooltip: 'Action',
-                        onSelected: (a) => _runAction(context, ref, a),
-                        itemBuilder: (context) => [
-                          for (final a in actions)
-                            PopupMenuItem(
-                              value: a,
-                              child: Row(
-                                children: [
-                                  Icon(a.icon, size: 18),
-                                  const SizedBox(width: 8),
-                                  Text(a.label),
-                                ],
-                              ),
-                            ),
-                        ],
-                        child: Container(
-                          height: 34,
-                          padding: const EdgeInsets.only(left: 12, right: 6),
-                          decoration: BoxDecoration(
-                            color: scheme.primary,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
+            ),
+        ],
+      ),
+      footer: !hasActions
+          ? null
+          : Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              alignment: WrapAlignment.end,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                if (actions.isNotEmpty)
+                  PopupMenuButton<_GerantAction>(
+                    tooltip: 'Action',
+                    onSelected: (a) => _runAction(context, ref, a),
+                    itemBuilder: (context) => [
+                      for (final a in actions)
+                        PopupMenuItem(
+                          value: a,
                           child: Row(
-                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text('Action', style: TextStyle(color: scheme.onPrimary, fontWeight: FontWeight.w600)),
-                              Icon(Icons.arrow_drop_down, color: scheme.onPrimary),
+                              Icon(a.icon, size: 18),
+                              const SizedBox(width: 8),
+                              Text(a.label),
                             ],
                           ),
                         ),
+                    ],
+                    child: Container(
+                      height: 34,
+                      padding: const EdgeInsets.only(left: 12, right: 6),
+                      decoration: BoxDecoration(
+                        color: scheme.primary,
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                    // Commande close : le gérant peut corriger un état saisi
-                    // par erreur (§ demande), directement depuis la ligne.
-                    if (correctionCible != null)
-                      _SmallAction(
-                        icon: Icons.undo,
-                        label: 'Corriger → ${correctionCible.label}',
-                        onPressed: () => _corriger(context),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('Action', style: TextStyle(color: scheme.onPrimary, fontWeight: FontWeight.w600)),
+                          Icon(Icons.arrow_drop_down, color: scheme.onPrimary),
+                        ],
                       ),
-                    if (canEdit)
-                      _SmallAction(icon: Icons.edit_outlined, label: 'Modifier', onPressed: () => _edit(context)),
-                    if (canCancel)
-                      _SmallAction(
-                        icon: Icons.block_outlined,
-                        label: 'Annuler',
-                        color: Colors.red,
-                        onPressed: () => _cancel(context),
+                    ),
+                  ),
+                // Commande close : le gérant peut corriger un état saisi
+                // par erreur (§ demande), directement depuis la ligne.
+                if (correctionCible != null)
+                  _SmallAction(
+                    icon: Icons.undo,
+                    label: 'Corriger → ${correctionCible.label}',
+                    onPressed: () => _corriger(context),
+                  ),
+                if (canEdit)
+                  _SmallAction(icon: Icons.edit_outlined, label: 'Modifier', onPressed: () => _edit(context)),
+                if (canCancel)
+                  _SmallAction(
+                    icon: Icons.block_outlined,
+                    label: 'Annuler',
+                    color: Colors.red,
+                    onPressed: () => _cancel(context),
+                  ),
+                if (canDelete)
+                  _SmallAction(
+                    icon: Icons.delete_outline,
+                    label: 'Supprimer',
+                    color: Colors.red,
+                    onPressed: () => _delete(context),
+                  ),
+              ],
+            ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Produit : tous les articles, référence + quantité, puis
+          // sous-type / marque et pastille de couleur.
+          OrderCardSection(
+            label: 'Articles',
+            icon: Icons.inventory_2_outlined,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+              const SizedBox(height: 10),
+              // Produit : tous les articles, référence + quantité, puis
+              // sous-type / marque et pastille de couleur.
+                for (final it in order.items) ...[
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          it.referenceName.isEmpty ? 'Article' : it.referenceName,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            decoration: it.retourne ? TextDecoration.lineThrough : null,
+                            color: it.retourne ? scheme.onSurfaceVariant : null,
+                          ),
+                        ),
                       ),
-                    if (canDelete)
-                      _SmallAction(
-                        icon: Icons.delete_outline,
-                        label: 'Supprimer',
-                        color: Colors.red,
-                        onPressed: () => _delete(context),
+                      const SizedBox(width: 8),
+                      Text('x${it.quantite}', style: muted),
+                    ],
+                  ),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 2,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      if (it.typeName != null && it.typeName!.isNotEmpty) Text(it.typeName!, style: muted),
+                      if (it.brandName != null && it.brandName!.isNotEmpty) Text(it.brandName!, style: muted),
+                      if (it.couleur.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: scheme.outlineVariant),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(it.couleur, style: const TextStyle(fontSize: 10)),
+                        ),
+                      if (it.retourne) Text('rapporté', style: muted.copyWith(color: Colors.red)),
+                    ],
+                  ),
+                  if (it != order.items.last) const SizedBox(height: 6),
+                ],
+              ],
+            ),
+          ),
+          // Client, lieu, date et équipe assignée.
+          OrderCardSection(
+            label: 'Client & livraison',
+            icon: Icons.person_outline,
+            margin: EdgeInsets.zero,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                  _IconLine(icon: Icons.person_outline, text: order.clientNom),
+                  _IconLine(
+                    icon: Icons.place_outlined,
+                    // Adresse de livraison, sinon le libellé de zone (sans prix),
+                    // sinon le code brut.
+                    text: adresse != null && adresse.isNotEmpty ? adresse : DeliveryZoneCatalog.shortLabelFor(order.livraisonZone),
+                  ),
+                  if (dateLigne != null)
+                    _IconLine(
+                      icon: Icons.event_outlined,
+                      text: '${order.statutCourant == OrderStatus.livre ? 'Livrée le' : 'Livraison prévue le'} '
+                          '${_dateTimeFmt.format(appLocal(dateLigne))}',
+                    ),
+                  // Assigné à — préparateur (avec l'heure de début de préparation)
+                  // et/ou livreur (« Livré le » / « Prévu le »), sinon « - ».
+                  if (order.preparateurName == null && order.livreurName == null)
+                    _IconLine(icon: Icons.group_outlined, text: 'Assigné à : -')
+                  else ...[
+                    if (order.preparateurName != null)
+                      _IconLine(
+                        icon: Icons.inventory_2_outlined,
+                        text: '${order.preparateurName}${preparedAt != null ? ' · ${_fmtDT(preparedAt)}' : ''}',
+                      ),
+                    if (order.livreurName != null)
+                      _IconLine(
+                        icon: Icons.local_shipping_outlined,
+                        text: '${order.livreurName}'
+                            '${livreurAt != null ? ' · ${order.statutCourant == OrderStatus.livre ? 'Livré le ' : 'Prévu le '}${_fmtDT(livreurAt)}' : ''}',
                       ),
                   ],
-                ),
               ],
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

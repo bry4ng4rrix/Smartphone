@@ -16,6 +16,7 @@ import '../../state/realtime_provider.dart';
 import '../../widgets/async_state_widgets.dart';
 import '../../widgets/note_callout.dart';
 import '../../widgets/order_confirm_dialog.dart';
+import '../../widgets/order_card_shell.dart';
 import '../../widgets/status_badge.dart';
 import '../orders/order_create_screen.dart' show OrderFormDropdown;
 
@@ -747,87 +748,115 @@ class _DepotOrderCard extends ConsumerWidget {
     final adresse = order.adresseLivraison?.trim() ?? '';
     final retraitPret = order.estRecuperation && order.statutCourant == OrderStatus.prete;
 
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 6),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => context.push('/orders/${order.id}'),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      order.numero,
-                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                  OrderStatusBadge(status: order.statutCourant),
-                ],
-              ),
-              const SizedBox(height: 8),
-              for (final item in order.items) _ArticleLigne(item: item),
-              const SizedBox(height: 8),
-              _InfoLigne(icon: Icons.person_outline, text: order.clientNom, bold: true),
-              // Consigne du gérant, impossible à manquer depuis la liste
-              // (§ demande) — cellule « Client » du tableau web, réservée au
-              // préparateur (`isPreparateur &&`).
-              if (isPreparateur)
-                NoteCallout(
-                  role: NoteRole.preparateur,
-                  text: order.notePreparateur,
-                  compact: true,
-                  margin: const EdgeInsets.symmetric(vertical: 4),
-                ),
-              // Les deux numéros sont appelables : le second sert quand le
-              // premier ne répond pas (§ demande).
-              for (final tel in [order.telephone, order.telephone2])
-                if (tel != null && tel.isNotEmpty)
-                  _InfoLigne(
-                    icon: Icons.phone_outlined,
-                    text: tel,
-                    onTap: () => launchUrl(Uri.parse('tel:$tel')),
-                  ),
-              if (adresse.isNotEmpty) _InfoLigne(icon: Icons.place_outlined, text: adresse),
-              _InfoLigne(
-                icon: Icons.local_shipping_outlined,
-                text: DeliveryZoneCatalog.shortLabelFor(order.livraisonZone),
-              ),
-              if (order.livreurName != null && order.livreurName!.isNotEmpty)
-                _InfoLigne(icon: Icons.moped_outlined, text: 'Livreur : ${order.livreurName}'),
-              if (dateLivraison != null)
-                _InfoLigne(
-                  icon: Icons.event_outlined,
-                  text: '${livree ? 'Livrée le' : 'Livraison prévue le'} ${_fmtAppDateTime(dateLivraison)}',
-                ),
-              if (action != null) ...[
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: bloque ? null : () => _agir(context, ref, action),
-                    icon: Icon(bloque ? Icons.schedule : Icons.inventory_2_outlined),
-                    label: Text(
-                      bloque && order.dateCommande != null
-                          ? 'Disponible le ${dueDateLabel(order.dateCommande!, UserRole.preparateur)}'
-                          : action.label,
-                    ),
-                  ),
-                ),
-              ] else if (retraitPret) ...[
-                const SizedBox(height: 8),
-                _InfoLigne(
-                  icon: Icons.storefront_outlined,
-                  text: 'Prête — retrait au comptoir, à valider comme livrée par le gérant.',
-                  muted: true,
-                ),
-              ],
-            ],
+    final Widget? footer;
+    if (action != null) {
+      footer = SizedBox(
+        width: double.infinity,
+        child: FilledButton.icon(
+          onPressed: bloque ? null : () => _agir(context, ref, action),
+          icon: Icon(bloque ? Icons.schedule : Icons.inventory_2_outlined),
+          label: Text(
+            bloque && order.dateCommande != null
+                ? 'Disponible le ${dueDateLabel(order.dateCommande!, UserRole.preparateur)}'
+                : action.label,
           ),
         ),
+      );
+    } else if (retraitPret) {
+      footer = const _InfoLigne(
+        icon: Icons.storefront_outlined,
+        text: 'Prête — retrait au comptoir, à valider comme livrée par le gérant.',
+        muted: true,
+      );
+    } else {
+      footer = null;
+    }
+
+    return OrderCardShell(
+      status: order.statutCourant,
+      onTap: () => context.push('/orders/${order.id}'),
+      // En-tête teinté : numéro, statut et date de livraison prévue.
+      header: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  order.numero,
+                  style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                if (dateLivraison != null)
+                  Text(
+                    '${livree ? 'Livrée le' : 'Livraison prévue le'} ${_fmtAppDateTime(dateLivraison)}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          OrderStatusBadge(status: order.statutCourant),
+        ],
+      ),
+      footer: footer,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 1. Ce qu'il faut préparer.
+          OrderCardSection(
+            label: 'Articles à préparer',
+            icon: Icons.inventory_2_outlined,
+            trailing: Text(
+              '${order.items.fold<int>(0, (n, it) => n + it.quantite)} pièce(s)',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: theme.colorScheme.onSurfaceVariant),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [for (final item in order.items) _ArticleLigne(item: item)],
+            ),
+          ),
+          // 2. Pour qui, où, et qui livre — les deux numéros sont appelables :
+          // le second sert quand le premier ne répond pas (§ demande).
+          OrderCardSection(
+            label: 'Client & livraison',
+            icon: Icons.person_outline,
+            margin: EdgeInsets.zero,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(order.clientNom, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                const SizedBox(height: 2),
+                for (final tel in [order.telephone, order.telephone2])
+                  if (tel != null && tel.isNotEmpty)
+                    _InfoLigne(
+                      icon: Icons.phone_outlined,
+                      text: tel,
+                      onTap: () => launchUrl(Uri.parse('tel:$tel')),
+                    ),
+                if (adresse.isNotEmpty) _InfoLigne(icon: Icons.place_outlined, text: adresse),
+                _InfoLigne(
+                  icon: Icons.local_shipping_outlined,
+                  text: DeliveryZoneCatalog.shortLabelFor(order.livraisonZone),
+                ),
+                if (order.livreurName != null && order.livreurName!.isNotEmpty)
+                  _InfoLigne(icon: Icons.moped_outlined, text: 'Livreur : ${order.livreurName}'),
+              ],
+            ),
+          ),
+          // 3. Consigne du gérant, impossible à manquer depuis la liste
+          // (§ demande) — cellule « Client » du tableau web, réservée au
+          // préparateur (`isPreparateur &&`).
+          if (isPreparateur)
+            NoteCallout(
+              role: NoteRole.preparateur,
+              text: order.notePreparateur,
+              compact: true,
+              margin: const EdgeInsets.only(top: 10),
+            ),
+        ],
       ),
     );
   }
@@ -893,12 +922,11 @@ class _ArticleLigne extends StatelessWidget {
 /// Ligne « icône + texte » de la carte ; appelable (couleur primaire,
 /// souligné) quand [onTap] est fourni.
 class _InfoLigne extends StatelessWidget {
-  const _InfoLigne({required this.icon, required this.text, this.onTap, this.bold = false, this.muted = false});
+  const _InfoLigne({required this.icon, required this.text, this.onTap, this.muted = false});
 
   final IconData icon;
   final String text;
   final VoidCallback? onTap;
-  final bool bold;
   final bool muted;
 
   @override
@@ -921,7 +949,6 @@ class _InfoLigne extends StatelessWidget {
               text,
               style: TextStyle(
                 color: couleur,
-                fontWeight: bold ? FontWeight.w600 : null,
                 decoration: onTap != null ? TextDecoration.underline : null,
               ),
             ),

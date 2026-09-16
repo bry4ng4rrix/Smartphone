@@ -273,7 +273,7 @@ class _OrderHistoriqueViewState extends ConsumerState<OrderHistoriqueView> {
             )
           else
             SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 28),
               sliver: SliverList.builder(
                 itemCount: orders.length,
                 itemBuilder: (context, i) => widget.cardBuilder(context, orders[i]),
