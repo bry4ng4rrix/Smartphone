@@ -37,14 +37,15 @@ const _tourneeStatutFilters = <({String? value, String label})>[
 ];
 
 /// Période de la tournée (`livreurPeriode` de page.tsx) : filtre CLIENT sur
-/// le jour de livraison prévu, comparé au jour métier d'Antananarivo, parmi
-/// les commandes dont le jour J est ouvert (voir [_displayedOrders]). Par
-/// défaut « Aujourd'hui » : SEULES les commandes du jour (§ demande) ; les
-/// livraisons en retard restent consultables par le filtre.
+/// le jour de livraison prévu, comparé au jour métier d'Antananarivo. Par
+/// défaut « Aujourd'hui (jour J) » ; TOUTES les commandes assignées restent
+/// chargées, sans limite d'heure ni de jour (§ demande) — Toutes / Jours
+/// suivants / En retard sont à portée de main.
 enum _LivreurPeriode {
   aujourdhui("Aujourd'hui (jour J)"),
-  passees('En retard'),
-  jourJ("Aujourd'hui + en retard");
+  toutes('Toutes les commandes'),
+  aVenir('Jours suivants'),
+  passees('En retard / passées');
 
   const _LivreurPeriode(this.label);
   final String label;
@@ -76,18 +77,17 @@ List<Order> _displayedOrders(Iterable<Order> orders, _LivreurPeriode periode, _L
   int livraisonLe(Order o) => o.dateCommande?.millisecondsSinceEpoch ?? 0;
 
   bool retenue(Order o) {
-    // Une « Date précise » choisie (ex. demain, pour préparer sa tournée)
-    // affiche TOUTES les commandes de ce jour, déjà filtrées par le
-    // serveur : la règle jour J ne vaut que pour la vue par défaut, et les
-    // boutons d'action restent fermés hors jour J.
+    // Une « Date précise » choisie (déjà filtrée par le serveur) affiche
+    // tout ce jour-là. Les boutons d'action restent fermés hors jour J.
     if (dateChoisie) return true;
-    if (!actionOuverte(o.dateCommande, UserRole.livreur)) return false;
     final jour = o.dateCommande == null ? null : appDay(o.dateCommande!);
     switch (periode) {
-      case _LivreurPeriode.jourJ:
+      case _LivreurPeriode.toutes:
         return true;
       case _LivreurPeriode.aujourdhui:
         return jour == null || jour.isAtSameMomentAs(today);
+      case _LivreurPeriode.aVenir:
+        return jour != null && jour.isAfter(today);
       case _LivreurPeriode.passees:
         return jour != null && jour.isBefore(today);
     }
@@ -199,19 +199,6 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
   _LivreurPeriode _periode = _LivreurPeriode.aujourdhui;
   _LivreurTri _tri = _LivreurTri.recentes;
 
-  /// La liste dépend de l'heure (ouverture du jour J à minuit) : on la
-  /// recalcule chaque minute pour que les commandes du jour apparaissent
-  /// sans que le livreur ait à rafraîchir.
-  Timer? _horloge;
-
-  @override
-  void initState() {
-    super.initState();
-    _horloge = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (mounted) setState(() {});
-    });
-  }
-
   /// Bouton « Rafraîchir » : rechargement NON silencieux (repasse par l'état
   /// de chargement, comme le skeleton du web) — contrairement au temps réel
   /// et aux rechargements d'après action, silencieux.
@@ -219,7 +206,6 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
 
   @override
   void dispose() {
-    _horloge?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -670,12 +656,14 @@ class _TourneeActiveList extends ConsumerWidget {
                 // Onglets et filtres défilent avec les commandes (§ demande).
                 SliverToBoxAdapter(child: header),
                 if (displayed.isEmpty)
-                  const SliverFillRemaining(
+                  SliverFillRemaining(
                     hasScrollBody: false,
                     child: EmptyState(
                       message: dateChoisie
                           ? 'Aucune commande assignée pour cette date.'
-                          : "Aucune commande pour aujourd'hui. Celles de demain apparaîtront ce soir à minuit (heure de Madagascar) — ou choisissez une date précise pour les voir dès maintenant.",
+                          : periode == _LivreurPeriode.aujourdhui
+                              ? "Aucune commande pour aujourd'hui. Période « Toutes les commandes » ou « Jours suivants » pour voir le reste de votre planning."
+                              : 'Aucune commande pour ces filtres.',
                       icon: Icons.local_shipping_outlined,
                     ),
                   )
