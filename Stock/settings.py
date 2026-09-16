@@ -191,7 +191,7 @@ REST_FRAMEWORK = {
 
 
 
-ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "157.173.103.147 localhost 127.0.0.1").split()
+ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "185.215.167.79 localhost 127.0.0.1").split()
 
 CORS_ALLOW_ALL_ORIGINS = False
 
@@ -218,14 +218,14 @@ CORS_EXPOSE_HEADERS = [
 _cors_env = os.environ.get("CORS_ALLOWED_ORIGINS", "")
 CORS_ALLOWED_ORIGINS = _cors_env.split() if _cors_env else [
     "http://localhost:3010",
-    "http://157.173.103.147:3010",
-    "http://157.173.103.147",
+    "http://185.215.167.79:3010",
+    "http://185.215.167.79",
 ]
 
 _csrf_env = os.environ.get("CSRF_TRUSTED_ORIGINS", "")
 CSRF_TRUSTED_ORIGINS = _csrf_env.split() if _csrf_env else [
-    "http://157.173.103.147",
-    "http://157.173.103.147:3010",
-    "http://157.173.103.147:8010",
+    "http://185.215.167.79",
+    "http://185.215.167.79:3010",
+    "http://185.215.167.79:8010",
     "http://localhost:3010",
 ]

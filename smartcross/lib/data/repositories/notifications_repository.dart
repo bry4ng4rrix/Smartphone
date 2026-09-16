@@ -142,7 +142,7 @@ class NotificationsRepository {
 /// son compteur. Même clé, même plafond que le `localStorage` du web : au-delà
 /// de 200 identifiants, les plus anciens ressortent de l'oubli.
 class DismissedNotificationsStore {
-  static const String key = 'stockv2_dismissed_notification_ids';
+  static const String key = 'smartphonemg_dismissed_notification_ids';
   static const int maxIds = 200;
 
   /// Lecture défensive (`loadDismissed()` du web) : vide si rien n'est

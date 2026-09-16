@@ -53,7 +53,7 @@ cp .env.example .env
 | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
 | `DJANGO_SECRET_KEY`                                           | Clé Django — **jamais** la valeur par défaut en prod                                                  | générée (voir commentaire dans `.env.example`) |
 | `DEBUG`                                                       | Doit être `False` en production                                                                       | `False`                                        |
-| `ALLOWED_HOSTS`                                               | Domaines/IP autorisés à servir l'API (séparés par des espaces)                                        | `smartphone.mg 157.173.103.147`                |
+| `ALLOWED_HOSTS`                                               | Domaines/IP autorisés à servir l'API (séparés par des espaces)                                        | `smartphone.mg 185.215.167.79`                |
 | `CORS_ALLOWED_ORIGINS`                                        | Origines autorisées à appeler l'API depuis un navigateur                                              | `https://smartphone.mg`                        |
 | `CSRF_TRUSTED_ORIGINS`                                        | Idem pour les requêtes avec cookies/CSRF                                                              | `https://smartphone.mg`                        |
 | `DB_ENGINE`                                                   | `django.db.backends.postgresql` en prod, `sqlite3` en local                                           | `django.db.backends.postgresql`                |

@@ -220,7 +220,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                         Text('Créer un compte', style: theme.textTheme.headlineSmall),
                         const SizedBox(height: 4),
                         Text(
-                          'Rejoignez E-kajy Entana',
+                          'Rejoignez Smartphone.Mg',
                           style: theme.textTheme.bodyMedium
                               ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                         ),

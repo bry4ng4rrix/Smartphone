@@ -25,7 +25,7 @@ import {
 
 // IDs "effacés" localement : la notification reste enregistrée en base,
 // elle est seulement retirée de la liste récente du menu déroulant.
-const DISMISSED_KEY = 'stockv2_dismissed_notification_ids';
+const DISMISSED_KEY = 'smartphonemg_dismissed_notification_ids';
 
 const loadDismissed = (): number[] => {
   if (typeof window === 'undefined') return [];

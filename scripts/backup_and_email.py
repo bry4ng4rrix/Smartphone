@@ -74,7 +74,7 @@ def send_email(archive_path: Path) -> None:
         )
 
     message = EmailMessage()
-    message["Subject"] = f"Sauvegarde Stock_v2 - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    message["Subject"] = f"Sauvegarde Smartphone.Mg - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
     message["From"] = sender
     message["To"] = ", ".join(recipients)
     message.set_content(

@@ -246,7 +246,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Accédez à votre espace E-kajy Entana',
+                            'Accédez à votre espace Smartphone.Mg',
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: muted,
                             ),

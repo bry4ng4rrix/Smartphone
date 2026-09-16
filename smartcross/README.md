@@ -357,7 +357,7 @@ D'autres produits (chargeur…) où c'est surtout « référence + couleur + qua
 
 ## 13. Développement (app Flutter)
 
-Frontend Flutter consommant l'API Django de `../Smartphone_mg` (voir `../Smartphone_mg/endpoint.md`). Architecture et conventions reprises de `valhery_wear` (Riverpod, go_router, Dio + refresh JWT auto, stockage sécurisé, WebSocket temps réel), fonctionnalités inspirées de `Stock_v2` (dashboard par rôle, mouvements de stock, ruptures).
+Frontend Flutter de Smartphone.Mg, consommant l'API Django de ce dépôt (voir `../endpoint.md`). Application indépendante : Riverpod, go_router, Dio + refresh JWT automatique, stockage sécurisé, WebSocket temps réel.
 
 ### Lancer l'app
 
@@ -371,7 +371,7 @@ Au premier lancement, l'écran de connexion propose « Configurer le serveur » 
 ### Lancer le backend (dev)
 
 ```bash
-cd ../Smartphone_mg
+cd ..
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 python manage.py migrate

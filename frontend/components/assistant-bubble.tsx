@@ -43,6 +43,8 @@ const EXEMPLE_COMMANDE =
  */
 export function AssistantBubble() {
   const { isGerant, isPreparateur } = useCurrentUser();
+  const [monte, setMonte] = useState(false);
+  useEffect(() => setMonte(true), []);
   const [ouvert, setOuvert] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [question, setQuestion] = useState('');
@@ -154,7 +156,11 @@ export function AssistantBubble() {
   };
 
   // Pas d'assistant pour un visiteur non connecté : il n'a ni page ni données.
-  if (!djangoClient.isAuthenticated()) return null;
+  // `isAuthenticated()` lit le localStorage : faux côté serveur, vrai côté
+  // client → le HTML rendu par le serveur (rien) ne correspondait pas au
+  // client (le bouton), d'où une erreur d'hydratation et la régénération de
+  // tout l'arbre de la page. On n'affiche la bulle qu'une fois monté.
+  if (!monte || !djangoClient.isAuthenticated()) return null;
 
   if (!ouvert) {
     return (
