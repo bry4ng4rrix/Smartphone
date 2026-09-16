@@ -224,7 +224,7 @@ export function Sidebar() {
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-linear-to-br from-blue-500 to-cyan-600 flex items-center justify-center shadow-lg dark:from-blue-400 dark:to-cyan-500 overflow-hidden">
                 <img
-                  src={user?.store_logo || "/logo.jpeg"}
+                  src="/logo.jpeg"
                   alt="Logo"
                   className="w-full h-full object-cover"
                 />
