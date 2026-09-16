@@ -341,29 +341,19 @@ export default function OrdersPage() {
   >([]);
   // Filtres livreur (vue "Ma tournée") : statut + date (un seul jour).
   const [livreurStatutFilter, setLivreurStatutFilter] = useState("ALL");
-  // Livreur (§ demande) : SEULES les commandes du JOUR J sont affichées —
-  // livraison prévue aujourd'hui, heure de Madagascar. Une commande prévue
-  // demain à 00:00 apparaît ce soir à minuit pile ; les jours suivants ne
-  // sont jamais affichés. Les livraisons en retard restent consultables par
-  // le filtre de période. Tri par date (les plus récentes d'abord par défaut).
+  // Livreur (§ demande) : TOUTES ses commandes assignées sont chargées, sans
+  // limite d'heure ni de jour ; c'est le filtre de période — « Aujourd'hui
+  // (jour J) » par défaut — qui restreint l'affichage (jour de livraison
+  // prévu, heure de Madagascar). Toutes / Jours suivants / En retard restent
+  // disponibles. Les boutons d'action, eux, restent fermés hors jour J.
   const [livreurTri, setLivreurTri] = useState<
     "RECENTES" | "ANCIENNES" | "LIVRAISON_PROCHE" | "LIVRAISON_LOINTAINE"
   >("RECENTES");
   const [livreurPeriode, setLivreurPeriode] = useState<
-    "AUJOURDHUI" | "PASSEES" | "JOUR_J"
+    "AUJOURDHUI" | "TOUTES" | "A_VENIR" | "PASSEES"
   >("AUJOURDHUI");
-  // Le filtre de date serveur part vide : c'est l'ouverture du jour J
-  // (minuit, Madagascar) qui décide de l'affichage, pas une date choisie.
+  // Filtre de date serveur (facultatif) : vide = tout le planning.
   const [livreurDate, setLivreurDate] = useState("");
-  // Horloge : la liste du livreur dépend de l'heure (ouverture à minuit) —
-  // on la recalcule chaque minute pour que les commandes du jour apparaissent
-  // sans rechargement de la page.
-  const [horloge, setHorloge] = useState(() => Date.now());
-  useEffect(() => {
-    if (!isLivreur) return;
-    const id = window.setInterval(() => setHorloge(Date.now()), 60_000);
-    return () => window.clearInterval(id);
-  }, [isLivreur]);
   // Filtre préparateur (vue "À préparer"/"Récupérations") : date (un seul jour).
   const [preparateurDate, setPreparateurDate] = useState(() => appToday());
   // Filtre de statut du préparateur sur sa vue active : piloté uniquement
@@ -968,19 +958,15 @@ export default function OrdersPage() {
     if (!(isLivreur && viewMode === "ACTIF")) {
       return [...ordersFiltresStatut].sort((a, b) => creeLe(b) - creeLe(a));
     }
-    // Livreur : seules les commandes dont le jour J est OUVERT (minuit le
-    // jour de livraison, heure de Madagascar — même règle que les boutons
-    // d'action) peuvent s'afficher ; par défaut uniquement celles
-    // d'aujourd'hui, celles en retard sur demande. Les jours suivants
-    // n'apparaissent qu'à minuit. `horloge` force le recalcul chaque minute.
-    void horloge;
+    // Livreur : filtre de période sur le jour de livraison prévu (heure de
+    // Madagascar) — « Aujourd'hui » par défaut. Une « Date précise » choisie
+    // (déjà filtrée par le serveur) affiche tout ce jour-là.
     const today = appToday();
     const base = ordersFiltresStatut.filter((o: any) => {
-      if (livreurDate) return true;
-      if (!actionOuverte(o.date_commande, "LIVREUR")) return false;
-      if (livreurPeriode === "JOUR_J") return true;
+      if (livreurDate || livreurPeriode === "TOUTES") return true;
       const jour = o.date_commande ? appDayKey(o.date_commande) : "";
       if (livreurPeriode === "AUJOURDHUI") return jour === today || jour === "";
+      if (livreurPeriode === "A_VENIR") return jour > today;
       return jour !== "" && jour < today;
     });
     const tri: Record<string, (a: any, b: any) => number> = {
@@ -990,15 +976,7 @@ export default function OrdersPage() {
       LIVRAISON_LOINTAINE: (a, b) => livraisonLe(b) - livraisonLe(a),
     };
     return [...base].sort(tri[livreurTri]);
-  }, [
-    ordersFiltresStatut,
-    isLivreur,
-    viewMode,
-    livreurTri,
-    livreurPeriode,
-    livreurDate,
-    horloge,
-  ]);
+  }, [ordersFiltresStatut, isLivreur, viewMode, livreurTri, livreurPeriode, livreurDate]);
 
   // Pastille « quand livrer » d'une commande (vue livreur) : Aujourd'hui,
   // Demain, à venir (date) ou en retard.
@@ -1146,8 +1124,9 @@ export default function OrdersPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="AUJOURDHUI">Aujourd'hui (jour J)</SelectItem>
-                <SelectItem value="PASSEES">En retard</SelectItem>
-                <SelectItem value="JOUR_J">Aujourd'hui + en retard</SelectItem>
+                <SelectItem value="TOUTES">Toutes les commandes</SelectItem>
+                <SelectItem value="A_VENIR">Jours suivants</SelectItem>
+                <SelectItem value="PASSEES">En retard / passées</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -1399,7 +1378,9 @@ export default function OrdersPage() {
               {isLivreur && viewMode === "ACTIF"
                 ? livreurDate
                   ? `Aucune commande assignée pour le ${livreurDate.split("-").reverse().join("/")}.`
-                  : "Aucune commande pour aujourd'hui. Celles de demain apparaîtront ce soir à minuit (heure de Madagascar) — ou choisissez une date précise pour les voir dès maintenant."
+                  : livreurPeriode === "AUJOURDHUI"
+                    ? "Aucune commande pour aujourd'hui. Période « Toutes les commandes » ou « Jours suivants » pour voir le reste de votre planning."
+                    : "Aucune commande pour ces filtres."
                 : "Aucune commande trouvée pour cette recherche."}
             </p>
           ) : (
