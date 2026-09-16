@@ -257,7 +257,8 @@ export function Sidebar() {
               })
               .map((item) => {
                 const Icon = item.icon;
-                const isActive = pathname === item.href;
+                // Actif aussi sur les sous-pages (ex. /dashboard/sales).
+                const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
 
                 return (
                   <Link

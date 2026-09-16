@@ -24,6 +24,15 @@ export const SECTIONS: { key: Section; label: string; description: string }[] = 
   { key: 'marketing', label: 'Marketing', description: 'Campagnes, dépenses publicitaires, ROI' },
 ];
 
+/** URL de chaque rapport : la vue générale est /dashboard, les autres /dashboard/<clé>. */
+export const sectionHref = (s: Section) => (s === 'overview' ? '/dashboard' : `/dashboard/${s}`);
+
+/** Rapport affiché d'après l'URL (/dashboard → overview, /dashboard/sales → sales…). */
+export function sectionDepuisPathname(pathname: string): Section {
+  const segment = pathname.replace(/^\/dashboard\/?/, '').split('/')[0];
+  return (SECTIONS.find((s) => s.key === segment)?.key ?? 'overview') as Section;
+}
+
 export type Granularity = 'day' | 'week' | 'month' | 'year';
 
 export const GRANULARITES: { key: Granularity; label: string }[] = [
