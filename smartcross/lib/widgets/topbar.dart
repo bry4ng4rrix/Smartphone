@@ -113,19 +113,9 @@ class TopBar extends ConsumerWidget implements PreferredSizeWidget {
             )
           : null,
       automaticallyImplyLeading: false,
-      title: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary, borderRadius: BorderRadius.circular(8)),
-            child: const Icon(Icons.phone_iphone, color: Colors.white, size: 18),
-          ),
-          const SizedBox(width: 10),
-          const Text('Smartphone.Mg', style: TextStyle(fontWeight: FontWeight.w600)),
-        ],
-      ),
+      // Pas de logo ni de nom d'application dans la barre (§ demande) : elle
+      // ne porte que le menu, l'état de connexion, la cloche, le thème et
+      // le compte.
       actions: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4),

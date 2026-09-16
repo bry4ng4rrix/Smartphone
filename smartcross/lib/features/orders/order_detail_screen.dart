@@ -237,31 +237,26 @@ class OrderDetailScreen extends ConsumerWidget {
     final order = async.value;
     final canEdit = isGerant && order != null && !order.estTerminee;
 
+    // Pas de barre d'application (§ demande) : ni titre ni bouton retour —
+    // le numéro et le statut sont en tête de la fiche, « Modifier » les
+    // accompagne, et le retour se fait par le geste / bouton système.
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          order == null ? 'Détail commande' : 'Commande ${order.numero}',
-        ),
-        actions: [
-          if (canEdit)
-            TextButton.icon(
-              onPressed: () => _edit(context, ref, order),
-              icon: const Icon(Icons.edit_outlined, size: 18),
-              label: const Text('Modifier'),
-            ),
-        ],
-      ),
       // Après une action, la commande est rechargée SANS repasser par l'état
       // de chargement : la fiche reste affichée et ses boutons se remplacent
       // (`refreshDetail` du web).
-      body: async.when(
-        skipLoadingOnReload: true,
-        data: (value) => _OrderDetailBody(order: value),
-        error: (error, _) => ErrorState(
-          message: ApiClient.messageFromError(error),
-          onRetry: () => ref.invalidate(orderDetailProvider(orderId)),
+      body: SafeArea(
+        child: async.when(
+          skipLoadingOnReload: true,
+          data: (value) => _OrderDetailBody(
+            order: value,
+            onEdit: canEdit ? () => _edit(context, ref, value) : null,
+          ),
+          error: (error, _) => ErrorState(
+            message: ApiClient.messageFromError(error),
+            onRetry: () => ref.invalidate(orderDetailProvider(orderId)),
+          ),
+          loading: () => const LoadingState(),
         ),
-        loading: () => const LoadingState(),
       ),
     );
   }
@@ -277,8 +272,11 @@ class _InlineConfirm {
 }
 
 class _OrderDetailBody extends ConsumerStatefulWidget {
-  const _OrderDetailBody({required this.order});
+  const _OrderDetailBody({required this.order, this.onEdit});
   final Order order;
+
+  /// « Modifier » (gérant, commande non terminée) — `null` = masqué.
+  final VoidCallback? onEdit;
 
   @override
   ConsumerState<_OrderDetailBody> createState() => _OrderDetailBodyState();
@@ -524,6 +522,14 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
                 child: Text(order.numero, style: theme.textTheme.headlineSmall),
               ),
               OrderStatusBadge(status: order.statutCourant),
+              if (widget.onEdit != null) ...[
+                const SizedBox(width: 4),
+                IconButton(
+                  tooltip: 'Modifier',
+                  onPressed: _busy ? null : widget.onEdit,
+                  icon: const Icon(Icons.edit_outlined),
+                ),
+              ],
             ],
           ),
           if (order.livraisonPartielle)
