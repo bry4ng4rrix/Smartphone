@@ -34,8 +34,9 @@ Correction Livré → Retour (orders/services.py::corriger_statut)
 | `finance.Encaissement` | argent d'une vente, du client à la caisse | `source` LIVREUR/COMPTOIR/PREPAYE, `montant`, `statut` EN_ATTENTE/REMIS/ANNULE, `caisse_movement` |
 | `finance.EpargneMouvement` | journal du compte d'épargne | `type` VERSEMENT/RETRAIT/CORRECTION, `montant` signé, `solde_apres`, `motif`, `order`, `reference` unique |
 | `users.CaisseMovement` (+) | mouvement d'espèces | `origine` (VENTE, FRAIS_LIVRAISON, BOOST, DEPENSE…), `reference` unique (idempotence) |
-| `orders.DeliveryZoneOption` (+) | zone | `cout_agence` : frais réellement payés (vs `prix` facturé au client) |
-| `orders.Order` (+) | commande | `frais_agence` : surcharge du coût agence pour cette commande |
+| `orders.DeliveryZoneOption` (+) | zone | `cout_agence` : conservé en base, **plus utilisé** (ni saisi dans Paramètres) |
+| `orders.ExpenseType` (+) | type de dépense | `frais_livraison` : type « frais de livraison » (LIVRAISON 3K / 4K / 5K…) — seules ces dépenses acceptées entrent dans le gain réel et la marge livraison |
+| `orders.Order` (+) | commande | `frais_agence` : coût de livraison saisi explicitement pour cette commande (prioritaire) |
 | `orders.MarketingCampaign` (+) | boost / publicité par période | `type_periode` JOUR/SEMAINE/MOIS/PERSONNALISE, `montant`, `date_debut`, `date_fin` |
 
 Tous les montants sont des `Decimal` (2 décimales, arrondi demi-supérieur).
@@ -44,14 +45,28 @@ Tous les montants sont des `Decimal` (2 décimales, arrondi demi-supérieur).
 
 ```
 gain réel = (prix de vente + livraison facturée au client)
-            − prix d'achat − frais agence − part de boost
+            − prix d'achat − frais de livraison acceptés − part de boost
+
+frais de livraison acceptés = dépenses des livreurs ACCEPTÉES par le gérant,
+                              des seuls types marqués « frais de livraison »
+                              dans Paramètres (LIVRAISON 3K / 4K / 5K…) —
+                              repas, enveloppes, NAP exclus. Même chiffre que
+                              le rapport Dépenses « Livraison : facturé au
+                              client vs coût réel ». Par vente : le total du
+                              jour du livreur est réparti à parts égales entre
+                              ses commandes livrées ce jour-là (VenteResultat
+                              .frais_agence) ; sur une période, le bloc
+                              « gain » affiche la Σ exacte des dépenses.
+                              `Order.frais_agence` (coût saisi sur une
+                              commande) garde la priorité ; le `cout_agence`
+                              des zones n'est plus utilisé.
 
 part de boost d'un article = montant du boost / nombre RÉEL d'articles vendus
                              (commandes livrées, articles rapportés exclus)
                              sur la période exacte du boost ; 0 si aucun article
 part de boost d'une vente  = Σ (coût/article de chaque boost couvrant la date) × nb articles
 
-résultat livraison = livraison facturée − frais agence   (négatif = perte affichée)
+résultat livraison = livraison facturée − frais de livraison acceptés   (négatif = perte affichée)
 
 répartition (gain > 0) : réappro = gain × 60 % ; épargne = gain × 25 % ;
                          dépenses = gain − réappro − épargne (absorbe l'arrondi)
@@ -103,7 +118,7 @@ Existant réutilisé : `/api/users/caisse/*` (sessions, mouvements, catégories)
 `cout_par_article`, `en_caisse`, et, depuis l'affectation automatique par
 période, `nb_commandes`, `nb_livrees`, `ca`, `cout_par_commande`,
 `periode_effective` ; option `en_caisse: true` à la création),
-`/api/orders/delivery-zones/` (`cout_agence`).
+`/api/orders/delivery-zones/`, `/api/orders/expense-types/` (`frais_livraison`). L'acceptation d'une dépense « frais de livraison » (`expenses/{id}/resoudre/`) et le changement du marqueur sur un type recalculent les ventes des jours concernés.
 
 Affectation commande ↔ boost : AUTOMATIQUE par période
 (`finance/services.py::commandes_du_boost`, source unique pour la caisse, le

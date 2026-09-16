@@ -632,6 +632,30 @@ class ExpenseTypeViewSet(viewsets.ModelViewSet):
             raise DRFValidationError("Aucune société associée à ce compte.")
         serializer.save(admin_profile=admin_profile)
 
+    @transaction.atomic
+    def perform_update(self, serializer):
+        avant = serializer.instance.frais_livraison
+        expense_type = serializer.save()
+        # Marqueur « frais de livraison » changé : toutes les ventes des jours
+        # où ce type a des dépenses acceptées changent de frais (gain réel).
+        if expense_type.frais_livraison != avant:
+            from finance import services as finance_services
+
+            jours = (
+                expense_type.expenses.filter(statut="ACCEPTE")
+                .values_list("magasin_id", "date")
+                .order_by("magasin_id", "date")
+                .distinct()
+            )
+            par_magasin = {}
+            for magasin_id, jour in jours:
+                d = par_magasin.setdefault(magasin_id, [jour, jour])
+                d[0], d[1] = min(d[0], jour), max(d[1], jour)
+            from users.models import MagasinProfile
+
+            for magasin_id, (d1, d2) in par_magasin.items():
+                finance_services.recalculer_ventes(MagasinProfile.objects.get(pk=magasin_id), d1, d2, self.request.user)
+
     def destroy(self, request, *args, **kwargs):
         """Un type déjà utilisé par une dépense est désactivé plutôt que
         supprimé : les dépenses passées gardent leur libellé, mais on ne veut
@@ -739,6 +763,12 @@ class LivreurExpenseViewSet(viewsets.ModelViewSet):
         expense.save(
             update_fields=["statut", "motif_rejet", "resolved_by", "resolved_at"]
         )
+
+        # Frais de livraison accepté → la part de frais des ventes du livreur
+        # ce jour-là change (gain réel de la caisse).
+        from finance import services as finance_services
+
+        finance_services.recalculer_apres_depense(expense, request.user)
 
         from users.models import Notification
 

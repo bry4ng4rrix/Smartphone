@@ -31,7 +31,7 @@ function Bloc({ titre, s }: { titre: string; s: StatsLivraison }) {
         <span className="text-xs text-muted-foreground">{fmtNb(s.nb)} livraison(s)</span>
       </div>
       <div className="flex justify-between gap-2 text-sm"><span className="text-muted-foreground">Livraison facturée</span><span className="tabular-nums whitespace-nowrap">{fmtAr(s.facturee)}</span></div>
-      <div className="flex justify-between gap-2 text-sm"><span className="text-muted-foreground">Frais agences</span><span className="tabular-nums whitespace-nowrap">{fmtAr(s.agence)}</span></div>
+      <div className="flex justify-between gap-2 text-sm"><span className="text-muted-foreground">Frais de livraison acceptés</span><span className="tabular-nums whitespace-nowrap">{fmtAr(s.agence)}</span></div>
       <div className="flex justify-between gap-2 text-sm font-semibold border-t pt-1.5">
         <span>{etat.label}</span>
         <span className={`tabular-nums whitespace-nowrap ${etat.cls}`}>{Number(s.resultat) > 0 ? '+' : ''}{fmtAr(s.resultat)}</span>
@@ -47,7 +47,7 @@ export function SectionLivraison({ data, loading }: { data: { periode: StatsLivr
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base"><Truck className="h-4 w-4" aria-hidden /> Résultats livraison</CardTitle>
         <CardDescription className="text-xs">
-          Livraison facturée au client − frais réellement payés à l&apos;agence (coût agence de la zone, ou coût saisi sur la commande).
+          Livraison facturée au client − frais de livraison acceptés (dépenses des livreurs de type LIVRAISON 3K / 4K / 5K… validées par le gérant, même chiffre que le rapport Dépenses).
           Les frais facturés ne sont jamais un bénéfice tant que le coût réel n&apos;est pas déduit.
         </CardDescription>
       </CardHeader>

@@ -89,7 +89,7 @@ export function SectionGain({
           </CardTitle>
           <CardDescription className="text-xs">
             {periode && `${fmtDate(periode.from)} → ${fmtDate(periode.to)} · `}
-            (prix de vente + livraison client) − prix d&apos;achat − frais agence − part de boost.
+            (prix de vente + livraison client) − prix d&apos;achat − frais de livraison acceptés (LIVRAISON 3K / 4K / 5K…) − part de boost.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -104,7 +104,7 @@ export function SectionGain({
               <Ligne label="Chiffre d'affaires (produits)" valeur={gain.ca_produits} />
               <Ligne label="Livraison facturée au client" valeur={gain.livraison_client} op="+" />
               <Ligne label="Coût d'achat" valeur={gain.cout_achat} op="−" />
-              <Ligne label="Frais agences de livraison" valeur={gain.frais_agence} op="−" />
+              <Ligne label="Frais de livraison acceptés (LIVRAISON 3K / 4K / 5K…)" valeur={gain.frais_agence} op="−" />
               <Ligne label="Boost / publicité (part des articles vendus)" valeur={gain.part_boost} op="−" />
               <Ligne
                 label={perte ? 'PERTE RÉELLE' : 'GAIN RÉEL'}

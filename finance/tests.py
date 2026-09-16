@@ -1,7 +1,8 @@
 """Tests du module trésorerie — scénario de référence « cache-écran » :
 
     prix d'achat 6 000, prix de vente 25 000, livraison client 3 000
-    (total client 28 000), frais agence 4 000, boost semaine 20 000 pour
+    (total client 28 000), frais de livraison 4 000 (dépense « LIVRAISON 4K »
+    du livreur acceptée par le gérant), boost semaine 20 000 pour
     20 articles vendus → 1 000 / article
 
     gain réel = 28 000 − 6 000 − 4 000 − 1 000 = 17 000
@@ -32,8 +33,10 @@ D = Decimal
 
 
 class ScenarioMixin:
-    """Une société, un magasin, une zone (3 000 client / 4 000 agence), un
-    cache-écran (achat 6 000, vente 25 000) et un livreur."""
+    """Une société, un magasin, une zone (3 000 client), un type de dépense
+    « LIVRAISON 4K » (frais de livraison, 4 000 par course déclarée par le
+    livreur et acceptée), un cache-écran (achat 6 000, vente 25 000) et un
+    livreur."""
 
     def creer_scenario(self):
         self.admin = User.objects.create_user(email="admin@test.mg", password="x", role="admin", is_confirmed=True, full_name="Admin")
@@ -44,7 +47,12 @@ class ScenarioMixin:
         EmployerProfile.objects.create(user=self.livreur, admin=self.admin, magasin=self.magasin, position="Livreur", commande_role="LIVREUR")
         self.preparateur = User.objects.create_user(email="prep@test.mg", password="x", role="employer", is_confirmed=True, full_name="Fara")
         EmployerProfile.objects.create(user=self.preparateur, admin=self.admin, magasin=self.magasin, position="Préparateur", commande_role="PREPARATEUR")
-        self.zone = DeliveryZoneOption.objects.create(admin_profile=self.admin_profile, code="ZONE1", nom="Zone 1", prix=D("3000"), cout_agence=D("4000"))
+        self.zone = DeliveryZoneOption.objects.create(admin_profile=self.admin_profile, code="ZONE1", nom="Zone 1", prix=D("3000"))
+        from orders.models import ExpenseType
+
+        self.type_livraison = ExpenseType.objects.create(
+            admin_profile=self.admin_profile, nom="LIVRAISON 4K", prix_unitaire=D("4000"), par_unite=True, frais_livraison=True
+        )
         cat = ProductCategory.objects.create(magasin=self.magasin, nom="CACHE ÉCRAN", avec_couleurs=False)
         typ = ProductType.objects.create(category=cat, nom="PRIVACY")
         brand = Brand.objects.create(magasin=self.magasin, nom="Samsung")
@@ -67,7 +75,19 @@ class ScenarioMixin:
         if order.livraison_zone == "RECUPERATION":
             return order_services.change_order_status(order=order, new_status="LIVRE", user=self.gerant)
         order = order_services.change_order_status(order=order, new_status="EN_LIVRAISON", user=self.gerant, livreur_id=(livreur or self.livreur).id)
-        return order_services.change_order_status(order=order, new_status="LIVRE", user=self.gerant)
+        order = order_services.change_order_status(order=order, new_status="LIVRE", user=self.gerant)
+        # Le livreur déclare la course (4 000), le gérant l'accepte : c'est
+        # ce montant — pas un coût de zone — qui entre dans le gain réel.
+        self.declarer_frais_livraison(order, livreur=livreur)
+        return order
+
+    def declarer_frais_livraison(self, order, montant=D("4000"), livreur=None, statut="ACCEPTE"):
+        expense = LivreurExpense.objects.create(
+            magasin=self.magasin, livreur=livreur or self.livreur, type_depense=self.type_livraison, libelle=self.type_livraison.nom,
+            prix_unitaire=montant, quantite=1, statut=statut, date=timezone.localtime(order.date_commande).date(),
+        )
+        services.recalculer_apres_depense(expense, self.gerant)
+        return expense
 
     def ouvrir_caisse(self, fond=D("0")):
         return CaisseSession.objects.create(magasin=self.magasin, opened_by=self.gerant, opening_balance=fond)
@@ -208,18 +228,20 @@ class CalculsTests(ScenarioMixin, TestCase):
         res = services.remettre_encaissements(self.magasin, self.gerant, livreur_id=self.livreur.id)
         self.assertEqual(res["nb"], 2)
         self.assertEqual(res["brut"], D("28000") + D("53000"))
-        self.assertEqual(res["depenses"], D("5000"))
-        self.assertEqual(services.solde_session(session), D("76000"))
+        # Carburant 5 000 + les deux courses LIVRAISON 4K acceptées (8 000).
+        self.assertEqual(res["depenses"], D("13000"))
+        self.assertEqual(services.solde_session(session), D("68000"))
         self.assertEqual(Encaissement.objects.filter(statut="EN_ATTENTE").count(), 0)
         # Une seconde remise ne crée rien
         res2 = services.remettre_encaissements(self.magasin, self.gerant, livreur_id=self.livreur.id)
         self.assertEqual(res2["nb"], 0)
         self.assertEqual(CaisseMovement.objects.filter(reference__startswith="VENTE:").count(), 2)
-        self.assertEqual(CaisseMovement.objects.filter(reference__startswith="TOURNEE:").count(), 1)
+        # Une sortie par dépense remise : carburant + les deux courses.
+        self.assertEqual(CaisseMovement.objects.filter(reference__startswith="TOURNEE:").count(), 3)
         self.assertEqual(services.indicateurs([self.magasin])["argent_en_attente"], D("0"))
         # Journal : solde après chaque mouvement cohérent
         lignes = services.journal([self.magasin])
-        self.assertEqual(lignes[0]["solde_apres"], D("76000"))
+        self.assertEqual(lignes[0]["solde_apres"], D("68000"))
         self.assertEqual({l["origine"] for l in lignes}, {"VENTE", "FRAIS_LIVRAISON"})
         _ = (o1, o2)
 
@@ -258,6 +280,7 @@ class CalculsTests(ScenarioMixin, TestCase):
         OrderItem.objects.create(order=order, product_variant=self.variante, quantite=1)
         order.recompute_total()
         order = order_services.change_order_status(order=order, new_status="LIVRE", user=self.gerant, items_livres=[item.id])
+        self.declarer_frais_livraison(order)
         r = VenteResultat.objects.get(order=order)
         self.assertEqual(r.nb_articles, 3)
         self.assertEqual(r.ca_produits, D("75000"))
@@ -550,15 +573,22 @@ class MargeLivraisonRapportsTests(ScenarioMixin, APITestCase):
         res = self.client.get("/api/orders/reports/expenses/" + q)
         self.assertEqual(res.status_code, 200)
         liv = res.data["livraison"]
+        # Frais de livraison acceptés : LIVRAISON 4K (course, via livrer) + LIVRAISON 3K
+        # = 7 000 ; le repas et la dépense en attente sont exclus.
         self.assertEqual(D(str(liv["frais_factures_client"])), D("3000"))
-        self.assertEqual(D(str(liv["cout_reel_livreurs"])), D("3000"))  # repas et en attente exclus
-        self.assertEqual(D(str(liv["marge_livraison"])), D("0"))
-        # Le total des dépenses livreur, lui, garde le repas (8 000 acceptés).
-        self.assertEqual(D(str(res.data["totaux"]["livreur"]["actuel"])), D("8000"))
+        self.assertEqual(D(str(liv["cout_reel_livreurs"])), D("7000"))
+        self.assertEqual(D(str(liv["marge_livraison"])), D("-4000"))
+        # Le total des dépenses livreur, lui, garde le repas (12 000 acceptés).
+        self.assertEqual(D(str(res.data["totaux"]["livreur"]["actuel"])), D("12000"))
         res = self.client.get("/api/orders/reports/deliveries/" + q)
         self.assertEqual(res.status_code, 200)
-        self.assertEqual(D(str(res.data["totaux"]["cout_total"])), D("3000"))
-        self.assertEqual(D(str(res.data["totaux"]["marge_livraison"])), D("0"))
+        self.assertEqual(D(str(res.data["totaux"]["cout_total"])), D("7000"))
+        self.assertEqual(D(str(res.data["totaux"]["marge_livraison"])), D("-4000"))
+        # Même chiffre dans le gain réel de la caisse (§ demande) : 28 000 − 6 000 − 7 000.
+        res = self.client.get(f"/api/finance/dashboard/?date_from={self.aujourd_hui}&date_to={self.aujourd_hui}")
+        self.assertEqual(D(str(res.data["gain"]["frais_agence"])), D("7000"))
+        self.assertEqual(D(str(res.data["gain"]["gain_reel"])), D("15000"))
+        self.assertEqual(D(str(res.data["livraison"]["periode"]["agence"])), D("7000"))
 
     def test_migration_marque_les_types_livraison(self):
         """Le champ est exposé par l'API et modifiable dans Paramètres."""

@@ -205,16 +205,53 @@ def part_boost(magasin, jour, nb_articles):
 # --------------------------------------------------------------------------- #
 
 
+def frais_livraison_du_jour(magasin, livreur_id, jour):
+    """Coût réel des livraisons d'un livreur pour un jour : Σ de ses dépenses
+    ACCEPTÉES des types marqués « frais de livraison » dans Paramètres
+    (LIVRAISON 3K / 4K / 5K…) — repas, enveloppes, NAP exclus (§ demande)."""
+    if not livreur_id:
+        return ZERO
+    return _somme(
+        LivreurExpense.objects.filter(
+            magasin=magasin, livreur_id=livreur_id, statut="ACCEPTE", date=jour, type_depense__frais_livraison=True
+        ),
+        F("montant"),
+    )
+
+
 def frais_agence_de(order):
+    """Frais de livraison retenus pour CETTE vente dans le gain réel.
+
+    Règle (§ demande) : ce sont les dépenses « frais de livraison » acceptées
+    du livreur — pas un coût théorique de zone. Une dépense couvre la journée
+    du livreur, pas une commande précise : le total du jour est réparti à
+    parts égales entre ses commandes LIVRÉES ce jour-là (Σ sur la période =
+    Σ des dépenses acceptées, aux arrondis près). Un coût saisi explicitement
+    sur la commande (`Order.frais_agence`) garde la priorité ; retrait sur
+    place = 0. Le `cout_agence` des zones n'est plus utilisé."""
     if order.frais_agence is not None:
         return Decimal(order.frais_agence)
-    if order.livraison_zone == "RECUPERATION":
+    if order.livraison_zone == "RECUPERATION" or not order.livreur_id or order.date_commande is None:
         return ZERO
-    try:
-        zone = admin_profile_de(order.magasin).delivery_zones.get(code=order.livraison_zone)
-    except Exception:
+    jour = timezone.localtime(order.date_commande).date()
+    total = frais_livraison_du_jour(order.magasin, order.livreur_id, jour)
+    if total <= 0:
         return ZERO
-    return Decimal(zone.cout_agence)
+    nb = Order.objects.filter(
+        magasin=order.magasin, livreur_id=order.livreur_id, statut_courant="LIVRE", date_commande__date=jour
+    ).count()
+    return q2(total / nb) if nb else ZERO
+
+
+@transaction.atomic
+def recalculer_apres_depense(expense, user=None):
+    """Une dépense « frais de livraison » acceptée (ou son type re-marqué)
+    change la part de frais de toutes les ventes de son livreur ce jour-là :
+    on recalcule le jour (et les boosts qui le couvrent)."""
+    if expense.statut != "ACCEPTE" or not (expense.type_depense and expense.type_depense.frais_livraison):
+        return 0
+    d1, d2 = _periodes_a_recalculer(expense.magasin, expense.date)
+    return recalculer_ventes(expense.magasin, d1, d2, user)
 
 
 def calculer(order):
@@ -641,10 +678,25 @@ def _etat(resultat):
     return "benefice" if resultat > 0 else "perte" if resultat < 0 else "equilibre"
 
 
+def frais_livraison_periode(magasins, date_from, date_to):
+    """« Frais de livraison acceptés » d'une période : Σ des dépenses
+    ACCEPTÉES des types marqués « frais de livraison » (LIVRAISON 3K / 4K /
+    5K…) — exactement le chiffre du rapport Dépenses (« Livraison : facturé
+    au client vs coût réel »). C'est lui qui est affiché dans le gain réel de
+    la période (§ demande), et non la somme des parts réparties par vente
+    (identique aux arrondis près, sauf dépense un jour sans livraison)."""
+    return _somme(
+        LivreurExpense.objects.filter(
+            magasin__in=magasins, statut="ACCEPTE", type_depense__frais_livraison=True, date__gte=date_from, date__lte=date_to
+        ),
+        F("montant"),
+    )
+
+
 def stats_livraison(magasins, date_from, date_to):
     qs = VenteResultat.objects.filter(magasin__in=magasins, annule=False, date_vente__gte=date_from, date_vente__lte=date_to)
     facturee = _somme(qs, F("livraison_client"))
-    agence = _somme(qs, F("frais_agence"))
+    agence = frais_livraison_periode(magasins, date_from, date_to)
     return {
         "from": str(date_from), "to": str(date_to), "nb": qs.count(),
         "facturee": facturee, "agence": agence, "resultat": facturee - agence, "etat": _etat(facturee - agence),
@@ -665,6 +717,10 @@ def stats_gain(magasins, date_from, date_to):
         depenses=Coalesce(Sum("part_depenses"), 0, output_field=_DEC),
         articles=Coalesce(Sum("nb_articles"), 0),
     )
+    # Frais de livraison de la période = dépenses acceptées (chiffre exact du
+    # rapport Dépenses) ; le gain réel de la période en découle.
+    frais = frais_livraison_periode(magasins, date_from, date_to)
+    gain = q2(agg["ca"] + agg["liv"] - agg["cout"] - frais - agg["boost"])
     return {
         "nb_ventes": qs.count(),
         "nb_articles": agg["articles"],
@@ -673,10 +729,10 @@ def stats_gain(magasins, date_from, date_to):
         "livraison_client": agg["liv"],
         "total_encaisse": agg["ca"] + agg["liv"],
         "cout_achat": agg["cout"],
-        "frais_agence": agg["agence"],
+        "frais_agence": frais,
         "part_boost": agg["boost"],
-        "gain_reel": agg["gain"],
-        "etat": _etat(agg["gain"]),
+        "gain_reel": gain,
+        "etat": _etat(gain),
         "repartition": {"reappro": agg["reappro"], "epargne": agg["epargne"], "depenses": agg["depenses"]},
     }
 
