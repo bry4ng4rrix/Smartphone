@@ -154,7 +154,6 @@ export function Sidebar() {
   const pathname = usePathname();
   const {
     user,
-    isAdmin,
     isSuperAdmin,
     isAdminOrSuperAdmin,
     isPreparateur,
@@ -225,20 +224,17 @@ export function Sidebar() {
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-linear-to-br from-blue-500 to-cyan-600 flex items-center justify-center shadow-lg dark:from-blue-400 dark:to-cyan-500 overflow-hidden">
                 <img
-                  src={
-                    user?.store_logo ||
-                    "https://res.cloudinary.com/dxj0d1v3g/image/upload/v1697040915/valheri-wear/logo_2x_1_1_1_1_1_1_1_1_1_1_1_1_1_1_1_1_1_1_1.png"
-                  }
+                  src={user?.store_logo || "/logo.jpeg"}
                   alt="Logo"
                   className="w-full h-full object-cover"
                 />
               </div>
               <div>
                 <h1 className="text-lg font-bold tracking-wide text-slate-900 dark:text-white truncate max-w-[140px]">
-                  {user?.store_name || (isAdmin ? "Société" : "Valheri Wear")}
+                  {user?.store_name || "Smartphone.Mg"}
                 </h1>
                 <p className="text-xs text-slate-500 font-medium dark:text-slate-400">
-                  Smart kajy
+                  Osez la qualité !
                 </p>
               </div>
             </div>

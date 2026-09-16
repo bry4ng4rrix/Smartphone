@@ -80,8 +80,14 @@ export function LoginForm() {
   return (
     <Card className="w-full max-w-md shadow-xl">
       <CardHeader className="space-y-1 pb-4">
+        {/* Logo Smartphone.Mg — le même que l'icône de l'app mobile. */}
+        <img
+          src="/logo.jpeg"
+          alt="Smartphone.Mg"
+          className="mx-auto mb-2 h-24 w-24 rounded-2xl object-cover shadow"
+        />
         <CardTitle className="text-2xl font-bold">Connexion</CardTitle>
-        <CardDescription>Accédez à votre espace E-kajy Entana</CardDescription>
+        <CardDescription>Accédez à votre espace Smartphone.Mg</CardDescription>
       </CardHeader>
 
       <CardContent>

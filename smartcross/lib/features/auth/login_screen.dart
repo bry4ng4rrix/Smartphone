@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/api_client.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../state/auth_provider.dart';
+import '../../widgets/app_logo.dart';
 
 /// Table de traduction des erreurs du web (`ERRORS` + `friendlyError()` dans
 /// `frontend/components/auth/login-form.tsx`) : matching par `includes`, la
@@ -213,17 +214,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Center(
-                  child: Container(
-                    width: 72,
-                    height: 72,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.primary,
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: const Icon(Icons.phone_iphone, color: Colors.white, size: 36),
-                  ),
-                ),
+                const Center(child: AppLogo(size: 112, radius: 24)),
                 const SizedBox(height: 20),
                 Card(
                   child: Padding(

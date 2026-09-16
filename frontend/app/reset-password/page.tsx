@@ -3,7 +3,7 @@ import { ResetPasswordForm } from '@/components/auth/reset-password-form';
 import { Loader2 } from 'lucide-react';
 
 export const metadata = {
-  title: 'Réinitialiser le mot de passe - E-kajy Entana',
+  title: 'Réinitialiser le mot de passe - Smartphone.Mg',
 };
 
 function ResetPasswordFallback() {

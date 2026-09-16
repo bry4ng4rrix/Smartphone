@@ -35,6 +35,29 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/logo.png
+
+# Icône de l'application (Android, iOS, Windows, macOS) générée à partir du
+# logo Smartphone.Mg — `dart run flutter_launcher_icons` après toute
+# modification de assets/logo_icon.png. Linux n'est pas couvert par le
+# paquet : l'icône de fenêtre est posée au lancement (linux/runner).
+flutter_launcher_icons:
+  image_path: "assets/logo_icon.png"
+  android: true
+  min_sdk_android: 21
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/logo_icon.png"
+  ios: true
+  remove_alpha_ios: true
+  windows:
+    generate: true
+    image_path: "assets/logo_icon.png"
+    icon_size: 256
+  macos:
+    generate: true
+    image_path: "assets/logo_icon.png"

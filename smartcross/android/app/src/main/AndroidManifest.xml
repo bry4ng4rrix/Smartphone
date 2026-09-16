@@ -6,7 +6,7 @@
     <!-- Connexion temps réel (WebSocket) et API. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="smartcross"
+        android:label="Smartphone.Mg"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">

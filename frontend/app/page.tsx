@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 
 export const metadata = {
-  title: 'E-kajy Entana',
+  title: 'Smartphone.Mg',
 };
 
 export default function HomePage() {

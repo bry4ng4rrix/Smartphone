@@ -109,7 +109,7 @@ export function RegisterForm() {
     <Card className="w-full max-w-md shadow-xl border-t-4 border-t-primary">
       <CardHeader className="space-y-1 pb-4">
         <CardTitle className="text-2xl font-bold">Créer un compte</CardTitle>
-        <CardDescription>Rejoignez E-kajy Entana</CardDescription>
+        <CardDescription>Rejoignez Smartphone.Mg</CardDescription>
       </CardHeader>
 
       <CardContent>

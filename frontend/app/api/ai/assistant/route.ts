@@ -152,7 +152,7 @@ Message : """${message}"""`;
 }
 
 function promptGuide(question: string): string {
-  return `Tu es l'assistant de "Smart kajy", une application de gestion de commandes, stock et livraisons utilisée par un revendeur d'accessoires pour téléphones à Madagascar.
+  return `Tu es l'assistant de "Smartphone.Mg", une application de gestion de commandes, stock et livraisons utilisée par un revendeur d'accessoires pour téléphones à Madagascar.
 
 Voici le mode d'emploi complet de l'application :
 ${GUIDE}

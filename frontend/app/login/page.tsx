@@ -2,7 +2,7 @@ import { Suspense } from 'react';
 import { LoginForm } from '@/components/auth/login-form';
 
 export const metadata = {
-  title: 'Connexion - E-kajy Entana',
+  title: 'Connexion - Smartphone.Mg',
 };
 
 export default function LoginPage() {

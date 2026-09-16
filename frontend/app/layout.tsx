@@ -10,23 +10,16 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'StockManager',
-  description: 'Gestion de stock intelligente',
-  generator: 'v0.app',
+  // Identité Smartphone.Mg : même logo que l'icône de l'application mobile
+  // (smartcross/assets/logo.png) — public/logo.jpeg pour le sidebar, favicon
+  // et icônes déclinés du même fichier.
+  title: 'Smartphone.Mg',
+  description: 'Smartphone.Mg — Osez la qualité ! Gestion des commandes, du stock et des livraisons.',
+  applicationName: 'Smartphone.Mg',
   icons: {
     icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
-      {
-        url: '/icon.svg',
-        type: 'image/svg+xml',
-      },
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/icon-light-32x32.png', type: 'image/png', sizes: '32x32' },
     ],
     apple: '/apple-icon.png',
   },

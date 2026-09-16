@@ -1,7 +1,7 @@
 import { RegisterForm } from '@/components/auth/register-form';
 
 export const metadata = {
-  title: 'Inscription - E-kajy Entana',
+  title: 'Inscription - Smartphone.Mg',
 };
 
 export default function RegisterPage() {
