@@ -89,8 +89,6 @@ export function LoginForm() {
   return (
     <Card className="w-full max-w-md shadow-xl">
       <CardHeader className="space-y-1 pb-4">
-        {/* Logo Smartphone.Mg — le même que l'icône de l'app mobile. */}
-
         <CardTitle className="text-2xl font-bold">Connexion</CardTitle>
         <CardDescription>Accédez à votre espace Smartphone.Mg</CardDescription>
       </CardHeader>
@@ -124,12 +122,6 @@ export function LoginForm() {
               <label htmlFor="login-password" className="text-sm font-medium">
                 Mot de passe
               </label>
-              <Link
-                href="/forgot-password"
-                className="text-xs text-primary hover:underline"
-              >
-                Mot de passe oublié ?
-              </Link>
             </div>
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
@@ -175,16 +167,6 @@ export function LoginForm() {
             )}
           </Button>
         </form>
-
-        <p className="mt-5 text-center text-sm text-muted-foreground">
-          Pas encore de compte?{" "}
-          <Link
-            href="/register"
-            className="text-primary font-medium hover:underline"
-          >
-            Créer un compte
-          </Link>
-        </p>
       </CardContent>
     </Card>
   );
