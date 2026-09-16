@@ -16,6 +16,7 @@ from .reports import ReportsView
 from .views import (
     DeliveryZoneOptionViewSet,
     ExpenseTypeViewSet,
+    AvanceLivreurViewSet,
     LivreurExpenseViewSet,
     MarketingCampaignViewSet,
     OrderViewSet,
@@ -26,6 +27,9 @@ router.register(r"delivery-zones", DeliveryZoneOptionViewSet, basename="delivery
 # Types de dépense (Paramètres) et dépenses déclarées par les livreurs.
 router.register(r"expense-types", ExpenseTypeViewSet, basename="expense-type")
 router.register(r"expenses", LivreurExpenseViewSet, basename="livreur-expense")
+# Avances : argent déjà envoyé par le livreur au gérant (Mvola…), à ne pas
+# confondre avec une dépense — voir orders/models.py::AvanceLivreur.
+router.register(r"avances", AvanceLivreurViewSet, basename="avance-livreur")
 router.register(r"campaigns", MarketingCampaignViewSet, basename="marketing-campaign")
 # En dernier : la route vide capture tout le reste.
 router.register(r"", OrderViewSet, basename="order")

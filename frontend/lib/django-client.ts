@@ -1006,6 +1006,48 @@ class DjangoAPIClient {
     },
   }
 
+  // ==================== Avances des livreurs (argent déjà envoyé) ==========
+  // À ne pas confondre avec une dépense : c'est de l'argent encaissé chez
+  // les clients, remis en avance au gérant (Mvola…), donc déduit de ce qu'il
+  // reste à remettre — mais jamais des charges.
+  avances = {
+    list: async (filters?: {
+      statut?: string
+      date_debut?: string
+      date_fin?: string
+      livreur_id?: number
+    }) => {
+      const params = new URLSearchParams()
+      if (filters?.statut) params.append('statut', filters.statut)
+      if (filters?.date_debut) params.append('date_debut', filters.date_debut)
+      if (filters?.date_fin) params.append('date_fin', filters.date_fin)
+      if (filters?.livreur_id) params.append('livreur_id', String(filters.livreur_id))
+      const query = params.toString() ? `?${params.toString()}` : ''
+      return this.get<any[]>(`/orders/avances/${query}`)
+    },
+    create: async (data: {
+      montant: number
+      moyen?: string
+      reference_transfert?: string
+      note?: string
+      date?: string
+      /** Gérant seulement : saisir l'avance pour un livreur (confirmée d'office). */
+      livreur?: number
+    }) => {
+      return this.post<any>('/orders/avances/', data)
+    },
+    delete: async (id: number) => {
+      return this.delete<void>(`/orders/avances/${id}/`)
+    },
+    /** Gérant : confirme avoir reçu l'argent, ou rejette. */
+    resoudre: async (id: number, statut: 'CONFIRME' | 'REJETE', motifRejet?: string) => {
+      return this.post<any>(`/orders/avances/${id}/resoudre/`, {
+        statut,
+        motif_rejet: motifRejet,
+      })
+    },
+  }
+
   // ==================== Movements Service (historique stock, §7.4/§10) ====================
   movements = {
     list: async (filters?: { variant_id?: number }) => {

@@ -5,6 +5,7 @@ from catalog.models import ProductVariant
 from users.subscriptions import get_company_owner
 
 from .models import (
+    AvanceLivreur,
     DeliveryZoneOption,
     MarketingCampaign,
     ExpenseType,
@@ -374,6 +375,31 @@ class LivreurExpenseSerializer(serializers.ModelSerializer):
         if quantite < 1:
             raise serializers.ValidationError({"quantite": "Quantité minimale : 1."})
         return attrs
+
+
+class AvanceLivreurSerializer(serializers.ModelSerializer):
+    """Avance envoyée par le livreur (Mvola…) — voir AvanceLivreur."""
+
+    livreur_name = serializers.CharField(source="livreur.full_name", read_only=True)
+    moyen_label = serializers.CharField(source="get_moyen_display", read_only=True)
+    statut_label = serializers.CharField(source="get_statut_display", read_only=True)
+    resolved_by_name = serializers.CharField(source="resolved_by.full_name", read_only=True, default="")
+
+    class Meta:
+        model = AvanceLivreur
+        fields = [
+            "id", "magasin", "livreur", "livreur_name", "montant", "moyen", "moyen_label",
+            "reference_transfert", "note", "date", "statut", "statut_label", "motif_rejet",
+            "resolved_by", "resolved_by_name", "resolved_at", "created_at",
+        ]
+        read_only_fields = [
+            "id", "magasin", "livreur", "statut", "motif_rejet", "resolved_by", "resolved_at", "created_at",
+        ]
+
+    def validate_montant(self, value):
+        if value is None or value <= 0:
+            raise serializers.ValidationError("Le montant de l'avance doit être strictement positif.")
+        return value
 
 
 class MarketingCampaignSerializer(serializers.ModelSerializer):

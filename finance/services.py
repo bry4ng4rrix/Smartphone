@@ -37,7 +37,7 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from catalog.models import ProductVariant
-from orders.models import LivreurExpense, MarketingCampaign, Order, OrderItem
+from orders.models import AvanceLivreur, LivreurExpense, MarketingCampaign, Order, OrderItem
 from users.models import CaisseMovement, CaisseSession, MagasinProfile
 
 from .models import Encaissement, EpargneMouvement, FinanceSettings, VenteResultat
@@ -578,6 +578,24 @@ def depenses_livreur_non_remises(magasin, livreur_id, depuis):
     ]
 
 
+def avances_non_deduites(magasin, livreur_id, depuis=None):
+    """Avances confirmées du livreur (argent déjà envoyé au gérant par Mvola,
+    dépôt…) qui n'ont pas encore été déduites d'une remise en caisse.
+
+    Ce n'est PAS une dépense : l'argent vient des clients, il est seulement
+    arrivé par un autre canal. À la remise, il vient donc en déduction de
+    l'espèce attendue — sinon le gérant réclamerait deux fois la même somme.
+    """
+    deja = set(
+        CaisseMovement.objects.filter(magasin=magasin, reference__startswith="AVANCE:")
+        .values_list("reference", flat=True)
+    )
+    qs = AvanceLivreur.objects.filter(magasin=magasin, livreur_id=livreur_id, statut="CONFIRME")
+    if depuis:
+        qs = qs.filter(date__gte=depuis)
+    return [a for a in qs.select_related("livreur") if f"AVANCE:{a.id}" not in deja]
+
+
 @transaction.atomic
 def remettre_encaissements(magasin, user, livreur_id=None, encaissement_ids=None, inclure_depenses=True):
     """Remise en caisse des encaissements en attente (d'un livreur, ou une
@@ -598,18 +616,33 @@ def remettre_encaissements(magasin, user, livreur_id=None, encaissement_ids=None
         remis.append(enc)
 
     depenses = []
-    if livreur_id and inclure_depenses and remis:
+    avances = []
+    if livreur_id and remis:
         depuis = min(timezone.localtime(e.order.date_commande).date() for e in remis)
-        for d in depenses_livreur_non_remises(magasin, livreur_id, depuis):
+        if inclure_depenses:
+            for d in depenses_livreur_non_remises(magasin, livreur_id, depuis):
+                mouvement_caisse(
+                    session, "out", d.montant,
+                    f"Frais de tournée {d.libelle} — {d.livreur.full_name if d.livreur else ''} ({d.date:%d/%m/%Y})",
+                    "FRAIS_LIVRAISON", f"TOURNEE:{d.id}", user,
+                )
+                depenses.append(d)
+        # Avances déjà envoyées (Mvola…) : l'argent est arrivé hors caisse,
+        # il ne doit pas être encaissé une seconde fois ici.
+        for a in avances_non_deduites(magasin, livreur_id, depuis):
             mouvement_caisse(
-                session, "out", d.montant,
-                f"Frais de tournée {d.libelle} — {d.livreur.full_name if d.livreur else ''} ({d.date:%d/%m/%Y})",
-                "FRAIS_LIVRAISON", f"TOURNEE:{d.id}", user,
+                session, "out", a.montant,
+                f"Avance déjà reçue par {a.get_moyen_display()} — {a.livreur.full_name if a.livreur else ''} ({a.date:%d/%m/%Y})",
+                "AVANCE_LIVREUR", f"AVANCE:{a.id}", user,
             )
-            depenses.append(d)
+            avances.append(a)
     brut = sum((e.montant for e in remis), ZERO)
     frais = sum((d.montant for d in depenses), ZERO)
-    return {"nb": len(remis), "brut": brut, "depenses": frais, "net": brut - frais, "session_id": session.id}
+    avance = sum((a.montant for a in avances), ZERO)
+    return {
+        "nb": len(remis), "brut": brut, "depenses": frais, "avances": avance,
+        "net": brut - frais - avance, "session_id": session.id,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -802,7 +835,11 @@ def encaissements_en_attente(magasins):
     for l in lignes:
         cle = l["livreur_id"] or 0
         p = par_livreur.setdefault(
-            cle, {"livreur_id": l["livreur_id"], "nom": l["livreur"] or ("Comptoir / payé d'avance"), "nb": 0, "brut": ZERO, "depenses": ZERO, "net": ZERO}
+            cle,
+            {
+                "livreur_id": l["livreur_id"], "nom": l["livreur"] or ("Comptoir / payé d'avance"),
+                "nb": 0, "brut": ZERO, "depenses": ZERO, "avances": ZERO, "net": ZERO,
+            },
         )
         p["nb"] += 1
         p["brut"] += l["montant"]
@@ -811,7 +848,10 @@ def encaissements_en_attente(magasins):
             depuis = min(date.fromisoformat(l["date_commande"]) for l in lignes if l["livreur_id"] == p["livreur_id"])
             for magasin in magasins:
                 p["depenses"] += sum((d.montant for d in depenses_livreur_non_remises(magasin, p["livreur_id"], depuis)), ZERO)
-        p["net"] = p["brut"] - p["depenses"]
+                # Argent déjà envoyé par le livreur (Mvola…) : à déduire de
+                # l'espèce qu'il doit encore remettre.
+                p["avances"] += sum((a.montant for a in avances_non_deduites(magasin, p["livreur_id"], depuis)), ZERO)
+        p["net"] = p["brut"] - p["depenses"] - p["avances"]
     total = sum((l["montant"] for l in lignes), ZERO)
     return {
         "lignes": lignes,

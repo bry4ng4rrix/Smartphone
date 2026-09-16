@@ -2,6 +2,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 
 from catalog.services import apply_stock_movement
+from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -20,8 +21,9 @@ from users.permissions import (
 from users.subscriptions import get_company_owner
 
 from . import services
-from .models import DeliveryZoneOption, ExpenseType, LivreurExpense, MarketingCampaign, Order
+from .models import AvanceLivreur, DeliveryZoneOption, ExpenseType, LivreurExpense, MarketingCampaign, Order
 from .serializers import (
+    AvanceLivreurSerializer,
     DeliveryZoneOptionSerializer,
     ExpenseTypeSerializer,
     LivreurExpenseSerializer,
@@ -814,6 +816,129 @@ class LivreurExpenseViewSet(viewsets.ModelViewSet):
             ),
         )
         return Response(self.get_serializer(expense).data)
+
+
+class AvanceLivreurViewSet(viewsets.ModelViewSet):
+    """Avances envoyées par les livreurs (§ demande) — argent déjà remis au
+    gérant avant le compte du soir (Mvola, Orange Money, dépôt…).
+
+    * LIVREUR — déclare ses propres avances et ne voit que les siennes.
+    * GÉRANT  — voit celles de tous ses magasins, et les confirme ou les
+      rejette (il vérifie sur son relevé qu'il a bien reçu l'argent).
+
+    Une avance n'entre dans aucun bilan tant qu'elle n'est pas confirmée.
+    À la différence d'une dépense, elle ne diminue PAS le bénéfice : c'est
+    de l'argent encaissé chez les clients, pas une charge.
+    """
+
+    serializer_class = AvanceLivreurSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    def get_queryset(self):
+        qs = AvanceLivreur.objects.filter(
+            magasin__in=get_accessible_magasins(self.request.user)
+        ).select_related("livreur", "resolved_by")
+
+        if user_commande_role(self.request.user) == "LIVREUR":
+            qs = qs.filter(livreur=self.request.user)
+
+        statut = self.request.query_params.get("statut")
+        if statut:
+            qs = qs.filter(statut__in=[s for s in statut.split(",") if s])
+        date_debut = self.request.query_params.get("date_debut")
+        date_fin = self.request.query_params.get("date_fin")
+        if date_debut:
+            qs = qs.filter(date__gte=date_debut)
+        if date_fin:
+            qs = qs.filter(date__lte=date_fin)
+        livreur_id = self.request.query_params.get("livreur_id")
+        if livreur_id:
+            qs = qs.filter(livreur_id=livreur_id)
+        return qs
+
+    def perform_create(self, serializer):
+        role = user_commande_role(self.request.user)
+        if role not in ("LIVREUR", "GERANT"):
+            raise DRFPermissionDenied("Seul un livreur (ou le gérant pour lui) peut déclarer une avance.")
+        magasin = resolve_magasin_for_request(self.request)
+        # Le gérant peut saisir l'avance pour un livreur (il la confirme du
+        # même coup, puisque c'est lui qui a reçu l'argent).
+        livreur_id = self.request.data.get("livreur")
+        if role == "GERANT" and livreur_id:
+            from users.models import CustomUser
+
+            try:
+                livreur = CustomUser.objects.get(pk=livreur_id)
+            except CustomUser.DoesNotExist:
+                raise DRFValidationError({"livreur": "Livreur introuvable."})
+            avance = serializer.save(
+                livreur=livreur, magasin=magasin, statut="CONFIRME",
+                resolved_by=self.request.user, resolved_at=timezone.now(),
+            )
+            return
+        avance = serializer.save(livreur=self.request.user, magasin=magasin)
+
+        # Le gérant doit vérifier sur son relevé qu'il a bien reçu l'argent.
+        from users.models import Notification
+
+        Notification.objects.create(
+            notif_type="order",
+            magasin=magasin,
+            message=(
+                f"Avance à confirmer : {avance.montant:.0f} Ar par "
+                f"{avance.get_moyen_display()}, envoyée par {self.request.user.full_name}"
+            ),
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        avance = self.get_object()
+        if avance.statut != "EN_ATTENTE":
+            raise DRFValidationError("Cette avance a déjà été traitée.")
+        if avance.livreur_id != request.user.id and user_commande_role(request.user) != "GERANT":
+            raise DRFPermissionDenied("Vous ne pouvez modifier que vos propres avances.")
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        avance = self.get_object()
+        if avance.statut != "EN_ATTENTE" and user_commande_role(request.user) != "GERANT":
+            raise DRFValidationError("Cette avance a déjà été traitée.")
+        if avance.livreur_id != request.user.id and user_commande_role(request.user) != "GERANT":
+            raise DRFPermissionDenied("Vous ne pouvez supprimer que vos propres avances.")
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsGerant])
+    def resoudre(self, request, pk=None):
+        """POST /api/orders/avances/{id}/resoudre/ {statut, motif_rejet} —
+        le gérant confirme avoir reçu l'argent, ou rejette. Une avance
+        confirmée est déduite du net à remettre du bilan du jour et de
+        l'espèce attendue à la remise en caisse."""
+        avance = self.get_object()
+        if avance.statut != "EN_ATTENTE":
+            raise DRFValidationError("Cette avance a déjà été traitée.")
+
+        statut = request.data.get("statut")
+        if statut not in ("CONFIRME", "REJETE"):
+            raise DRFValidationError("Statut attendu : 'CONFIRME' ou 'REJETE'.")
+
+        avance.statut = statut
+        avance.motif_rejet = (request.data.get("motif_rejet") or "").strip()
+        avance.resolved_by = request.user
+        avance.resolved_at = timezone.now()
+        avance.save(update_fields=["statut", "motif_rejet", "resolved_by", "resolved_at"])
+
+        from users.models import Notification
+
+        Notification.objects.create(
+            notif_type="order",
+            magasin=avance.magasin,
+            user=avance.livreur,
+            message=(
+                f"Avance {avance.montant:.0f} Ar "
+                + ("confirmée par le gérant." if statut == "CONFIRME" else f"rejetée : {avance.motif_rejet or 'sans motif'}")
+            ),
+        )
+        return Response(self.get_serializer(avance).data)
 
 
 class MarketingCampaignViewSet(viewsets.ModelViewSet):

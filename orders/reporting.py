@@ -73,7 +73,13 @@ def q_achat_stock():
 # acceptées) et remboursements d'une vente annulée (la vente n'est plus
 # dans le CA). Voir finance/services.py.
 def q_sorties_doublon():
-    return Q(reference__startswith="TOURNEE:") | Q(reference__startswith="ANNUL:")
+    return (
+        Q(reference__startswith="TOURNEE:")
+        | Q(reference__startswith="ANNUL:")
+        # Avance du livreur : contre-passe une entrée de vente déjà comptée,
+        # ce n'est pas une dépense (voir finance/services.py).
+        | Q(reference__startswith="AVANCE:")
+    )
 
 
 def _somme(qs, expression):

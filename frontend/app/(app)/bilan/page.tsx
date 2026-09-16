@@ -36,6 +36,7 @@ import {
   Plus,
   Check,
   X,
+  Send,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -206,6 +207,27 @@ function TicketBloc({
   );
 }
 
+const STATUT_AVANCE: Record<string, { label: string; classe: string }> = {
+  EN_ATTENTE: {
+    label: "En attente de confirmation",
+    classe: "text-amber-600 dark:text-amber-400",
+  },
+  CONFIRME: {
+    label: "Confirmée",
+    classe: "text-emerald-600 dark:text-emerald-400",
+  },
+  REJETE: { label: "Rejetée", classe: "text-red-600" },
+};
+
+const MOYENS_AVANCE = [
+  ["MVOLA", "Mvola"],
+  ["ORANGE_MONEY", "Orange Money"],
+  ["AIRTEL_MONEY", "Airtel Money"],
+  ["ESPECES", "Espèces"],
+  ["VIREMENT", "Virement bancaire"],
+  ["AUTRE", "Autre"],
+] as const;
+
 const STATUT_DEPENSE: Record<string, { label: string; classe: string }> = {
   EN_ATTENTE: {
     label: "En attente",
@@ -227,6 +249,218 @@ const STATUT_DEPENSE: Record<string, { label: string; classe: string }> = {
  * livreur consulté et les accepte ou les rejette. Seules les acceptées
  * viennent diminuer l'argent à remettre.
  */
+/**
+ * Avances du livreur : argent DÉJÀ envoyé au gérant dans la journée (Mvola,
+ * Orange Money, dépôt…) — § demande.
+ *
+ * Ce n'est pas une dépense : cet argent vient des clients, il est seulement
+ * arrivé plus tôt et par un autre canal. Il est donc retiré de ce qu'il
+ * reste à remettre le soir, sans jamais diminuer le bénéfice. Le gérant
+ * confirme l'avoir reçu (il vérifie son relevé) avant qu'elle ne compte.
+ */
+function AvancesDuJour({
+  avances,
+  jour,
+  peutDeclarer,
+  peutTrancher,
+  onChanged,
+}: {
+  avances: any[];
+  jour: string;
+  peutDeclarer: boolean;
+  peutTrancher: boolean;
+  onChanged: () => void;
+}) {
+  const [montant, setMontant] = useState("");
+  const [moyen, setMoyen] = useState<string>("MVOLA");
+  const [referenceTransfert, setReferenceTransfert] = useState("");
+  const [note, setNote] = useState("");
+  const [envoi, setEnvoi] = useState(false);
+
+  const envoyer = async () => {
+    if (!(Number(montant) > 0)) {
+      toast.error("Le montant envoyé doit être supérieur à 0.");
+      return;
+    }
+    setEnvoi(true);
+    try {
+      await djangoClient.avances.create({
+        montant: Number(montant),
+        moyen,
+        reference_transfert: referenceTransfert.trim(),
+        note: note.trim(),
+        date: jour,
+      });
+      toast.success("Avance envoyée — le gérant doit la confirmer");
+      setMontant("");
+      setReferenceTransfert("");
+      setNote("");
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || "Envoi impossible");
+    } finally {
+      setEnvoi(false);
+    }
+  };
+
+  const trancher = async (a: any, statut: "CONFIRME" | "REJETE") => {
+    try {
+      await djangoClient.avances.resoudre(a.id, statut);
+      toast.success(statut === "CONFIRME" ? "Avance confirmée" : "Avance rejetée");
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || "Action impossible");
+    }
+  };
+
+  const supprimer = async (a: any) => {
+    try {
+      await djangoClient.avances.delete(a.id);
+      toast.success("Avance retirée");
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || "Suppression impossible");
+    }
+  };
+
+  const totalConfirme = avances
+    .filter((a) => a.statut === "CONFIRME")
+    .reduce((s, a) => s + Number(a.montant || 0), 0);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Send className="h-4 w-4" /> Envoyé en avance ({avances.length})
+        </CardTitle>
+        <CardDescription>
+          {peutDeclarer
+            ? "Vous avez envoyé de l'argent au gérant avant le compte du soir (Mvola…) ? Déclarez-le ici : ce n'est pas une dépense, c'est une partie de l'argent encaissé — il sera retiré de ce qu'il vous reste à remettre."
+            : "Argent que le livreur dit vous avoir déjà envoyé. Confirmez-le après vérification de votre relevé : il sera retiré de ce qu'il doit encore remettre, sans compter comme une dépense."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {avances.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">
+            Aucune avance ce jour-là.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {avances.map((a) => {
+              const st = STATUT_AVANCE[a.statut] || STATUT_AVANCE.EN_ATTENTE;
+              return (
+                <div key={a.id} className="border rounded-md px-3 py-2 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium truncate">
+                      {a.moyen_label || "Avance"}
+                      {a.reference_transfert ? ` · ${a.reference_transfert}` : ""}
+                    </span>
+                    <span className="font-semibold whitespace-nowrap">
+                      {fmt(a.montant)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 mt-1">
+                    <span className="text-xs text-muted-foreground truncate">
+                      {a.note || (a.livreur_name ? `Envoyée par ${a.livreur_name}` : "Sans note")}
+                    </span>
+                    <span className={`text-xs font-medium ${st.classe}`}>
+                      {st.label}
+                    </span>
+                  </div>
+                  {a.statut === "EN_ATTENTE" && (
+                    <div className="flex gap-2 mt-2">
+                      {peutTrancher && (
+                        <>
+                          <Button size="sm" className="flex-1" onClick={() => trancher(a, "CONFIRME")}>
+                            <Check className="h-4 w-4 mr-1" /> J&apos;ai bien reçu
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1 text-red-600"
+                            onClick={() => trancher(a, "REJETE")}
+                          >
+                            <X className="h-4 w-4 mr-1" /> Rejeter
+                          </Button>
+                        </>
+                      )}
+                      {peutDeclarer && (
+                        <Button size="sm" variant="ghost" className="text-red-600" onClick={() => supprimer(a)}>
+                          Retirer
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {totalConfirme > 0 && (
+              <p className="text-sm font-medium text-right">
+                Total confirmé : {fmt(totalConfirme)}
+              </p>
+            )}
+          </div>
+        )}
+
+        {peutDeclarer && (
+          <div className="border-t pt-4 space-y-3">
+            <p className="text-sm font-medium">Nouvel envoi</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label htmlFor="avance-montant" className="text-xs text-muted-foreground">
+                  Montant envoyé (Ar)
+                </Label>
+                <Input
+                  id="avance-montant"
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  value={montant}
+                  onChange={(e) => setMontant(e.target.value)}
+                  placeholder="Ex : 200 000"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="avance-moyen" className="text-xs text-muted-foreground">
+                  Moyen
+                </Label>
+                <select
+                  id="avance-moyen"
+                  value={moyen}
+                  onChange={(e) => setMoyen(e.target.value)}
+                  className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                >
+                  {MOYENS_AVANCE.map(([v, l]) => (
+                    <option key={v} value={v}>
+                      {l}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <Input
+              value={referenceTransfert}
+              onChange={(e) => setReferenceTransfert(e.target.value)}
+              placeholder="Référence du transfert (numéro Mvola, reçu…) — optionnel"
+              aria-label="Référence du transfert"
+            />
+            <Input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Note (optionnel)"
+              aria-label="Note de l'avance"
+            />
+            <Button className="w-full" onClick={envoyer} disabled={envoi}>
+              <Send className="h-4 w-4 mr-2" />
+              {envoi ? "Envoi…" : "Déclarer l'envoi au gérant"}
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function DepensesDuJour({
   depenses,
   jour,
@@ -477,6 +711,7 @@ function BilanJour({
   jour,
   titreTicket,
   depenses = [],
+  avances = [],
 }: {
   orders: any[];
   loading: boolean;
@@ -484,6 +719,8 @@ function BilanJour({
   titreTicket: string;
   /** Dépenses du livreur pour ce jour, tous statuts confondus. */
   depenses?: any[];
+  /** Avances envoyées par le livreur ce jour-là (Mvola…), tous statuts. */
+  avances?: any[];
 }) {
   // Seules les dépenses ACCEPTÉES par le gérant viennent diminuer l'argent
   // remis (§ demande) : une dépense en attente ou refusée ne doit pas
@@ -495,6 +732,17 @@ function BilanJour({
   const totalDepenses = useMemo(
     () => depensesAcceptees.reduce((s, d) => s + Number(d.montant || 0), 0),
     [depensesAcceptees],
+  );
+  // Avances confirmées : argent déjà envoyé au gérant (Mvola…). Ce n'est PAS
+  // une dépense — le bénéfice n'en est pas touché — mais le livreur ne doit
+  // plus le remettre le soir (§ demande).
+  const avancesConfirmees = useMemo(
+    () => avances.filter((a) => a.statut === "CONFIRME"),
+    [avances],
+  );
+  const totalAvances = useMemo(
+    () => avancesConfirmees.reduce((s, a) => s + Number(a.montant || 0), 0),
+    [avancesConfirmees],
   );
   // Les retours ne sont volontairement pas additionnés aux livrées (§ demande)
   // — un colis retourné n'a rien fait encaisser au livreur.
@@ -534,23 +782,47 @@ function BilanJour({
               totals={totalLivrees}
               variant="livrees"
             />
-            {depensesAcceptees.length > 0 && (
+            {(depensesAcceptees.length > 0 || avancesConfirmees.length > 0) && (
               <div className="space-y-1.5 border-t border-dashed pt-3">
-                <p className="text-xs font-semibold text-muted-foreground">
-                  DÉPENSES VALIDÉES
-                </p>
-                {depensesAcceptees.map((d) => (
-                  <div key={d.id} className="flex justify-between">
-                    <span className="truncate pr-2">
-                      {d.libelle}
-                      {d.quantite > 1 ? ` x${d.quantite}` : ""}
-                    </span>
-                    <span>-{fmt(d.montant)}</span>
-                  </div>
-                ))}
+                {depensesAcceptees.length > 0 && (
+                  <>
+                    <p className="text-xs font-semibold text-muted-foreground">
+                      DÉPENSES VALIDÉES
+                    </p>
+                    {depensesAcceptees.map((d) => (
+                      <div key={d.id} className="flex justify-between">
+                        <span className="truncate pr-2">
+                          {d.libelle}
+                          {d.quantite > 1 ? ` x${d.quantite}` : ""}
+                        </span>
+                        <span>-{fmt(d.montant)}</span>
+                      </div>
+                    ))}
+                  </>
+                )}
+                {/* Argent déjà envoyé au gérant dans la journée : il ne
+                    reste plus à le remettre le soir (§ demande). */}
+                {avancesConfirmees.length > 0 && (
+                  <>
+                    <p className="text-xs font-semibold text-muted-foreground pt-1">
+                      DÉJÀ ENVOYÉ (AVANCE)
+                    </p>
+                    {avancesConfirmees.map((a) => (
+                      <div key={a.id} className="flex justify-between">
+                        <span className="truncate pr-2">
+                          {a.moyen_label || "Avance"}
+                          {a.reference_transfert ? ` · ${a.reference_transfert}` : ""}
+                        </span>
+                        <span>-{fmt(a.montant)}</span>
+                      </div>
+                    ))}
+                  </>
+                )}
                 <div className="border-t border-dashed pt-1.5 flex justify-between font-bold">
-                  <span>NET À REMETTRE</span>
-                  <span>{fmt(totalLivrees.argent - totalDepenses)}</span>
+                  <span>RESTE À REMETTRE</span>
+                  <span>
+                    {fmt(totalLivrees.argent - totalDepenses - totalAvances)}
+                  </span>
                 </div>
               </div>
             )}
@@ -688,6 +960,20 @@ export default function BilanPage() {
     }
   }, [jour]);
 
+  // Avances du jour — argent déjà envoyé au gérant (Mvola…). Ce n'est pas
+  // une dépense : elle ne diminue que ce qu'il reste à remettre.
+  const [avances, setAvances] = useState<any[]>([]);
+
+  const fetchAvances = useCallback(async () => {
+    try {
+      setAvances(
+        await djangoClient.avances.list({ date_debut: jour, date_fin: jour }),
+      );
+    } catch {
+      setAvances([]);
+    }
+  }, [jour]);
+
   useRealtimeRefresh(["order", "order_status_history"], () =>
     fetchOrders(true),
   );
@@ -695,8 +981,9 @@ export default function BilanPage() {
     if (!userLoading && (isLivreur || isGerant)) {
       fetchOrders();
       fetchDepenses();
+      fetchAvances();
     }
-  }, [userLoading, isLivreur, isGerant, fetchOrders, fetchDepenses]);
+  }, [userLoading, isLivreur, isGerant, fetchOrders, fetchDepenses, fetchAvances]);
 
   // Seules les commandes terminées entrent dans un bilan.
   const traitees = useMemo(
@@ -752,6 +1039,14 @@ export default function BilanPage() {
         ? depenses.filter((d) => String(d.livreur) === detailLivreur)
         : [],
     [depenses, detailLivreur],
+  );
+
+  const avancesDuDetail = useMemo(
+    () =>
+      detailLivreur
+        ? avances.filter((a) => String(a.livreur) === detailLivreur)
+        : [],
+    [avances, detailLivreur],
   );
 
   const ordersDuDetail = useMemo(
@@ -827,6 +1122,14 @@ export default function BilanPage() {
             jour={jour}
             titreTicket={user?.full_name || "Mon bilan"}
             depenses={depenses}
+            avances={avances}
+          />
+          <AvancesDuJour
+            avances={avances}
+            jour={jour}
+            peutDeclarer
+            peutTrancher={false}
+            onChanged={fetchAvances}
           />
           <DepensesDuJour
             depenses={depenses}
@@ -1027,6 +1330,14 @@ export default function BilanPage() {
             jour={jour}
             titreTicket={nomLivreur(detailLivreur)}
             depenses={depensesDuDetail}
+            avances={avancesDuDetail}
+          />
+          <AvancesDuJour
+            avances={avancesDuDetail}
+            jour={jour}
+            peutDeclarer={false}
+            peutTrancher
+            onChanged={fetchAvances}
           />
           <DepensesDuJour
             depenses={depensesDuDetail}

@@ -607,3 +607,56 @@ class MargeLivraisonRapportsTests(ScenarioMixin, APITestCase):
         res = self.client.patch(f"/api/orders/expense-types/{self.t_repas.id}/", {"frais_livraison": True}, format="json")
         self.assertEqual(res.status_code, 200, res.data)
         self.assertTrue(res.data["frais_livraison"])
+class AvanceLivreurTests(ScenarioMixin, TestCase):
+    """L'argent envoyé en avance par le livreur (Mvola…) n'est pas une
+    dépense : il ne diminue pas le bénéfice, mais il diminue l'espèce qu'il
+    doit encore remettre (§ demande)."""
+
+    def setUp(self):
+        self.creer_scenario()
+
+    def _avance(self, montant, statut="CONFIRME"):
+        from orders.models import AvanceLivreur
+
+        return AvanceLivreur.objects.create(
+            magasin=self.magasin, livreur=self.livreur, montant=D(montant), moyen="MVOLA",
+            statut=statut, date=self.aujourd_hui,
+        )
+
+    def test_avance_deduite_de_la_remise(self):
+        session = self.ouvrir_caisse()
+        self.livrer(self.commande())  # 28 000 encaissés
+        self._avance("20000")
+        res = services.remettre_encaissements(self.magasin, self.gerant, livreur_id=self.livreur.id)
+        self.assertEqual(res["brut"], D("28000"))
+        self.assertEqual(res["avances"], D("20000"))
+        self.assertEqual(res["net"], D("8000"))
+        # La caisse ne reçoit que l'espèce réellement remise.
+        self.assertEqual(services.solde_session(session), D("8000"))
+        self.assertEqual(CaisseMovement.objects.filter(origine="AVANCE_LIVREUR").count(), 1)
+        # Rejouer ne déduit pas deux fois la même avance.
+        self.livrer(self.commande())
+        res2 = services.remettre_encaissements(self.magasin, self.gerant, livreur_id=self.livreur.id)
+        self.assertEqual(res2["avances"], D("0"))
+
+    def test_avance_en_attente_ignoree(self):
+        self.ouvrir_caisse()
+        self.livrer(self.commande())
+        self._avance("20000", statut="EN_ATTENTE")
+        res = services.remettre_encaissements(self.magasin, self.gerant, livreur_id=self.livreur.id)
+        self.assertEqual(res["avances"], D("0"))
+        self.assertEqual(res["net"], D("28000"))
+
+    def test_avance_nest_pas_une_depense(self):
+        """Le rapport Dépenses ne doit pas grossir d'une avance : la sortie
+        de caisse qui la déduit contre-passe une entrée de vente."""
+        from orders.reporting import q_sorties_doublon
+        from users.models import CaisseMovement as CM
+
+        self.ouvrir_caisse()
+        self.livrer(self.commande())
+        self._avance("20000")
+        services.remettre_encaissements(self.magasin, self.gerant, livreur_id=self.livreur.id)
+        sorties = CM.objects.filter(movement_type="out")
+        self.assertEqual(sorties.count(), 1)
+        self.assertEqual(sorties.exclude(q_sorties_doublon()).count(), 0)

@@ -389,6 +389,72 @@ class LivreurExpense(models.Model):
         return f"{self.libelle} — {self.montant} Ar ({self.get_statut_display()})"
 
 
+class AvanceLivreur(models.Model):
+    """Argent que le livreur a DÉJÀ envoyé au gérant avant le compte du soir
+    (Mvola, Orange Money, dépôt…) — § demande.
+
+    Ce n'est PAS une dépense : c'est une partie de l'argent encaissé chez les
+    clients, remise en avance. La confondre avec une dépense gonflait les
+    charges et écrasait le bénéfice (voir LivreurExpense, qui reste réservée
+    aux VRAIS frais de tournée : carburant, repas, enveloppes…).
+
+    Effet : l'avance confirmée est déduite du « net à remettre » du bilan du
+    jour — le livreur voit ce qu'il lui reste à donner — et, au moment où le
+    gérant enregistre la remise en caisse, elle vient en déduction de
+    l'espèce attendue (finance/services.py::remettre_encaissements), puisque
+    cet argent est déjà arrivé par un autre canal.
+    """
+
+    MOYENS = (
+        ("MVOLA", "Mvola"),
+        ("ORANGE_MONEY", "Orange Money"),
+        ("AIRTEL_MONEY", "Airtel Money"),
+        ("ESPECES", "Espèces"),
+        ("VIREMENT", "Virement bancaire"),
+        ("AUTRE", "Autre"),
+    )
+    STATUT_CHOICES = (
+        ("EN_ATTENTE", "En attente"),
+        ("CONFIRME", "Confirmée"),
+        ("REJETE", "Rejetée"),
+    )
+
+    magasin = models.ForeignKey(
+        "users.MagasinProfile", on_delete=models.CASCADE, related_name="avances_livreur"
+    )
+    livreur = models.ForeignKey(
+        "users.CustomUser", on_delete=models.CASCADE, related_name="avances"
+    )
+    montant = models.DecimalField(max_digits=12, decimal_places=2)
+    moyen = models.CharField(max_length=15, choices=MOYENS, default="MVOLA")
+    # Référence du transfert (numéro Mvola, reçu…) pour que le gérant
+    # retrouve l'opération sur son relevé.
+    reference_transfert = models.CharField(max_length=100, blank=True)
+    note = models.TextField(blank=True)
+
+    # Jour de bilan auquel l'avance se rattache (même logique que
+    # LivreurExpense.date) : une avance envoyée à 23h reste celle de sa
+    # journée de travail.
+    date = models.DateField(default=timezone.localdate)
+
+    statut = models.CharField(max_length=12, choices=STATUT_CHOICES, default="EN_ATTENTE")
+    motif_rejet = models.TextField(blank=True)
+    resolved_by = models.ForeignKey(
+        "users.CustomUser", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="resolved_avances",
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Avance du livreur"
+        verbose_name_plural = "Avances des livreurs"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Avance {self.montant} Ar ({self.get_moyen_display()}) — {self.get_statut_display()}"
+
+
 class MarketingCampaign(models.Model):
     """Campagne publicitaire (boost Facebook, TikTok…) : ce qu'elle a coûté et,
     via les commandes de sa PÉRIODE (affectation automatique), ce qu'elle a

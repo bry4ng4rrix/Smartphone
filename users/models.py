@@ -320,6 +320,7 @@ class CaisseMovement(models.Model):
         ("RETRAIT", "Retrait"),
         ("DEPENSE", "Dépense"),
         ("FRAIS_LIVRAISON", "Frais de livraison"),
+        ("AVANCE_LIVREUR", "Avance déjà reçue du livreur"),
         ("ANNULATION_VENTE", "Annulation / remboursement de vente"),
         ("AUTRE_SORTIE", "Autre sortie"),
     )
