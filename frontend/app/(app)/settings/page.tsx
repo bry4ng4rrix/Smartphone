@@ -405,7 +405,10 @@ export default function SettingsPage() {
                   Types proposés au livreur quand il déclare une dépense depuis
                   son bilan du jour. Le prix sert de valeur par défaut ; cochez
                   « à l&apos;unité » pour une dépense qui se compte (enveloppes,
-                  sacs…), le livreur saisira alors une quantité.
+                  sacs…), le livreur saisira alors une quantité. Cochez « frais de
+                  livraison » pour les types qui sont le coût réel d&apos;une course
+                  (LIVRAISON 3K / 4K / 5K…) : seuls ceux-là entrent dans la marge
+                  livraison des rapports Dépenses et Livraisons.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -590,18 +593,23 @@ function LivreurExpenseTypesCrudList({
   const [nom, setNom] = useState('');
   const [prix, setPrix] = useState('');
   const [parUnite, setParUnite] = useState(false);
+  // « Frais de livraison » : seuls ces types (LIVRAISON 3K / 4K / 5K…)
+  // entrent dans le coût réel et la marge livraison des rapports.
+  const [fraisLivraison, setFraisLivraison] = useState(false);
 
   // Édition en place, même schéma que les zones de livraison.
   const [editionId, setEditionId] = useState<number | null>(null);
   const [editionNom, setEditionNom] = useState('');
   const [editionPrix, setEditionPrix] = useState('');
   const [editionParUnite, setEditionParUnite] = useState(false);
+  const [editionFraisLivraison, setEditionFraisLivraison] = useState(false);
 
   const ouvrirEdition = (t: any) => {
     setEditionId(t.id);
     setEditionNom(t.nom);
     setEditionPrix(String(t.prix_unitaire));
     setEditionParUnite(!!t.par_unite);
+    setEditionFraisLivraison(!!t.frais_livraison);
   };
 
   const enregistrerEdition = async () => {
@@ -611,6 +619,7 @@ function LivreurExpenseTypesCrudList({
         nom: editionNom.trim(),
         prix_unitaire: Number(editionPrix) || 0,
         par_unite: editionParUnite,
+        frais_livraison: editionFraisLivraison,
       });
       toast.success('Type mis à jour');
       setEditionId(null);
@@ -627,11 +636,13 @@ function LivreurExpenseTypesCrudList({
         nom: nom.trim(),
         prix_unitaire: Number(prix) || 0,
         par_unite: parUnite,
+        frais_livraison: fraisLivraison,
       });
       toast.success('Type de dépense ajouté');
       setNom('');
       setPrix('');
       setParUnite(false);
+      setFraisLivraison(false);
       onChanged();
     } catch (err: any) {
       toast.error(err.message || 'Erreur');
@@ -689,6 +700,13 @@ function LivreurExpenseTypesCrudList({
                   />
                   à l&apos;unité
                 </label>
+                <label className="flex items-center gap-2 text-sm" title="Compte dans le coût réel des livraisons (marge livraison des rapports)">
+                  <Switch
+                    checked={editionFraisLivraison}
+                    onCheckedChange={setEditionFraisLivraison}
+                  />
+                  frais de livraison
+                </label>
                 <Button size="sm" onClick={enregistrerEdition}>
                   OK
                 </Button>
@@ -707,6 +725,11 @@ function LivreurExpenseTypesCrudList({
                   {arFmt(t.prix_unitaire)}
                   {t.par_unite ? ' / unité' : ''}
                 </Badge>
+                {t.frais_livraison && (
+                  <Badge variant="outline" title="Compte dans le coût réel des livraisons (marge livraison des rapports)">
+                    frais de livraison
+                  </Badge>
+                )}
                 <Switch
                   checked={t.actif}
                   onCheckedChange={() => basculerActif(t)}
@@ -746,6 +769,10 @@ function LivreurExpenseTypesCrudList({
         <label className="flex items-center gap-2 text-sm">
           <Switch checked={parUnite} onCheckedChange={setParUnite} />
           à l&apos;unité
+        </label>
+        <label className="flex items-center gap-2 text-sm" title="Compte dans le coût réel des livraisons (marge livraison des rapports)">
+          <Switch checked={fraisLivraison} onCheckedChange={setFraisLivraison} />
+          frais de livraison
         </label>
         <Button onClick={ajouter}>
           <Plus className="h-4 w-4 mr-2" /> Ajouter

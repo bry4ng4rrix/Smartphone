@@ -55,6 +55,7 @@ class ExpenseType {
     required this.nom,
     required this.prixUnitaire,
     required this.parUnite,
+    this.fraisLivraison = false,
     required this.actif,
     this.createdAt,
   });
@@ -67,6 +68,11 @@ class ExpenseType {
   /// alors une quantité, et le montant vaut prix_unitaire × quantité.
   final bool parUnite;
 
+  /// Vrai pour un type « frais de livraison » (LIVRAISON 3K / 4K / 5K…) :
+  /// seules ces dépenses acceptées entrent dans le coût réel et la marge
+  /// livraison des rapports (jamais repas, enveloppes, NAP).
+  final bool fraisLivraison;
+
   /// Un type inactif n'est plus proposé à la saisie mais reste attaché aux
   /// dépenses passées (DELETE d'un type déjà utilisé = désactivation).
   final bool actif;
@@ -78,6 +84,7 @@ class ExpenseType {
       nom: asString(json['nom']),
       prixUnitaire: asDouble(json['prix_unitaire']),
       parUnite: asBool(json['par_unite'], false),
+      fraisLivraison: asBool(json['frais_livraison'], false),
       actif: asBool(json['actif'], true),
       createdAt: asDateOrNull(json['created_at']),
     );

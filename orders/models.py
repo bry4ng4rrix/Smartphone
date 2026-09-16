@@ -308,6 +308,12 @@ class ExpenseType(models.Model):
     # Vrai pour une dépense qui se compte (enveloppes…) : la saisie propose
     # alors une quantité, et le montant vaut prix_unitaire x quantite.
     par_unite = models.BooleanField(default=False)
+    # Vrai pour les frais de livraison proprement dits (LIVRAISON 3K / 4K /
+    # 5K… : ce que la course coûte réellement). Seules les dépenses
+    # acceptées de ces types entrent dans le « coût réel » et la « marge
+    # livraison » des rapports Dépenses et Livraisons (§ demande) — repas,
+    # enveloppes, NAP restent des dépenses de tournée hors marge livraison.
+    frais_livraison = models.BooleanField(default=False)
     actif = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

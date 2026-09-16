@@ -31,7 +31,7 @@ export function SectionDeliveries({ params, enabled }: { params: ReportParams; e
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">
         La livraison est assurée par les livreurs de l&apos;équipe (pas d&apos;agence externe) : chaque livreur est traité comme une agence. Livraison
-        réussie = commande livrée, échouée = retour. Coût payé = frais de tournée acceptés. Délai = passage « En livraison » → « Livré ».
+        réussie = commande livrée, échouée = retour. Coût payé = dépenses « frais de livraison » (LIVRAISON 3K / 4K / 5K…) acceptées par le gérant. Délai = passage « En livraison » → « Livré ».
       </p>
       <KpiGrid cols={5}>
         <KpiCard loading={loading} titre="Livraisons terminées" icon={Truck} valeur={t && fmtNb(t.livraisons)} detail={t && `${fmtNb(t.en_cours)} en cours`} />

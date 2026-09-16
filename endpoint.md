@@ -4662,6 +4662,7 @@ Objet `ExpenseTypeSerializer` :
   "nom": "ENVELOPPE",
   "prix_unitaire": "500.00",
   "par_unite": true,
+  "frais_livraison": false,
   "actif": true,
   "created_at": "2026-09-11T19:00:21.032017+03:00"
 }
@@ -4673,8 +4674,8 @@ Objet `ExpenseTypeSerializer` :
 Réponse `200` :
 ```json
 [
-  { "id": 4, "nom": "ENVELOPPE", "prix_unitaire": "500.00", "par_unite": true, "actif": true, "created_at": "2026-09-11T19:00:21.032017+03:00" },
-  { "id": 2, "nom": "REPAS", "prix_unitaire": "5000.00", "par_unite": false, "actif": true, "created_at": "2026-09-11T18:59:49.697558+03:00" }
+  { "id": 4, "nom": "ENVELOPPE", "prix_unitaire": "500.00", "par_unite": true, "frais_livraison": false, "actif": true, "created_at": "2026-09-11T19:00:21.032017+03:00" },
+  { "id": 2, "nom": "REPAS", "prix_unitaire": "5000.00", "par_unite": false, "frais_livraison": false, "actif": true, "created_at": "2026-09-11T18:59:49.697558+03:00" }
 ]
 ```
 
@@ -4686,6 +4687,7 @@ Réponse `200` :
 | `nom` | corps | string ≤ 100 | oui | Libellé, unique dans la société |
 | `prix_unitaire` | corps | decimal | non | Tarif proposé par défaut (défaut `0`) |
 | `par_unite` | corps | bool | non | `true` si la dépense se compte (quantité × prix), défaut `false` |
+| `frais_livraison` | corps | bool | non | `true` pour un type « frais de livraison » (LIVRAISON 3K / 4K / 5K…) : seules les dépenses acceptées de ces types entrent dans le coût réel et la **marge livraison** des rapports Dépenses et Livraisons (repas, enveloppes, NAP exclus). Défaut `false` ; la migration `orders 0019` a coché les types dont le nom contient « livraison » |
 | `actif` | corps | bool | non | Défaut `true` |
 
 Requête :
@@ -4695,7 +4697,7 @@ Requête :
 
 Réponse `201` :
 ```json
-{ "id": 7, "nom": "CARBURANT", "prix_unitaire": "10000.00", "par_unite": false, "actif": true, "created_at": "2026-09-13T09:45:00.000000+03:00" }
+{ "id": 7, "nom": "CARBURANT", "prix_unitaire": "10000.00", "par_unite": false, "frais_livraison": false, "actif": true, "created_at": "2026-09-13T09:45:00.000000+03:00" }
 ```
 
 Erreurs :
@@ -4725,7 +4727,7 @@ Effet : suppression physique si aucune dépense n'y fait référence ; sinon sup
 
 Réponse `204` (supprimé) ou `200` avec l'objet désactivé :
 ```json
-{ "id": 4, "nom": "ENVELOPPE", "prix_unitaire": "500.00", "par_unite": true, "actif": false, "created_at": "2026-09-11T19:00:21.032017+03:00" }
+{ "id": 4, "nom": "ENVELOPPE", "prix_unitaire": "500.00", "par_unite": true, "frais_livraison": false, "actif": false, "created_at": "2026-09-11T19:00:21.032017+03:00" }
 ```
 
 Erreurs : `403`, `404`.
@@ -5428,7 +5430,7 @@ Réponse `200` :
 ### `GET /api/orders/reports/expenses/` — Dépenses
 **Rôle** : `GERANT` · **Vue** : `ExpensesReportView` (reporting.py)
 
-Effet : totaux comparés (Variation) — `total` (caisse + livreur, achats de stock **inclus**), `caisse`, `livreur`, `achats_stock`, `charges` (= total − achats de stock) — et `nb_mouvements` ; répartition par catégorie (source `caisse` ou `livreur`, `hors_resultat = true` pour les achats de marchandise) ; série `caisse`/`livreur`/`total` ; bloc `livraison` (frais facturés au client vs coût réel des tournées) ; liste des mouvements (200 par source, 300 max au total, triés par date décroissante).
+Effet : totaux comparés (Variation) — `total` (caisse + livreur, achats de stock **inclus**), `caisse`, `livreur`, `achats_stock`, `charges` (= total − achats de stock) — et `nb_mouvements` ; répartition par catégorie (source `caisse` ou `livreur`, `hors_resultat = true` pour les achats de marchandise) ; série `caisse`/`livreur`/`total` ; bloc `livraison` (frais facturés au client vs coût réel = dépenses acceptées des seuls types `frais_livraison = true`, ex. LIVRAISON 3K / 4K / 5K — repas, enveloppes, NAP exclus ; `marge_livraison = frais_factures_client − cout_reel_livreurs`) ; liste des mouvements (200 par source, 300 max au total, triés par date décroissante).
 
 Réponse `200` :
 ```json
@@ -5597,7 +5599,7 @@ Réponse `200` :
 ### `GET /api/orders/reports/deliveries/` — Livraisons
 **Rôle** : `GERANT` · **Vue** : `DeliveriesReportView` (reporting.py)
 
-Effet : commandes de la période **hors** `RECUPERATION`. `totaux` sur les livraisons terminées (`LIVRE` + `RETOUR`), coût = dépenses livreur acceptées, délai moyen `EN_LIVRAISON → LIVRE` en minutes d'après l'historique ; performance par livreur (triée par réussites), par zone, série réussies/échouées.
+Effet : commandes de la période **hors** `RECUPERATION`. `totaux` sur les livraisons terminées (`LIVRE` + `RETOUR`), coût = dépenses acceptées des seuls types `frais_livraison = true` (LIVRAISON 3K / 4K / 5K…), délai moyen `EN_LIVRAISON → LIVRE` en minutes d'après l'historique ; performance par livreur (triée par réussites), par zone, série réussies/échouées.
 
 Réponse `200` :
 ```json

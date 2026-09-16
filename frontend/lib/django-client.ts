@@ -941,15 +941,15 @@ class DjangoAPIClient {
   expenseTypes = {
     list: async () => {
       return this.get<
-        { id: number; nom: string; prix_unitaire: number; par_unite: boolean; actif: boolean }[]
+        { id: number; nom: string; prix_unitaire: number; par_unite: boolean; frais_livraison: boolean; actif: boolean }[]
       >('/orders/expense-types/')
     },
-    create: async (data: { nom: string; prix_unitaire: number; par_unite?: boolean }) => {
+    create: async (data: { nom: string; prix_unitaire: number; par_unite?: boolean; frais_livraison?: boolean }) => {
       return this.post<any>('/orders/expense-types/', data)
     },
     update: async (
       id: number,
-      data: { nom?: string; prix_unitaire?: number; par_unite?: boolean; actif?: boolean },
+      data: { nom?: string; prix_unitaire?: number; par_unite?: boolean; frais_livraison?: boolean; actif?: boolean },
     ) => {
       return this.patch<any>(`/orders/expense-types/${id}/`, data)
     },

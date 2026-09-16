@@ -253,6 +253,12 @@ class _Contexte:
             date__lte=date_to or self.date_to,
         )
 
+    def frais_livraison_livreur(self, date_from=None, date_to=None):
+        """Coût RÉEL des livraisons : dépenses acceptées des seuls types
+        marqués « frais de livraison » dans Paramètres (LIVRAISON 3K / 4K /
+        5K…) — repas, enveloppes, NAP en sont exclus (§ demande)."""
+        return self.depenses_livreur(date_from, date_to).filter(type_depense__frais_livraison=True)
+
     def mouvements(self, date_from=None, date_to=None):
         return StockMovement.objects.filter(
             product_variant__product_reference__type__category__magasin__in=self.magasins,
@@ -582,19 +588,22 @@ class ExpensesReportView(_RapportView):
         for l in serie:
             l["total"] = l["caisse"] + l["livreur"]
 
-        # Livraison : ce que le client paie vs ce que la tournée coûte
-        # réellement (frais des livreurs acceptés). L'app n'a pas d'agence
-        # de livraison externe : les livreurs sont des employés.
+        # Livraison : ce que le client paie vs ce que la livraison coûte
+        # réellement = dépenses acceptées des types « frais de livraison »
+        # (LIVRAISON 3K / 4K / 5K…) uniquement — pas les repas, enveloppes,
+        # NAP (§ demande). L'app n'a pas d'agence externe : les livreurs
+        # sont des employés.
         livrees = ctx.orders().filter(statut_courant="LIVRE")
         frais_client = _somme(livrees, F("frais_livraison"))
+        cout_livraison = _somme(ctx.frais_livraison_livreur(), F("montant"))
         nb_livrees = livrees.count()
         livraison = {
             "frais_factures_client": frais_client,
-            "cout_reel_livreurs": total_livreur,
-            "marge_livraison": frais_client - total_livreur,
+            "cout_reel_livreurs": cout_livraison,
+            "marge_livraison": frais_client - cout_livraison,
             "nb_livrees": nb_livrees,
             "frais_moyen_client": (frais_client / nb_livrees) if nb_livrees else ZERO,
-            "cout_moyen_livraison": (total_livreur / nb_livrees) if nb_livrees else ZERO,
+            "cout_moyen_livraison": (cout_livraison / nb_livrees) if nb_livrees else ZERO,
         }
 
         mouvements = [
@@ -898,9 +907,11 @@ class DeliveriesReportView(_RapportView):
             if liv:
                 delais_par_livreur[liv].append(minutes)
 
+        # Coût payé par livreur = ses frais de livraison acceptés (types
+        # marqués « frais de livraison » seulement, § demande).
         couts = {
             r["livreur"]: r["t"]
-            for r in ctx.depenses_livreur().values("livreur").annotate(t=Coalesce(Sum("montant"), 0, output_field=_DEC))
+            for r in ctx.frais_livraison_livreur().values("livreur").annotate(t=Coalesce(Sum("montant"), 0, output_field=_DEC))
         }
         lignes = []
         for r in (

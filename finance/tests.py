@@ -524,3 +524,44 @@ class BoostAutomatiqueTests(ScenarioMixin, APITestCase):
         self.assertEqual(res.status_code, 201, res.data)
         self.assertEqual(res.data["campagne_nom"], "Auto")
         self.assertEqual([c["id"] for c in res.data["campagnes"]], [b.id])
+
+
+class MargeLivraisonRapportsTests(ScenarioMixin, APITestCase):
+    """Rapports Dépenses / Livraisons : le coût réel des livraisons ne compte
+    que les dépenses ACCEPTÉES des types marqués « frais de livraison »
+    (LIVRAISON 3K / 4K / 5K…) — pas les repas, enveloppes, NAP (§ demande)."""
+
+    def setUp(self):
+        self.creer_scenario()
+        self.client.force_authenticate(user=self.gerant)
+        from orders.models import ExpenseType
+
+        self.t_livraison = ExpenseType.objects.create(admin_profile=self.admin_profile, nom="LIVRAISON 3K", prix_unitaire=D("3000"), par_unite=True, frais_livraison=True)
+        self.t_repas = ExpenseType.objects.create(admin_profile=self.admin_profile, nom="REPAS", prix_unitaire=D("5000"))
+        self.livrer(self.commande())  # livraison facturée 3 000 au client
+        for t, statut in ((self.t_livraison, "ACCEPTE"), (self.t_repas, "ACCEPTE"), (self.t_livraison, "EN_ATTENTE")):
+            LivreurExpense.objects.create(
+                magasin=self.magasin, livreur=self.livreur, type_depense=t, libelle=t.nom,
+                prix_unitaire=t.prix_unitaire, quantite=1, statut=statut, date=self.aujourd_hui,
+            )
+
+    def test_marge_livraison_ne_compte_que_les_frais_de_livraison_acceptes(self):
+        q = f"?date_from={self.aujourd_hui}&date_to={self.aujourd_hui}"
+        res = self.client.get("/api/orders/reports/expenses/" + q)
+        self.assertEqual(res.status_code, 200)
+        liv = res.data["livraison"]
+        self.assertEqual(D(str(liv["frais_factures_client"])), D("3000"))
+        self.assertEqual(D(str(liv["cout_reel_livreurs"])), D("3000"))  # repas et en attente exclus
+        self.assertEqual(D(str(liv["marge_livraison"])), D("0"))
+        # Le total des dépenses livreur, lui, garde le repas (8 000 acceptés).
+        self.assertEqual(D(str(res.data["totaux"]["livreur"]["actuel"])), D("8000"))
+        res = self.client.get("/api/orders/reports/deliveries/" + q)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(D(str(res.data["totaux"]["cout_total"])), D("3000"))
+        self.assertEqual(D(str(res.data["totaux"]["marge_livraison"])), D("0"))
+
+    def test_migration_marque_les_types_livraison(self):
+        """Le champ est exposé par l'API et modifiable dans Paramètres."""
+        res = self.client.patch(f"/api/orders/expense-types/{self.t_repas.id}/", {"frais_livraison": True}, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertTrue(res.data["frais_livraison"])

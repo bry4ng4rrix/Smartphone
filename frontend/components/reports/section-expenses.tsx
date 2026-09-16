@@ -72,8 +72,8 @@ export function SectionExpenses({ params, enabled }: { params: ReportParams; ena
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Livraison : facturé au client vs coût réel</CardTitle>
             <CardDescription className="text-xs">
-              Frais facturés = frais de livraison des commandes livrées. Coût réel = frais de tournée déclarés par les livreurs et acceptés
-              (carburant, repas…). L&apos;application n&apos;a pas d&apos;agence externe : la livraison est assurée par les livreurs de l&apos;équipe.
+              Frais facturés = frais de livraison des commandes livrées. Coût réel = dépenses déclarées par les livreurs, acceptées par le gérant,
+              des seuls types marqués « frais de livraison » dans Paramètres (LIVRAISON 3K / 4K / 5K…) — repas, enveloppes, NAP n&apos;y entrent pas.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -90,7 +90,7 @@ export function SectionExpenses({ params, enabled }: { params: ReportParams; ena
                     [
                       ['Commandes livrées', fmtNb(l.nb_livrees)],
                       ['Frais de livraison facturés au client', fmtAr(l.frais_factures_client)],
-                      ['Frais réellement payés (tournées acceptées)', fmtAr(l.cout_reel_livreurs)],
+                      ['Frais de livraison acceptés (LIVRAISON 3K / 4K / 5K…)', fmtAr(l.cout_reel_livreurs)],
                       ['Marge livraison', fmtAr(l.marge_livraison)],
                       ['Frais moyen facturé par livraison', fmtAr(l.frais_moyen_client)],
                       ['Coût moyen réel par livraison', fmtAr(l.cout_moyen_livraison)],

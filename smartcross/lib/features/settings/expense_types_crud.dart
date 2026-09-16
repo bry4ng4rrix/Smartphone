@@ -458,12 +458,16 @@ class _LivreurExpenseTypesCrudCardState extends ConsumerState<LivreurExpenseType
   final _nomController = TextEditingController();
   final _prixController = TextEditingController();
   bool _parUnite = false;
+  // « Frais de livraison » : seuls ces types (LIVRAISON 3K / 4K / 5K…)
+  // entrent dans le coût réel et la marge livraison des rapports.
+  bool _fraisLivraison = false;
 
   // Édition en place, même schéma que les zones de livraison.
   int? _editionId;
   final _editionNomController = TextEditingController();
   final _editionPrixController = TextEditingController();
   bool _editionParUnite = false;
+  bool _editionFraisLivraison = false;
 
   @override
   void dispose() {
@@ -482,6 +486,7 @@ class _LivreurExpenseTypesCrudCardState extends ConsumerState<LivreurExpenseType
       _editionNomController.text = t.nom;
       _editionPrixController.text = montantEnSaisie(t.prixUnitaire);
       _editionParUnite = t.parUnite;
+      _editionFraisLivraison = t.fraisLivraison;
     });
   }
 
@@ -497,6 +502,7 @@ class _LivreurExpenseTypesCrudCardState extends ConsumerState<LivreurExpenseType
         nom: nom,
         prixUnitaire: parseMontantOuZero(_editionPrixController.text),
         parUnite: _editionParUnite,
+        fraisLivraison: _editionFraisLivraison,
       );
       if (!mounted) return;
       crudToast(context, 'Type mis à jour');
@@ -512,13 +518,19 @@ class _LivreurExpenseTypesCrudCardState extends ConsumerState<LivreurExpenseType
     final nom = _nomController.text.trim();
     if (nom.isEmpty) return;
     try {
-      await _notifier.create(nom: nom, prixUnitaire: parseMontantOuZero(_prixController.text), parUnite: _parUnite);
+      await _notifier.create(
+        nom: nom,
+        prixUnitaire: parseMontantOuZero(_prixController.text),
+        parUnite: _parUnite,
+        fraisLivraison: _fraisLivraison,
+      );
       if (!mounted) return;
       crudToast(context, 'Type de dépense ajouté');
       setState(() {
         _nomController.clear();
         _prixController.clear();
         _parUnite = false;
+        _fraisLivraison = false;
       });
     } catch (e) {
       if (mounted) crudToast(context, crudErrorMessage(e, 'Erreur'));
@@ -555,6 +567,20 @@ class _LivreurExpenseTypesCrudCardState extends ConsumerState<LivreurExpenseType
         const SizedBox(width: 4),
         const Text("à l'unité", style: TextStyle(fontSize: 13)),
       ],
+    );
+  }
+
+  Widget _fraisLivraisonSwitch({required bool value, required ValueChanged<bool> onChanged}) {
+    return Tooltip(
+      message: 'Compte dans le coût réel des livraisons (marge livraison des rapports)',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Switch(value: value, onChanged: onChanged),
+          const SizedBox(width: 4),
+          const Text('frais de livraison', style: TextStyle(fontSize: 13)),
+        ],
+      ),
     );
   }
 
@@ -623,6 +649,13 @@ class _LivreurExpenseTypesCrudCardState extends ConsumerState<LivreurExpenseType
                             ),
                           ],
                         ),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: _fraisLivraisonSwitch(
+                            value: _editionFraisLivraison,
+                            onChanged: (v) => setState(() => _editionFraisLivraison = v),
+                          ),
+                        ),
                         CrudEditActions(onOk: _enregistrerEdition, onCancel: () => setState(() => _editionId = null)),
                       ],
                     ),
@@ -643,9 +676,13 @@ class _LivreurExpenseTypesCrudCardState extends ConsumerState<LivreurExpenseType
                               ),
                             ),
                             const SizedBox(height: 4),
-                            Align(
-                              alignment: Alignment.centerLeft,
-                              child: CrudPriceBadge('${arFmt(t.prixUnitaire)}${t.parUnite ? ' / unité' : ''}'),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: [
+                                CrudPriceBadge('${arFmt(t.prixUnitaire)}${t.parUnite ? ' / unité' : ''}'),
+                                if (t.fraisLivraison) const CrudPriceBadge('frais de livraison'),
+                              ],
                             ),
                           ],
                         ),
@@ -676,6 +713,10 @@ class _LivreurExpenseTypesCrudCardState extends ConsumerState<LivreurExpenseType
                 const SizedBox(width: 8),
                 _parUniteSwitch(value: _parUnite, onChanged: (v) => setState(() => _parUnite = v)),
               ],
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _fraisLivraisonSwitch(value: _fraisLivraison, onChanged: (v) => setState(() => _fraisLivraison = v)),
             ),
             const SizedBox(height: 8),
             Align(

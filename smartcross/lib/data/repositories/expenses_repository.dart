@@ -29,11 +29,13 @@ class ExpensesRepository {
     required String nom,
     required double prixUnitaire,
     bool parUnite = false,
+    bool fraisLivraison = false,
   }) async {
     final response = await _dio.post('orders/expense-types/', data: {
       'nom': nom,
       'prix_unitaire': prixUnitaire,
       'par_unite': parUnite,
+      'frais_livraison': fraisLivraison,
     });
     return ExpenseType.fromJson(response.data as Map<String, dynamic>);
   }
@@ -43,12 +45,14 @@ class ExpensesRepository {
     String? nom,
     double? prixUnitaire,
     bool? parUnite,
+    bool? fraisLivraison,
     bool? actif,
   }) async {
     final response = await _dio.patch('orders/expense-types/$id/', data: {
       'nom': ?nom,
       'prix_unitaire': ?prixUnitaire,
       'par_unite': ?parUnite,
+      'frais_livraison': ?fraisLivraison,
       'actif': ?actif,
     });
     return ExpenseType.fromJson(response.data as Map<String, dynamic>);

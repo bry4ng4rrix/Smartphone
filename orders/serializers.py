@@ -314,7 +314,7 @@ class ExpenseTypeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ExpenseType
-        fields = ["id", "nom", "prix_unitaire", "par_unite", "actif", "created_at"]
+        fields = ["id", "nom", "prix_unitaire", "par_unite", "frais_livraison", "actif", "created_at"]
         read_only_fields = ["id", "created_at"]
 
 

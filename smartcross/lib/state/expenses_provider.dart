@@ -30,14 +30,14 @@ class ExpenseTypesNotifier extends AsyncNotifier<List<ExpenseType>> {
     state = await AsyncValue.guard(_repo.listTypes);
   }
 
-  Future<ExpenseType> create({required String nom, required double prixUnitaire, bool parUnite = false}) async {
-    final type = await _repo.createType(nom: nom, prixUnitaire: prixUnitaire, parUnite: parUnite);
+  Future<ExpenseType> create({required String nom, required double prixUnitaire, bool parUnite = false, bool fraisLivraison = false}) async {
+    final type = await _repo.createType(nom: nom, prixUnitaire: prixUnitaire, parUnite: parUnite, fraisLivraison: fraisLivraison);
     await _refreshSilencieux();
     return type;
   }
 
-  Future<ExpenseType> updateType(int id, {String? nom, double? prixUnitaire, bool? parUnite, bool? actif}) async {
-    final type = await _repo.updateType(id, nom: nom, prixUnitaire: prixUnitaire, parUnite: parUnite, actif: actif);
+  Future<ExpenseType> updateType(int id, {String? nom, double? prixUnitaire, bool? parUnite, bool? fraisLivraison, bool? actif}) async {
+    final type = await _repo.updateType(id, nom: nom, prixUnitaire: prixUnitaire, parUnite: parUnite, fraisLivraison: fraisLivraison, actif: actif);
     await _refreshSilencieux();
     return type;
   }
