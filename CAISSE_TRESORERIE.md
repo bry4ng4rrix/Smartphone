@@ -100,8 +100,20 @@ espèces en caisse.
 
 Existant réutilisé : `/api/users/caisse/*` (sessions, mouvements, catégories),
 `/api/orders/campaigns/` (boosts — champs calculés `articles_vendus`,
-`cout_par_article`, `en_caisse` ; option `en_caisse: true` à la création),
+`cout_par_article`, `en_caisse`, et, depuis l'affectation automatique par
+période, `nb_commandes`, `nb_livrees`, `ca`, `cout_par_commande`,
+`periode_effective` ; option `en_caisse: true` à la création),
 `/api/orders/delivery-zones/` (`cout_agence`).
+
+Affectation commande ↔ boost : AUTOMATIQUE par période
+(`finance/services.py::commandes_du_boost`, source unique pour la caisse, le
+rapport Marketing et les commandes) — `date_commande` (jour local) entre
+`date_debut` et `date_fin` bornes comprises, boost en cours = jusqu'à
+aujourd'hui, annulées exclues, boost inactif = rien. Chevauchement : chaque
+boost est réparti sur sa propre période, une vente de la zone commune
+supporte une part de chacun. Création / modification (montant, dates,
+`actif`) / suppression → `recalculer_apres_boost` recalcule l'union ancienne
++ nouvelle période. `dashboard/ → boosts[]` porte les mêmes champs.
 
 Durcissements : ouverture de session et création de mouvement sous verrou
 (`select_for_update`) ; un mouvement automatique (avec `reference`) ou d'une

@@ -304,7 +304,7 @@ class _CampaignDeleteDialogState extends ConsumerState<CampaignDeleteDialog> {
     return AlertDialog(
       title: Text('Supprimer la campagne « ${widget.campagne.nom} » ?'),
       content: Text(
-        'Les commandes rattachées ne seront pas supprimées, elles perdront seulement leur campagne.',
+        "Aucune commande n'est supprimée : la part de boost des ventes de la période est simplement recalculée.",
         style: TextStyle(fontSize: 14, color: theme.colorScheme.onSurfaceVariant),
       ),
       actions: [

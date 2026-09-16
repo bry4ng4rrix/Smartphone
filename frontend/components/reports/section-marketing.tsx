@@ -284,7 +284,7 @@ export function SectionMarketing({ params, enabled }: { params: ReportParams; en
           <DialogHeader>
             <DialogTitle>Supprimer la campagne « {suppression?.nom} » ?</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">Les commandes rattachées ne seront pas supprimées, elles perdront seulement leur campagne.</p>
+          <p className="text-sm text-muted-foreground">Aucune commande n'est supprimée : la part de boost des ventes de la période est simplement recalculée.</p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSuppression(null)} disabled={enCours}>
               Annuler

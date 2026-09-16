@@ -258,6 +258,7 @@ Réponse `201` (serializer Gérant) :
   "livreur_name": null,
   "campagne": null,
   "campagne_nom": "",
+  "campagnes": [],
   "items": [
     {
       "id": 22,
@@ -3770,7 +3771,7 @@ Préfixe de toutes les routes : **`/api/orders/`** (fichier `orders/urls.py`). A
 
 | Rôle | Qui | Serializer de lecture des commandes |
 | --- | --- | --- |
-| `GERANT` | `CustomUser.role` = `admin` ou `magasin` | `OrderGerantSerializer` — vue complète : prix unitaires, `prix_catalogue`, `remise_unitaire`, `remise_total`, `status_history`, `campagne`, `note_preparateur` **et** `note_livreur` |
+| `GERANT` | `CustomUser.role` = `admin` ou `magasin` | `OrderGerantSerializer` — vue complète : prix unitaires, `prix_catalogue`, `remise_unitaire`, `remise_total`, `status_history`, `campagnes` / `campagne_nom` (boosts couvrant la date, calculés — `campagne` = FK historique, toujours `null` pour les nouvelles commandes), `note_preparateur` **et** `note_livreur` |
 | `PREPARATEUR` | `role = employer` avec `EmployerProfile.commande_role = PREPARATEUR` | `OrderPreparateurSerializer` — sans prix unitaires, sans historique, avec `note_preparateur` uniquement |
 | `LIVREUR` | `role = employer` avec `commande_role = LIVREUR` | `OrderLivreurSerializer` — sans prix unitaires, avec `status_history` (photo de préparation) et `note_livreur` uniquement |
 | aucun (`None`) | employer sans `commande_role` | traité comme un gérant pour la lecture, mais refusé sur toute action de workflow |
@@ -3837,6 +3838,7 @@ Réponse `200` — **gérant** (`OrderGerantSerializer`) :
     "livreur_name": "Mamy",
     "campagne": null,
     "campagne_nom": "",
+    "campagnes": [],
     "items": [
       {
         "id": 22,
@@ -4001,7 +4003,7 @@ Effet : crée la commande en statut `NOUVELLE` avec ses articles (prix figés au
 | `date_commande` | corps | datetime ISO | non | Date **et heure** de livraison prévue ; défaut = maintenant |
 | `note_preparateur` | corps | string | non | Note vue du préparateur uniquement |
 | `note_livreur` | corps | string | non | Note vue du livreur uniquement |
-| `campagne` | corps | int \| null | non | Id d'une `MarketingCampaign` du **même magasin** |
+| `campagne` | corps | — | non | **Ignoré** : l'affectation à un boost est automatique par période (voir *Campagnes marketing*) |
 | `items` | corps | liste | oui | Au moins un article |
 | `items[].product_variant` | corps | int | oui | Id d'un `ProductVariant` existant |
 | `items[].quantite` | corps | int ≥ 1 | non | Défaut 1 |
@@ -4054,6 +4056,7 @@ Réponse `201` (gérant → `OrderGerantSerializer` ; préparateur → `OrderPre
   "livreur_name": null,
   "campagne": null,
   "campagne_nom": "",
+  "campagnes": [],
   "items": [
     {
       "id": 30,
@@ -4112,7 +4115,6 @@ Erreurs :
 - `400` — `{"items": [{}, {"quantite": ["Ensure this value is greater than or equal to 1."]}]}` : quantité nulle sur le 2e article (une entrée par article, `{}` pour ceux sans erreur).
 - `400` — `{"items": [{"product_variant": ["Invalid pk \"999999\" - object does not exist."]}]}`.
 - `400` — `{"items": [{"prix_unitaire": ["Le prix remisé ne peut pas dépasser le prix catalogue (30000 Ar)."]}]}` : remise négative.
-- `400` — `{"campagne": ["Invalid pk \"999\" - object does not exist."]}` ; `400` — `{"campagne": ["Cette campagne n'appartient pas au magasin de la commande."]}`.
 - `400` — `["Le préparateur ne peut créer que des commandes 'Récupération sur place'."]` : préparateur avec `livraison_zone` ≠ `RECUPERATION`.
 - `400` — `{"magasin_id": ["Ce champ est requis (plusieurs magasins accessibles)."]}` ; `403` — `{"detail": "Magasin non autorisé."}` : `magasin_id` hors portée.
 
@@ -4152,6 +4154,7 @@ Réponse `200` (gérant) : même objet que dans la liste gérant ci-dessus, ici 
   "livreur_name": "Tahina",
   "campagne": null,
   "campagne_nom": "",
+  "campagnes": [],
   "items": [
     {
       "id": 13,
@@ -4525,27 +4528,10 @@ Erreurs :
 
 ---
 
-### `POST /api/orders/{id}/campagne/` — Rattacher / détacher une campagne marketing
-**Rôle** : `GERANT` (`permission_classes=[IsGerant]`) · **Vue** : `OrderViewSet.set_campagne` (views.py)
+### `POST /api/orders/{id}/campagne/` — (obsolète) Rattacher une campagne marketing
+**Rôle** : `GERANT` · **Vue** : `OrderViewSet.set_campagne` (views.py)
 
-Effet : met à jour `order.campagne` à tout moment, quel que soit le statut, sans toucher au reste de la commande. Sert de base au rapport Marketing (commandes et CA « générés »).
-
-| Paramètre | Où | Type | Obligatoire | Description |
-| --- | --- | --- | --- | --- |
-| `id` | chemin | int | oui | Commande |
-| `campagne` | corps | int \| null | non | Id d'une campagne du même magasin ; `null`, `""` ou `0` détache |
-
-Requête :
-```json
-{ "campagne": 3 }
-```
-
-Réponse `200` : la commande (`OrderGerantSerializer`) avec `"campagne": 3, "campagne_nom": "Boost Facebook rentrée"`.
-
-Erreurs :
-- `403` — `{"detail": "You do not have permission to perform this action."}`.
-- `400` — `{"campagne": ["Campagne introuvable."]}` : id inconnu ou non numérique.
-- `400` — `{"campagne": ["Cette campagne n'appartient pas au magasin de la commande."]}`.
+**Obsolète** : l'affectation commande ↔ campagne est désormais **automatique par période** (voir *Campagnes marketing*). L'action ne modifie plus rien ; elle renvoie simplement la commande (`200`, `OrderGerantSerializer`) avec ses campagnes calculées (`campagnes`, `campagne_nom`). Conservée pour les anciens clients.
 
 ---
 
@@ -4948,9 +4934,16 @@ Erreurs :
 
 ### Campagnes marketing (`campaigns/`)
 
-`MarketingCampaign` : coût d'une campagne publicitaire par magasin ; les commandes s'y rattachent via `Order.campagne`. Plateformes : `FACEBOOK` (Facebook), `INSTAGRAM` (Instagram), `TIKTOK` (TikTok), `GOOGLE` (Google), `AUTRE` (Autre). Tri : `-date_debut`, `-created_at`.
+`MarketingCampaign` : coût d'une campagne publicitaire (boost) par magasin. Plateformes : `FACEBOOK` (Facebook), `INSTAGRAM` (Instagram), `TIKTOK` (TikTok), `GOOGLE` (Google), `AUTRE` (Autre). Tri : `-date_debut`, `-created_at`.
 
-Objet `MarketingCampaignSerializer` :
+**Affectation automatique par période** (`finance/services.py::commandes_du_boost`, source unique pour le rapport Marketing, la caisse et les commandes) :
+- une commande est *concernée* par un boost si sa date de livraison prévue (`date_commande`, jour local Antananarivo) vérifie `date_debut ≤ jour ≤ date_fin`, **bornes comprises** ; `date_fin` vide = boost **en cours** → jusqu'à aujourd'hui (jamais l'avenir) ;
+- les commandes annulées ne sont pas concernées ; un boost `actif = false` ne concerne plus rien ;
+- aucune sélection manuelle : `Order.campagne` (FK historique) n'est plus renseigné ni utilisé ;
+- **chevauchement** : deux boosts peuvent couvrir le même jour ; chacun est réparti sur *sa* période et une commande de la zone commune est concernée par les deux (une part de coût de chacun dans le gain réel ; les totaux du rapport la comptent une seule fois) ;
+- **recalcul automatique** : toute création / modification (montant, dates, `actif`) / suppression recalcule le gain réel des ventes de l'union ancienne + nouvelle période (`finance/services.py::recalculer_apres_boost`).
+
+Objet `MarketingCampaignSerializer` (les champs calculés le sont à la lecture, jamais stockés) :
 ```json
 {
   "id": 3,
@@ -4959,13 +4952,25 @@ Objet `MarketingCampaignSerializer` :
   "plateforme": "FACEBOOK",
   "plateforme_label": "Facebook",
   "montant": "150000.00",
+  "type_periode": "PERSONNALISE",
   "date_debut": "2026-09-01",
   "date_fin": "2026-09-30",
   "note": "Ciblage Antananarivo",
   "actif": true,
-  "created_at": "2026-09-01T08:00:00.000000+03:00"
+  "created_at": "2026-09-01T08:00:00.000000+03:00",
+  "articles_vendus": 20,
+  "cout_par_article": "7500.00",
+  "en_caisse": false,
+  "nb_commandes": 24,
+  "nb_livrees": 18,
+  "ca": "612000.00",
+  "cout_par_commande": "6250.00",
+  "periode_effective": { "from": "2026-09-01", "to": "2026-09-30", "en_cours": false }
 }
 ```
+- `nb_commandes` / `nb_livrees` : commandes concernées (non annulées) / livrées ; `ca` : total à payer des livrées ; `cout_par_commande = montant / nb_commandes` (`null` sans commande) — indicateur d'affichage ;
+- `articles_vendus` / `cout_par_article` : répartition **financière** retenue dans le gain réel (caisse) : `montant / articles livrés sur la période` ;
+- `periode_effective.to` : dernier jour couvert (aujourd'hui si `en_cours`).
 
 ### `GET /api/orders/campaigns/` — Liste des campagnes
 **Rôle** : tout utilisateur authentifié (magasins accessibles) · **Vue** : `MarketingCampaignViewSet.list` (views.py)
@@ -5047,7 +5052,7 @@ Réponse `200` : l'objet mis à jour. Erreurs : `403`, `400` — `{"date_fin": [
 ### `DELETE /api/orders/campaigns/{id}/` — Supprimer une campagne
 **Rôle** : `GERANT` · **Vue** : `MarketingCampaignViewSet.destroy`
 
-Effet : suppression physique ; les commandes rattachées passent à `campagne = null` (`on_delete=SET_NULL`).
+Effet : suppression physique ; la part de boost des ventes de la période est recalculée automatiquement (aucune commande supprimée).
 
 Réponse `204` : corps vide. Erreurs : `403`, `404`.
 
@@ -5662,7 +5667,7 @@ Réponse `200` :
 ### `GET /api/orders/reports/marketing/` — Marketing
 **Rôle** : `GERANT` · **Vue** : `MarketingReportView` (reporting.py)
 
-Effet : campagnes actives sur la période (`date_debut ≤ date_to` et `date_fin` nulle ou ≥ `date_from`), filtrables par `platform` et `campaign` ; pour chacune : commandes rattachées (`Order.campagne`), livrées, CA (total à payer des livrées), marge produits, bénéfice = marge − coût, `roi_pct = (ca − coût) / coût × 100` (`null` si coût nul), coût par commande. Agrégats par plateforme, top 3 / flop 3 des campagnes avec ROI, dépenses « Pub » enregistrées en caisse, nombre de commandes sans campagne.
+Effet : campagnes actives sur la période (`date_debut ≤ date_to` et `date_fin` nulle ou ≥ `date_from`), filtrables par `platform` et `campaign` ; pour chacune : commandes **concernées par sa période** (affectation automatique, restreinte à la fenêtre du rapport — voir *Campagnes marketing*), livrées, CA (total à payer des livrées), marge produits, bénéfice = marge − coût, `roi_pct = (ca − coût) / coût × 100` (`null` si coût nul), coût par commande, `periode_effective`. Totaux sur les commandes **distinctes** (chevauchement dé-doublonné). Agrégats par plateforme, top 3 / flop 3 des campagnes avec ROI, dépenses « Pub » enregistrées en caisse, `commandes_sans_campagne` = commandes de la période (non annulées) qu'aucune campagne ne couvre.
 
 Réponse `200` :
 ```json

@@ -366,7 +366,7 @@ class _SectionMarketingState extends ConsumerState<SectionMarketing> {
             final large = constraints.maxWidth >= 600;
             final table = ReportTable<Campagne>(
               titre: 'Campagnes',
-              description: 'Campagnes actives sur la période. Créez-les ici, puis rattachez les commandes concernées.',
+              description: 'Campagnes de la période. Renseignez nom, plateforme, dates et montant : les commandes concernées et le coût par commande se calculent seuls.',
               actions: large ? actions : null,
               colonnes: _colonnesCampagnes,
               lignes: data?.campagnes,
