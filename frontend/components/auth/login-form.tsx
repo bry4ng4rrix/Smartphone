@@ -88,9 +88,13 @@ export function LoginForm() {
 
   return (
     <Card className="w-full max-w-md shadow-xl">
-      <CardHeader className="space-y-1 pb-4">
-        <CardTitle className="text-2xl font-bold">Connexion</CardTitle>
-        <CardDescription>Accédez à votre espace Smartphone.Mg</CardDescription>
+      <CardHeader className="space-y-1 pb-2">
+        <CardTitle className="text-2xl font-bold text-center">
+          Connexion
+        </CardTitle>
+        <CardDescription className="text-center">
+          Accédez à votre espace Smartphone.Mg
+        </CardDescription>
       </CardHeader>
 
       <CardContent>
