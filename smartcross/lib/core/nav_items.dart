@@ -61,18 +61,6 @@ const List<NavItem> kPrimaryNavItems = [
   // livreur), exactement comme /orders cote web : aucun drapeau ici.
   NavItem(path: '/orders', label: 'Commandes', icon: Icons.receipt_long_outlined),
   NavItem(
-    path: '/pickup',
-    label: 'Récupération',
-    icon: Icons.inventory_2_outlined,
-    adminOnly: true,
-  ),
-  NavItem(
-    path: '/bilan',
-    label: 'Bilan du jour',
-    icon: Icons.receipt_outlined,
-    livreurOrGerant: true,
-  ),
-  NavItem(
     path: '/catalog',
     label: 'Produits',
     icon: Icons.style_outlined,
@@ -84,6 +72,18 @@ const List<NavItem> kPrimaryNavItems = [
     icon: Icons.point_of_sale_outlined,
     hidePreparateur: true,
     hideLivreur: true,
+  ),
+  NavItem(
+    path: '/bilan',
+    label: 'Bilan du jour',
+    icon: Icons.receipt_outlined,
+    livreurOrGerant: true,
+  ),
+  NavItem(
+    path: '/pickup',
+    label: 'Récupération',
+    icon: Icons.inventory_2_outlined,
+    adminOnly: true,
   ),
   NavItem(path: '/chats', label: 'Chats', icon: Icons.chat_bubble_outline),
   NavItem(

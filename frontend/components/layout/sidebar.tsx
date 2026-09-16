@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/lib/auth/useCurrentUser";
 import { djangoClient } from "@/lib/django-client";
+import { useBilanMouvements } from "@/lib/hooks/useBilanMouvements";
 
 type NavItem = {
   label: string;
@@ -184,6 +185,15 @@ export function Sidebar() {
     return () => clearInterval(id);
   }, [refreshUnread, pathname]);
 
+  // Badge « Bilan du jour » (gérant) : mouvements des livreurs (Livré /
+  // Retour) depuis la dernière ouverture de la page — voir
+  // lib/hooks/useBilanMouvements.ts. Remis à 0 quand la page est ouverte.
+  const bilanMouvements = useBilanMouvements({
+    actif: !loading && isAdminOrSuperAdmin,
+    userId: user?.id,
+    surLaPage: pathname === "/bilan" || pathname.startsWith("/bilan/"),
+  });
+
   const handleLogout = async () => {
     await djangoClient.auth.logout();
     router.push("/login");
@@ -283,6 +293,20 @@ export function Sidebar() {
                         aria-label={`${unreadChats} message${unreadChats > 1 ? "s" : ""} non lu${unreadChats > 1 ? "s" : ""}`}
                       >
                         {unreadChats > 99 ? "99+" : unreadChats}
+                      </span>
+                    ) : item.href === "/bilan" && bilanMouvements > 0 ? (
+                      // Mouvements des livreurs (Livré / Retour) non encore
+                      // consultés dans le bilan — disparaît à l'ouverture.
+                      <span
+                        className={cn(
+                          "ml-auto min-w-5 h-5 px-1.5 inline-flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums",
+                          isActive
+                            ? "bg-white text-blue-600"
+                            : "bg-emerald-500 text-white",
+                        )}
+                        aria-label={`${bilanMouvements} nouveau${bilanMouvements > 1 ? "x" : ""} mouvement${bilanMouvements > 1 ? "s" : ""} dans le bilan`}
+                      >
+                        {bilanMouvements > 99 ? "99+" : bilanMouvements}
                       </span>
                     ) : (
                       isActive && (

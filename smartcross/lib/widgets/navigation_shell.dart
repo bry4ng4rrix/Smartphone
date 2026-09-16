@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../core/nav_items.dart';
 import '../core/constants.dart';
 import '../state/auth_provider.dart';
+import '../state/bilan_mouvements_provider.dart';
 import '../state/chat_unread_provider.dart';
 import 'assistant_bubble.dart';
 import 'topbar.dart';
@@ -31,17 +32,40 @@ class NavigationShell extends ConsumerStatefulWidget {
 class _NavigationShellState extends ConsumerState<NavigationShell> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
 
+  static bool _estBilan(String path) => path == '/bilan' || path.startsWith('/bilan/');
+
+  @override
+  void initState() {
+    super.initState();
+    if (_estBilan(widget.currentPath)) _signalerBilan(true);
+  }
+
   @override
   void didUpdateWidget(covariant NavigationShell oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.currentPath != widget.currentPath) _refreshChatUnread();
+    if (oldWidget.currentPath != widget.currentPath) {
+      _refreshChatUnread();
+      final avant = _estBilan(oldWidget.currentPath);
+      final apres = _estBilan(widget.currentPath);
+      if (avant != apres) _signalerBilan(apres);
+    }
   }
 
-  /// Relecture immédiate du compteur de non-lus, hors phase de construction.
+  /// Relecture immédiate des compteurs, hors phase de construction.
   void _refreshChatUnread() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ref.read(chatUnreadProvider.notifier).refresh();
+      ref.read(bilanMouvementsProvider.notifier).refresh();
+    });
+  }
+
+  /// Le badge « Bilan du jour » retombe à 0 dès que l'écran est ouvert et
+  /// reste à 0 tant qu'il est affiché.
+  void _signalerBilan(bool affiche) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(bilanMouvementsProvider.notifier).setSurLaPage(affiche);
     });
   }
 
@@ -55,6 +79,9 @@ class _NavigationShellState extends ConsumerState<NavigationShell> {
     // construit qu'ouvert) : le rafraîchissement périodique tourne dès la
     // connexion, et le bouton du tiroir affiche le compteur tiroir fermé.
     final unreadChats = ref.watch(chatUnreadCountProvider);
+    // Mouvements des livreurs (Livré / Retour) pas encore consultés dans le
+    // bilan — badge de l'entrée « Bilan du jour » du gérant.
+    final bilanMouvements = ref.watch(bilanMouvementsCountProvider);
 
     // Menu filtre avec les memes regles que le sidebar web (adminOnly,
     // superAdminOnly, livreurOnly, hidePreparateur, hideLivreur) — voir
@@ -69,7 +96,13 @@ class _NavigationShellState extends ConsumerState<NavigationShell> {
           children: [
             SizedBox(
               width: 240,
-              child: _NavList(items: items, currentPath: widget.currentPath, unreadChats: unreadChats, closeOnTap: false),
+              child: _NavList(
+                items: items,
+                currentPath: widget.currentPath,
+                unreadChats: unreadChats,
+                bilanMouvements: bilanMouvements,
+                closeOnTap: false,
+              ),
             ),
             const VerticalDivider(width: 1),
             Expanded(child: Stack(fit: StackFit.expand, children: [widget.child, const AssistantBubble()])),
@@ -83,7 +116,13 @@ class _NavigationShellState extends ConsumerState<NavigationShell> {
       appBar: TopBar(onMenuTap: () => _scaffoldKey.currentState?.openDrawer(), menuBadgeCount: unreadChats),
       drawer: Drawer(
         child: SafeArea(
-          child: _NavList(items: items, currentPath: widget.currentPath, unreadChats: unreadChats, closeOnTap: true),
+          child: _NavList(
+            items: items,
+            currentPath: widget.currentPath,
+            unreadChats: unreadChats,
+            bilanMouvements: bilanMouvements,
+            closeOnTap: true,
+          ),
         ),
       ),
       // Bulle « Assistant » flottante en bas à droite, sur toutes les pages
@@ -94,13 +133,22 @@ class _NavigationShellState extends ConsumerState<NavigationShell> {
 }
 
 class _NavList extends StatelessWidget {
-  const _NavList({required this.items, required this.currentPath, required this.unreadChats, required this.closeOnTap});
+  const _NavList({
+    required this.items,
+    required this.currentPath,
+    required this.unreadChats,
+    required this.bilanMouvements,
+    required this.closeOnTap,
+  });
 
   final List<NavItem> items;
   final String currentPath;
 
   /// Messages directs non lus — badge rouge de l'entrée « Chats ».
   final int unreadChats;
+
+  /// Mouvements de bilan non consultés — badge vert de « Bilan du jour ».
+  final int bilanMouvements;
   final bool closeOnTap;
 
   @override
@@ -113,11 +161,23 @@ class _NavList extends StatelessWidget {
 
   Widget _navTile(BuildContext context, NavItem item) {
     final selected = currentPath.startsWith(item.path);
-    final showBadge = item.path == '/chats' && unreadChats > 0;
+    final Widget? badge;
+    if (item.path == '/chats' && unreadChats > 0) {
+      badge = _UnreadBadge(count: unreadChats, selected: selected);
+    } else if (item.path == '/bilan' && bilanMouvements > 0) {
+      badge = _UnreadBadge(
+        count: bilanMouvements,
+        selected: selected,
+        color: const Color(0xFF10B981),
+        semantique: '$bilanMouvements nouveau${bilanMouvements > 1 ? 'x' : ''} mouvement${bilanMouvements > 1 ? 's' : ''} dans le bilan',
+      );
+    } else {
+      badge = null;
+    }
     return ListTile(
       leading: Icon(item.icon),
       title: Text(item.label),
-      trailing: showBadge ? _UnreadBadge(count: unreadChats, selected: selected) : null,
+      trailing: badge,
       selected: selected,
       selectedTileColor: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.4),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -134,22 +194,28 @@ class _NavList extends StatelessWidget {
 /// neutre, inversée (fond clair, texte primaire) sur l'entrée active — comme
 /// le `bg-red-500 text-white` / `bg-white text-blue-600` du web.
 class _UnreadBadge extends StatelessWidget {
-  const _UnreadBadge({required this.count, required this.selected});
+  const _UnreadBadge({required this.count, required this.selected, this.color = const Color(0xFFEF4444), this.semantique});
 
   final int count;
   final bool selected;
+
+  /// Couleur hors entrée active (rouge : chats, vert : bilan).
+  final Color color;
+
+  /// Libellé d'accessibilité ; par défaut celui des messages non lus.
+  final String? semantique;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final label = chatUnreadBadgeLabel(count);
     return Semantics(
-      label: '$count message${count > 1 ? 's' : ''} non lu${count > 1 ? 's' : ''}',
+      label: semantique ?? '$count message${count > 1 ? 's' : ''} non lu${count > 1 ? 's' : ''}',
       child: Container(
         constraints: const BoxConstraints(minWidth: 22),
         padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
         decoration: BoxDecoration(
-          color: selected ? scheme.surface : const Color(0xFFEF4444),
+          color: selected ? scheme.surface : color,
           borderRadius: BorderRadius.circular(999),
         ),
         child: Text(

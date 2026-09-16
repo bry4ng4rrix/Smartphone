@@ -34,6 +34,7 @@ export function OrdersStatusCounts({
   value,
   onChange,
   loading,
+  total,
   className = '',
 }: {
   compteurs: CompteurStatut[];
@@ -42,6 +43,12 @@ export function OrdersStatusCounts({
   /** Absent = compteurs en lecture seule (aucun filtre de statut sur cette vue). */
   onChange?: (value: string) => void;
   loading?: boolean;
+  /**
+   * Montant total (déjà formaté) des commandes du statut sélectionné —
+   * « Toutes » = toutes les commandes de la liste, « Livré » = les livrées,
+   * etc. (§ demande). Affiché à droite des pastilles ; absent = rien.
+   */
+  total?: { label: string; montant: string; count: number };
   className?: string;
 }) {
   if (loading) {
@@ -95,6 +102,19 @@ export function OrdersStatusCounts({
           </button>
         );
       })}
+      {total && (
+        <div
+          className="ml-auto flex min-w-[150px] shrink-0 flex-col items-end justify-between gap-1 rounded-lg border border-primary/40 bg-primary/5 px-3 py-1.5 text-right"
+          role={onChange ? undefined : 'listitem'}
+          aria-live="polite"
+          aria-label={`Total ${total.label} : ${total.montant}`}
+        >
+          <span className="text-[11px] font-medium text-muted-foreground truncate max-w-[200px]">
+            Total · {total.label}
+          </span>
+          <span className="text-lg font-bold tabular-nums leading-none">{total.montant}</span>
+        </div>
+      )}
     </div>
   );
 }

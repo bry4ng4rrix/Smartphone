@@ -359,6 +359,15 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
                   onPickDate: () => _pickDate(filter),
                   onClearDate: () => _clearDate(filter),
                   statutValue: _statutValue(filter),
+                  // Total des prix des commandes du statut sélectionné
+                  // (§ demande) : la liste affichée est déjà filtrée par
+                  // statut ; « Toutes » par défaut.
+                  total: orders == null
+                      ? null
+                      : (
+                          montant: displayed.fold<double>(0, (acc, o) => acc + (o.totalAPayer ?? 0)),
+                          count: displayed.length,
+                        ),
                   onStatut: (v) => _setStatut(filter, v),
                   onPreparateur: (id) => _setFilter(filter.copyWith(preparateurId: id, clearPreparateurId: id == null)),
                   onReset: _reset,
@@ -419,6 +428,7 @@ class _GerantFilters extends ConsumerWidget {
     required this.onPickDate,
     required this.onClearDate,
     required this.statutValue,
+    this.total,
     required this.onStatut,
     required this.onPreparateur,
     required this.onReset,
@@ -431,6 +441,7 @@ class _GerantFilters extends ConsumerWidget {
   final VoidCallback onPickDate;
   final VoidCallback onClearDate;
   final String statutValue;
+  final ({double montant, int count})? total;
   final ValueChanged<String> onStatut;
   final ValueChanged<int?> onPreparateur;
   final VoidCallback onReset;
@@ -439,6 +450,17 @@ class _GerantFilters extends ConsumerWidget {
     (value: _kFiltreAll, label: 'Toutes'),
     (value: _kFiltreNonLivree, label: 'Pas encore livrée'),
   ];
+
+  /// Libellé de la puce de statut active (pour la ligne de total).
+  static String _libelleStatut(String value) {
+    for (final o in _statutOptions) {
+      if (o.value == value) return o.label;
+    }
+    for (final st in OrderStatus.values) {
+      if (st.apiValue == value) return st.label;
+    }
+    return value;
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -552,6 +574,33 @@ class _GerantFilters extends ConsumerWidget {
               ],
             ),
           ),
+          // Total des prix du statut sélectionné, à droite des puces.
+          if (total != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.35)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.payments_outlined, size: 18, color: theme.colorScheme.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Total · ${_libelleStatut(statutValue)} (${total!.count} commande${total!.count > 1 ? 's' : ''})',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: theme.colorScheme.onSurfaceVariant),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Text(arFmt(total!.montant), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                  ],
+                ),
+              ),
+            ),
           const SizedBox(height: 10),
           if (wide)
             Row(

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -35,13 +37,14 @@ const _tourneeStatutFilters = <({String? value, String label})>[
 ];
 
 /// Période de la tournée (`livreurPeriode` de page.tsx) : filtre CLIENT sur
-/// le jour de livraison prévu, comparé au jour métier d'Antananarivo. Par
-/// défaut « Toutes » : le livreur voit TOUT son planning.
+/// le jour de livraison prévu, comparé au jour métier d'Antananarivo, parmi
+/// les commandes dont le jour J est ouvert (voir [_displayedOrders]). Par
+/// défaut « Aujourd'hui » : SEULES les commandes du jour (§ demande) ; les
+/// livraisons en retard restent consultables par le filtre.
 enum _LivreurPeriode {
-  toutes('Toutes les commandes'),
-  aujourdhui("Aujourd'hui"),
-  aVenir('Jours suivants'),
-  passees('En retard / passées');
+  aujourdhui("Aujourd'hui (jour J)"),
+  passees('En retard'),
+  jourJ("Aujourd'hui + en retard");
 
   const _LivreurPeriode(this.label);
   final String label;
@@ -60,11 +63,12 @@ enum _LivreurTri {
 }
 
 /// Liste affichée de « Ma tournée » (`displayedOrders` du web, vue livreur
-/// ACTIF) : TOUTES les commandes assignées renvoyées par le serveur restent
-/// visibles — plus aucun filtre d'affichage jour J. Seuls les boutons
-/// d'action sont conditionnés au jour J (minuit le jour de livraison, voir
-/// core/app_time.dart::actionOuverte). Puis le filtre de période et le tri
-/// choisis. Son onglet Historique, lui, n'est pas concerné : c'est un
+/// ACTIF) : SEULES les commandes du JOUR J sont visibles — jour de livraison
+/// = aujourd'hui, heure de Madagascar (même ouverture que les boutons
+/// d'action, core/app_time.dart::actionOuverte : minuit). Une commande
+/// prévue demain à 00:00 apparaît ce soir à minuit pile (§ demande). Les
+/// jours suivants ne sont jamais affichés ; les livraisons en retard le sont
+/// seulement sur demande (filtre de période). Puis le tri choisi. Son onglet Historique, lui, n'est pas concerné : c'est un
 /// journal.
 List<Order> _displayedOrders(Iterable<Order> orders, _LivreurPeriode periode, _LivreurTri tri) {
   final today = appToday();
@@ -72,14 +76,13 @@ List<Order> _displayedOrders(Iterable<Order> orders, _LivreurPeriode periode, _L
   int livraisonLe(Order o) => o.dateCommande?.millisecondsSinceEpoch ?? 0;
 
   bool retenue(Order o) {
+    if (!actionOuverte(o.dateCommande, UserRole.livreur)) return false;
     final jour = o.dateCommande == null ? null : appDay(o.dateCommande!);
     switch (periode) {
-      case _LivreurPeriode.toutes:
+      case _LivreurPeriode.jourJ:
         return true;
       case _LivreurPeriode.aujourdhui:
-        return jour != null && jour.isAtSameMomentAs(today);
-      case _LivreurPeriode.aVenir:
-        return jour != null && jour.isAfter(today);
+        return jour == null || jour.isAtSameMomentAs(today);
       case _LivreurPeriode.passees:
         return jour != null && jour.isBefore(today);
     }
@@ -188,8 +191,21 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
 
   /// Période et tri de la tournée (filtres CLIENT, comme sur le web) — le
   /// tri « plus récentes d'abord » s'applique dès l'ouverture.
-  _LivreurPeriode _periode = _LivreurPeriode.toutes;
+  _LivreurPeriode _periode = _LivreurPeriode.aujourdhui;
   _LivreurTri _tri = _LivreurTri.recentes;
+
+  /// La liste dépend de l'heure (ouverture du jour J à minuit) : on la
+  /// recalcule chaque minute pour que les commandes du jour apparaissent
+  /// sans que le livreur ait à rafraîchir.
+  Timer? _horloge;
+
+  @override
+  void initState() {
+    super.initState();
+    _horloge = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
 
   /// Bouton « Rafraîchir » : rechargement NON silencieux (repasse par l'état
   /// de chargement, comme le skeleton du web) — contrairement au temps réel
@@ -198,6 +214,7 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
 
   @override
   void dispose() {
+    _horloge?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -234,7 +251,7 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
     _searchController.clear();
     setState(() {
       _search = '';
-      _periode = _LivreurPeriode.toutes;
+      _periode = _LivreurPeriode.aujourdhui;
       _tri = _LivreurTri.recentes;
     });
   }
@@ -244,8 +261,124 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
       filter.statut != null ||
       filter.dateDebut != null ||
       _search.isNotEmpty ||
-      _periode != _LivreurPeriode.toutes ||
+      _periode != _LivreurPeriode.aujourdhui ||
       _tri != _LivreurTri.recentes;
+
+  /// Nombre de filtres écartés de la vue par défaut, affiché sur le bouton
+  /// « Filtres » (la recherche a sa propre croix).
+  int _nbFiltresActifs(OrdersFilter filter) =>
+      (filter.statut != null ? 1 : 0) +
+      (filter.dateDebut != null ? 1 : 0) +
+      (_periode != _LivreurPeriode.aujourdhui ? 1 : 0) +
+      (_tri != _LivreurTri.recentes ? 1 : 0);
+
+  /// Feuille « Filtres » (période, tri, date précise) : les choix
+  /// s'appliquent immédiatement à la liste derrière la feuille.
+  Future<void> _ouvrirFiltres() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          final filter = ref.read(ordersFilterProvider);
+          final theme = Theme.of(ctx);
+          Widget titre(String t) => Padding(
+                padding: const EdgeInsets.only(top: 12, bottom: 6),
+                child: Text(t, style: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.primary)),
+              );
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: Text('Filtres', style: theme.textTheme.titleMedium)),
+                      if (_filtresActifs(filter))
+                        TextButton(
+                          onPressed: () {
+                            _reset();
+                            setSheet(() {});
+                          },
+                          child: const Text('Réinitialiser'),
+                        ),
+                    ],
+                  ),
+                  titre('Période'),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [
+                      for (final p in _LivreurPeriode.values)
+                        ChoiceChip(
+                          label: Text(p.label),
+                          selected: _periode == p,
+                          onSelected: (_) {
+                            setState(() => _periode = p);
+                            setSheet(() {});
+                          },
+                        ),
+                    ],
+                  ),
+                  titre('Trier par'),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [
+                      for (final t in _LivreurTri.values)
+                        ChoiceChip(
+                          label: Text(t.label),
+                          selected: _tri == t,
+                          onSelected: (_) {
+                            setState(() => _tri = t);
+                            setSheet(() {});
+                          },
+                        ),
+                    ],
+                  ),
+                  titre('Date précise'),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            await _pickDate(filter);
+                            setSheet(() {});
+                          },
+                          icon: const Icon(Icons.event_outlined),
+                          label: Text(
+                            filter.dateDebut != null ? _dayFmt.format(filter.dateDebut!) : 'Choisir une date',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                      if (filter.dateDebut != null)
+                        IconButton(
+                          tooltip: 'Effacer la date',
+                          onPressed: () {
+                            _clearDate(filter);
+                            setSheet(() {});
+                          },
+                          icon: const Icon(Icons.clear),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Voir les commandes')),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
 
   Future<void> _refresh() async {
     if (_view == _TourneeView.historique) {
@@ -267,25 +400,12 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
     ref.watch(deliveryZonesProvider);
     final filter = ref.watch(ordersFilterProvider);
     final historique = _view == _TourneeView.historique;
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
 
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(historique ? 'Historique' : 'Ma tournée'),
-            Text(
-              historique
-                  ? 'Vos commandes déjà traitées, tous statuts — filtrables par date et heure.'
-                  : 'Toutes vos commandes assignées — les actions s\'ouvrent le jour de livraison.',
-              style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
+        // Titre seul : le sous-titre encombrait l'écran mobile ; la règle du
+        // jour J est rappelée sur chaque carte (« Disponible le … »).
+        title: Text(historique ? 'Historique' : 'Ma tournée'),
         actions: [IconButton(tooltip: 'Rafraîchir', icon: const Icon(Icons.refresh), onPressed: _refresh)],
       ),
       // Toute la page défile avec les commandes (onglets et filtres compris),
@@ -293,134 +413,132 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
       // défilement de chaque vue.
       body: Builder(
         builder: (context) {
+          // En-tête compact (§ demande « très encombrant en vue mobile ») :
+          // 1. onglets Ma tournée / Historique (bouton segmenté) ;
+          // 2. recherche + bouton « Filtres » (période, tri, date précise)
+          //    qui ouvre une feuille en bas de l'écran ;
+          // 3. pastilles de statut ;
+          // 4. seulement si des filtres sont actifs : leurs puces, effaçables
+          //    une à une, et « Réinitialiser ».
+          final nbFiltres = _nbFiltresActifs(filter);
           final header = Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-          // Onglets du livreur : « Ma tournée » / « Historique ».
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-            child: Row(
-              children: [
-                Expanded(
-                  child: ChoiceChip(
-                    avatar: const Icon(Icons.local_shipping_outlined, size: 18),
-                    label: const Text('Ma tournée'),
-                    selected: !historique,
-                    onSelected: (_) => setState(() => _view = _TourneeView.active),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: SegmentedButton<_TourneeView>(
+                    showSelectedIcon: false,
+                    style: SegmentedButton.styleFrom(visualDensity: VisualDensity.compact),
+                    segments: const [
+                      ButtonSegment(
+                        value: _TourneeView.active,
+                        icon: Icon(Icons.local_shipping_outlined, size: 18),
+                        label: Text('Ma tournée'),
+                      ),
+                      ButtonSegment(
+                        value: _TourneeView.historique,
+                        icon: Icon(Icons.history, size: 18),
+                        label: Text('Historique'),
+                      ),
+                    ],
+                    selected: {_view},
+                    onSelectionChanged: (v) => setState(() => _view = v.first),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: ChoiceChip(
-                    avatar: const Icon(Icons.history, size: 18),
-                    label: const Text('Historique'),
-                    selected: historique,
-                    onSelected: (_) => setState(() => _view = _TourneeView.historique),
+              ),
+              if (!historique) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _searchController,
+                          onChanged: (v) => setState(() => _search = v),
+                          decoration: InputDecoration(
+                            isDense: true,
+                            prefixIcon: const Icon(Icons.search),
+                            hintText: 'Rechercher (code, client, produit…)',
+                            suffixIcon: _search.isEmpty
+                                ? null
+                                : IconButton(
+                                    icon: const Icon(Icons.close),
+                                    onPressed: () {
+                                      _searchController.clear();
+                                      setState(() => _search = '');
+                                    },
+                                  ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      _BoutonFiltres(nbActifs: nbFiltres, onPressed: _ouvrirFiltres),
+                    ],
                   ),
                 ),
+                // Filtre de statut : tous / à récupérer / livrées (§ demande).
+                SizedBox(
+                  height: 36,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    itemCount: _tourneeStatutFilters.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 6),
+                    itemBuilder: (context, i) {
+                      final f = _tourneeStatutFilters[i];
+                      return ChoiceChip(
+                        label: Text(f.label),
+                        visualDensity: VisualDensity.compact,
+                        selected: filter.statut == f.value,
+                        onSelected: (_) => _setStatut(filter, f.value),
+                      );
+                    },
+                  ),
+                ),
+                if (_filtresActifs(filter))
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: [
+                              if (_periode != _LivreurPeriode.aujourdhui)
+                                _PuceFiltre(
+                                  icon: Icons.date_range_outlined,
+                                  label: _periode.label,
+                                  onDeleted: () => setState(() => _periode = _LivreurPeriode.aujourdhui),
+                                ),
+                              if (_tri != _LivreurTri.recentes)
+                                _PuceFiltre(
+                                  icon: Icons.sort,
+                                  label: _tri.label,
+                                  onDeleted: () => setState(() => _tri = _LivreurTri.recentes),
+                                ),
+                              if (filter.dateDebut != null)
+                                _PuceFiltre(
+                                  icon: Icons.event_outlined,
+                                  label: _dayFmt.format(filter.dateDebut!),
+                                  onDeleted: () => _clearDate(filter),
+                                ),
+                            ],
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: _reset,
+                          style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                          child: const Text('Réinitialiser'),
+                        ),
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 4),
               ],
-            ),
-          ),
-          if (!historique) ...[
-            // Filtre de statut : tous / à récupérer / livrées (§ demande).
-            SizedBox(
-              height: 40,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                itemCount: _tourneeStatutFilters.length,
-                separatorBuilder: (_, _) => const SizedBox(width: 6),
-                itemBuilder: (context, i) {
-                  final f = _tourneeStatutFilters[i];
-                  return ChoiceChip(
-                    label: Text(f.label),
-                    selected: filter.statut == f.value,
-                    onSelected: (_) => _setStatut(filter, f.value),
-                  );
-                },
-              ),
-            ),
-            // Période et tri (client, comme `livreurPeriode` / `livreurTri`
-            // du web) — toutes les commandes assignées restent chargées.
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _FiltreDropdown<_LivreurPeriode>(
-                      label: 'Période',
-                      value: _periode,
-                      items: [for (final p in _LivreurPeriode.values) (value: p, label: p.label)],
-                      onChanged: (v) => setState(() => _periode = v),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _FiltreDropdown<_LivreurTri>(
-                      label: 'Trier par',
-                      value: _tri,
-                      items: [for (final t in _LivreurTri.values) (value: t, label: t.label)],
-                      onChanged: (v) => setState(() => _tri = v),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _pickDate(filter),
-                      icon: const Icon(Icons.event_outlined),
-                      label: Text(
-                        filter.dateDebut != null ? _dayFmt.format(filter.dateDebut!) : 'Date précise',
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ),
-                  if (filter.dateDebut != null)
-                    IconButton(
-                      tooltip: 'Effacer la date',
-                      onPressed: () => _clearDate(filter),
-                      icon: const Icon(Icons.clear),
-                    ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 6, 12, 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _searchController,
-                      onChanged: (v) => setState(() => _search = v),
-                      decoration: InputDecoration(
-                        isDense: true,
-                        prefixIcon: const Icon(Icons.search),
-                        hintText: 'Code, client, produit, adresse, livreur, préparateur, date...',
-                        suffixIcon: _search.isEmpty
-                            ? null
-                            : IconButton(
-                                icon: const Icon(Icons.close),
-                                onPressed: () {
-                                  _searchController.clear();
-                                  setState(() => _search = '');
-                                },
-                              ),
-                      ),
-                    ),
-                  ),
-                  if (_filtresActifs(filter)) ...[
-                    const SizedBox(width: 4),
-                    TextButton(onPressed: _reset, child: const Text('Réinitialiser')),
-                  ],
-                ],
-              ),
-            ),
-          ],
             ],
           );
           return historique
@@ -435,39 +553,50 @@ class _TourneeScreenState extends ConsumerState<TourneeScreen> {
   }
 }
 
-/// Menu déroulant compact d'un filtre (« Période », « Trier par ») : un
-/// `DropdownButton` habillé en champ de formulaire, qui suit l'état de
-/// l'écran (donc « Réinitialiser » le remet bien à sa valeur par défaut).
-class _FiltreDropdown<T> extends StatelessWidget {
-  const _FiltreDropdown({required this.label, required this.value, required this.items, required this.onChanged});
-  final String label;
-  final T value;
-  final List<({T value, String label})> items;
-  final ValueChanged<T> onChanged;
+/// Bouton « Filtres » de l'en-tête : ouvre la feuille période / tri / date
+/// et porte le nombre de filtres actifs en pastille.
+class _BoutonFiltres extends StatelessWidget {
+  const _BoutonFiltres({required this.nbActifs, required this.onPressed});
+  final int nbActifs;
+  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return InputDecorator(
-      decoration: InputDecoration(
-        labelText: label,
-        isDense: true,
-        contentPadding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<T>(
-          value: value,
-          isExpanded: true,
-          isDense: true,
-          style: Theme.of(context).textTheme.bodyMedium,
-          items: [
-            for (final it in items)
-              DropdownMenuItem<T>(value: it.value, child: Text(it.label, overflow: TextOverflow.ellipsis)),
-          ],
-          onChanged: (v) {
-            if (v != null) onChanged(v);
-          },
-        ),
-      ),
+    final scheme = Theme.of(context).colorScheme;
+    final actif = nbActifs > 0;
+    return Badge(
+      isLabelVisible: actif,
+      label: Text('$nbActifs'),
+      child: actif
+          ? FilledButton.tonalIcon(
+              onPressed: onPressed,
+              icon: const Icon(Icons.tune, size: 18),
+              label: const Text('Filtres'),
+            )
+          : OutlinedButton.icon(
+              onPressed: onPressed,
+              icon: const Icon(Icons.tune, size: 18),
+              label: const Text('Filtres'),
+              style: OutlinedButton.styleFrom(foregroundColor: scheme.onSurface),
+            ),
+    );
+  }
+}
+
+/// Puce d'un filtre actif, effaçable d'un geste.
+class _PuceFiltre extends StatelessWidget {
+  const _PuceFiltre({required this.icon, required this.label, required this.onDeleted});
+  final IconData icon;
+  final String label;
+  final VoidCallback onDeleted;
+
+  @override
+  Widget build(BuildContext context) {
+    return InputChip(
+      avatar: Icon(icon, size: 16),
+      label: Text(label),
+      visualDensity: VisualDensity.compact,
+      onDeleted: onDeleted,
     );
   }
 }
@@ -538,7 +667,7 @@ class _TourneeActiveList extends ConsumerWidget {
                   const SliverFillRemaining(
                     hasScrollBody: false,
                     child: EmptyState(
-                      message: 'Aucune commande pour ces filtres.',
+                      message: "Aucune commande pour aujourd'hui. Celles de demain apparaîtront ce soir à minuit (heure de Madagascar).",
                       icon: Icons.local_shipping_outlined,
                     ),
                   )
