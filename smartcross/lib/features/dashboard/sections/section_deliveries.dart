@@ -20,7 +20,7 @@ String _zoneTexte(String zone) => zone == 'RECUPERATION' ? 'Récupération' : zo
 /// Paragraphe explicatif de la section (mot pour mot).
 const String _explication =
     "La livraison est assurée par les livreurs de l'équipe (pas d'agence externe) : chaque livreur est traité comme une agence. "
-    'Livraison réussie = commande livrée, échouée = retour. Coût payé = frais de tournée acceptés. '
+    'Livraison réussie = commande livrée, échouée = retour. Coût payé = dépenses « frais de livraison » (LIVRAISON 3K / 4K / 5K…) acceptées par le gérant. '
     'Délai = passage « En livraison » → « Livré ».';
 
 /// `COLONNES` de section-deliveries.tsx : les 12 colonnes du tableau

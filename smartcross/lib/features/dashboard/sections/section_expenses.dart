@@ -45,7 +45,7 @@ String _partTexte(LigneCategorieDepense r, ExpensesTotaux? t) {
 List<(String, String)> _lignesLivraison(Map<String, num> l) => [
   ('Commandes livrées', fmtNb(l['nb_livrees'] ?? 0)),
   ('Frais de livraison facturés au client', fmtAr(l['frais_factures_client'] ?? 0)),
-  ('Frais réellement payés (tournées acceptées)', fmtAr(l['cout_reel_livreurs'] ?? 0)),
+  ('Frais de livraison acceptés (LIVRAISON 3K / 4K / 5K…)', fmtAr(l['cout_reel_livreurs'] ?? 0)),
   ('Marge livraison', fmtAr(l['marge_livraison'] ?? 0)),
   ('Frais moyen facturé par livraison', fmtAr(l['frais_moyen_client'] ?? 0)),
   ('Coût moyen réel par livraison', fmtAr(l['cout_moyen_livraison'] ?? 0)),
@@ -55,7 +55,7 @@ const String _descriptionCategories =
     "Catégories de caisse (Paramètres › Dépenses) et types de dépense des livreurs. Les achats de stock sont listés mais n'entrent pas dans le bénéfice : la marchandise est comptée à la vente, dans le coût d'achat.";
 
 const String _descriptionLivraison =
-    "Frais facturés = frais de livraison des commandes livrées. Coût réel = frais de tournée déclarés par les livreurs et acceptés (carburant, repas…). L'application n'a pas d'agence externe : la livraison est assurée par les livreurs de l'équipe.";
+    "Frais facturés = frais de livraison des commandes livrées. Coût réel = dépenses déclarées par les livreurs, acceptées par le gérant, des seuls types marqués « frais de livraison » dans Paramètres (LIVRAISON 3K / 4K / 5K…) — repas, enveloppes, NAP n'y entrent pas.";
 
 /// « Dépenses » — port de components/reports/section-expenses.tsx : 4 KPI,
 /// évolution des dépenses (barres empilées caisse / tournées), anneau par
