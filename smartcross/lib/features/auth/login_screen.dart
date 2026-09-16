@@ -20,7 +20,8 @@ const Map<String, String> _errorTranslations = {
   'Invalid login credentials': 'Email ou mot de passe incorrect.',
   'No active account found': 'Email ou mot de passe incorrect.',
   'Email not confirmed': "Compte non confirmé. Contactez l'administrateur.",
-  'Compte non approuvé': "Compte en attente d'approbation. Contactez votre administrateur.",
+  'Compte non approuvé':
+      "Compte en attente d'approbation. Contactez votre administrateur.",
   'User not found': 'Aucun compte avec cet email.',
   'Too many requests': 'Trop de tentatives. Attendez quelques minutes.',
   'Account pending approval': AccountNotApprovedException.message,
@@ -89,7 +90,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _announceSessionExpiry());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _announceSessionExpiry(),
+    );
   }
 
   @override
@@ -98,7 +101,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     // `useEffect(() => { const prefill = searchParams.get('email'); … },
     // [searchParams])` : `/login?email=…` pré-remplit l'email (inscription,
     // mot de passe défini, écran d'attente…).
-    final prefill = GoRouterState.of(context).uri.queryParameters['email']?.trim() ?? '';
+    final prefill =
+        GoRouterState.of(context).uri.queryParameters['email']?.trim() ?? '';
     if (prefill == _appliedPrefill) return;
     _appliedPrefill = prefill;
     if (prefill.isNotEmpty) _emailController.text = prefill;
@@ -120,7 +124,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     if (event == null || event.kind != AuthEventKind.sessionExpired) return;
     if (identical(event, _lastAnnouncedExpiry)) return;
     _lastAnnouncedExpiry = event;
-    setState(() => _error = 'Votre session a expiré. Veuillez vous reconnecter.');
+    setState(
+      () => _error = 'Votre session a expiré. Veuillez vous reconnecter.',
+    );
     _toast(_error!, isError: true);
   }
 
@@ -141,7 +147,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     m.hideCurrentSnackBar();
     m.showSnackBar(
       SnackBar(
-        content: Text(message, style: TextStyle(color: isError ? scheme.onError : Colors.white)),
+        content: Text(
+          message,
+          style: TextStyle(color: isError ? scheme.onError : Colors.white),
+        ),
         backgroundColor: isError ? scheme.error : _green600,
         behavior: SnackBarBehavior.floating,
         // `toastOptions.duration = 5000` + `closeButton` du Toaster global.
@@ -162,10 +171,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     try {
       // Deux requêtes s'enchaînent (login puis /users/me/) sous un seul
       // spinner ; le routeur applique ensuite la destination par rôle.
-      await ref.read(authProvider.notifier).login(_emailController.text.trim(), _passwordController.text);
+      await ref
+          .read(authProvider.notifier)
+          .login(_emailController.text.trim(), _passwordController.text);
       // Propose au système d'enregistrer les identifiants (autofill).
       TextInput.finishAutofillContext();
-      _toast('Connexion réussie !', isError: false, messenger: messenger, scheme: scheme);
+      _toast(
+        'Connexion réussie !',
+        isError: false,
+        messenger: messenger,
+        scheme: scheme,
+      );
     } on AccountNotApprovedException catch (e) {
       // `if (!response.user.is_confirmed)` du web : on reste sur la page (et
       // le repository a purgé les jetons, contrairement au web).
@@ -214,7 +230,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Center(child: AppLogo(size: 112, radius: 24)),
                 const SizedBox(height: 20),
                 Card(
                   child: Padding(
@@ -226,12 +241,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         children: [
                           Text(
                             'Connexion',
-                            style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+                            style: theme.textTheme.headlineSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                           const SizedBox(height: 4),
                           Text(
                             'Accédez à votre espace E-kajy Entana',
-                            style: theme.textTheme.bodyMedium?.copyWith(color: muted),
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: muted,
+                            ),
                           ),
                           const SizedBox(height: 20),
                           if (_error != null) ...[
@@ -244,12 +263,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Icon(Icons.error_outline, size: 18, color: theme.colorScheme.onErrorContainer),
+                                  Icon(
+                                    Icons.error_outline,
+                                    size: 18,
+                                    color: theme.colorScheme.onErrorContainer,
+                                  ),
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
                                       _error!,
-                                      style: TextStyle(color: theme.colorScheme.onErrorContainer),
+                                      style: TextStyle(
+                                        color:
+                                            theme.colorScheme.onErrorContainer,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -260,7 +286,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           // Email
                           Text(
                             'Email',
-                            style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                           const SizedBox(height: 6),
                           TextField(
@@ -283,17 +311,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               Expanded(
                                 child: Text(
                                   'Mot de passe',
-                                  style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+                                  style: theme.textTheme.labelLarge?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ),
                               // Seul point d'entrée du flux « mot de passe
                               // oublié », comme sur le web : sans ce lien la
                               // route serait orpheline sur mobile.
                               TextButton(
-                                onPressed: _loading ? null : () => context.push('/forgot-password'),
+                                onPressed: _loading
+                                    ? null
+                                    : () => context.push('/forgot-password'),
                                 style: TextButton.styleFrom(
                                   visualDensity: VisualDensity.compact,
-                                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                  ),
                                   textStyle: theme.textTheme.bodySmall,
                                 ),
                                 child: const Text('Mot de passe oublié ?'),
@@ -313,9 +347,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               prefixIcon: const Icon(Icons.lock_outline),
                               suffixIcon: IconButton(
                                 // aria-label dynamique du bouton œil web.
-                                tooltip: _obscure ? 'Afficher le mot de passe' : 'Masquer le mot de passe',
-                                icon: Icon(_obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
-                                onPressed: () => setState(() => _obscure = !_obscure),
+                                tooltip: _obscure
+                                    ? 'Afficher le mot de passe'
+                                    : 'Masquer le mot de passe',
+                                icon: Icon(
+                                  _obscure
+                                      ? Icons.visibility_outlined
+                                      : Icons.visibility_off_outlined,
+                                ),
+                                onPressed: () =>
+                                    setState(() => _obscure = !_obscure),
                               ),
                             ),
                           ),
@@ -330,7 +371,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                       SizedBox(
                                         height: 16,
                                         width: 16,
-                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
                                       ),
                                       SizedBox(width: 8),
                                       Text('Connexion…'),
@@ -342,9 +385,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Text('Pas encore de compte?', style: theme.textTheme.bodySmall?.copyWith(color: muted)),
+                              Text(
+                                'Pas encore de compte?',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: muted,
+                                ),
+                              ),
                               TextButton(
-                                onPressed: _loading ? null : () => context.push('/register'),
+                                onPressed: _loading
+                                    ? null
+                                    : () => context.push('/register'),
                                 child: const Text('Créer un compte'),
                               ),
                             ],
