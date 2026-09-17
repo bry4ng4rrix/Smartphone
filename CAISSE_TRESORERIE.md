@@ -65,6 +65,13 @@ part de boost d'un article = montant du boost / nombre RÉEL d'articles vendus
                              (commandes livrées, articles rapportés exclus)
                              sur la période exacte du boost ; 0 si aucun article
 part de boost d'une vente  = Σ (coût/article de chaque boost couvrant la date) × nb articles
+part de boost d'une PÉRIODE (bloc « Gain réel » de la caisse)
+                           = Σ boosts : montant × articles livrés (période ∩ boost)
+                                                 / articles livrés sur tout le boost
+                             — exactement le chiffre de la page Boost : sur une
+                             période qui couvre le boost, son montant entier,
+                             même si certaines ventes n'ont pas de résultat
+                             enregistré (historique d'avant le module).
 
 résultat livraison = livraison facturée − frais de livraison acceptés   (négatif = perte affichée)
 

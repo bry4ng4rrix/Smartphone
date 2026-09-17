@@ -495,22 +495,34 @@ class BoostAutomatiqueTests(ScenarioMixin, APITestCase):
     def test_montants_caisse(self):
         b = self.boost(self.j(3), self.j(1), montant="20000")
         self.livrer(self.commande(jour=self.j(2), quantite=2))
+        # Une vente livrée SANS résultat de trésorerie (historique d'avant le
+        # module) compte quand même dans la part de boost de la période, comme
+        # sur la page Boost : 20 000 / 3 articles, période entière → 20 000.
+        ancienne = self.livrer(self.commande(jour=self.j(2)))
+        VenteResultat.objects.filter(order=ancienne).delete()
         annulee = self.commande(jour=self.j(2))
         order_services.cancel_order(order=annulee, user=self.gerant)
         res = self.client.get(f"/api/finance/dashboard/?date_from={self.j(3)}&date_to={self.j(1)}")
         self.assertEqual(res.status_code, 200)
         boost = next(x for x in res.data["boosts"] if x["id"] == b.id)
-        self.assertEqual(boost["nb_commandes"], 1)  # l'annulée n'est pas concernée
-        self.assertEqual(boost["nb_livrees"], 1)
-        self.assertEqual(boost["articles_vendus"], 2)
-        self.assertEqual(D(str(boost["cout_par_article"])), D("10000"))
-        self.assertEqual(D(str(boost["cout_par_commande"])), D("20000"))
-        self.assertEqual(D(str(boost["ca"])), D("53000"))  # 2 × 25 000 + 3 000 livraison
+        self.assertEqual(boost["nb_commandes"], 2)  # l'annulée n'est pas concernée
+        self.assertEqual(boost["nb_livrees"], 2)
+        self.assertEqual(boost["articles_vendus"], 3)
+        self.assertEqual(D(str(boost["cout_par_article"])), D("6666.67"))
+        self.assertEqual(D(str(boost["cout_par_commande"])), D("10000"))
+        self.assertEqual(D(str(boost["ca"])), D("81000"))  # 53 000 + 28 000
+        # Gain réel de la période : part de boost = montant entier du boost
+        # (période couverte), identique à la page Boost — pas 2 × 6 666,67.
         self.assertEqual(D(str(res.data["gain"]["part_boost"])), D("20000"))
+        # Période plus courte que le boost : au prorata des articles livrés.
+        res2 = self.client.get(f"/api/finance/dashboard/?date_from={self.j(2)}&date_to={self.j(2)}")
+        self.assertEqual(D(str(res2.data["gain"]["part_boost"])), D("20000"))
+        res3 = self.client.get(f"/api/finance/dashboard/?date_from={self.j(1)}&date_to={self.j(1)}")
+        self.assertEqual(D(str(res3.data["gain"]["part_boost"])), D("0"))
         # Même résumé sur l'API des campagnes.
         res = self.client.get(f"/api/orders/campaigns/{b.id}/")
-        self.assertEqual(res.data["nb_commandes"], 1)
-        self.assertEqual(D(str(res.data["cout_par_commande"])), D("20000"))
+        self.assertEqual(res.data["nb_commandes"], 2)
+        self.assertEqual(D(str(res.data["cout_par_commande"])), D("10000"))
 
     def test_montants_rapports(self):
         b = self.boost(self.j(9), self.j(6), montant="100000")

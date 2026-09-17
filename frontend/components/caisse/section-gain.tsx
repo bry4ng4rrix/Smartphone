@@ -105,7 +105,7 @@ export function SectionGain({
               <Ligne label="Livraison facturée au client" valeur={gain.livraison_client} op="+" />
               <Ligne label="Coût d'achat" valeur={gain.cout_achat} op="−" />
               <Ligne label="Frais de livraison acceptés (LIVRAISON 3K / 4K / 5K…)" valeur={gain.frais_agence} op="−" />
-              <Ligne label="Boost / publicité (part des articles vendus)" valeur={gain.part_boost} op="−" />
+              <Ligne label="Boost / publicité (montant réparti sur les articles livrés de la période)" valeur={gain.part_boost} op="−" />
               <Ligne
                 label={perte ? 'PERTE RÉELLE' : 'GAIN RÉEL'}
                 valeur={gain.gain_reel}

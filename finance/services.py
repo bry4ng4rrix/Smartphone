@@ -703,6 +703,30 @@ def stats_livraison(magasins, date_from, date_to):
     }
 
 
+def part_boost_periode(magasins, date_from, date_to):
+    """Part de boost d'une période — EXACTEMENT ce que montre la page Boost :
+    pour chaque boost, montant × (articles livrés dans la période ET dans le
+    boost) / (articles livrés sur toute la période du boost). Sur une
+    période qui couvre tout le boost, c'est son montant entier ; ni plus
+    (aucun article vendu → 0), ni moins (une vente livrée avant le module
+    trésorerie, sans résultat enregistré, compte quand même)."""
+    total = ZERO
+    for magasin in magasins:
+        boosts = MarketingCampaign.objects.filter(magasin=magasin, actif=True, date_debut__lte=date_to).filter(
+            Q(date_fin__isnull=True) | Q(date_fin__gte=date_from)
+        )
+        for b in boosts:
+            n_total = articles_vendus(magasin, b.date_debut, _fin_boost(b))
+            if not n_total:
+                continue
+            d1, d2 = max(b.date_debut, date_from), min(_fin_boost(b), date_to)
+            if d1 > d2:
+                continue
+            n_periode = articles_vendus(magasin, d1, d2)
+            total += Decimal(b.montant) * n_periode / n_total
+    return q2(total)
+
+
 def stats_gain(magasins, date_from, date_to):
     qs = VenteResultat.objects.filter(magasin__in=magasins, annule=False, date_vente__gte=date_from, date_vente__lte=date_to)
     agg = qs.aggregate(
@@ -720,7 +744,10 @@ def stats_gain(magasins, date_from, date_to):
     # Frais de livraison de la période = dépenses acceptées (chiffre exact du
     # rapport Dépenses) ; le gain réel de la période en découle.
     frais = frais_livraison_periode(magasins, date_from, date_to)
-    gain = q2(agg["ca"] + agg["liv"] - agg["cout"] - frais - agg["boost"])
+    # Part de boost de la période = celle de la page Boost (montant réparti
+    # sur les articles réellement livrés), pas la somme des parts figées.
+    boost = part_boost_periode(magasins, date_from, date_to)
+    gain = q2(agg["ca"] + agg["liv"] - agg["cout"] - frais - boost)
     return {
         "nb_ventes": qs.count(),
         "nb_articles": agg["articles"],
@@ -730,7 +757,7 @@ def stats_gain(magasins, date_from, date_to):
         "total_encaisse": agg["ca"] + agg["liv"],
         "cout_achat": agg["cout"],
         "frais_agence": frais,
-        "part_boost": agg["boost"],
+        "part_boost": boost,
         "gain_reel": gain,
         "etat": _etat(gain),
         "repartition": {"reappro": agg["reappro"], "epargne": agg["epargne"], "depenses": agg["depenses"]},
