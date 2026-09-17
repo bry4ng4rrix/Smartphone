@@ -147,7 +147,7 @@ export function ReportTable<T>({
     <Card className="print:break-inside-avoid">
       {(titre || actions || exportNom) && (
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between space-y-0 pb-3">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             {titre && <CardTitle className="text-base">{titre}</CardTitle>}
             {description && <CardDescription className="text-xs mt-0.5">{description}</CardDescription>}
           </div>
