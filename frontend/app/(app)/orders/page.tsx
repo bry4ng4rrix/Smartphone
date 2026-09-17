@@ -341,17 +341,21 @@ export default function OrdersPage() {
   >([]);
   // Filtres livreur (vue "Ma tournée") : statut + date (un seul jour).
   const [livreurStatutFilter, setLivreurStatutFilter] = useState("ALL");
-  // Livreur (§ demande) : TOUTES ses commandes assignées sont chargées, sans
-  // limite d'heure ni de jour ; c'est le filtre de période — « Aujourd'hui
-  // (jour J) » par défaut — qui restreint l'affichage (jour de livraison
-  // prévu, heure de Madagascar). Toutes / Jours suivants / En retard restent
-  // disponibles. Les boutons d'action, eux, restent fermés hors jour J.
+  // Livreur (§ demande) : VISIBILITÉ ≠ AUTORISATION.
+  // - Visibilité : toutes ses commandes actives assignées (serveur :
+  //   Nouvelle / En préparation / Prête / En livraison, hors retrait sur
+  //   place), quelle que soit leur date — « Toutes les commandes » par
+  //   défaut, triées par proximité de livraison (en retard → aujourd'hui →
+  //   demain → …, heure croissante). Aujourd'hui / Jours suivants / En
+  //   retard / Date précise restreignent l'affichage, jamais le chargement.
+  // - Autorisation : Récupérer / Livré / Retour ne s'ouvrent qu'à minuit le
+  //   jour de livraison (`isJourJ`, règle serveur `ouverture_actions`).
   const [livreurTri, setLivreurTri] = useState<
-    "RECENTES" | "ANCIENNES" | "LIVRAISON_PROCHE" | "LIVRAISON_LOINTAINE"
-  >("RECENTES");
+    "LIVRAISON_PROCHE" | "LIVRAISON_LOINTAINE" | "RECENTES" | "ANCIENNES"
+  >("LIVRAISON_PROCHE");
   const [livreurPeriode, setLivreurPeriode] = useState<
-    "AUJOURDHUI" | "TOUTES" | "A_VENIR" | "PASSEES"
-  >("AUJOURDHUI");
+    "TOUTES" | "AUJOURDHUI" | "A_VENIR" | "PASSEES"
+  >("TOUTES");
   // Filtre de date serveur (facultatif) : vide = tout le planning.
   const [livreurDate, setLivreurDate] = useState("");
   // Filtre préparateur (vue "À préparer"/"Récupérations") : date (un seul jour).
@@ -959,7 +963,7 @@ export default function OrdersPage() {
       return [...ordersFiltresStatut].sort((a, b) => creeLe(b) - creeLe(a));
     }
     // Livreur : filtre de période sur le jour de livraison prévu (heure de
-    // Madagascar) — « Aujourd'hui » par défaut. Une « Date précise » choisie
+    // Madagascar) — « Toutes » par défaut. Une « Date précise » choisie
     // (déjà filtrée par le serveur) affiche tout ce jour-là.
     const today = appToday();
     const base = ordersFiltresStatut.filter((o: any) => {
@@ -969,31 +973,43 @@ export default function OrdersPage() {
       if (livreurPeriode === "A_VENIR") return jour > today;
       return jour !== "" && jour < today;
     });
+    // Tri stable : à date/heure de livraison égale, la plus ancienne créée
+    // d'abord ; sans date de livraison, en fin de liste.
+    const parLivraison = (a: any, b: any) => {
+      const la = livraisonLe(a) || Number.MAX_SAFE_INTEGER;
+      const lb = livraisonLe(b) || Number.MAX_SAFE_INTEGER;
+      return la - lb || creeLe(a) - creeLe(b);
+    };
     const tri: Record<string, (a: any, b: any) => number> = {
+      // Chronologique : en retard (les plus anciennes d'abord), puis
+      // aujourd'hui, demain, J+2… — heure croissante dans la journée.
+      LIVRAISON_PROCHE: parLivraison,
+      LIVRAISON_LOINTAINE: (a, b) => -parLivraison(a, b),
       RECENTES: (a, b) => creeLe(b) - creeLe(a),
       ANCIENNES: (a, b) => creeLe(a) - creeLe(b),
-      LIVRAISON_PROCHE: (a, b) => livraisonLe(a) - livraisonLe(b),
-      LIVRAISON_LOINTAINE: (a, b) => livraisonLe(b) - livraisonLe(a),
     };
     return [...base].sort(tri[livreurTri]);
   }, [ordersFiltresStatut, isLivreur, viewMode, livreurTri, livreurPeriode, livreurDate]);
 
-  // Pastille « quand livrer » d'une commande (vue livreur) : Aujourd'hui,
-  // Demain, à venir (date) ou en retard.
+  // Pastille « quand livrer » d'une commande (vue livreur), jour métier
+  // d'Antananarivo : « Aujourd'hui · HH:mm », « Demain · HH:mm »,
+  // « JJ/MM · HH:mm » (plus tard) ou « En retard · JJ/MM · HH:mm ».
   const livraisonBadge = (o: any) => {
     if (!o.date_commande) return null;
     const jour = appDayKey(o.date_commande);
     const today = appToday();
-    const heure = fmtAppDateTime(o.date_commande);
+    const dateHeure = fmtAppDateTime(o.date_commande); // JJ/MM/AAAA HH:mm
+    const heure = dateHeure.slice(-5);
+    const jourMois = dateHeure.slice(0, 5);
     if (jour === today)
       return {
-        label: `Aujourd'hui · ${heure.slice(-5)}`,
+        label: `Aujourd'hui · ${heure}`,
         className:
           "bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-200",
       };
     if (jour < today)
       return {
-        label: `En retard · ${fmtAppDate(o.date_commande)}`,
+        label: `En retard · ${jourMois} · ${heure}`,
         className:
           "bg-red-100 text-red-800 border-red-300 dark:bg-red-900/40 dark:text-red-200",
       };
@@ -1002,12 +1018,12 @@ export default function OrdersPage() {
     );
     if (jour === demain)
       return {
-        label: `Demain · ${heure.slice(-5)}`,
+        label: `Demain · ${heure}`,
         className:
           "bg-sky-100 text-sky-800 border-sky-300 dark:bg-sky-900/40 dark:text-sky-200",
       };
     return {
-      label: `À venir · ${heure}`,
+      label: `${jourMois} · ${heure}`,
       className:
         "bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-200",
     };
@@ -1123,8 +1139,8 @@ export default function OrdersPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="AUJOURDHUI">Aujourd'hui (jour J)</SelectItem>
                 <SelectItem value="TOUTES">Toutes les commandes</SelectItem>
+                <SelectItem value="AUJOURDHUI">Aujourd'hui (jour J)</SelectItem>
                 <SelectItem value="A_VENIR">Jours suivants</SelectItem>
                 <SelectItem value="PASSEES">En retard / passées</SelectItem>
               </SelectContent>
@@ -1140,15 +1156,15 @@ export default function OrdersPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="RECENTES">Plus récentes d'abord</SelectItem>
-                <SelectItem value="ANCIENNES">
-                  Plus anciennes d'abord
-                </SelectItem>
                 <SelectItem value="LIVRAISON_PROCHE">
                   Livraison la plus proche
                 </SelectItem>
                 <SelectItem value="LIVRAISON_LOINTAINE">
                   Livraison la plus lointaine
+                </SelectItem>
+                <SelectItem value="RECENTES">Plus récentes d'abord</SelectItem>
+                <SelectItem value="ANCIENNES">
+                  Plus anciennes d'abord
                 </SelectItem>
               </SelectContent>
             </Select>
@@ -1176,8 +1192,8 @@ export default function OrdersPage() {
           {(livreurStatutFilter !== "ALL" ||
             livreurDate ||
             searchQuery ||
-            livreurPeriode !== "AUJOURDHUI" ||
-            livreurTri !== "RECENTES") && (
+            livreurPeriode !== "TOUTES" ||
+            livreurTri !== "LIVRAISON_PROCHE") && (
             <Button
               variant="ghost"
               size="sm"
@@ -1185,8 +1201,8 @@ export default function OrdersPage() {
                 setLivreurStatutFilter("ALL");
                 setLivreurDate("");
                 setSearchQuery("");
-                setLivreurPeriode("AUJOURDHUI");
-                setLivreurTri("RECENTES");
+                setLivreurPeriode("TOUTES");
+                setLivreurTri("LIVRAISON_PROCHE");
               }}
             >
               Réinitialiser
@@ -1378,9 +1394,9 @@ export default function OrdersPage() {
               {isLivreur && viewMode === "ACTIF"
                 ? livreurDate
                   ? `Aucune commande assignée pour le ${livreurDate.split("-").reverse().join("/")}.`
-                  : livreurPeriode === "AUJOURDHUI"
-                    ? "Aucune commande pour aujourd'hui. Période « Toutes les commandes » ou « Jours suivants » pour voir le reste de votre planning."
-                    : "Aucune commande pour ces filtres."
+                  : livreurPeriode === "TOUTES"
+                    ? "Aucune commande assignée pour le moment."
+                    : "Aucune commande pour cette période."
                 : "Aucune commande trouvée pour cette recherche."}
             </p>
           ) : (
@@ -1443,7 +1459,9 @@ export default function OrdersPage() {
                     return (
                       <TableRow
                         key={order.id}
-                        className="cursor-pointer"
+                        // Livreur : une commande visible mais pas encore
+                        // actionnable (jour J non atteint) est atténuée.
+                        className={`cursor-pointer ${isLivreur && viewMode === "ACTIF" && notYetDue ? "opacity-70 hover:opacity-100" : ""}`}
                         onClick={() => setDetail(order)}
                       >
                         <TableCell className="align-top">
