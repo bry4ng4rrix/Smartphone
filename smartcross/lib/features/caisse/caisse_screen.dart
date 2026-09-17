@@ -919,14 +919,10 @@ class _SummaryCard extends StatelessWidget {
           const SizedBox(height: 16),
           Text('Mouvements de la période (${movements.length})', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 8),
-          // Ordre API (`-created_at`, plus récent en premier) — pas
-          // d'inversion ici, contrairement à la carte 1.
-          _MovementList(
-            movements: movements,
-            maxHeight: 288,
-            emptyText: 'Aucun mouvement pour cette période',
-            showCategory: true,
-          ),
+          // Filtres locaux sur les mouvements déjà chargés (miroir du journal
+          // de caisse web, § demande) : date, sens, type (catégorie), montant
+          // min / max, recherche.
+          _MovementFilters(movements: movements, from: from, to: to),
         ],
       );
     }
@@ -962,6 +958,210 @@ class _SummaryCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Filtres locaux de la liste « Mouvements de la période » (journal de
+/// caisse) : une seule date (jour de Madagascar), sens (entrées / sorties),
+/// type = catégorie, montant min / max et recherche libre (libellé,
+/// catégorie, auteur). Le récapitulatif suit la sélection.
+class _MovementFilters extends StatefulWidget {
+  const _MovementFilters({required this.movements, required this.from, required this.to});
+
+  final List<CaisseMovement> movements;
+  final DateTime from;
+  final DateTime to;
+
+  @override
+  State<_MovementFilters> createState() => _MovementFiltersState();
+}
+
+enum _Sens { tous, entrees, sorties }
+
+class _MovementFiltersState extends State<_MovementFilters> {
+  DateTime? _date;
+  _Sens _sens = _Sens.tous;
+  String? _categorie; // null = toutes ; '' = sans catégorie
+  bool _categorieFiltre = false;
+  final _minController = TextEditingController();
+  final _maxController = TextEditingController();
+  final _rechercheController = TextEditingController();
+
+  @override
+  void dispose() {
+    _minController.dispose();
+    _maxController.dispose();
+    _rechercheController.dispose();
+    super.dispose();
+  }
+
+  bool get _actif =>
+      _date != null ||
+      _sens != _Sens.tous ||
+      _categorieFiltre ||
+      _minController.text.isNotEmpty ||
+      _maxController.text.isNotEmpty ||
+      _rechercheController.text.trim().isNotEmpty;
+
+  void _reset() => setState(() {
+        _date = null;
+        _sens = _Sens.tous;
+        _categorie = null;
+        _categorieFiltre = false;
+        _minController.clear();
+        _maxController.clear();
+        _rechercheController.clear();
+      });
+
+  Future<void> _pickDate() async {
+    final d = await showDatePicker(
+      context: context,
+      initialDate: _date ?? appToday(),
+      firstDate: DateTime(widget.from.year, widget.from.month, widget.from.day),
+      lastDate: DateTime(widget.to.year, widget.to.month, widget.to.day),
+    );
+    if (d != null) setState(() => _date = d);
+  }
+
+  List<CaisseMovement> get _filtres {
+    final q = _rechercheController.text.trim().toLowerCase();
+    final min = double.tryParse(_minController.text.replaceAll(' ', ''));
+    final max = double.tryParse(_maxController.text.replaceAll(' ', ''));
+    return widget.movements.where((m) {
+      if (_date != null) {
+        final c = m.createdAt;
+        if (c == null) return false;
+        final jour = appDay(c);
+        if (!(jour.year == _date!.year && jour.month == _date!.month && jour.day == _date!.day)) return false;
+      }
+      if (_sens == _Sens.entrees && !m.isIn) return false;
+      if (_sens == _Sens.sorties && m.isIn) return false;
+      if (_categorieFiltre && (m.categoryName ?? '') != (_categorie ?? '')) return false;
+      if (min != null && m.amount < min) return false;
+      if (max != null && m.amount > max) return false;
+      if (q.isNotEmpty) {
+        final texte = [m.reason, m.categoryName ?? '', m.createdByName ?? '', m.amount.toStringAsFixed(0)].join(' ').toLowerCase();
+        if (!texte.contains(q)) return false;
+      }
+      return true;
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final categories = <String>{for (final m in widget.movements) m.categoryName ?? ''}.toList()..sort();
+    final lignes = _filtres;
+    final entrees = lignes.where((m) => m.isIn).fold<double>(0, (a, m) => a + m.amount);
+    final sorties = lignes.where((m) => !m.isIn).fold<double>(0, (a, m) => a + m.amount);
+
+    Widget champ(Widget child, {double width = 150}) => SizedBox(width: width, child: child);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            champ(
+              OutlinedButton.icon(
+                onPressed: _pickDate,
+                icon: const Icon(Icons.event_outlined, size: 18),
+                label: Text(_date == null ? 'Date' : _dayFmt.format(_date!), overflow: TextOverflow.ellipsis),
+              ),
+            ),
+            champ(
+              DropdownButtonFormField<_Sens>(
+                // Clé = valeur : « Réinitialiser » remet bien le champ à zéro.
+                key: ValueKey('sens-$_sens'),
+                initialValue: _sens,
+                decoration: const InputDecoration(labelText: 'Sens', isDense: true),
+                items: const [
+                  DropdownMenuItem(value: _Sens.tous, child: Text('Entrées + sorties')),
+                  DropdownMenuItem(value: _Sens.entrees, child: Text('Entrées')),
+                  DropdownMenuItem(value: _Sens.sorties, child: Text('Sorties')),
+                ],
+                onChanged: (v) => setState(() => _sens = v ?? _Sens.tous),
+              ),
+            ),
+            champ(
+              DropdownButtonFormField<String>(
+                key: ValueKey('type-${_categorieFiltre ? (_categorie ?? '') : '__TOUTES__'}'),
+                initialValue: _categorieFiltre ? (_categorie ?? '') : '__TOUTES__',
+                decoration: const InputDecoration(labelText: 'Type', isDense: true),
+                items: [
+                  const DropdownMenuItem(value: '__TOUTES__', child: Text('Tous les types')),
+                  for (final c in categories) DropdownMenuItem(value: c, child: Text(c.isEmpty ? 'Sans catégorie' : c)),
+                ],
+                onChanged: (v) => setState(() {
+                  _categorieFiltre = v != null && v != '__TOUTES__';
+                  _categorie = _categorieFiltre ? v : null;
+                }),
+              ),
+              width: 190,
+            ),
+            champ(
+              TextField(
+                controller: _minController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Montant min (Ar)', isDense: true),
+                onChanged: (_) => setState(() {}),
+              ),
+              width: 140,
+            ),
+            champ(
+              TextField(
+                controller: _maxController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Montant max (Ar)', isDense: true),
+                onChanged: (_) => setState(() {}),
+              ),
+              width: 140,
+            ),
+            champ(
+              TextField(
+                controller: _rechercheController,
+                decoration: InputDecoration(
+                  labelText: 'Recherche',
+                  hintText: 'Nom, libellé, catégorie, auteur…',
+                  isDense: true,
+                  prefixIcon: const Icon(Icons.search, size: 18),
+                  suffixIcon: _rechercheController.text.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const Icon(Icons.close, size: 18),
+                          onPressed: () => setState(() => _rechercheController.clear()),
+                        ),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              width: 260,
+            ),
+            if (_actif)
+              TextButton.icon(
+                onPressed: _reset,
+                icon: const Icon(Icons.filter_alt_off_outlined, size: 18),
+                label: const Text('Réinitialiser'),
+              ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          '${lignes.length} mouvement(s)${_actif ? ' sur ${widget.movements.length}' : ''} · entrées +${_money(entrees)} · sorties -${_money(sorties)}',
+          style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+        ),
+        const SizedBox(height: 8),
+        // Ordre API (`-created_at`, plus récent en premier).
+        _MovementList(
+          movements: lignes,
+          maxHeight: 288,
+          emptyText: _actif ? 'Aucun mouvement ne correspond à ces filtres' : 'Aucun mouvement pour cette période',
+          showCategory: true,
+        ),
+      ],
     );
   }
 }
