@@ -1,19 +1,103 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Landmark, Receipt, Truck, Wallet } from 'lucide-react';
+import { FilterX, Landmark, Receipt, Truck, Wallet } from 'lucide-react';
+import { appDayKey } from '@/lib/timezone';
 import { fmtAr, fmtDateHeure, fmtNb, type ExpensesData } from '@/lib/reports';
 import { KpiCard, KpiGrid } from './kpi-card';
 import { CamembertChart, ChartCard, SerieChart } from './report-chart';
 import { ReportTable } from './report-table';
 import { useReport, type ReportParams } from './use-report';
 
+const TOUS = 'TOUS';
+const filtresVides = () => ({ date: '', source: TOUS, categorie: TOUS, auteur: TOUS, libelle: '' });
+
 export function SectionExpenses({ params, enabled }: { params: ReportParams; enabled: boolean }) {
   const { data, loading, error } = useReport<ExpensesData>('expenses', params, enabled);
   const t = data?.totaux;
   const l = data?.livraison;
+
+  // Filtres LOCAUX du « Détail des dépenses » (§ demande) : date (un jour,
+  // heure de Madagascar), source, catégorie, utilisateur, libellé.
+  const [f, setF] = useState(filtresVides);
+  const actif = JSON.stringify(f) !== JSON.stringify(filtresVides());
+  const mouvements = data?.mouvements ?? [];
+  const categories = useMemo(() => [...new Set(mouvements.map((m) => m.categorie || 'Sans catégorie'))].sort((a, b) => a.localeCompare(b, 'fr')), [mouvements]);
+  const auteurs = useMemo(() => [...new Set(mouvements.map((m) => m.auteur || '—'))].sort((a, b) => a.localeCompare(b, 'fr')), [mouvements]);
+  const jourDe = (m: ExpensesData['mouvements'][number]) => (m.source === 'caisse' ? appDayKey(m.date) : m.date.slice(0, 10));
+  const filtres = useMemo(() => {
+    const q = f.libelle.trim().toLowerCase();
+    return mouvements.filter((m) => {
+      if (f.date && jourDe(m) !== f.date) return false;
+      if (f.source !== TOUS && m.source !== f.source) return false;
+      if (f.categorie !== TOUS && (m.categorie || 'Sans catégorie') !== f.categorie) return false;
+      if (f.auteur !== TOUS && (m.auteur || '—') !== f.auteur) return false;
+      if (q && !`${m.libelle} ${m.categorie}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [mouvements, f]);
+  const totalFiltre = useMemo(() => filtres.reduce((a, m) => a + Number(m.montant || 0), 0), [filtres]);
+
+  const barreFiltres = (
+    <div className="print:hidden flex flex-wrap items-end gap-2 mt-3">
+      <div className="space-y-1">
+        <Label className="text-xs text-muted-foreground">Date</Label>
+        <Input type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} className="h-9 w-[150px]" />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs text-muted-foreground">Source</Label>
+        <Select value={f.source} onValueChange={(v) => setF({ ...f, source: v })}>
+          <SelectTrigger className="h-9 w-[130px]"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value={TOUS}>Toutes</SelectItem>
+            <SelectItem value="caisse">Caisse</SelectItem>
+            <SelectItem value="livreur">Livreur</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs text-muted-foreground">Catégorie</Label>
+        <Select value={f.categorie} onValueChange={(v) => setF({ ...f, categorie: v })}>
+          <SelectTrigger className="h-9 w-[180px]"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value={TOUS}>Toutes les catégories</SelectItem>
+            {categories.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs text-muted-foreground">Utilisateur</Label>
+        <Select value={f.auteur} onValueChange={(v) => setF({ ...f, auteur: v })}>
+          <SelectTrigger className="h-9 w-[180px]"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value={TOUS}>Tous les utilisateurs</SelectItem>
+            {auteurs.map((a) => <SelectItem key={a} value={a}>{a}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1 min-w-[200px] flex-1">
+        <Label className="text-xs text-muted-foreground">Libellé</Label>
+        <Input value={f.libelle} onChange={(e) => setF({ ...f, libelle: e.target.value })} className="h-9" placeholder="Rechercher dans le libellé…" />
+      </div>
+      {actif && (
+        <Button variant="ghost" size="sm" className="h-9" onClick={() => setF(filtresVides())}>
+          <FilterX className="h-4 w-4 mr-1" aria-hidden /> Réinitialiser
+        </Button>
+      )}
+      {data && (
+        <p className="basis-full text-xs text-muted-foreground">
+          {fmtNb(filtres.length)} opération(s){actif ? ` sur ${fmtNb(mouvements.length)}` : ''} · total <span className="font-medium text-foreground">{fmtAr(totalFiltre)}</span>
+        </p>
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-4">
@@ -110,7 +194,7 @@ export function SectionExpenses({ params, enabled }: { params: ReportParams; ena
 
       <ReportTable
         titre="Détail des dépenses"
-        description="Les 300 opérations les plus récentes de la période."
+        description={<>Les 300 opérations les plus récentes de la période.{barreFiltres}</>}
         colonnes={[
           { key: 'date', label: 'Date', render: (r) => (r.source === 'caisse' ? fmtDateHeure(r.date) : fmtDateHeure(`${r.date}T12:00:00+03:00`).slice(0, 10)), export: (r) => r.date },
           { key: 'source', label: 'Source', render: (r) => <Badge variant="outline">{r.source === 'caisse' ? 'Caisse' : 'Livreur'}</Badge>, export: (r) => (r.source === 'caisse' ? 'Caisse' : 'Livreur') },
@@ -119,12 +203,13 @@ export function SectionExpenses({ params, enabled }: { params: ReportParams; ena
           { key: 'auteur', label: 'Par' },
           { key: 'montant', label: 'Montant', align: 'right', render: (r) => fmtAr(r.montant) },
         ]}
-        lignes={data?.mouvements}
+        lignes={data ? filtres : null}
         loading={loading}
         error={error}
         pageSize={20}
         exportNom="detail_depenses"
         compact
+        vide={actif ? 'Aucune opération ne correspond à ces filtres.' : 'Aucune dépense sur la période.'}
       />
     </div>
   );
