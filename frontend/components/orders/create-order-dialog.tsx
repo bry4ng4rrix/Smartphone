@@ -529,7 +529,9 @@ export function CreateOrderDialog({
     setZone(isPreparateur ? "RECUPERATION" : "");
     setAdresseLivraison("");
     setModePaiement("LIVRAISON");
-    setDateCommande(appDatetimeLocalValue(new Date()));
+    // Par défaut : aujourd'hui à 00:00 (heure de Madagascar), modifiable ;
+    // le livreur peut donc agir dès l'ouverture du jour J (§ demande).
+    setDateCommande(`${appDatetimeLocalValue(new Date()).split("T")[0]}T00:00`);
     setNotePreparateur("");
     setNoteLivreur("");
     setItems([]);
@@ -709,7 +711,7 @@ export function CreateOrderDialog({
         <div className="space-y-2">
           <Label>Date et heure de livraison</Label>
           <DateTimeInput value={dateCommande} onChange={setDateCommande} />
-          <p className="text-xs text-muted-foreground">Vide = maintenant.</p>
+          <p className="text-xs text-muted-foreground">Par défaut aujourd&apos;hui à 00:00 — modifiez la date et l&apos;heure si besoin. Vide = maintenant.</p>
         </div>
         {!isPreparateur && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -828,7 +828,9 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
   // Heure « au mur » d'Antananarivo (fuseau du magasin) — convertie en
   // instant absolu à l'envoi via appWallClockToUtc (core/app_time.dart).
   // `null` = champ vidé -> non envoyé -> le serveur prend « maintenant ».
-  DateTime? _dateCommande = appNow();
+  // Par défaut : aujourd'hui à 00:00 (heure de Madagascar), modifiable —
+  // le livreur peut ainsi agir dès l'ouverture du jour J (§ demande).
+  DateTime? _dateCommande = DateTime(appNow().year, appNow().month, appNow().day);
   List<CartLine> _lines = const [];
   bool _submitting = false;
   String? _error;
@@ -1102,7 +1104,10 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
             },
           ),
           const SizedBox(height: 4),
-          Text('Vide = maintenant.', style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline)),
+          Text(
+            "Par défaut aujourd'hui à 00:00 — modifiez la date et l'heure si besoin. Vide = maintenant.",
+            style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
+          ),
           if (!_isPreparateur) ...[
             const SizedBox(height: 16),
             twoCols(
