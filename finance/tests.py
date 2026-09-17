@@ -630,9 +630,10 @@ class AvanceLivreurTests(ScenarioMixin, TestCase):
         res = services.remettre_encaissements(self.magasin, self.gerant, livreur_id=self.livreur.id)
         self.assertEqual(res["brut"], D("28000"))
         self.assertEqual(res["avances"], D("20000"))
-        self.assertEqual(res["net"], D("8000"))
+        # net = brut − frais de tournée acceptés (scénario) − avance
+        self.assertEqual(res["net"], res["brut"] - res["depenses"] - D("20000"))
         # La caisse ne reçoit que l'espèce réellement remise.
-        self.assertEqual(services.solde_session(session), D("8000"))
+        self.assertEqual(services.solde_session(session), res["net"])
         self.assertEqual(CaisseMovement.objects.filter(origine="AVANCE_LIVREUR").count(), 1)
         # Rejouer ne déduit pas deux fois la même avance.
         self.livrer(self.commande())
@@ -645,7 +646,7 @@ class AvanceLivreurTests(ScenarioMixin, TestCase):
         self._avance("20000", statut="EN_ATTENTE")
         res = services.remettre_encaissements(self.magasin, self.gerant, livreur_id=self.livreur.id)
         self.assertEqual(res["avances"], D("0"))
-        self.assertEqual(res["net"], D("28000"))
+        self.assertEqual(res["net"], res["brut"] - res["depenses"])
 
     def test_avance_nest_pas_une_depense(self):
         """Le rapport Dépenses ne doit pas grossir d'une avance : la sortie
@@ -658,5 +659,6 @@ class AvanceLivreurTests(ScenarioMixin, TestCase):
         self._avance("20000")
         services.remettre_encaissements(self.magasin, self.gerant, livreur_id=self.livreur.id)
         sorties = CM.objects.filter(movement_type="out")
-        self.assertEqual(sorties.count(), 1)
+        self.assertEqual(sorties.filter(reference__startswith="AVANCE:").count(), 1)
+        # Ni l'avance ni les frais de tournée ne sont des charges du rapport.
         self.assertEqual(sorties.exclude(q_sorties_doublon()).count(), 0)
