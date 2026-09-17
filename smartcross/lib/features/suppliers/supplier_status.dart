@@ -1,58 +1,96 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-import '../../core/constants.dart';
-import '../../widgets/status_badge.dart';
+import '../../models/supplier.dart';
 
-/// `fmt(n)` du web : `new Intl.NumberFormat('fr-MG').format(Math.round(n))
-/// + ' Ar'` — arrondi à l'entier, séparateur de milliers, suffixe « Ar ».
-final _moneyFmt = NumberFormat.decimalPattern('fr_FR');
-String supplierAr(num? v) => '${_moneyFmt.format((v ?? 0).round())} Ar';
+/// Couleur du badge par statut (mêmes teintes que le web).
+Color supplierStatusColor(SupplierOrderStatus s) => switch (s) {
+      SupplierOrderStatus.brouillon => const Color(0xFF64748B),
+      SupplierOrderStatus.commande => const Color(0xFF2563EB),
+      SupplierOrderStatus.acomptePaye => const Color(0xFFD97706),
+      SupplierOrderStatus.preparation => const Color(0xFF7C3AED),
+      SupplierOrderStatus.paye => const Color(0xFF059669),
+      SupplierOrderStatus.expedie => const Color(0xFF0891B2),
+      SupplierOrderStatus.enTransit => const Color(0xFF0284C7),
+      SupplierOrderStatus.arrive => const Color(0xFFEA580C),
+      SupplierOrderStatus.coutFinalise => const Color(0xFF16A34A),
+    };
 
-/// `STATUT_COLOR` du web : BROUILLON gris (slate), COMMANDE bleu, RECU vert.
-Color supplierStatusColor(SupplierOrderStatus statut) {
-  switch (statut) {
-    case SupplierOrderStatus.brouillon:
-      return const Color(0xFF64748B);
-    case SupplierOrderStatus.commande:
-      return const Color(0xFF2563EB);
-    case SupplierOrderStatus.recu:
-      return const Color(0xFF16A34A);
-  }
+/// Statuts depuis lesquels chaque action est possible (miroir de
+/// suppliers/services.py).
+const Map<String, List<SupplierOrderStatus>> kTransitions = {
+  'commander': [SupplierOrderStatus.brouillon],
+  'preparer': [SupplierOrderStatus.commande, SupplierOrderStatus.acomptePaye, SupplierOrderStatus.paye],
+  'expedier': [SupplierOrderStatus.commande, SupplierOrderStatus.acomptePaye, SupplierOrderStatus.preparation, SupplierOrderStatus.paye],
+  'transit': [SupplierOrderStatus.expedie],
+  'arriver': [SupplierOrderStatus.expedie, SupplierOrderStatus.enTransit],
+  'finaliser': [SupplierOrderStatus.arrive],
+};
+
+bool actionPossible(String action, SupplierOrderStatus statut) => kTransitions[action]?.contains(statut) ?? false;
+
+const List<({String value, String label, String symbole})> kDevises = [
+  (value: 'USD', label: 'Dollar US (USD)', symbole: r'$'),
+  (value: 'EUR', label: 'Euro (EUR)', symbole: '€'),
+  (value: 'CNY', label: 'Yuan (CNY)', symbole: '¥'),
+  (value: 'MGA', label: 'Ariary (MGA)', symbole: 'Ar'),
+];
+
+const List<({String value, String label})> kTypesPaiement = [
+  (value: 'ACOMPTE', label: 'Acompte'),
+  (value: 'SOLDE', label: 'Solde'),
+  (value: 'PARTIEL', label: 'Paiement partiel'),
+  (value: 'AUTRE', label: 'Autre'),
+];
+
+const List<({String value, String label})> kMethodesPaiement = [
+  (value: 'VIREMENT', label: 'Virement bancaire'),
+  (value: 'MOBILE_MONEY', label: 'Mobile money'),
+  (value: 'ESPECES', label: 'Espèces'),
+  (value: 'CARTE', label: 'Carte'),
+  (value: 'AUTRE', label: 'Autre'),
+];
+
+const List<({String value, String label})> kModesTransport = [
+  (value: 'AERIEN', label: 'Aérien'),
+  (value: 'MARITIME', label: 'Maritime'),
+  (value: 'ROUTIER', label: 'Routier'),
+  (value: 'EXPRESS', label: 'Express / colis'),
+  (value: 'AUTRE', label: 'Autre'),
+];
+
+final _ar = NumberFormat('#,##0', 'fr_FR');
+final _deux = NumberFormat('#,##0.00', 'fr_FR');
+
+String fmtAr(num v) => '${_ar.format(v.round()).replaceAll(',', ' ')} Ar';
+
+String fmtDevise(num montant, String devise) {
+  if (devise == 'MGA') return fmtAr(montant);
+  final symbole = kDevises.firstWhere((d) => d.value == devise, orElse: () => (value: devise, label: devise, symbole: devise)).symbole;
+  return '${_deux.format(montant).replaceAll(',', ' ')} $symbole';
 }
 
-/// Badge de statut d'une commande fournisseur — libellé `STATUT_LABEL`
-/// (Brouillon / Commandé / Reçu) et couleur `STATUT_COLOR` du web.
+String fmtTaux(num v) => '${NumberFormat('#,##0.####', 'fr_FR').format(v).replaceAll(',', ' ')} Ar';
+
+/// `AAAA-MM-JJ` → `JJ/MM/AAAA` (sans décalage de fuseau).
+String fmtDateIso(String? v) {
+  if (v == null || v.isEmpty) return '—';
+  final m = RegExp(r'^(\d{4})-(\d{2})-(\d{2})').firstMatch(v);
+  return m == null ? v : '${m[3]}/${m[2]}/${m[1]}';
+}
+
 class SupplierStatusBadge extends StatelessWidget {
-  const SupplierStatusBadge({super.key, required this.statut});
-  final SupplierOrderStatus statut;
+  const SupplierStatusBadge({super.key, required this.status, this.small = false});
+  final SupplierOrderStatus status;
+  final bool small;
 
   @override
   Widget build(BuildContext context) {
-    return StatusChip(label: statut.label, color: supplierStatusColor(statut));
+    final color = supplierStatusColor(status);
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: small ? 6 : 8, vertical: small ? 2 : 3),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(999)),
+      child: Text(status.label, style: TextStyle(color: color, fontSize: small ? 11 : 12, fontWeight: FontWeight.w600)),
+    );
   }
-}
-
-/// Dialogue de confirmation avant réception — le web appelle l'API dès le
-/// clic ; sur mobile un tap accidentel sur une opération irréversible
-/// (statut RECU + mouvements d'ENTRÉE) mérite une confirmation.
-Future<bool> confirmSupplierReceive(BuildContext context, String numero) async {
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: Text('Réceptionner $numero ?'),
-      content: const Text(
-        'Le stock sera incrémenté automatiquement pour chaque ligne de cette commande (entrée stock fournisseur). Cette action est irréversible.',
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Annuler')),
-        FilledButton.icon(
-          onPressed: () => Navigator.of(context).pop(true),
-          icon: const Icon(Icons.inventory_outlined, size: 18),
-          label: const Text('Réceptionner'),
-        ),
-      ],
-    ),
-  );
-  return confirmed == true;
 }

@@ -1,6 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+/**
+ * Dialogues d'un approvisionnement : paiement, départ Chine, transit,
+ * arrivée Madagascar, Frais + Douane, finalisation (coût + réception stock),
+ * modification. Chaque dialogue appelle l'API puis remonte l'appro renvoyé
+ * (`onSaved`) — le serveur est la seule source des montants calculés.
+ */
+import { useEffect, useState } from 'react';
 import { djangoClient } from '@/lib/django-client';
 import { appToday } from '@/lib/timezone';
 import { Button } from '@/components/ui/button';
@@ -8,790 +14,237 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Badge } from '@/components/ui/badge';
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
-} from '@/components/ui/dialog';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
-import { AlertTriangle, Plus, Trash2 } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { AlertTriangle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import {
-  DEVISES, METHODES_ALLOCATION, METHODES_PAIEMENT, MODES_TRANSPORT, TYPES_FRAIS, TYPES_PAIEMENT, fmtAr, fmtDevise,
-  fmtNombre, messageErreur,
-} from '@/components/suppliers/supplier-status';
+import { DEVISES, METHODES_PAIEMENT, MODES_TRANSPORT, TYPES_PAIEMENT, fmtAr, fmtDevise, fmtNombre, messageErreur } from './supplier-status';
 
 interface BaseProps {
   open: boolean;
-  onOpenChange: (open: boolean) => void;
+  onOpenChange: (o: boolean) => void;
   order: any;
-  /** Appelé après un enregistrement réussi (rechargement de la fiche). */
-  onSaved: () => void;
+  onSaved: (order: any) => void;
 }
 
 const num = (v: string | number | null | undefined) => {
-  const n = Number(String(v ?? '').replace(',', '.'));
-  return Number.isFinite(n) ? n : 0;
+  const n = Number(String(v ?? '').replace(/\s/g, '').replace(',', '.'));
+  return Number.isFinite(n) ? n : NaN;
 };
 
-/** Équivalent Ar d'un montant saisi dans une devise + taux. */
-const enAr = (montant: string, devise: string, taux: string) =>
-  devise === 'MGA' ? num(montant) : num(montant) * num(taux);
-
-/**
- * Montant décimal pour l'API : DRF (DecimalField) attend une chaîne — un
- * nombre flottant (0.1 + 0.2…) peut dépasser le nombre de décimales admis.
- * `decimales` : 2 pour les montants, 4 pour les prix unitaires et les taux.
- */
-const dec = (v: string | number, decimales: number) => {
-  const n = num(v);
-  const f = n.toFixed(decimales);
-  // « 12.50 » → « 12.5 », « 12.00 » → « 12 » (lisible dans les erreurs renvoyées).
-  return f.includes('.') ? f.replace(/\.?0+$/, '') : f;
-};
-
-function DeviseTauxFields({
-  devise, setDevise, taux, setTaux, order,
-}: {
-  devise: string; setDevise: (v: string) => void; taux: string; setTaux: (v: string) => void; order: any;
-}) {
+function Pied({ onCancel, onSubmit, submitting, label }: { onCancel: () => void; onSubmit: () => void; submitting: boolean; label: string }) {
   return (
-    <div className="grid grid-cols-2 gap-3">
-      <div className="space-y-1">
-        <Label>Devise</Label>
-        <Select
-          value={devise}
-          onValueChange={(v) => {
-            setDevise(v);
-            if (v === 'MGA') setTaux('1');
-            else if (v === order?.devise && order?.taux_change) setTaux(String(Number(order.taux_change)));
-            else setTaux('');
-          }}
-        >
-          <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {DEVISES.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="space-y-1">
-        <Label>Taux (Ar pour 1 {devise})</Label>
-        <Input
-          type="number"
-          min={0}
-          step="0.0001"
-          value={taux}
-          disabled={devise === 'MGA'}
-          onChange={(e) => setTaux(e.target.value)}
-          placeholder={devise === 'MGA' ? '1' : 'Ex : 4500'}
-        />
-      </div>
-    </div>
+    <DialogFooter>
+      <Button variant="outline" onClick={onCancel} disabled={submitting}>Annuler</Button>
+      <Button onClick={onSubmit} disabled={submitting}>{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : label}</Button>
+    </DialogFooter>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/* Paiement fournisseur                                                        */
+/* Paiement fournisseur (§ 4-6)                                                */
 /* -------------------------------------------------------------------------- */
 
 export function PaymentDialog({ open, onOpenChange, order, onSaved }: BaseProps) {
   const [montant, setMontant] = useState('');
-  const [devise, setDevise] = useState('MGA');
-  const [taux, setTaux] = useState('1');
+  const [devise, setDevise] = useState('USD');
+  const [taux, setTaux] = useState('');
   const [date, setDate] = useState(appToday());
   const [type, setType] = useState('ACOMPTE');
   const [methode, setMethode] = useState('VIREMENT');
   const [reference, setReference] = useState('');
   const [commentaire, setCommentaire] = useState('');
+  const [enCaisse, setEnCaisse] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!open || !order) return;
-    const d = order.devise || 'MGA';
-    setDevise(d);
-    setTaux(d === 'MGA' ? '1' : String(Number(order.taux_change) || ''));
-    const reste = Number(order.reste_a_payer_mga) || 0;
-    const resteDevise = d === 'MGA' ? reste : reste / (Number(order.taux_change) || 1);
-    setMontant(reste > 0 ? String(Math.round(resteDevise * 100) / 100) : '');
+    if (!open) return;
+    setMontant('');
+    setDevise(order?.devise || 'USD');
+    setTaux(order?.devise === 'MGA' ? '1' : '');
     setDate(appToday());
-    setType((order.payments || []).length === 0 ? 'ACOMPTE' : 'SOLDE');
+    setType(Number(order?.total_paiements_mga || 0) > 0 ? 'SOLDE' : 'ACOMPTE');
     setMethode('VIREMENT');
     setReference('');
     setCommentaire('');
+    setEnCaisse(false);
   }, [open, order]);
 
-  const equivalent = enAr(montant, devise, taux);
+  const m = num(montant);
+  const t = devise === 'MGA' ? 1 : num(taux);
+  const apercu = Number.isFinite(m) && Number.isFinite(t) && m > 0 && t > 0 ? m * t : null;
 
   const submit = async () => {
-    if (num(montant) <= 0) { toast.error('Le montant doit être supérieur à 0'); return; }
-    if (devise !== 'MGA' && num(taux) <= 0) { toast.error('Le taux de change est requis'); return; }
+    if (!Number.isFinite(m) || m <= 0) { toast.error('Montant invalide.'); return; }
+    if (devise !== 'MGA' && (!Number.isFinite(t) || t <= 0)) { toast.error('Indiquez le taux de change du jour.'); return; }
     setSubmitting(true);
     try {
-      await djangoClient.suppliers.addPayment(order.id, {
-        montant: dec(montant, 2),
-        devise,
-        taux_change: devise === 'MGA' ? '1' : dec(taux, 4),
-        date,
-        type_paiement: type,
-        methode,
-        reference,
-        commentaire,
+      const o = await djangoClient.suppliers.addPayment(order.id, {
+        montant: m, devise, taux_change: devise === 'MGA' ? 1 : t, date, type_paiement: type, methode, reference, commentaire, en_caisse: enCaisse,
       });
-      toast.success('Paiement enregistré');
+      toast.success(`Paiement enregistré : ${fmtDevise(m, devise)} → ${fmtAr(m * t)}`);
+      onSaved(o);
       onOpenChange(false);
-      onSaved();
-    } catch (err) {
-      toast.error(messageErreur(err, "Impossible d'enregistrer le paiement"));
+    } catch (e) {
+      toast.error(messageErreur(e, "Impossible d'enregistrer le paiement"));
     } finally {
       setSubmitting(false);
     }
   };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Ajouter un paiement</DialogTitle>
-          <DialogDescription>
-            Paiement au fournisseur pour l'approvisionnement {order?.numero}. Reste à payer : {fmtAr(order?.reste_a_payer_mga)}.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="space-y-1">
-            <Label>Montant</Label>
-            <Input type="number" min={0} step="0.01" value={montant} onChange={(e) => setMontant(e.target.value)} autoFocus />
-          </div>
-          <DeviseTauxFields devise={devise} setDevise={setDevise} taux={taux} setTaux={setTaux} order={order} />
-          {devise !== 'MGA' && (
-            <p className="text-sm rounded-md bg-muted px-3 py-2">
-              Équivalent : <span className="font-semibold tabular-nums">≈ {fmtAr(equivalent)}</span>
-            </p>
-          )}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label>Date</Label>
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label>Type</Label>
-              <Select value={type} onValueChange={setType}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {TYPES_PAIEMENT.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label>Méthode</Label>
-              <Select value={methode} onValueChange={setMethode}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {METHODES_PAIEMENT.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label>Référence</Label>
-              <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="N° de virement, reçu…" />
-            </div>
-          </div>
-          <div className="space-y-1">
-            <Label>Commentaire</Label>
-            <Textarea value={commentaire} onChange={(e) => setCommentaire(e.target.value)} rows={2} />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Annuler</Button>
-          <Button onClick={submit} disabled={submitting}>{submitting ? 'Enregistrement…' : 'Enregistrer le paiement'}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Frais d'importation                                                         */
-/* -------------------------------------------------------------------------- */
-
-export function FeeDialog({ open, onOpenChange, order, onSaved }: BaseProps) {
-  const [type, setType] = useState('TRANSPORT');
-  const [montant, setMontant] = useState('');
-  const [devise, setDevise] = useState('MGA');
-  const [taux, setTaux] = useState('1');
-  const [date, setDate] = useState(appToday());
-  const [prestataire, setPrestataire] = useState('');
-  const [description, setDescription] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (!open || !order) return;
-    // Les frais sont le plus souvent payés localement, en ariary.
-    setDevise('MGA');
-    setTaux('1');
-    setType(order.statut === 'ARRIVE' || order.statut === 'PARTIELLEMENT_RECU' || order.statut === 'RECU' ? 'DOUANE' : 'TRANSPORT');
-    setMontant('');
-    setDate(appToday());
-    setPrestataire('');
-    setDescription('');
-  }, [open, order]);
-
-  const equivalent = enAr(montant, devise, taux);
-
-  const submit = async () => {
-    if (num(montant) <= 0) { toast.error('Le montant doit être supérieur à 0'); return; }
-    if (devise !== 'MGA' && num(taux) <= 0) { toast.error('Le taux de change est requis'); return; }
-    setSubmitting(true);
-    try {
-      await djangoClient.suppliers.addFee(order.id, {
-        type_frais: type,
-        montant: dec(montant, 2),
-        devise,
-        taux_change: devise === 'MGA' ? '1' : dec(taux, 4),
-        date,
-        prestataire,
-        description,
-      });
-      toast.success('Frais enregistré — coût de revient recalculé');
-      onOpenChange(false);
-      onSaved();
-    } catch (err) {
-      toast.error(messageErreur(err, "Impossible d'enregistrer le frais"));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Ajouter un frais d'importation</DialogTitle>
-          <DialogDescription>
-            Transport, douane, taxes… Le frais est réparti sur les lignes selon la méthode d'allocation.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label>Type de frais</Label>
-              <Select value={type} onValueChange={setType}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {TYPES_FRAIS.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label>Montant</Label>
-              <Input type="number" min={0} step="0.01" value={montant} onChange={(e) => setMontant(e.target.value)} autoFocus />
-            </div>
-          </div>
-          <DeviseTauxFields devise={devise} setDevise={setDevise} taux={taux} setTaux={setTaux} order={order} />
-          {devise !== 'MGA' && (
-            <p className="text-sm rounded-md bg-muted px-3 py-2">
-              Équivalent : <span className="font-semibold tabular-nums">≈ {fmtAr(equivalent)}</span>
-            </p>
-          )}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label>Date</Label>
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label>Prestataire</Label>
-              <Input value={prestataire} onChange={(e) => setPrestataire(e.target.value)} placeholder="Transitaire, douane…" />
-            </div>
-          </div>
-          <div className="space-y-1">
-            <Label>Description</Label>
-            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Annuler</Button>
-          <Button onClick={submit} disabled={submitting}>{submitting ? 'Enregistrement…' : 'Enregistrer le frais'}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Transport (expédition ou modification des informations)                    */
-/* -------------------------------------------------------------------------- */
-
-export function TransportDialog({
-  open, onOpenChange, order, onSaved, mode,
-}: BaseProps & { mode: 'expedier' | 'modifier' }) {
-  const [dateExpedition, setDateExpedition] = useState('');
-  const [transporteur, setTransporteur] = useState('');
-  const [modeTransport, setModeTransport] = useState('');
-  const [tracking, setTracking] = useState('');
-  const [lieuDepart, setLieuDepart] = useState('');
-  const [destination, setDestination] = useState('');
-  const [dateArrivee, setDateArrivee] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (!open || !order) return;
-    setDateExpedition(order.date_expedition || (mode === 'expedier' ? appToday() : ''));
-    setTransporteur(order.transporteur || '');
-    setModeTransport(order.mode_transport || '');
-    setTracking(order.tracking || '');
-    setLieuDepart(order.lieu_depart || '');
-    setDestination(order.destination || 'Madagascar');
-    setDateArrivee(order.date_arrivee || '');
-  }, [open, order, mode]);
-
-  const submit = async () => {
-    setSubmitting(true);
-    try {
-      const payload: Record<string, unknown> = {
-        date_expedition: dateExpedition || null,
-        transporteur,
-        mode_transport: modeTransport,
-        tracking,
-        lieu_depart: lieuDepart,
-        destination,
-      };
-      if (mode === 'expedier') {
-        await djangoClient.suppliers.expedier(order.id, payload as any);
-        toast.success('Marchandise expédiée — approvisionnement en transit');
-      } else {
-        await djangoClient.suppliers.update(order.id, { ...payload, date_arrivee: dateArrivee || null });
-        toast.success('Informations de transport mises à jour');
-      }
-      onOpenChange(false);
-      onSaved();
-    } catch (err) {
-      toast.error(messageErreur(err, 'Enregistrement impossible'));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{mode === 'expedier' ? 'Expédier la marchandise' : 'Informations de transport'}</DialogTitle>
-          <DialogDescription>
-            {mode === 'expedier'
-              ? "Renseignez le départ de la marchandise : l'approvisionnement passera « En transit »."
-              : 'Modifier les informations logistiques de cet approvisionnement.'}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label>Date d'expédition</Label>
-              <Input type="date" value={dateExpedition} onChange={(e) => setDateExpedition(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label>Mode de transport</Label>
-              <Select value={modeTransport} onValueChange={setModeTransport}>
-                <SelectTrigger className="w-full"><SelectValue placeholder="Choisir…" /></SelectTrigger>
-                <SelectContent>
-                  {MODES_TRANSPORT.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label>Transporteur</Label>
-              <Input value={transporteur} onChange={(e) => setTransporteur(e.target.value)} placeholder="Ex : DHL, MSC…" />
-            </div>
-            <div className="space-y-1">
-              <Label>Numéro de suivi</Label>
-              <Input value={tracking} onChange={(e) => setTracking(e.target.value)} placeholder="Tracking / BL" />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label>Lieu de départ</Label>
-              <Input value={lieuDepart} onChange={(e) => setLieuDepart(e.target.value)} placeholder="Ex : Guangzhou" />
-            </div>
-            <div className="space-y-1">
-              <Label>Destination</Label>
-              <Input value={destination} onChange={(e) => setDestination(e.target.value)} />
-            </div>
-          </div>
-          {mode === 'modifier' && (
-            <div className="space-y-1">
-              <Label>Date d'arrivée</Label>
-              <Input type="date" value={dateArrivee} onChange={(e) => setDateArrivee(e.target.value)} />
-            </div>
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Annuler</Button>
-          <Button onClick={submit} disabled={submitting}>
-            {submitting ? 'Enregistrement…' : mode === 'expedier' ? 'Confirmer l\'expédition' : 'Enregistrer'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Arrivée à Madagascar                                                        */
-/* -------------------------------------------------------------------------- */
-
-export function ArriverDialog({ open, onOpenChange, order, onSaved }: BaseProps) {
-  const [date, setDate] = useState(appToday());
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => { if (open) setDate(order?.date_arrivee || appToday()); }, [open, order]);
-
-  const submit = async () => {
-    setSubmitting(true);
-    try {
-      await djangoClient.suppliers.arriver(order.id, date || undefined);
-      toast.success('Marchandise arrivée — vous pouvez saisir la douane et réceptionner');
-      onOpenChange(false);
-      onSaved();
-    } catch (err) {
-      toast.error(messageErreur(err, 'Enregistrement impossible'));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Marquer comme arrivé</DialogTitle>
-          <DialogDescription>Date d'arrivée de la marchandise à Madagascar.</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-1">
-          <Label>Date d'arrivée</Label>
-          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Annuler</Button>
-          <Button onClick={submit} disabled={submitting}>{submitting ? 'Enregistrement…' : 'Confirmer l\'arrivée'}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Réception (totale ou partielle)                                             */
-/* -------------------------------------------------------------------------- */
-
-export function ReceptionDialog({ open, onOpenChange, order, onSaved }: BaseProps) {
-  const [quantites, setQuantites] = useState<Record<number, string>>({});
-  const [submitting, setSubmitting] = useState(false);
-  const lines: any[] = order?.lines || [];
-
-  useEffect(() => {
-    if (!open || !order) return;
-    const init: Record<number, string> = {};
-    for (const l of order.lines || []) init[l.id] = String(Math.max(Number(l.quantite) - Number(l.quantite_recue || 0), 0));
-    setQuantites(init);
-  }, [open, order]);
-
-  const totalMaintenant = lines.reduce((s, l) => s + (num(quantites[l.id]) || 0), 0);
-  const totalReste = lines.reduce((s, l) => s + Math.max(Number(l.quantite) - Number(l.quantite_recue || 0), 0), 0);
-  const partielle = totalMaintenant < totalReste;
-
-  const submit = async () => {
-    const payload: { line_id: number; quantite_recue: number }[] = [];
-    for (const l of lines) {
-      const reste = Math.max(Number(l.quantite) - Number(l.quantite_recue || 0), 0);
-      const q = Math.floor(num(quantites[l.id]));
-      if (q < 0) { toast.error('Quantité négative'); return; }
-      if (q > reste) { toast.error(`${l.reference_name} (${l.couleur}) : ${q} > ${reste} restant(s)`); return; }
-      payload.push({ line_id: l.id, quantite_recue: q });
-    }
-    if (totalMaintenant <= 0) { toast.error('Aucune quantité à réceptionner'); return; }
-    setSubmitting(true);
-    try {
-      await djangoClient.suppliers.receive(order.id, payload);
-      toast.success(partielle ? 'Réception partielle enregistrée — stock mis à jour' : 'Réception complète — stock mis à jour');
-      onOpenChange(false);
-      onSaved();
-    } catch (err) {
-      toast.error(messageErreur(err, 'Réception impossible'));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Réceptionner la marchandise</DialogTitle>
-          <DialogDescription>
-            Quantités reçues maintenant par ligne (pré-remplies avec le reste à recevoir). Les quantités entrent en stock immédiatement ; une réception partielle est possible.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="rounded-md border overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 text-xs text-muted-foreground">
-              <tr>
-                <th className="text-left px-3 py-2 font-medium">Produit</th>
-                <th className="text-right px-3 py-2 font-medium">Commandé</th>
-                <th className="text-right px-3 py-2 font-medium">Déjà reçu</th>
-                <th className="text-right px-3 py-2 font-medium">Reste</th>
-                <th className="text-right px-3 py-2 font-medium w-32">Reçu maintenant</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lines.map((l) => {
-                const reste = Math.max(Number(l.quantite) - Number(l.quantite_recue || 0), 0);
-                return (
-                  <tr key={l.id} className="border-t">
-                    <td className="px-3 py-2">
-                      <span className="font-medium">{l.brand_name ? `${l.brand_name} ` : ''}{l.reference_name}</span>
-                      <span className="text-muted-foreground"> — {l.couleur}</span>
-                    </td>
-                    <td className="text-right px-3 py-2 tabular-nums">{l.quantite}</td>
-                    <td className="text-right px-3 py-2 tabular-nums">{l.quantite_recue || 0}</td>
-                    <td className="text-right px-3 py-2 tabular-nums">{reste}</td>
-                    <td className="px-3 py-2">
-                      <Input
-                        type="number"
-                        min={0}
-                        max={reste}
-                        className="h-8 text-right"
-                        value={quantites[l.id] ?? ''}
-                        disabled={reste === 0}
-                        onChange={(e) => setQuantites((prev) => ({ ...prev, [l.id]: e.target.value }))}
-                      />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-muted-foreground">Total reçu maintenant</span>
-          <span className="font-semibold tabular-nums">{totalMaintenant} / {totalReste} pièce(s)</span>
-        </div>
-        {partielle && totalMaintenant > 0 && (
-          <Badge variant="secondary" className="w-fit">Réception partielle : l'approvisionnement restera ouvert pour le reste.</Badge>
-        )}
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Annuler</Button>
-          <Button onClick={submit} disabled={submitting || totalMaintenant <= 0}>
-            {submitting ? 'Réception…' : 'Confirmer la réception (entrée stock)'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Finalisation du coût                                                        */
-/* -------------------------------------------------------------------------- */
-
-export function FinaliserDialog({ open, onOpenChange, order, onSaved }: BaseProps) {
-  const [majPrix, setMajPrix] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => { if (open) setMajPrix(true); }, [open]);
-
-  const submit = async () => {
-    setSubmitting(true);
-    try {
-      await djangoClient.suppliers.finaliser(order.id, majPrix);
-      toast.success('Coût de revient finalisé et historisé');
-      onOpenChange(false);
-      onSaved();
-    } catch (err) {
-      toast.error(messageErreur(err, 'Finalisation impossible'));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const nonRecu = (order?.lines || []).filter((l: any) => Number(l.quantite_recue || 0) < Number(l.quantite));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Finaliser le coût de revient</DialogTitle>
+          <DialogTitle>Nouveau paiement — {order?.numero}</DialogTitle>
           <DialogDescription>
-            Valeur réelle {fmtAr(order?.cout_total)} pour {fmtNombre(order?.total_qty)} pièce(s), soit {fmtAr(order?.cout_unitaire)} / pièce en moyenne.
+            Chaque paiement garde son propre taux : montant MGA = montant × taux du jour, jamais recalculé ensuite.
+            {Number(order?.montant_prevu) > 0 && <> Prévu {fmtDevise(order.montant_prevu, order.devise)} · payé {fmtDevise(order.total_paye_devise, order.devise)} · reste {fmtDevise(order.reste_a_payer_devise, order.devise)}.</>}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
-          <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-3 text-sm">
-            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-600" />
-            <div>
-              <p className="font-medium">Action irréversible</p>
-              <p className="text-muted-foreground">
-                Le coût de revient sera figé et écrit dans l'historique de chaque variante. Il ne sera plus possible d'ajouter des frais, des paiements ni de modifier les lignes.
-              </p>
-              {nonRecu.length > 0 && (
-                <p className="mt-1 text-amber-700 dark:text-amber-300">
-                  {nonRecu.length} ligne(s) ne sont pas complètement reçues : le coût sera calculé sur les quantités réellement reçues.
-                </p>
-              )}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1"><Label>Montant</Label><Input type="number" min={0} step="0.01" value={montant} onChange={(e) => setMontant(e.target.value)} autoFocus /></div>
+            <div className="space-y-1"><Label>Date</Label><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>Devise</Label>
+              <Select value={devise} onValueChange={(v) => { setDevise(v); setTaux(v === 'MGA' ? '1' : ''); }}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>{DEVISES.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Taux du jour (Ar pour 1 {devise})</Label>
+              <Input type="number" min={0} step="0.0001" value={taux} disabled={devise === 'MGA'} onChange={(e) => setTaux(e.target.value)} placeholder={devise === 'MGA' ? '1' : 'Ex : 4500'} />
             </div>
           </div>
-          <label className="flex items-start gap-3 rounded-md border p-3 cursor-pointer">
-            <Checkbox checked={majPrix} onCheckedChange={(v) => setMajPrix(v === true)} className="mt-0.5" />
-            <span className="text-sm">
-              <span className="font-medium">Mettre à jour le prix d'achat des références avec le coût de revient</span>
-              <span className="block text-muted-foreground text-xs mt-0.5">
-                Le prix d'achat de chaque référence concernée prendra la valeur du coût de revient unitaire calculé.
-              </span>
-            </span>
+          {apercu !== null && <p className="text-sm">= <strong className="tabular-nums">{fmtAr(apercu)}</strong></p>}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>Type</Label>
+              <Select value={type} onValueChange={setType}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>{TYPES_PAIEMENT.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Mode de paiement</Label>
+              <Select value={methode} onValueChange={setMethode}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>{METHODES_PAIEMENT.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="space-y-1"><Label>Référence (virement, reçu…)</Label><Input value={reference} onChange={(e) => setReference(e.target.value)} /></div>
+          <div className="space-y-1"><Label>Commentaire</Label><Textarea rows={2} value={commentaire} onChange={(e) => setCommentaire(e.target.value)} /></div>
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox checked={enCaisse} onCheckedChange={(v) => setEnCaisse(v === true)} className="mt-0.5" />
+            <span>Enregistrer la sortie en caisse (achat de stock, session ouverte requise) — référence <code className="text-xs">APPRO:{order?.numero}</code></span>
           </label>
         </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Annuler</Button>
-          <Button onClick={submit} disabled={submitting}>{submitting ? 'Finalisation…' : 'Finaliser le coût'}</Button>
-        </DialogFooter>
+        <Pied onCancel={() => onOpenChange(false)} onSubmit={submit} submitting={submitting} label="Enregistrer le paiement" />
       </DialogContent>
     </Dialog>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/* Modification : informations générales, méthode d'allocation, lignes       */
+/* Départ Chine / transit (§ 7-8)                                              */
 /* -------------------------------------------------------------------------- */
 
-interface LigneEdit {
-  key: string;
-  id?: number;
-  product_variant: number;
-  label: string;
-  quantite: string;
-  quantite_recue: number;
-  prix_unitaire: string;
-  allocation_manuelle_mga: string;
-}
-
-export function EditOrderDialog({ open, onOpenChange, order, onSaved }: BaseProps) {
-  const [description, setDescription] = useState('');
-  const [supplier, setSupplier] = useState<string>('');
-  const [suppliers, setSuppliers] = useState<any[]>([]);
-  const [devise, setDevise] = useState('MGA');
-  const [taux, setTaux] = useState('1');
-  const [date, setDate] = useState('');
-  const [destination, setDestination] = useState('');
-  const [methode, setMethode] = useState('VALEUR');
-  const [lignes, setLignes] = useState<LigneEdit[]>([]);
+export function TransportDialog({ open, onOpenChange, order, onSaved, mode }: BaseProps & { mode: 'expedier' | 'transit' }) {
+  const [f, setF] = useState({ date_expedition: appToday(), transporteur: '', mode_transport: '', tracking: '', numero_colis: '', lieu_depart: 'Chine', destination: 'Madagascar', commentaire_transport: '' });
   const [submitting, setSubmitting] = useState(false);
-
-  // Ajout d'une ligne : recherche de référence puis choix de la couleur.
-  const [query, setQuery] = useState('');
-  const [suggestions, setSuggestions] = useState<any[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [selectedRef, setSelectedRef] = useState<any | null>(null);
-  const [variantId, setVariantId] = useState('');
-  const [newQty, setNewQty] = useState('');
-  const [newPrix, setNewPrix] = useState('');
-
-  useEffect(() => {
-    if (!open || !order) return;
-    setDescription(order.description || '');
-    setSupplier(order.supplier ? String(order.supplier) : '');
-    setDevise(order.devise || 'MGA');
-    setTaux(order.devise === 'MGA' ? '1' : String(Number(order.taux_change) || ''));
-    setDate(order.date || '');
-    setDestination(order.destination || '');
-    setMethode(order.methode_allocation || 'VALEUR');
-    setLignes((order.lines || []).map((l: any) => ({
-      key: `l-${l.id}`,
-      id: l.id,
-      product_variant: l.product_variant,
-      label: `${l.brand_name ? `${l.brand_name} ` : ''}${l.reference_name} — ${l.couleur}`,
-      quantite: String(l.quantite),
-      quantite_recue: Number(l.quantite_recue || 0),
-      prix_unitaire: String(Number(l.prix_unitaire) || 0),
-      allocation_manuelle_mga: l.allocation_manuelle_mga !== null && l.allocation_manuelle_mga !== undefined ? String(Number(l.allocation_manuelle_mga)) : '',
-    })));
-    setQuery(''); setSuggestions([]); setSelectedRef(null); setVariantId(''); setNewQty(''); setNewPrix('');
-    djangoClient.suppliers.suppliersList({ actif: true }).then(setSuppliers).catch(() => {});
-  }, [open, order]);
 
   useEffect(() => {
     if (!open) return;
-    if (!query.trim()) { setSuggestions([]); return; }
-    setSearching(true);
-    const t = setTimeout(() => {
-      djangoClient.catalog.references
-        .autocomplete(query.trim())
-        .then(setSuggestions)
-        .catch(() => setSuggestions([]))
-        .finally(() => setSearching(false));
-    }, 250);
-    return () => clearTimeout(t);
-  }, [query, open]);
-
-  const ajouterLigne = () => {
-    if (!selectedRef || !variantId) { toast.error('Sélectionnez une référence et une couleur'); return; }
-    const qty = Math.floor(num(newQty));
-    if (qty < 1) { toast.error('Quantité invalide'); return; }
-    const couleur = (selectedRef.couleurs || []).find((c: any) => String(c.variant_id) === variantId);
-    if (!couleur) return;
-    if (lignes.some((l) => l.product_variant === Number(variantId))) { toast.error('Cette variante est déjà dans la commande'); return; }
-    setLignes((prev) => [...prev, {
-      key: `n-${variantId}-${Date.now()}`,
-      product_variant: Number(variantId),
-      label: `${selectedRef.brand_name} ${selectedRef.reference_name} — ${couleur.couleur}`,
-      quantite: String(qty),
-      quantite_recue: 0,
-      prix_unitaire: newPrix || '0',
-      allocation_manuelle_mga: '',
-    }]);
-    setSelectedRef(null); setQuery(''); setVariantId(''); setNewQty(''); setNewPrix('');
-  };
-
-  const majLigne = (key: string, patch: Partial<LigneEdit>) =>
-    setLignes((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
-
-  const totalDevise = useMemo(
-    () => lignes.reduce((s, l) => s + num(l.quantite) * num(l.prix_unitaire), 0),
-    [lignes],
-  );
+    setF({
+      date_expedition: order?.date_expedition || appToday(),
+      transporteur: order?.transporteur || '', mode_transport: order?.mode_transport || '', tracking: order?.tracking || '',
+      numero_colis: order?.numero_colis || '', lieu_depart: order?.lieu_depart || 'Chine', destination: order?.destination || 'Madagascar',
+      commentaire_transport: order?.commentaire_transport || '',
+    });
+  }, [open, order]);
 
   const submit = async () => {
-    if (devise !== 'MGA' && num(taux) <= 0) { toast.error('Le taux de change est requis pour une devise autre que le MGA'); return; }
-    if (lignes.length === 0) { toast.error('Au moins une ligne est requise'); return; }
-    for (const l of lignes) {
-      const q = Math.floor(num(l.quantite));
-      if (q < 1) { toast.error(`${l.label} : quantité invalide`); return; }
-      if (q < l.quantite_recue) { toast.error(`${l.label} : ${l.quantite_recue} déjà reçu(s), quantité minimale ${l.quantite_recue}`); return; }
-    }
     setSubmitting(true);
     try {
-      await djangoClient.suppliers.update(order.id, {
-        description,
-        supplier: supplier ? Number(supplier) : null,
-        devise,
-        taux_change: devise === 'MGA' ? '1' : dec(taux, 4),
-        date: date || undefined,
-        destination,
-        methode_allocation: methode,
-        lines: lignes.map((l) => ({
-          ...(l.id ? { id: l.id } : {}),
-          product_variant: l.product_variant,
-          quantite: Math.floor(num(l.quantite)),
-          prix_unitaire: dec(l.prix_unitaire, 4),
-          allocation_manuelle_mga: methode === 'MANUEL' ? (l.allocation_manuelle_mga === '' ? null : dec(l.allocation_manuelle_mga, 2)) : null,
-        })),
-      });
-      toast.success('Approvisionnement mis à jour');
+      const payload: Record<string, string> = {};
+      for (const [k, v] of Object.entries(f)) if (v !== '' || k === 'commentaire_transport') payload[k] = v;
+      if (mode === 'transit') { delete payload.date_expedition; delete payload.lieu_depart; delete payload.destination; }
+      const o = mode === 'expedier' ? await djangoClient.suppliers.expedier(order.id, payload) : await djangoClient.suppliers.transit(order.id, payload);
+      toast.success(mode === 'expedier' ? 'Marchandise expédiée depuis la Chine' : 'Marchandise en transit');
+      onSaved(o);
       onOpenChange(false);
-      onSaved();
-    } catch (err) {
-      toast.error(messageErreur(err, 'Mise à jour impossible'));
+    } catch (e) {
+      toast.error(messageErreur(e));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{mode === 'expedier' ? 'Départ de Chine' : 'En transit'} — {order?.numero}</DialogTitle>
+          <DialogDescription>{mode === 'expedier' ? 'Date de départ, transporteur, suivi et numéro de colis.' : 'Mettez à jour les informations de suivi disponibles.'}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          {mode === 'expedier' && (
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1"><Label>Date de départ</Label><Input type="date" value={f.date_expedition} onChange={set('date_expedition')} /></div>
+              <div className="space-y-1"><Label>Départ</Label><Input value={f.lieu_depart} onChange={set('lieu_depart')} /></div>
+              <div className="space-y-1"><Label>Destination</Label><Input value={f.destination} onChange={set('destination')} /></div>
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1"><Label>Transporteur</Label><Input value={f.transporteur} onChange={set('transporteur')} placeholder="Ex : DHL, MSC…" /></div>
+            <div className="space-y-1">
+              <Label>Mode de transport</Label>
+              <Select value={f.mode_transport || 'NONE'} onValueChange={(v) => setF({ ...f, mode_transport: v === 'NONE' ? '' : v })}>
+                <SelectTrigger className="w-full"><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectContent><SelectItem value="NONE">—</SelectItem>{MODES_TRANSPORT.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1"><Label>Tracking / référence</Label><Input value={f.tracking} onChange={set('tracking')} /></div>
+            <div className="space-y-1"><Label>Numéro de colis</Label><Input value={f.numero_colis} onChange={set('numero_colis')} /></div>
+          </div>
+          <div className="space-y-1"><Label>Commentaire</Label><Textarea rows={2} value={f.commentaire_transport} onChange={set('commentaire_transport')} /></div>
+        </div>
+        <Pied onCancel={() => onOpenChange(false)} onSubmit={submit} submitting={submitting} label={mode === 'expedier' ? 'Marquer expédié' : 'Marquer en transit'} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Arrivée à Madagascar (§ 9)                                                  */
+/* -------------------------------------------------------------------------- */
+
+export function ArriverDialog({ open, onOpenChange, order, onSaved }: BaseProps) {
+  const [date, setDate] = useState(appToday());
+  const [frais, setFrais] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  useEffect(() => { if (open) { setDate(appToday()); setFrais(Number(order?.frais_douane_mga) > 0 ? String(Number(order.frais_douane_mga)) : ''); } }, [open, order]);
+
+  const submit = async () => {
+    const f = frais.trim() === '' ? null : num(frais);
+    if (f !== null && (!Number.isFinite(f) || f < 0)) { toast.error('Montant Frais + Douane invalide.'); return; }
+    setSubmitting(true);
+    try {
+      const o = await djangoClient.suppliers.arriver(order.id, { date_arrivee: date, frais_douane_mga: f });
+      toast.success('Marchandise arrivée à Madagascar');
+      onSaved(o);
+      onOpenChange(false);
+    } catch (e) {
+      toast.error(messageErreur(e));
     } finally {
       setSubmitting(false);
     }
@@ -799,158 +252,202 @@ export function EditOrderDialog({ open, onOpenChange, order, onSaved }: BaseProp
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Modifier l'approvisionnement {order?.numero}</DialogTitle>
-          <DialogDescription>Informations générales, méthode d'allocation des frais et lignes de produits.</DialogDescription>
+          <DialogTitle>Arrivée à Madagascar — {order?.numero}</DialogTitle>
+          <DialogDescription>Le montant Frais + Douane peut être saisi maintenant ou plus tard, avant la finalisation.</DialogDescription>
         </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1"><Label>Date d&apos;arrivée</Label><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+          <div className="space-y-1"><Label>Frais + Douane (Ar) — facultatif</Label><Input type="number" min={0} value={frais} onChange={(e) => setFrais(e.target.value)} placeholder="Ex : 5000000" /></div>
+        </div>
+        <Pied onCancel={() => onOpenChange(false)} onSubmit={submit} submitting={submitting} label="Marquer arrivé" />
+      </DialogContent>
+    </Dialog>
+  );
+}
 
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label>Fournisseur</Label>
-              <Select value={supplier || 'none'} onValueChange={(v) => setSupplier(v === 'none' ? '' : v)}>
-                <SelectTrigger className="w-full"><SelectValue placeholder="Aucun" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">— Aucun —</SelectItem>
-                  {suppliers.map((s) => <SelectItem key={s.id} value={String(s.id)}>{s.nom}{s.pays ? ` (${s.pays})` : ''}</SelectItem>)}
-                </SelectContent>
-              </Select>
+/* -------------------------------------------------------------------------- */
+/* Frais + Douane (§ 9) — UN seul montant                                      */
+/* -------------------------------------------------------------------------- */
+
+export function FraisDouaneDialog({ open, onOpenChange, order, onSaved }: BaseProps) {
+  const [frais, setFrais] = useState('');
+  const [enCaisse, setEnCaisse] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  useEffect(() => { if (open) { setFrais(Number(order?.frais_douane_mga) > 0 ? String(Number(order.frais_douane_mga)) : ''); setEnCaisse(false); } }, [open, order]);
+
+  const f = num(frais);
+  const totalApercu = Number.isFinite(f) ? Number(order?.total_paiements_mga || 0) + f : null;
+
+  const submit = async () => {
+    if (!Number.isFinite(f) || f < 0) { toast.error('Montant invalide.'); return; }
+    setSubmitting(true);
+    try {
+      const o = await djangoClient.suppliers.fraisDouane(order.id, { frais_douane_mga: f, en_caisse: enCaisse });
+      toast.success('Frais + Douane enregistrés');
+      onSaved(o);
+      onOpenChange(false);
+    } catch (e) {
+      toast.error(messageErreur(e));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Frais + Douane — {order?.numero}</DialogTitle>
+          <DialogDescription>Un seul montant, en ariary, ajouté au total des paiements fournisseur pour obtenir le coût total rendu Madagascar.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1"><Label>Frais + Douane (Ar)</Label><Input type="number" min={0} value={frais} onChange={(e) => setFrais(e.target.value)} autoFocus placeholder="Ex : 5000000" /></div>
+          {totalApercu !== null && (
+            <div className="rounded-md border p-3 text-sm space-y-0.5">
+              <div className="flex justify-between"><span className="text-muted-foreground">Total paiements fournisseur</span><span className="tabular-nums">{fmtAr(order?.total_paiements_mga)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">+ Frais + Douane</span><span className="tabular-nums">{fmtAr(f)}</span></div>
+              <div className="flex justify-between font-semibold border-t pt-1 mt-1"><span>Coût total</span><span className="tabular-nums">{fmtAr(totalApercu)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">÷ {fmtNombre(order?.quantite)} pièces = coût par pièce</span><span className="tabular-nums font-semibold">{fmtAr(order?.quantite ? totalApercu / Number(order.quantite) : 0)}</span></div>
             </div>
-            <div className="space-y-1">
-              <Label>Date de commande</Label>
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-            </div>
+          )}
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox checked={enCaisse} onCheckedChange={(v) => setEnCaisse(v === true)} className="mt-0.5" disabled={order?.caisse?.frais_douane} />
+            <span>{order?.caisse?.frais_douane ? 'Sortie déjà enregistrée en caisse.' : 'Enregistrer la sortie en caisse (achat de stock, session ouverte requise)'}</span>
+          </label>
+        </div>
+        <Pied onCancel={() => onOpenChange(false)} onSubmit={submit} submitting={submitting} label="Enregistrer" />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Finalisation (§ 10-13) : coût figé + réception dans le stock                */
+/* -------------------------------------------------------------------------- */
+
+export function FinaliserDialog({ open, onOpenChange, order, onSaved }: BaseProps) {
+  const [majPrix, setMajPrix] = useState(true);
+  const [quantite, setQuantite] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  useEffect(() => { if (open) { setMajPrix(true); setQuantite(String(order?.quantite ?? '')); } }, [open, order]);
+
+  const submit = async () => {
+    const q = Math.floor(num(quantite));
+    if (!Number.isFinite(q) || q < 0 || q > Number(order?.quantite)) { toast.error(`Quantité reçue entre 0 et ${order?.quantite}.`); return; }
+    setSubmitting(true);
+    try {
+      const o = await djangoClient.suppliers.finaliser(order.id, { mettre_a_jour_prix_achat: majPrix, quantite_recue: q });
+      toast.success(`Coût finalisé : ${fmtAr(o.cout_unitaire_mga)} / pièce — ${fmtNombre(q)} pièce(s) reçue(s) en stock`);
+      onSaved(o);
+      onOpenChange(false);
+    } catch (e) {
+      toast.error(messageErreur(e));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Finaliser le coût — {order?.numero}</DialogTitle>
+          <DialogDescription>Fige le coût total et le coût par pièce, et réceptionne la marchandise dans le stock (entrée référencée {order?.numero}).</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="rounded-md border p-3 text-sm space-y-0.5">
+            <div className="flex justify-between"><span className="text-muted-foreground">Total paiements fournisseur</span><span className="tabular-nums">{fmtAr(order?.total_paiements_mga)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">+ Frais + Douane</span><span className="tabular-nums">{fmtAr(order?.frais_douane_mga)}</span></div>
+            <div className="flex justify-between font-semibold border-t pt-1 mt-1"><span>Coût total rendu Madagascar</span><span className="tabular-nums">{fmtAr(order?.cout_total_mga)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">÷ {fmtNombre(order?.quantite)} pièces</span><span className="tabular-nums font-bold">{fmtAr(order?.cout_unitaire_mga)} / pièce</span></div>
           </div>
-          <DeviseTauxFields devise={devise} setDevise={setDevise} taux={taux} setTaux={setTaux} order={order} />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {Number(order?.frais_douane_mga) === 0 && (
+            <p className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400"><AlertTriangle className="h-4 w-4 shrink-0" /> Aucun montant Frais + Douane saisi : le coût total ne comprend que les paiements fournisseur.</p>
+          )}
+          <div className="space-y-1"><Label>Pièces réellement reçues (entrée de stock)</Label><Input type="number" min={0} max={order?.quantite} value={quantite} onChange={(e) => setQuantite(e.target.value)} /></div>
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox checked={majPrix} onCheckedChange={(v) => setMajPrix(v === true)} className="mt-0.5" />
+            <span>Mettre à jour le prix d&apos;achat de référence du produit (moyenne pondérée avec le stock existant)</span>
+          </label>
+        </div>
+        <Pied onCancel={() => onOpenChange(false)} onSubmit={submit} submitting={submitting} label="Finaliser et réceptionner" />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Modification (données générales, produit, quantité, transport)             */
+/* -------------------------------------------------------------------------- */
+
+export function EditOrderDialog({ open, onOpenChange, order, onSaved }: BaseProps) {
+  const [f, setF] = useState({ description: '', quantite: '', devise: 'USD', montant_prevu: '', date: '', date_expedition: '', date_arrivee: '', transporteur: '', tracking: '', numero_colis: '' });
+  const [submitting, setSubmitting] = useState(false);
+  useEffect(() => {
+    if (!open || !order) return;
+    setF({
+      description: order.description || '', quantite: String(order.quantite ?? ''), devise: order.devise || 'USD',
+      montant_prevu: Number(order.montant_prevu) > 0 ? String(Number(order.montant_prevu)) : '', date: order.date || '',
+      date_expedition: order.date_expedition || '', date_arrivee: order.date_arrivee || '', transporteur: order.transporteur || '',
+      tracking: order.tracking || '', numero_colis: order.numero_colis || '',
+    });
+  }, [open, order]);
+
+  const submit = async () => {
+    const q = Math.floor(num(f.quantite));
+    if (!Number.isFinite(q) || q < 1) { toast.error('Quantité invalide.'); return; }
+    setSubmitting(true);
+    try {
+      const o = await djangoClient.suppliers.update(order.id, {
+        description: f.description, quantite: q, devise: f.devise, montant_prevu: f.montant_prevu === '' ? 0 : num(f.montant_prevu),
+        ...(f.date ? { date: f.date } : {}), date_expedition: f.date_expedition || null, date_arrivee: f.date_arrivee || null,
+        transporteur: f.transporteur, tracking: f.tracking, numero_colis: f.numero_colis,
+      });
+      toast.success('Approvisionnement modifié');
+      onSaved(o);
+      onOpenChange(false);
+    } catch (e) {
+      toast.error(messageErreur(e));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Modifier — {order?.numero}</DialogTitle>
+          <DialogDescription>Produit : {order?.produit?.libelle}. Le produit lui-même ne change pas (créez un autre approvisionnement).</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1"><Label>Quantité</Label><Input type="number" min={1} value={f.quantite} onChange={set('quantite')} /></div>
             <div className="space-y-1">
-              <Label>Destination</Label>
-              <Input value={destination} onChange={(e) => setDestination(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label>Méthode d'allocation des frais</Label>
-              <Select value={methode} onValueChange={setMethode}>
+              <Label>Devise</Label>
+              <Select value={f.devise} onValueChange={(v) => setF({ ...f, devise: v })}>
                 <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {METHODES_ALLOCATION.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
-                </SelectContent>
+                <SelectContent>{DEVISES.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
               </Select>
             </div>
+            <div className="space-y-1"><Label>Montant prévu</Label><Input type="number" min={0} step="0.01" value={f.montant_prevu} onChange={set('montant_prevu')} /></div>
           </div>
-          <div className="space-y-1">
-            <Label>Description</Label>
-            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
+          <div className="space-y-1"><Label>Description</Label><Input value={f.description} onChange={set('description')} /></div>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1"><Label>Date</Label><Input type="date" value={f.date} onChange={set('date')} /></div>
+            <div className="space-y-1"><Label>Départ Chine</Label><Input type="date" value={f.date_expedition} onChange={set('date_expedition')} /></div>
+            <div className="space-y-1"><Label>Arrivée</Label><Input type="date" value={f.date_arrivee} onChange={set('date_arrivee')} /></div>
           </div>
-
-          {/* Lignes */}
-          <div className="space-y-2">
-            <p className="text-sm font-medium">Lignes de produits</p>
-            <div className="rounded-md border overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50 text-xs text-muted-foreground">
-                  <tr>
-                    <th className="text-left px-3 py-2 font-medium">Produit</th>
-                    <th className="text-right px-3 py-2 font-medium w-24">Quantité</th>
-                    <th className="text-right px-3 py-2 font-medium w-32">Prix unit. ({devise})</th>
-                    {methode === 'MANUEL' && <th className="text-right px-3 py-2 font-medium w-36">Frais alloués (Ar)</th>}
-                    <th className="w-10" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {lignes.length === 0 && (
-                    <tr><td colSpan={5} className="px-3 py-4 text-center text-muted-foreground">Aucune ligne.</td></tr>
-                  )}
-                  {lignes.map((l) => (
-                    <tr key={l.key} className="border-t">
-                      <td className="px-3 py-1.5">
-                        {l.label}
-                        {l.quantite_recue > 0 && <span className="block text-[11px] text-muted-foreground">{l.quantite_recue} déjà reçu(s)</span>}
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <Input type="number" min={Math.max(l.quantite_recue, 1)} className="h-8 text-right" value={l.quantite} onChange={(e) => majLigne(l.key, { quantite: e.target.value })} />
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <Input type="number" min={0} step="0.0001" className="h-8 text-right" value={l.prix_unitaire} onChange={(e) => majLigne(l.key, { prix_unitaire: e.target.value })} />
-                      </td>
-                      {methode === 'MANUEL' && (
-                        <td className="px-2 py-1.5">
-                          <Input type="number" min={0} step="0.01" className="h-8 text-right" value={l.allocation_manuelle_mga} onChange={(e) => majLigne(l.key, { allocation_manuelle_mga: e.target.value })} />
-                        </td>
-                      )}
-                      <td className="px-1 py-1.5 text-right">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          disabled={l.quantite_recue > 0}
-                          title={l.quantite_recue > 0 ? 'Ligne déjà réceptionnée' : 'Retirer'}
-                          onClick={() => setLignes((prev) => prev.filter((x) => x.key !== l.key))}
-                        >
-                          <Trash2 className="h-4 w-4 text-red-500" />
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="flex justify-end text-sm">
-              <span className="text-muted-foreground mr-2">Total fournisseur :</span>
-              <span className="font-semibold tabular-nums">{fmtDevise(totalDevise, devise)}</span>
-              {devise !== 'MGA' && num(taux) > 0 && (
-                <span className="text-muted-foreground ml-2">≈ {fmtAr(totalDevise * num(taux))}</span>
-              )}
-            </div>
-
-            <div className="border rounded-lg p-3 space-y-2 bg-muted/30">
-              <p className="text-sm font-medium">Ajouter une ligne</p>
-              <div className="relative">
-                <Input
-                  placeholder="Rechercher une référence (ex : A15)"
-                  value={selectedRef ? `${selectedRef.brand_name} ${selectedRef.reference_name}` : query}
-                  onChange={(e) => { setQuery(e.target.value); setSelectedRef(null); setVariantId(''); }}
-                />
-                {!selectedRef && query.trim() && (
-                  <div className="absolute z-10 mt-1 w-full bg-background border rounded-md shadow-md max-h-56 overflow-y-auto">
-                    {searching ? (
-                      <p className="px-3 py-2 text-sm text-muted-foreground">Recherche…</p>
-                    ) : suggestions.length === 0 ? (
-                      <p className="px-3 py-2 text-sm text-muted-foreground">Aucun résultat.</p>
-                    ) : suggestions.map((s) => (
-                      <button
-                        type="button"
-                        key={s.id}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex justify-between"
-                        onClick={() => { setSelectedRef(s); setQuery(''); setSuggestions([]); }}
-                      >
-                        <span>{s.brand_name} {s.reference_name} <span className="text-muted-foreground">({s.type_name})</span></span>
-                        <span className="text-muted-foreground">{fmtAr(s.prix_vente)}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <Select value={variantId} onValueChange={setVariantId} disabled={!selectedRef}>
-                  <SelectTrigger className="w-full"><SelectValue placeholder="Couleur" /></SelectTrigger>
-                  <SelectContent>
-                    {(selectedRef?.couleurs || []).map((c: any) => (
-                      <SelectItem key={c.variant_id} value={String(c.variant_id)}>{c.couleur}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input type="number" min={1} placeholder="Quantité" value={newQty} onChange={(e) => setNewQty(e.target.value)} />
-                <Input type="number" min={0} step="0.0001" placeholder={`Prix unit. (${devise})`} value={newPrix} onChange={(e) => setNewPrix(e.target.value)} />
-              </div>
-              <Button type="button" variant="secondary" size="sm" onClick={ajouterLigne}><Plus className="h-4 w-4 mr-2" /> Ajouter</Button>
-            </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1"><Label>Transporteur</Label><Input value={f.transporteur} onChange={set('transporteur')} /></div>
+            <div className="space-y-1"><Label>Tracking</Label><Input value={f.tracking} onChange={set('tracking')} /></div>
+            <div className="space-y-1"><Label>N° colis</Label><Input value={f.numero_colis} onChange={set('numero_colis')} /></div>
           </div>
         </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Annuler</Button>
-          <Button onClick={submit} disabled={submitting}>{submitting ? 'Enregistrement…' : 'Enregistrer les modifications'}</Button>
-        </DialogFooter>
+        <Pied onCancel={() => onOpenChange(false)} onSubmit={submit} submitting={submitting} label="Enregistrer" />
       </DialogContent>
     </Dialog>
   );

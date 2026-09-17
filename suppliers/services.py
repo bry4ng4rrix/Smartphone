@@ -1,47 +1,40 @@
-"""Règles métier du module Fournisseur (§7.6 Smartreadme.md, étendu).
+"""Règles métier du module Fournisseur (approvisionnements).
 
-Tout le calcul du coût réel se fait ici, en ariary (MGA) :
+Cycle (§ demande) :
 
-    valeur d'achat fournisseur (lignes × prix unitaire × taux, ou
-    `prix_fournisseur` saisi en MGA sur les anciennes commandes)
-  + frais communs (fret_import + douane historiques + tous les SupplierFee)
-  = VALEUR RÉELLE DE L'APPROVISIONNEMENT
+    Fournisseur → Approvisionnement (1 produit, 1 quantité)
+      → Paiement 1 → Préparation → Paiement 2 → Départ Chine → Transit
+      → Arrivée Madagascar → Frais + Douane
+      → Coût total rendu Madagascar → Coût de revient par pièce
 
-Les frais communs sont RÉPARTIS entre les lignes selon la méthode choisie
-(valeur d'achat / quantité / manuelle), ce qui donne pour chaque ligne un
-coût de revient unitaire = (valeur d'achat de la ligne + frais alloués) /
-quantité. La quantité retenue est la quantité REÇUE dès qu'une réception a
-eu lieu (c'est ce qui est réellement arrivé), la quantité commandée avant.
+Formules (§ 20), toutes en ariary :
+
+    total fournisseur MGA      = Σ montant_mga de chaque paiement
+                                 (montant devise × taux DU JOUR du paiement)
+    coût total rendu Madagascar = total fournisseur MGA + Frais + Douane
+    coût de revient par pièce   = coût total rendu Madagascar / quantité
+    marge                       = prix de vente − coût de revient par pièce
 
 Le stock n'est jamais touché ici directement : la réception passe par
-catalog.services.apply_stock_movement (origine FOURNISSEUR).
+catalog.services.apply_stock_movement (origine FOURNISSEUR), à la
+finalisation du coût (§ 13).
 """
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
 from catalog.services import apply_stock_movement
 
-from .models import (
-    DEUX_DEC,
-    ZERO,
-    Supplier,
-    SupplierFee,
-    SupplierOrder,
-    SupplierOrderLine,
-    SupplierPayment,
-    VariantCostHistory,
-    convertir_en_mga,
-)
+from .models import DEUX_DEC, ZERO, Supplier, SupplierOrder, SupplierPayment, convertir_en_mga
 
-# Statuts après lesquels la marchandise est considérée arrivée.
-STATUTS_ARRIVES = {"ARRIVE", "PARTIELLEMENT_RECU", "RECU", "COUT_FINALISE"}
-STATUTS_RECEPTION = {"PARTIELLEMENT_RECU", "RECU", "COUT_FINALISE"}
 # Statuts « en cours » (ni brouillon ni terminé) pour les indicateurs.
-STATUTS_EN_COURS = {"COMMANDE", "PARTIELLEMENT_PAYE", "PAYE", "PREPARE", "EN_TRANSIT", "ARRIVE", "PARTIELLEMENT_RECU", "RECU"}
+STATUTS_EN_COURS = {"COMMANDE", "ACOMPTE_PAYE", "PREPARATION", "PAYE", "EXPEDIE", "EN_TRANSIT", "ARRIVE"}
+# À partir d'ici la marchandise a quitté le fournisseur : le statut de
+# paiement ne fait plus reculer l'avancement.
+STATUTS_EXPEDIES = {"EXPEDIE", "EN_TRANSIT", "ARRIVE", "COUT_FINALISE"}
 
 
 def _rang(statut):
@@ -53,286 +46,155 @@ def _verifier_modifiable(order):
         raise ValidationError("Cet approvisionnement est finalisé : son coût de revient ne peut plus changer.")
 
 
+def _verifier_fournisseur(magasin, supplier):
+    if supplier is not None and supplier.admin_profile_id != magasin.admin.admin_profile.id:
+        raise ValidationError({"supplier": "Ce fournisseur n'appartient pas à votre société."})
+
+
+def _verifier_produit(magasin, variant):
+    if variant is None:
+        raise ValidationError({"product_variant": "Un approvisionnement porte sur un produit."})
+    if variant.product_reference.type.category.magasin_id != magasin.id:
+        raise ValidationError({"product_variant": "Ce produit n'appartient pas à ce magasin."})
+
+
 # --------------------------------------------------------------------------- #
 # Création / modification
 # --------------------------------------------------------------------------- #
 
 
 @transaction.atomic
-def create_supplier_order(*, magasin, lines, created_by, description="", prix_fournisseur=0, fret_import=0, douane=0,
-                          supplier=None, devise="MGA", taux_change=None, methode_allocation="VALEUR", date=None,
-                          destination="Madagascar", statut="BROUILLON"):
-    """`lines` : liste de {"product_variant": ProductVariant, "quantite": int,
-    "prix_unitaire": Decimal (devise de la commande, facultatif)}.
-    `prix_fournisseur` / `fret_import` / `douane` : montants MGA de la
-    première version, toujours acceptés (compatibilité)."""
-    if supplier is not None and supplier.admin_profile_id != getattr(magasin.admin, "admin_profile", None).id:
-        raise ValidationError({"supplier": "Ce fournisseur n'appartient pas à votre société."})
-    if devise == "MGA":
-        taux_change = Decimal("1")
-    elif not taux_change or Decimal(str(taux_change)) <= 0:
-        raise ValidationError({"taux_change": "Le taux de change (Ar pour 1 unité de devise) est requis."})
-
+def create_supplier_order(*, magasin, created_by, product_variant, quantite, supplier=None, devise="USD",
+                          montant_prevu=0, description="", date=None, statut="BROUILLON"):
+    """UN produit, UNE quantité (§ 3). `montant_prevu` : total convenu avec
+    le fournisseur, dans `devise` (facultatif, sert au « reste à payer »)."""
+    _verifier_fournisseur(magasin, supplier)
+    _verifier_produit(magasin, product_variant)
+    if not quantite or int(quantite) <= 0:
+        raise ValidationError({"quantite": "La quantité doit être supérieure à zéro."})
     order = SupplierOrder.objects.create(
         magasin=magasin,
         supplier=supplier,
+        product_variant=product_variant,
+        quantite=int(quantite),
+        devise=devise or (supplier.devise if supplier else "USD"),
+        montant_prevu=Decimal(str(montant_prevu or 0)),
         description=description or "",
-        prix_fournisseur=prix_fournisseur or 0,
-        fret_import=fret_import or 0,
-        douane=douane or 0,
-        devise=devise,
-        taux_change=Decimal(str(taux_change)),
-        methode_allocation=methode_allocation,
-        destination=destination or "Madagascar",
         statut=statut if statut in ("BROUILLON", "COMMANDE") else "BROUILLON",
         created_by=created_by,
         **({"date": date} if date else {}),
     )
-    for line in lines:
-        SupplierOrderLine.objects.create(
-            supplier_order=order,
-            product_variant=line["product_variant"],
-            quantite=line["quantite"],
-            prix_unitaire=Decimal(str(line.get("prix_unitaire") or 0)),
-        )
     return recompute_costs(order)
 
 
 @transaction.atomic
 def update_supplier_order(*, order, data):
-    """Modification des données générales / transport / méthode d'allocation
-    / lignes (tant que le coût n'est pas finalisé). Les lignes déjà reçues
-    ne peuvent pas être retirées ni réduites sous la quantité reçue."""
+    """Données générales / produit / quantité / transport / Frais + Douane,
+    tant que le coût n'est pas finalisé. La quantité ne peut pas passer sous
+    la quantité déjà réceptionnée."""
     _verifier_modifiable(order)
-    champs_simples = (
-        "description", "supplier", "devise", "taux_change", "methode_allocation", "date",
-        "prix_fournisseur", "fret_import", "douane",
-        "date_expedition", "transporteur", "mode_transport", "tracking", "lieu_depart", "destination", "date_arrivee",
+    champs = (
+        "description", "supplier", "devise", "montant_prevu", "date", "product_variant", "quantite",
+        "date_expedition", "transporteur", "mode_transport", "tracking", "numero_colis", "lieu_depart",
+        "destination", "date_arrivee", "commentaire_transport", "frais_douane_mga",
     )
-    # `null` explicite accepté pour retirer le fournisseur ou effacer une date
-    # de transport ; les autres champs ignorent null.
+    # `null` explicite accepté pour retirer le fournisseur ou effacer une
+    # date ; les autres champs ignorent null.
     effacables = {"supplier", "date_expedition", "date_arrivee"}
-    for champ in champs_simples:
+    for champ in champs:
         if champ in data and (data[champ] is not None or champ in effacables):
             setattr(order, champ, data[champ])
-    if order.devise == "MGA":
-        order.taux_change = Decimal("1")
-    elif not order.taux_change or order.taux_change <= 0:
-        raise ValidationError({"taux_change": "Le taux de change est requis pour une devise autre que le MGA."})
-    if order.supplier is not None and order.supplier.admin_profile_id != order.magasin.admin.admin_profile.id:
-        raise ValidationError({"supplier": "Ce fournisseur n'appartient pas à votre société."})
+    if "supplier" in data:
+        _verifier_fournisseur(order.magasin, order.supplier)
+    if "product_variant" in data:
+        _verifier_produit(order.magasin, order.product_variant)
+    if order.quantite <= 0:
+        raise ValidationError({"quantite": "La quantité doit être supérieure à zéro."})
+    if order.quantite < order.quantite_recue:
+        raise ValidationError({"quantite": f"{order.quantite_recue} pièce(s) déjà réceptionnée(s) : quantité minimale {order.quantite_recue}."})
+    if Decimal(order.frais_douane_mga or 0) < 0:
+        raise ValidationError({"frais_douane_mga": "Le montant Frais + Douane ne peut pas être négatif."})
     order.save()
-
-    if data.get("lines") is not None:
-        existantes = {l.id: l for l in order.lines.all()}
-        vues = set()
-        for ld in data["lines"]:
-            lid = ld.get("id")
-            if lid and lid in existantes:
-                ligne = existantes[lid]
-                if ld["quantite"] < ligne.quantite_recue:
-                    raise ValidationError({"lines": f"Ligne {ligne.product_variant} : {ligne.quantite_recue} déjà reçu(s), quantité minimale {ligne.quantite_recue}."})
-                ligne.quantite = ld["quantite"]
-                ligne.product_variant = ld["product_variant"]
-                if "prix_unitaire" in ld and ld["prix_unitaire"] is not None:
-                    ligne.prix_unitaire = Decimal(str(ld["prix_unitaire"]))
-                if "allocation_manuelle_mga" in ld:
-                    ligne.allocation_manuelle_mga = ld["allocation_manuelle_mga"]
-                ligne.save()
-                vues.add(lid)
-            else:
-                nouvelle = SupplierOrderLine.objects.create(
-                    supplier_order=order, product_variant=ld["product_variant"], quantite=ld["quantite"],
-                    prix_unitaire=Decimal(str(ld.get("prix_unitaire") or 0)),
-                    allocation_manuelle_mga=ld.get("allocation_manuelle_mga"),
-                )
-                vues.add(nouvelle.id)
-        for lid, ligne in existantes.items():
-            if lid not in vues:
-                if ligne.quantite_recue:
-                    raise ValidationError({"lines": f"Ligne {ligne.product_variant} : déjà réceptionnée, impossible de la retirer."})
-                ligne.delete()
     return recompute_costs(order)
 
 
 # --------------------------------------------------------------------------- #
-# Calcul du coût réel et allocation des frais
+# Calcul du coût réel
 # --------------------------------------------------------------------------- #
-
-
-def _quantite_retenue(order, line):
-    """Quantité sur laquelle le coût est calculé : la quantité reçue dès
-    qu'une réception a eu lieu, la quantité commandée sinon."""
-    if order.statut in STATUTS_RECEPTION:
-        return line.quantite_recue
-    return line.quantite
 
 
 @transaction.atomic
 def recompute_costs(order):
-    """Recalcule, en MGA : valeur d'achat, frais, valeur réelle, coût moyen,
-    et pour chaque ligne la valeur d'achat, les frais alloués et le coût de
-    revient unitaire. Sans effet sur un approvisionnement finalisé (ses
-    snapshots sont figés)."""
+    """Applique les formules (§ 10-11) et fige le résultat sur l'appro.
+    Sans effet sur un approvisionnement déjà finalisé (coût historique)."""
+    order = SupplierOrder.objects.select_for_update().get(pk=order.pk)
     if order.est_finalise:
         return order
-    lines = list(order.lines.select_related("product_variant").all())
-    qtes = {l.id: _quantite_retenue(order, l) for l in lines}
-    total_qty = sum(qtes.values())
-
-    # 1. Valeur d'achat par ligne (MGA).
-    valeurs = {}
-    if any(l.prix_unitaire for l in lines):
-        for l in lines:
-            valeurs[l.id] = convertir_en_mga(l.prix_unitaire * qtes[l.id], order.devise, order.taux_change)
-        valeur_achat = sum(valeurs.values(), ZERO)
-        # `prix_fournisseur` historique en plus (rare : ancien montant global
-        # ET prix par ligne) — réparti par quantité.
-        extra = Decimal(order.prix_fournisseur or 0)
-    else:
-        # Première version : un seul montant global, réparti par quantité.
-        valeur_achat = Decimal(order.prix_fournisseur or 0)
-        extra = ZERO
-        for l in lines:
-            valeurs[l.id] = (valeur_achat * qtes[l.id] / total_qty).quantize(DEUX_DEC) if total_qty else ZERO
-    if extra:
-        for l in lines:
-            valeurs[l.id] += (extra * qtes[l.id] / total_qty).quantize(DEUX_DEC) if total_qty else ZERO
-        valeur_achat += extra
-
-    # 2. Frais communs à répartir.
-    frais_typés = order.fees.aggregate(t=Sum("montant_mga"))["t"] or ZERO
-    total_frais = Decimal(order.fret_import or 0) + Decimal(order.douane or 0) + frais_typés
-
-    # 3. Allocation.
-    alloues = {l.id: ZERO for l in lines}
-    if lines and total_frais:
-        if order.methode_allocation == "MANUEL":
-            for l in lines:
-                alloues[l.id] = Decimal(l.allocation_manuelle_mga or 0)
-        elif order.methode_allocation == "QUANTITE" or not valeur_achat:
-            if total_qty:
-                for l in lines:
-                    alloues[l.id] = (total_frais * qtes[l.id] / total_qty).quantize(DEUX_DEC)
-        else:  # VALEUR (défaut)
-            for l in lines:
-                alloues[l.id] = (total_frais * valeurs[l.id] / valeur_achat).quantize(DEUX_DEC)
-        # Arrondis : la dernière ligne absorbe l'écart pour que la somme des
-        # frais alloués soit exactement le total (hors MANUEL).
-        if order.methode_allocation != "MANUEL" and (total_qty if order.methode_allocation == "QUANTITE" or not valeur_achat else valeur_achat):
-            ecart = total_frais - sum(alloues.values(), ZERO)
-            if ecart and lines:
-                alloues[lines[-1].id] += ecart
-
-    # 4. Snapshots.
-    for l in lines:
-        q = qtes[l.id]
-        l.valeur_achat_mga = valeurs[l.id]
-        l.frais_alloues_mga = alloues[l.id]
-        l.total_ligne = (valeurs[l.id] + alloues[l.id]).quantize(DEUX_DEC)
-        l.cout_unitaire_calcule = (l.total_ligne / q).quantize(DEUX_DEC) if q else ZERO
-        l.save(update_fields=["valeur_achat_mga", "frais_alloues_mga", "total_ligne", "cout_unitaire_calcule"])
-
-    order.total_qty = total_qty
-    order.valeur_achat_mga = valeur_achat.quantize(DEUX_DEC)
-    order.total_frais_mga = total_frais.quantize(DEUX_DEC)
-    order.cout_total = (valeur_achat + total_frais).quantize(DEUX_DEC)
-    order.cout_unitaire = (order.cout_total / total_qty).quantize(DEUX_DEC) if total_qty else ZERO
-    order.save(update_fields=["total_qty", "valeur_achat_mga", "total_frais_mga", "cout_total", "cout_unitaire"])
+    total = order.payments.aggregate(t=Sum("montant_mga"))["t"] or ZERO
+    order.total_paiements_mga = Decimal(total).quantize(DEUX_DEC)
+    order.cout_total_mga = (order.total_paiements_mga + Decimal(order.frais_douane_mga or 0)).quantize(DEUX_DEC)
+    order.cout_unitaire_mga = (order.cout_total_mga / order.quantite).quantize(DEUX_DEC) if order.quantite else ZERO
     _ajuster_statut_paiement(order)
+    order.save()
     return order
 
 
 def _ajuster_statut_paiement(order):
-    """PARTIELLEMENT_PAYE / PAYE dérivés des paiements, tant que la
-    marchandise n'est pas plus avancée (préparée, en transit…)."""
-    if order.statut not in ("COMMANDE", "PARTIELLEMENT_PAYE", "PAYE"):
+    """COMMANDE / ACOMPTE_PAYE / PAYE suivent les paiements (§ 15) tant que
+    la marchandise n'est pas expédiée ; PREPARATION est posé à la main et
+    n'est pas remis en cause par un paiement. « Entièrement payé » = total
+    payé ≥ montant prévu (quand un montant prévu existe)."""
+    if order.statut in STATUTS_EXPEDIES or order.statut == "BROUILLON":
         return
-    # Requête fraîche : l'instance peut porter un cache `prefetch_related`
-    # antérieur à l'ajout / la suppression du paiement.
-    paye = SupplierPayment.objects.filter(supplier_order=order).aggregate(t=Sum("montant_mga"))["t"] or ZERO
-    if paye <= 0:
-        nouveau = "COMMANDE"
-    elif order.valeur_achat_mga and paye >= order.valeur_achat_mga:
-        nouveau = "PAYE"
+    prevu = Decimal(order.montant_prevu or 0)
+    paye = order.total_paye_devise if order.devise != "MGA" else Decimal(order.total_paiements_mga)
+    if prevu and paye >= prevu:
+        order.statut = "PAYE"
+    elif paye > 0:
+        order.statut = "PREPARATION" if order.statut == "PREPARATION" else "ACOMPTE_PAYE"
     else:
-        nouveau = "PARTIELLEMENT_PAYE"
-    if nouveau != order.statut:
-        order.statut = nouveau
-        order.save(update_fields=["statut"])
+        order.statut = "PREPARATION" if order.statut == "PREPARATION" else "COMMANDE"
 
 
 # --------------------------------------------------------------------------- #
-# Paiements et frais
+# Paiements (§ 4-6)
 # --------------------------------------------------------------------------- #
 
 
 @transaction.atomic
 def add_payment(*, order, user, montant, devise, taux_change=None, date=None, type_paiement="ACOMPTE",
                 methode="VIREMENT", reference="", commentaire="", justificatif=None):
+    """Chaque paiement garde SON taux : montant_mga = montant × taux du jour,
+    jamais recalculé ensuite."""
     _verifier_modifiable(order)
     montant = Decimal(str(montant))
     if montant <= 0:
-        raise ValidationError({"montant": "Le montant doit être supérieur à 0."})
+        raise ValidationError({"montant": "Le montant doit être supérieur à zéro."})
     if devise != "MGA" and (not taux_change or Decimal(str(taux_change)) <= 0):
-        # Repli : taux de la commande si même devise.
-        if devise == order.devise and order.taux_change:
-            taux_change = order.taux_change
-        else:
-            raise ValidationError({"taux_change": "Le taux de change (Ar pour 1 unité) est requis."})
+        raise ValidationError({"taux_change": "Le taux de change du jour (Ar pour 1 unité de devise) est requis."})
     if order.statut == "BROUILLON":
         order.statut = "COMMANDE"
         order.save(update_fields=["statut"])
-    paiement = SupplierPayment.objects.create(
+    payment = SupplierPayment.objects.create(
         supplier_order=order, montant=montant, devise=devise, taux_change=Decimal(str(taux_change or 1)),
-        date=date or timezone.localdate(), type_paiement=type_paiement, methode=methode,
-        reference=reference or "", commentaire=commentaire or "", justificatif=justificatif, created_by=user,
+        type_paiement=type_paiement, methode=methode, reference=reference or "", commentaire=commentaire or "",
+        justificatif=justificatif, created_by=user, **({"date": date} if date else {}),
     )
-    _ajuster_statut_paiement(order)
-    return paiement
+    recompute_costs(order)
+    return payment
 
 
 @transaction.atomic
 def delete_payment(*, order, payment_id):
     _verifier_modifiable(order)
-    deleted, _ = order.payments.filter(id=payment_id).delete()
+    deleted, _ = order.payments.filter(pk=payment_id).delete()
     if not deleted:
-        raise ValidationError("Paiement introuvable.")
-    _ajuster_statut_paiement(order)
-
-
-@transaction.atomic
-def add_fee(*, order, user, type_frais, montant, devise, taux_change=None, date=None, description="",
-            prestataire="", justificatif=None):
-    _verifier_modifiable(order)
-    montant = Decimal(str(montant))
-    if montant <= 0:
-        raise ValidationError({"montant": "Le montant doit être supérieur à 0."})
-    if devise != "MGA" and (not taux_change or Decimal(str(taux_change)) <= 0):
-        if devise == order.devise and order.taux_change:
-            taux_change = order.taux_change
-        else:
-            raise ValidationError({"taux_change": "Le taux de change (Ar pour 1 unité) est requis."})
-    frais = SupplierFee.objects.create(
-        supplier_order=order, type_frais=type_frais, montant=montant, devise=devise,
-        taux_change=Decimal(str(taux_change or 1)), date=date or timezone.localdate(),
-        description=description or "", prestataire=prestataire or "", justificatif=justificatif, created_by=user,
-    )
-    recompute_costs(order)
-    return frais
-
-
-@transaction.atomic
-def delete_fee(*, order, fee_id):
-    _verifier_modifiable(order)
-    deleted, _ = order.fees.filter(id=fee_id).delete()
-    if not deleted:
-        raise ValidationError("Frais introuvable.")
+        raise ValidationError({"payment": "Paiement introuvable."})
     recompute_costs(order)
 
 
 # --------------------------------------------------------------------------- #
-# Workflow : commander -> préparé -> en transit -> arrivé -> réception -> finalisé
+# Workflow (§ 7-9, 15)
 # --------------------------------------------------------------------------- #
 
 
@@ -340,189 +202,197 @@ def _avancer(order, nouveau, depuis):
     _verifier_modifiable(order)
     if order.statut not in depuis:
         raise ValidationError(
-            f"Transition impossible : l'approvisionnement est '{order.get_statut_display()}'."
+            f"Passage « {order.get_statut_display()} » → « {dict(SupplierOrder.STATUT_CHOICES)[nouveau]} » impossible."
         )
     order.statut = nouveau
-    order.save(update_fields=["statut"])
-    return order
 
 
+@transaction.atomic
 def commander(order):
-    """Brouillon -> Commandé (la commande est passée au fournisseur)."""
     _avancer(order, "COMMANDE", {"BROUILLON"})
-    _ajuster_statut_paiement(order)
-    return order
-
-
-def preparer(order):
-    """Le fournisseur a terminé la préparation (marchandise prête, pas encore partie)."""
-    return _avancer(order, "PREPARE", {"COMMANDE", "PARTIELLEMENT_PAYE", "PAYE"})
-
-
-@transaction.atomic
-def expedier(order, **transport):
-    """Départ de la marchandise : informations logistiques + statut En transit."""
-    for champ in ("date_expedition", "transporteur", "mode_transport", "tracking", "lieu_depart", "destination"):
-        if transport.get(champ) is not None:
-            setattr(order, champ, transport[champ])
-    if not order.date_expedition:
-        order.date_expedition = timezone.localdate()
-    order.save()
-    return _avancer(order, "EN_TRANSIT", {"COMMANDE", "PARTIELLEMENT_PAYE", "PAYE", "PREPARE"})
-
-
-@transaction.atomic
-def arriver(order, date_arrivee=None):
-    """Arrivée à Madagascar : les frais (douane…) peuvent maintenant être saisis."""
-    order.date_arrivee = date_arrivee or timezone.localdate()
-    order.save(update_fields=["date_arrivee"])
-    return _avancer(order, "ARRIVE", {"COMMANDE", "PARTIELLEMENT_PAYE", "PAYE", "PREPARE", "EN_TRANSIT"})
-
-
-@transaction.atomic
-def receive_supplier_order(order, user, quantites=None):
-    """Réception (totale ou partielle) : entrée en stock par variante via
-    apply_stock_movement (origine FOURNISSEUR), puis recalcul des coûts sur
-    les quantités reçues.
-
-    `quantites` : {line_id: quantité reçue MAINTENANT} — None = tout ce qui
-    reste à recevoir sur chaque ligne (comportement de la première version).
-    Le statut passe à RECU quand toutes les lignes sont complètes, sinon à
-    PARTIELLEMENT_RECU."""
-    _verifier_modifiable(order)
-    if order.statut == "RECU":
-        raise ValidationError("Cette commande fournisseur a déjà été reçue.")
-    if order.statut == "BROUILLON":
-        # Première version : création puis réception directe — on passe
-        # simplement la commande en « Commandé » au passage.
-        order.statut = "COMMANDE"
-        order.save(update_fields=["statut"])
-    lines = list(order.lines.select_related("product_variant"))
-    if quantites is None:
-        quantites = {l.id: l.quantite - l.quantite_recue for l in lines}
-    total_maintenant = 0
-    for l in lines:
-        q = int(quantites.get(l.id, 0) or 0)
-        if q < 0:
-            raise ValidationError({"lines": "Quantité reçue négative."})
-        restant = l.quantite - l.quantite_recue
-        if q > restant:
-            raise ValidationError({"lines": f"{l.product_variant} : {q} reçu(s) pour {restant} restant(s) à recevoir."})
-        if q == 0:
-            continue
-        apply_stock_movement(
-            product_variant=l.product_variant, movement_type="ENTREE", quantite=q,
-            origine="FOURNISSEUR", user=user, reference=order.numero,
-        )
-        l.quantite_recue += q
-        l.save(update_fields=["quantite_recue"])
-        total_maintenant += q
-    if total_maintenant == 0:
-        raise ValidationError("Aucune quantité reçue.")
-    complet = all(l.quantite_recue >= l.quantite for l in lines)
-    order.statut = "RECU" if complet else "PARTIELLEMENT_RECU"
-    if complet:
-        order.received_at = timezone.now()
-    if not order.date_arrivee:
-        order.date_arrivee = timezone.localdate()
-    order.save(update_fields=["statut", "received_at", "date_arrivee"])
+    order.save(update_fields=["statut"])
     return recompute_costs(order)
 
 
 @transaction.atomic
-def finaliser_cout(order, mettre_a_jour_prix_achat=True):
-    """Coût finalisé : tous les frais sont connus, la marchandise est reçue.
-    Fige les snapshots, écrit l'historique du coût de revient de chaque
-    variante (jamais écrasé) et, si demandé, met à jour le prix d'achat de
-    la référence (base des marges des rapports) avec le coût de revient
-    — moyenne pondérée si plusieurs couleurs d'une même référence."""
-    if order.est_finalise:
-        raise ValidationError("Cet approvisionnement est déjà finalisé.")
-    if order.statut not in ("RECU", "PARTIELLEMENT_RECU"):
-        raise ValidationError("Réceptionnez la marchandise avant de finaliser le coût.")
-    recompute_costs(order)
-    order.refresh_from_db()
-    lines = list(order.lines.select_related("product_variant__product_reference"))
-    par_reference = {}
-    for l in lines:
-        if not l.quantite_recue:
-            continue
-        VariantCostHistory.objects.update_or_create(
-            product_variant=l.product_variant, supplier_order=order,
-            defaults={
-                "quantite": l.quantite_recue,
-                "valeur_achat_unitaire_mga": (l.valeur_achat_mga / l.quantite_recue).quantize(DEUX_DEC),
-                "frais_unitaire_mga": (l.frais_alloues_mga / l.quantite_recue).quantize(DEUX_DEC),
-                "cout_revient_unitaire_mga": l.cout_unitaire_calcule,
-                "date": order.date_arrivee or timezone.localdate(),
-            },
-        )
-        ref = l.product_variant.product_reference
-        cum = par_reference.setdefault(ref.id, {"ref": ref, "valeur": ZERO, "qte": 0})
-        cum["valeur"] += l.total_ligne
-        cum["qte"] += l.quantite_recue
-    if mettre_a_jour_prix_achat:
-        for cum in par_reference.values():
-            if cum["qte"]:
-                cum["ref"].prix_achat = (cum["valeur"] / cum["qte"]).quantize(DEUX_DEC)
-                cum["ref"].save(update_fields=["prix_achat", "updated_at"])
-    order.statut = "COUT_FINALISE"
-    order.finalise_at = timezone.now()
-    order.save(update_fields=["statut", "finalise_at"])
+def preparer(order):
+    """Le fournisseur prépare la marchandise (après le premier paiement)."""
+    _avancer(order, "PREPARATION", {"COMMANDE", "ACOMPTE_PAYE", "PAYE"})
+    order.save(update_fields=["statut"])
+    return recompute_costs(order)
+
+
+@transaction.atomic
+def expedier(order, **transport):
+    """Départ de Chine : date, transporteur, mode, tracking, n° colis…"""
+    _avancer(order, "EXPEDIE", {"COMMANDE", "ACOMPTE_PAYE", "PREPARATION", "PAYE"})
+    for champ in ("date_expedition", "transporteur", "mode_transport", "tracking", "numero_colis", "lieu_depart",
+                  "destination", "commentaire_transport"):
+        if champ in transport and transport[champ] is not None:
+            setattr(order, champ, transport[champ])
+    if not order.date_expedition:
+        order.date_expedition = timezone.localdate()
+    order.save()
     return order
 
 
+@transaction.atomic
+def transit(order, **transport):
+    _avancer(order, "EN_TRANSIT", {"EXPEDIE"})
+    for champ in ("transporteur", "mode_transport", "tracking", "numero_colis", "commentaire_transport"):
+        if champ in transport and transport[champ] is not None:
+            setattr(order, champ, transport[champ])
+    order.save()
+    return order
+
+
+@transaction.atomic
+def arriver(order, date_arrivee=None, frais_douane_mga=None):
+    """Arrivée à Madagascar. Le montant Frais + Douane peut être saisi ici
+    ou plus tard (PATCH), avant la finalisation."""
+    _avancer(order, "ARRIVE", {"EXPEDIE", "EN_TRANSIT"})
+    order.date_arrivee = date_arrivee or timezone.localdate()
+    if frais_douane_mga is not None:
+        order.frais_douane_mga = Decimal(str(frais_douane_mga))
+    order.save()
+    return recompute_costs(order)
+
+
+@transaction.atomic
+def finaliser_cout(order, user, mettre_a_jour_prix_achat=True, quantite_recue=None):
+    """Arrivé → Coût finalisé (§ 10-13) : fige le coût total et le coût de
+    revient par pièce, RÉCEPTIONNE la marchandise dans le stock (entrée
+    référencée par le n° d'appro, coût unitaire dans la note) et, si demandé,
+    met à jour le prix d'achat de référence du produit (moyenne pondérée
+    avec le stock existant).
+
+    `quantite_recue` : pièces réellement arrivées (défaut : la quantité
+    commandée). Le coût de revient reste calculé sur la quantité
+    commandée ; le stock, lui, reçoit ce qui est réellement arrivé."""
+    if order.statut != "ARRIVE":
+        raise ValidationError("Le coût ne se finalise qu'une fois la marchandise arrivée à Madagascar.")
+    order = recompute_costs(order)
+    a_recevoir = int(quantite_recue) if quantite_recue is not None else order.quantite
+    if a_recevoir < 0 or a_recevoir > order.quantite:
+        raise ValidationError({"quantite_recue": f"La quantité reçue doit être comprise entre 0 et {order.quantite}."})
+    deja = order.quantite_recue
+    delta = a_recevoir - deja
+    variant = order.product_variant
+    if delta < 0:
+        raise ValidationError({"quantite_recue": f"{deja} pièce(s) déjà réceptionnée(s)."})
+    if delta > 0:
+        if mettre_a_jour_prix_achat:
+            _mettre_a_jour_prix_achat(variant, delta, order.cout_unitaire_mga)
+        apply_stock_movement(
+            variant, "ENTREE", delta, origine="FOURNISSEUR", user=user, reference=order.numero,
+            note=f"Réception approvisionnement {order.numero} — {delta} pièce(s) à {order.cout_unitaire_mga} Ar",
+        )
+    order.quantite_recue = a_recevoir
+    order.received_at = order.received_at or timezone.now()
+    order.statut = "COUT_FINALISE"
+    order.finalise_at = timezone.now()
+    order.save()
+    return order
+
+
+def _mettre_a_jour_prix_achat(variant, quantite, cout_unitaire):
+    """Nouveau prix d'achat de référence = moyenne pondérée (stock actuel au
+    prix actuel + pièces reçues au coût de revient). Stock vide → le coût de
+    revient devient le prix d'achat."""
+    reference = variant.product_reference
+    stock = max(int(variant.stock_actuel or 0), 0)
+    ancien = Decimal(reference.prix_achat or 0)
+    cout = Decimal(cout_unitaire or 0)
+    total_qty = stock + int(quantite)
+    if total_qty <= 0:
+        return
+    nouveau = ((ancien * stock + cout * int(quantite)) / total_qty).quantize(DEUX_DEC) if stock and ancien else cout
+    if nouveau != ancien:
+        reference.prix_achat = nouveau
+        reference.save(update_fields=["prix_achat"])
+
+
 # --------------------------------------------------------------------------- #
-# Coût de revient actuel / historique d'une variante
+# Caisse / trésorerie (§ 14) — sorties identifiables APPRO:<numéro>:…
 # --------------------------------------------------------------------------- #
+
+
+def enregistrer_en_caisse(order, user, montant_mga, libelle, reference):
+    """Sortie de caisse automatique (origine ACHAT_STOCK — de la marchandise,
+    exclue des charges des rapports), idempotente par référence. Requiert
+    une session ouverte sur le magasin de l'appro."""
+    from finance import services as finance_services
+
+    session = finance_services.session_ouverte(order.magasin, verrouiller=True)
+    if not session:
+        raise ValidationError({"en_caisse": "Aucune session de caisse ouverte pour enregistrer la sortie."})
+    finance_services.mouvement_caisse(session, "out", montant_mga, libelle, "ACHAT_STOCK", reference, user)
+
+
+def references_caisse(order):
+    from users.models import CaisseMovement
+
+    return set(CaisseMovement.objects.filter(reference__startswith=f"APPRO:{order.numero}:").values_list("reference", flat=True))
+
+
+# --------------------------------------------------------------------------- #
+# Historique et indicateurs (§ 12, page Fournisseur)
+# --------------------------------------------------------------------------- #
+
+
+def historique_couts_variante(variant):
+    """Les envois finalisés de ce produit, du plus récent au plus ancien —
+    chacun garde son coût (§ 12)."""
+    return SupplierOrder.objects.filter(product_variant=variant, statut="COUT_FINALISE").select_related("supplier").order_by("-finalise_at", "-id")
 
 
 def cout_revient_variante(variant):
-    """{dernier, moyen_pondere, historique} — `dernier` = dernier
-    approvisionnement finalisé (coût actuel / masonkarena), `moyen_pondere`
-    sur tout l'historique. None si aucun approvisionnement finalisé."""
-    hist = list(VariantCostHistory.objects.filter(product_variant=variant).select_related("supplier_order").order_by("-date", "-id"))
-    if not hist:
-        return {"dernier": None, "moyen_pondere": None, "historique": []}
-    qte = sum(h.quantite for h in hist)
-    total = sum((h.cout_revient_unitaire_mga * h.quantite for h in hist), ZERO)
+    """Dernier coût de revient finalisé, coût moyen pondéré des envois
+    finalisés, et prix d'achat de référence actuel."""
+    envois = list(historique_couts_variante(variant))
+    quantite = sum(e.quantite for e in envois)
+    moyen = (sum((e.cout_total_mga for e in envois), ZERO) / quantite).quantize(DEUX_DEC) if quantite else None
     return {
-        "dernier": hist[0].cout_revient_unitaire_mga,
-        "moyen_pondere": (total / qte).quantize(DEUX_DEC) if qte else None,
-        "historique": hist,
+        "dernier": envois[0].cout_unitaire_mga if envois else None,
+        "moyen": moyen,
+        "prix_achat_reference": variant.product_reference.prix_achat,
+        "envois": envois,
     }
 
 
-# --------------------------------------------------------------------------- #
-# Indicateurs (page Gérant -> Fournisseurs) et résumé par fournisseur
-# --------------------------------------------------------------------------- #
-
-
 def resume_financier(orders):
-    """Totaux MGA sur un ensemble d'approvisionnements."""
+    """Totaux MGA d'une liste d'approvisionnements (fiche fournisseur, KPIs)."""
     orders = list(orders)
-    total_achats = sum((o.valeur_achat_mga for o in orders), ZERO)
-    total_paye = sum((o.total_paye_mga for o in orders), ZERO)
-    total_frais = sum((o.total_frais_mga for o in orders), ZERO)
-    valeur_recue = sum((o.cout_total for o in orders if o.statut in STATUTS_RECEPTION), ZERO)
+    total_paye = sum((Decimal(o.total_paiements_mga) for o in orders), ZERO)
+    frais = sum((Decimal(o.frais_douane_mga) for o in orders), ZERO)
     return {
         "nb_approvisionnements": len(orders),
-        "total_achats_mga": total_achats,
+        "nb_en_cours": sum(1 for o in orders if o.statut in STATUTS_EN_COURS),
+        "nb_finalises": sum(1 for o in orders if o.est_finalise),
         "total_paye_mga": total_paye,
-        "reste_a_payer_mga": max(total_achats - total_paye, ZERO),
-        "total_frais_mga": total_frais,
-        "valeur_recue_mga": valeur_recue,
+        "total_frais_douane_mga": frais,
+        "cout_total_mga": sum((Decimal(o.cout_total_mga) for o in orders), ZERO),
+        "reste_a_payer_devise": sum((o.reste_a_payer_devise for o in orders if not o.est_finalise), ZERO),
+        "quantite_totale": sum(o.quantite for o in orders),
     }
 
 
 def kpis(orders, suppliers):
     orders = list(orders)
-    base = resume_financier(orders)
+    res = resume_financier(orders)
+    en_transit = [o for o in orders if o.statut in ("EXPEDIE", "EN_TRANSIT")]
+    finalises = [o for o in orders if o.est_finalise]
     return {
-        "nb_fournisseurs": suppliers.count(),
-        "en_cours": sum(1 for o in orders if o.statut in STATUTS_EN_COURS),
-        "en_transit": sum(1 for o in orders if o.statut == "EN_TRANSIT"),
-        "arrives": sum(1 for o in orders if o.statut in STATUTS_ARRIVES),
-        "finalises": sum(1 for o in orders if o.statut == "COUT_FINALISE"),
-        **base,
+        **res,
+        "nb_fournisseurs": len(list(suppliers)),
+        "nb_fournisseurs_actifs": sum(1 for s in suppliers if s.actif),
+        "en_transit": {"nb": len(en_transit), "valeur_mga": sum((Decimal(o.cout_total_mga) for o in en_transit), ZERO)},
+        "a_finaliser": sum(1 for o in orders if o.statut == "ARRIVE"),
+        "cout_moyen_par_piece_mga": (
+            (sum((Decimal(o.cout_total_mga) for o in finalises), ZERO) / sum(o.quantite for o in finalises)).quantize(DEUX_DEC)
+            if finalises and sum(o.quantite for o in finalises) else None
+        ),
+        "par_statut": [
+            {"statut": s, "label": l, "nb": sum(1 for o in orders if o.statut == s)} for s, l in SupplierOrder.STATUT_CHOICES
+        ],
     }

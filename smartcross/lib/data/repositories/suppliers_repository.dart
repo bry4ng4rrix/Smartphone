@@ -4,19 +4,23 @@ import '../../core/api_client.dart';
 import '../../models/catalog.dart';
 import '../../models/supplier.dart';
 
-/// `/api/suppliers/` — commandes fournisseur, coût de revient réel
-/// (§7.6 README, réservé au gérant : `SupplierOrderViewSet.permission_classes
-/// = [IsGerant]`). Miroir de `djangoClient.suppliers` (frontend/lib/
-/// django-client.ts) + les trois appels catalogue du formulaire de création
-/// (marques, catégories, références filtrées).
+/// `/api/suppliers/` — approvisionnements (1 produit, N paiements, Frais +
+/// Douane, coût par pièce), fiches fournisseur, historique des envois.
+/// Réservé au gérant. Miroir de `djangoClient.suppliers` (frontend/lib/
+/// django-client.ts).
 class SuppliersRepository {
   Dio get _dio => ApiClient.instance.dio;
 
-  /// `GET suppliers/orders/?magasin_id=` — toutes les commandes des magasins
-  /// accessibles (ordre serveur : la plus récente en premier).
-  Future<List<SupplierOrder>> list({int? magasinId}) async {
+  // ---------------------------------------------------------------------------
+  // Approvisionnements
+  // ---------------------------------------------------------------------------
+
+  Future<List<SupplierOrder>> list({int? magasinId, int? supplierId, String? statut, String? search}) async {
     final response = await _dio.get('suppliers/orders/', queryParameters: {
       'magasin_id': ?magasinId,
+      'supplier': ?supplierId,
+      if (statut != null && statut.isNotEmpty) 'statut': statut,
+      if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
     });
     return (response.data as List).map((e) => SupplierOrder.fromJson(e as Map<String, dynamic>)).toList();
   }
@@ -26,66 +30,132 @@ class SuppliersRepository {
     return SupplierOrder.fromJson(response.data as Map<String, dynamic>);
   }
 
-  /// `POST suppliers/orders/` — crée la commande + ses lignes puis recalcule
-  /// les coûts côté serveur. [magasinId] n'est requis que pour un admin qui
-  /// possède PLUSIEURS magasins (`resolve_magasin_for_request` : sans lui le
-  /// serveur répond 400 « magasin_id: Ce champ est requis (plusieurs
-  /// magasins accessibles). »).
+  Future<SupplierKpis> kpis() async {
+    final response = await _dio.get('suppliers/orders/kpis/');
+    return SupplierKpis.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  /// UN produit, UNE quantité (§ 3).
   Future<SupplierOrder> create({
+    int? supplierId,
+    required int productVariantId,
+    required int quantite,
+    String devise = 'USD',
+    double montantPrevu = 0,
     String description = '',
-    required double prixFournisseur,
-    required double fretImport,
-    required double douane,
-    required List<SupplierOrderLineDraft> lines,
+    String? date,
+    String statut = 'BROUILLON',
     int? magasinId,
   }) async {
     final response = await _dio.post('suppliers/orders/', data: {
+      'supplier': supplierId,
+      'product_variant': productVariantId,
+      'quantite': quantite,
+      'devise': devise,
+      'montant_prevu': montantPrevu,
       'description': description,
-      'prix_fournisseur': prixFournisseur,
-      'fret_import': fretImport,
-      'douane': douane,
-      'lines': lines.map((e) => e.toJson()).toList(),
+      'date': ?date,
+      'statut': statut,
       'magasin_id': ?magasinId,
     });
     return SupplierOrder.fromJson(response.data as Map<String, dynamic>);
   }
 
-  /// Réception -> entrée stock automatique par ligne (§7.6 README),
-  /// mouvements d'origine FOURNISSEUR, statut RECU, notification
-  /// `supplier_order`. Irréversible : une seconde réception répond 400
-  /// « Cette commande fournisseur a déjà été reçue. ».
-  Future<SupplierOrder> receive(int id) async {
-    final response = await _dio.post('suppliers/orders/$id/receive/');
+  Future<SupplierOrder> update(int id, Map<String, dynamic> data) async {
+    final response = await _dio.patch('suppliers/orders/$id/', data: data);
+    return SupplierOrder.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<void> delete(int id) => _dio.delete('suppliers/orders/$id/');
+
+  Future<SupplierOrder> _post(int id, String action, [Map<String, dynamic>? data]) async {
+    final response = await _dio.post('suppliers/orders/$id/$action/', data: data ?? const {});
+    return SupplierOrder.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<SupplierOrder> commander(int id) => _post(id, 'commander');
+  Future<SupplierOrder> preparer(int id) => _post(id, 'preparer');
+  Future<SupplierOrder> expedier(int id, Map<String, dynamic> transport) => _post(id, 'expedier', transport);
+  Future<SupplierOrder> transit(int id, [Map<String, dynamic>? transport]) => _post(id, 'transit', transport);
+  Future<SupplierOrder> arriver(int id, {String? dateArrivee, double? fraisDouaneMga}) =>
+      _post(id, 'arriver', {'date_arrivee': ?dateArrivee, 'frais_douane_mga': ?fraisDouaneMga});
+
+  /// UN seul montant Frais + Douane (MGA) ; [enCaisse] enregistre la sortie.
+  Future<SupplierOrder> fraisDouane(int id, {required double montant, bool enCaisse = false}) =>
+      _post(id, 'frais-douane', {'frais_douane_mga': montant, 'en_caisse': enCaisse});
+
+  /// Fige le coût et réceptionne dans le stock.
+  Future<SupplierOrder> finaliser(int id, {bool mettreAJourPrixAchat = true, int? quantiteRecue}) =>
+      _post(id, 'finaliser', {'mettre_a_jour_prix_achat': mettreAJourPrixAchat, 'quantite_recue': ?quantiteRecue});
+
+  // ---------------------------------------------------------------------------
+  // Paiements (taux du jour figé)
+  // ---------------------------------------------------------------------------
+
+  Future<SupplierOrder> addPayment(
+    int id, {
+    required double montant,
+    required String devise,
+    double? tauxChange,
+    String? date,
+    String typePaiement = 'ACOMPTE',
+    String methode = 'VIREMENT',
+    String reference = '',
+    String commentaire = '',
+    bool enCaisse = false,
+  }) =>
+      _post(id, 'payments', {
+        'montant': montant,
+        'devise': devise,
+        'taux_change': devise == 'MGA' ? 1 : tauxChange,
+        'date': ?date,
+        'type_paiement': typePaiement,
+        'methode': methode,
+        'reference': reference,
+        'commentaire': commentaire,
+        'en_caisse': enCaisse,
+      });
+
+  Future<SupplierOrder> deletePayment(int id, int paymentId) async {
+    final response = await _dio.delete('suppliers/orders/$id/payments/$paymentId/');
     return SupplierOrder.fromJson(response.data as Map<String, dynamic>);
   }
 
   // ---------------------------------------------------------------------------
-  // Catalogue du formulaire « Ajouter une ligne » (CreateSupplierOrderDialog)
+  // Fiches fournisseur
   // ---------------------------------------------------------------------------
 
-  /// `GET catalog/brands/?magasin_id=` — Select « Marque ». Le filtre magasin
-  /// (absent du web) évite à un admin multi-magasins de choisir une marque
-  /// d'un autre magasin que celui de la commande.
-  Future<List<Brand>> brands({int? magasinId}) async {
-    final response = await _dio.get('catalog/brands/', queryParameters: {'magasin_id': ?magasinId});
-    return (response.data as List).map((e) => Brand.fromJson(e as Map<String, dynamic>)).toList();
+  Future<List<Supplier>> suppliers({String? search, bool actif = false}) async {
+    final response = await _dio.get('suppliers/suppliers/', queryParameters: {
+      if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+      if (actif) 'actif': '1',
+    });
+    return (response.data as List).map((e) => Supplier.fromJson(e as Map<String, dynamic>)).toList();
   }
 
-  /// `GET catalog/categories/?magasin_id=` — Select « Catégorie ».
-  Future<List<ProductCategory>> categories({int? magasinId}) async {
-    final response = await _dio.get('catalog/categories/', queryParameters: {'magasin_id': ?magasinId});
-    return (response.data as List).map((e) => ProductCategory.fromJson(e as Map<String, dynamic>)).toList();
+  Future<Supplier> supplierCreate(Map<String, dynamic> data) async {
+    final response = await _dio.post('suppliers/suppliers/', data: data);
+    return Supplier.fromJson(response.data as Map<String, dynamic>);
   }
 
-  /// `GET catalog/references/?brand=&category=&magasin_id=` — alimente la
-  /// liste plate des variantes (Select « Couleur »), rechargée à chaque
-  /// changement de marque/catégorie comme le `useEffect` du web.
-  Future<List<ProductReference>> references({int? brandId, int? categoryId, int? magasinId}) async {
-    final response = await _dio.get('catalog/references/', queryParameters: {
-      'brand': ?brandId,
-      'category': ?categoryId,
+  Future<Supplier> supplierUpdate(int id, Map<String, dynamic> data) async {
+    final response = await _dio.patch('suppliers/suppliers/$id/', data: data);
+    return Supplier.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<void> supplierDelete(int id) => _dio.delete('suppliers/suppliers/$id/');
+
+  // ---------------------------------------------------------------------------
+  // Catalogue du formulaire (recherche de LA référence du produit)
+  // ---------------------------------------------------------------------------
+
+  /// `GET catalog/references/autocomplete/?q=` — référence + couleurs
+  /// (variant_id) pour choisir le produit de l'approvisionnement.
+  Future<List<ReferenceOption>> autocomplete(String query, {int? magasinId}) async {
+    final response = await _dio.get('catalog/references/autocomplete/', queryParameters: {
+      'q': query,
       'magasin_id': ?magasinId,
     });
-    return (response.data as List).map((e) => ProductReference.fromJson(e as Map<String, dynamic>)).toList();
+    return (response.data as List).map((e) => ReferenceOption.fromJson(e as Map<String, dynamic>)).toList();
   }
 }

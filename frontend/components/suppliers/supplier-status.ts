@@ -2,22 +2,21 @@
  * Constantes et helpers partagés du module Fournisseurs / Approvisionnements
  * (page liste `/suppliers` et page détail `/suppliers/[id]`).
  *
- * Les libellés reprennent exactement les `choices` du backend
- * (suppliers/models.py) : le serveur renvoie aussi `statut_label`, mais on
- * garde une table côté client pour les filtres, les couleurs des badges et
- * l'ordre du workflow.
+ * Un approvisionnement = 1 fournisseur + 1 produit + 1 quantité + N
+ * paiements + 1 expédition + 1 montant Frais + Douane + 1 coût total + 1
+ * coût par pièce. Les libellés reprennent les `choices` du backend
+ * (suppliers/models.py).
  */
 
 export type Statut =
   | 'BROUILLON'
   | 'COMMANDE'
-  | 'PARTIELLEMENT_PAYE'
+  | 'ACOMPTE_PAYE'
+  | 'PREPARATION'
   | 'PAYE'
-  | 'PREPARE'
+  | 'EXPEDIE'
   | 'EN_TRANSIT'
   | 'ARRIVE'
-  | 'PARTIELLEMENT_RECU'
-  | 'RECU'
   | 'COUT_FINALISE';
 
 export type Devise = 'MGA' | 'USD' | 'EUR' | 'CNY';
@@ -30,86 +29,52 @@ export interface StatutInfo {
 
 /** Ordre logique du workflow (identique à `SupplierOrder.STATUT_ORDER`). */
 export const STATUTS: { value: Statut; label: string; color: string }[] = [
-  { value: 'BROUILLON', label: 'Brouillon', color: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200' },
-  { value: 'COMMANDE', label: 'Commandé', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200' },
-  { value: 'PARTIELLEMENT_PAYE', label: 'Partiellement payé', color: 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200' },
-  { value: 'PAYE', label: 'Payé', color: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200' },
-  { value: 'PREPARE', label: 'Préparé par le fournisseur', color: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-200' },
-  { value: 'EN_TRANSIT', label: 'En transit', color: 'bg-violet-100 text-violet-800 dark:bg-violet-900/50 dark:text-violet-200' },
-  { value: 'ARRIVE', label: 'Arrivé à Madagascar', color: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/50 dark:text-cyan-200' },
-  { value: 'PARTIELLEMENT_RECU', label: 'Partiellement réceptionné', color: 'bg-orange-100 text-orange-800 dark:bg-orange-900/50 dark:text-orange-200' },
-  { value: 'RECU', label: 'Réceptionné', color: 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200' },
-  { value: 'COUT_FINALISE', label: 'Coût finalisé', color: 'bg-teal-100 text-teal-900 dark:bg-teal-900/50 dark:text-teal-200' },
+  { value: 'BROUILLON', label: 'Brouillon', color: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200' },
+  { value: 'COMMANDE', label: 'Commande', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200' },
+  { value: 'ACOMPTE_PAYE', label: 'Acompte payé', color: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200' },
+  { value: 'PREPARATION', label: 'Préparation', color: 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200' },
+  { value: 'PAYE', label: 'Entièrement payé', color: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200' },
+  { value: 'EXPEDIE', label: 'Expédié', color: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200' },
+  { value: 'EN_TRANSIT', label: 'En transit', color: 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200' },
+  { value: 'ARRIVE', label: 'Arrivé à Madagascar', color: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200' },
+  { value: 'COUT_FINALISE', label: 'Coût finalisé', color: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200' },
 ];
 
-const STATUT_MAP: Record<string, StatutInfo> = Object.fromEntries(
-  STATUTS.map((s) => [s.value, { label: s.label, color: s.color }]),
-);
-
-/** Libellé + couleur d'un statut (statut inconnu → affiché tel quel, gris). */
 export function statutInfo(statut: string | null | undefined): StatutInfo {
-  if (!statut) return { label: '—', color: 'bg-muted text-muted-foreground' };
-  return STATUT_MAP[statut] ?? { label: statut, color: 'bg-muted text-muted-foreground' };
+  const s = STATUTS.find((x) => x.value === statut);
+  return s ? { label: s.label, color: s.color } : { label: statut || '—', color: 'bg-slate-100 text-slate-700' };
 }
 
-/** Position d'un statut dans le workflow (−1 si inconnu). */
 export function statutIndex(statut: string | null | undefined): number {
-  return STATUTS.findIndex((s) => s.value === statut);
+  return STATUTS.findIndex((x) => x.value === statut);
 }
 
-/** Statuts « en cours » = ni brouillon, ni finalisé. */
-export const STATUTS_EN_COURS: Statut[] = [
-  'COMMANDE', 'PARTIELLEMENT_PAYE', 'PAYE', 'PREPARE', 'EN_TRANSIT', 'ARRIVE', 'PARTIELLEMENT_RECU', 'RECU',
-];
+export const STATUTS_EN_COURS: Statut[] = ['COMMANDE', 'ACOMPTE_PAYE', 'PREPARATION', 'PAYE', 'EXPEDIE', 'EN_TRANSIT', 'ARRIVE'];
 
-/** Marchandise considérée arrivée à Madagascar (services.STATUTS_ARRIVES). */
-export const STATUTS_ARRIVES: Statut[] = ['ARRIVE', 'PARTIELLEMENT_RECU', 'RECU', 'COUT_FINALISE'];
-
-/** Une réception a eu lieu : le coût est calculé sur les quantités reçues (services.STATUTS_RECEPTION). */
-export const STATUTS_RECEPTION: Statut[] = ['PARTIELLEMENT_RECU', 'RECU', 'COUT_FINALISE'];
-
-/**
- * Statuts depuis lesquels chaque action du workflow est acceptée par l'API
- * (suppliers/services.py : commander, preparer, expedier, arriver,
- * receive_supplier_order, finaliser_cout). Les boutons de la page de détail
- * ne sont affichés que dans ces cas.
- *
- * `receptionner` : l'API accepte aussi BROUILLON (elle passe alors la
- * commande en « Commandé »), mais l'interface demande de commander d'abord.
- */
-export const TRANSITIONS: Record<'commander' | 'preparer' | 'expedier' | 'arriver' | 'receptionner' | 'finaliser', Statut[]> = {
+/** Statuts depuis lesquels chaque action est possible (miroir de suppliers/services.py). */
+export const TRANSITIONS: Record<'commander' | 'preparer' | 'expedier' | 'transit' | 'arriver' | 'finaliser', Statut[]> = {
   commander: ['BROUILLON'],
-  preparer: ['COMMANDE', 'PARTIELLEMENT_PAYE', 'PAYE'],
-  expedier: ['COMMANDE', 'PARTIELLEMENT_PAYE', 'PAYE', 'PREPARE'],
-  arriver: ['COMMANDE', 'PARTIELLEMENT_PAYE', 'PAYE', 'PREPARE', 'EN_TRANSIT'],
-  receptionner: ['COMMANDE', 'PARTIELLEMENT_PAYE', 'PAYE', 'PREPARE', 'EN_TRANSIT', 'ARRIVE', 'PARTIELLEMENT_RECU'],
-  finaliser: ['PARTIELLEMENT_RECU', 'RECU'],
+  preparer: ['COMMANDE', 'ACOMPTE_PAYE', 'PAYE'],
+  expedier: ['COMMANDE', 'ACOMPTE_PAYE', 'PREPARATION', 'PAYE'],
+  transit: ['EXPEDIE'],
+  arriver: ['EXPEDIE', 'EN_TRANSIT'],
+  finaliser: ['ARRIVE'],
 };
 
-/** L'action `action` est-elle proposée pour ce statut ? */
 export function actionPossible(action: keyof typeof TRANSITIONS, statut: string | null | undefined): boolean {
-  return !!statut && (TRANSITIONS[action] as string[]).includes(statut);
+  return TRANSITIONS[action].includes(statut as Statut);
+}
+
+/** Un paiement ou une modification reste possible tant que le coût n'est pas finalisé. */
+export function modifiable(statut: string | null | undefined): boolean {
+  return statut !== 'COUT_FINALISE';
 }
 
 export const DEVISES: { value: Devise; label: string; symbole: string }[] = [
-  { value: 'MGA', label: 'Ariary (MGA)', symbole: 'Ar' },
   { value: 'USD', label: 'Dollar US (USD)', symbole: '$' },
   { value: 'EUR', label: 'Euro (EUR)', symbole: '€' },
   { value: 'CNY', label: 'Yuan (CNY)', symbole: '¥' },
-];
-
-export const TYPES_FRAIS: { value: string; label: string }[] = [
-  { value: 'TRANSPORT', label: 'Transport / expédition' },
-  { value: 'DOUANE', label: 'Douane' },
-  { value: 'TAXES', label: 'Taxes' },
-  { value: 'TRANSIT', label: 'Frais de transit' },
-  { value: 'TRANSPORT_LOCAL', label: 'Transport local' },
-  { value: 'PORTUAIRE', label: 'Frais portuaires' },
-  { value: 'DOSSIER', label: 'Frais de dossier' },
-  { value: 'AGENCE', label: "Frais d'agence" },
-  { value: 'ASSURANCE', label: 'Assurance' },
-  { value: 'MANUTENTION', label: 'Manutention' },
-  { value: 'AUTRE', label: 'Autres frais' },
+  { value: 'MGA', label: 'Ariary (MGA)', symbole: 'Ar' },
 ];
 
 export const TYPES_PAIEMENT: { value: string; label: string }[] = [
@@ -135,25 +100,6 @@ export const MODES_TRANSPORT: { value: string; label: string }[] = [
   { value: 'AUTRE', label: 'Autre' },
 ];
 
-export const METHODES_ALLOCATION: { value: 'VALEUR' | 'QUANTITE' | 'MANUEL'; label: string; description: string }[] = [
-  {
-    value: 'VALEUR',
-    label: "Proportionnelle à la valeur d'achat",
-    description: 'Les frais sont répartis au prorata de la valeur d\'achat de chaque ligne (recommandé).',
-  },
-  {
-    value: 'QUANTITE',
-    label: 'Proportionnelle à la quantité',
-    description: 'Chaque pièce reçoit la même part de frais, quel que soit son prix.',
-  },
-  {
-    value: 'MANUEL',
-    label: 'Manuelle (par ligne)',
-    description: 'Vous saisissez le montant de frais (Ar) alloué à chaque ligne.',
-  },
-];
-
-/** Libellé d'une constante à partir de sa valeur (repli : la valeur brute). */
 export function labelOf(list: { value: string; label: string }[], value: string | null | undefined): string {
   if (!value) return '—';
   return list.find((x) => x.value === value)?.label ?? value;

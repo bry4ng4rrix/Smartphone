@@ -1,227 +1,132 @@
 'use client';
 
-import { useMemo } from 'react';
-import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '@/components/ui/table';
-import { Lock, Calculator } from 'lucide-react';
-import { fmtAppDateTime } from '@/lib/timezone';
-import {
-  STATUTS_RECEPTION, TYPES_FRAIS, fmtAr, fmtDevise, fmtNombre, labelOf,
-} from '@/components/suppliers/supplier-status';
-
-/** Ré-export (compatibilité) : la source est `supplier-status.ts`. */
-export { STATUTS_RECEPTION };
-
-/* -------------------------------------------------------------------------- */
-/* Synthèse du coût réel                                                       */
-/* -------------------------------------------------------------------------- */
-
-const COULEURS_FRAIS: Record<string, string> = {
-  ACHAT: '#2563eb',
-  TRANSPORT: '#f59e0b',
-  DOUANE: '#ef4444',
-  TAXES: '#8b5cf6',
-  AUTRES: '#64748b',
-};
-const PALETTE_FRAIS = ['#06b6d4', '#f97316', '#16a34a', '#a855f7', '#0ea5e9', '#84cc16', '#e11d48', '#78716c'];
-
-const TYPES_PRINCIPAUX = ['TRANSPORT', 'DOUANE', 'TAXES'];
-
 /**
- * Bloc « combien coûte réellement l'importation, et chaque pièce » :
- * achat fournisseur + frais par type = valeur réelle, coût moyen par pièce,
- * répartition (camembert) et coût de revient par variante.
+ * Fiche d'un approvisionnement (§ 16) — cinq blocs : FOURNISSEUR, PRODUIT,
+ * PAIEMENTS, TRANSPORT, COÛT. Toutes les valeurs viennent de l'API
+ * (suppliers/services.py) : rien n'est recalculé ici.
  */
-export function CostSummary({ order }: { order: any }) {
-  const devise: string = order?.devise || 'MGA';
-  const taux = Number(order?.taux_change) || 1;
-  const enReception = (STATUTS_RECEPTION as string[]).includes(order?.statut);
-  const finalise = order?.statut === 'COUT_FINALISE';
-  const lines: any[] = order?.lines || [];
-  const fraisParType: { type: string; label: string; montant_mga: number | string }[] = order?.frais_par_type || [];
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { Building2, Package, CreditCard, Truck, Calculator } from 'lucide-react';
+import {
+  DEVISES,
+  MODES_TRANSPORT,
+  fmtAr,
+  fmtDate,
+  fmtDevise,
+  fmtNombre,
+  fmtTaux,
+  labelOf,
+  statutInfo,
+} from './supplier-status';
 
-  const valeurAchat = Number(order?.valeur_achat_mga) || 0;
-  const totalFrais = Number(order?.total_frais_mga) || 0;
-  const valeurReelle = Number(order?.cout_total) || valeurAchat + totalFrais;
-  const quantite = Number(order?.total_qty) || 0;
-  const coutMoyen = Number(order?.cout_unitaire) || (quantite ? valeurReelle / quantite : 0);
-  const achatDevise = devise === 'MGA' ? valeurAchat : valeurAchat / (taux || 1);
+function Bloc({ titre, icon: Icon, children }: { titre: string; icon: React.ComponentType<{ className?: string }>; children: React.ReactNode }) {
+  return (
+    <section className="border-t first:border-t-0 px-4 py-3">
+      <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
+        <Icon className="h-3.5 w-3.5" aria-hidden /> {titre}
+      </p>
+      {children}
+    </section>
+  );
+}
 
-  const lignesFrais = useMemo(() => {
-    const principaux = TYPES_PRINCIPAUX.map((t) => ({
-      type: t,
-      label: labelOf(TYPES_FRAIS, t).toUpperCase(),
-      montant: fraisParType.filter((f) => f.type === t).reduce((s, f) => s + (Number(f.montant_mga) || 0), 0),
-    }));
-    const autres = fraisParType
-      .filter((f) => !TYPES_PRINCIPAUX.includes(f.type))
-      .reduce((s, f) => s + (Number(f.montant_mga) || 0), 0);
-    return [...principaux, { type: 'AUTRES', label: 'AUTRES FRAIS', montant: autres }];
-  }, [fraisParType]);
+function Ligne({ label, valeur, fort }: { label: string; valeur: React.ReactNode; fort?: boolean }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={`text-right tabular-nums ${fort ? 'font-semibold' : ''}`}>{valeur}</span>
+    </div>
+  );
+}
 
-  const donneesCamembert = useMemo(() => {
-    const items: { name: string; value: number; color: string }[] = [];
-    if (valeurAchat > 0) items.push({ name: 'Achat fournisseur', value: valeurAchat, color: COULEURS_FRAIS.ACHAT });
-    fraisParType.forEach((f, i) => {
-      const v = Number(f.montant_mga) || 0;
-      if (v > 0) items.push({ name: f.label, value: v, color: COULEURS_FRAIS[f.type] || PALETTE_FRAIS[i % PALETTE_FRAIS.length] });
-    });
-    return items;
-  }, [valeurAchat, fraisParType]);
-
-  const partFrais = valeurReelle > 0 ? (totalFrais / valeurReelle) * 100 : 0;
+export function CostSummary({ order, compact = false }: { order: any; compact?: boolean }) {
+  const s = statutInfo(order.statut);
+  const symbole = DEVISES.find((d) => d.value === order.devise)?.symbole ?? order.devise;
+  const paiements: any[] = order.payments ?? [];
+  const prevu = Number(order.montant_prevu || 0);
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base flex items-center gap-2">
-          <Calculator className="h-4 w-4" /> Synthèse du coût réel
-        </CardTitle>
-        <CardDescription className="text-xs">
-          {enReception
-            ? 'Calculé sur les quantités réceptionnées.'
-            : 'Estimation sur les quantités commandées — recalculée à la réception.'}
-          {finalise && order?.finalise_at && (
-            <span className="inline-flex items-center gap-1 ml-2 font-medium text-teal-700 dark:text-teal-300">
-              <Lock className="h-3 w-3" /> Coût figé le {fmtAppDateTime(order.finalise_at)}
-            </span>
-          )}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-          {/* Décomposition */}
-          <div className="lg:col-span-3 rounded-lg border bg-muted/30 p-4 font-mono text-sm space-y-1.5">
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="text-xs sm:text-sm font-semibold tracking-wide">
-                ACHAT FOURNISSEUR
-                {devise !== 'MGA' && (
-                  <span className="text-muted-foreground font-normal ml-2">{fmtDevise(achatDevise, devise)}</span>
-                )}
-              </span>
-              <span className="tabular-nums font-semibold">{devise !== 'MGA' ? '≈ ' : ''}{fmtAr(valeurAchat)}</span>
-            </div>
-            {lignesFrais.map((f) => (
-              <div key={f.type} className={`flex items-baseline justify-between gap-3 ${f.montant ? '' : 'text-muted-foreground'}`}>
-                <span className="text-xs sm:text-sm tracking-wide">+ {f.label}</span>
-                <span className="tabular-nums">{fmtAr(f.montant)}</span>
-              </div>
+    <div className="rounded-lg border bg-card">
+      <Bloc titre="Fournisseur" icon={Building2}>
+        <div className="flex items-center justify-between gap-2">
+          <p className="font-medium">{order.supplier_nom || <span className="text-muted-foreground">Sans fournisseur</span>}{order.supplier_pays ? <span className="text-muted-foreground font-normal"> · {order.supplier_pays}</span> : null}</p>
+          <Badge className={`${s.color} border-0 whitespace-nowrap`}>{s.label}</Badge>
+        </div>
+        <p className="text-xs text-muted-foreground mt-0.5">{order.numero} · {fmtDate(order.date)}{order.description ? ` · ${order.description}` : ''}</p>
+      </Bloc>
+
+      <Bloc titre="Produit" icon={Package}>
+        <p className="font-medium">{order.produit?.libelle ?? '—'}</p>
+        <div className="flex flex-wrap gap-x-4 text-sm">
+          <span>Quantité : <strong className="tabular-nums">{fmtNombre(order.quantite)} pièces</strong></span>
+          {order.quantite_recue > 0 && <span className="text-muted-foreground">reçues : {fmtNombre(order.quantite_recue)}</span>}
+          {order.produit?.type_name && <span className="text-muted-foreground">{order.produit.type_name}</span>}
+        </div>
+      </Bloc>
+
+      <Bloc titre="Paiements" icon={CreditCard}>
+        {paiements.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Aucun paiement enregistré.</p>
+        ) : (
+          <ul className="space-y-0.5 text-sm">
+            {paiements.map((p) => (
+              <li key={p.id} className="flex items-baseline justify-between gap-3">
+                <span className="text-muted-foreground whitespace-nowrap">{fmtDate(p.date)}</span>
+                <span className="tabular-nums">
+                  {fmtDevise(p.montant, p.devise)}
+                  {p.devise !== 'MGA' && <span className="text-muted-foreground"> × {fmtTaux(p.taux_change)}</span>}
+                  {' → '}
+                  <strong>{fmtAr(p.montant_mga)}</strong>
+                </span>
+              </li>
             ))}
-            <div className="border-t-2 border-dashed my-2" />
-            <div className="flex items-baseline justify-between gap-3 text-base">
-              <span className="font-bold tracking-wide">VALEUR RÉELLE</span>
-              <span className="tabular-nums font-bold">{fmtAr(valeurReelle)}</span>
-            </div>
-            {totalFrais > 0 && (
-              <p className="text-[11px] text-muted-foreground font-sans">
-                Les frais représentent {partFrais.toFixed(1).replace('.', ',')} % de la valeur réelle.
-              </p>
-            )}
-            <div className="grid grid-cols-2 gap-3 pt-3 mt-1 border-t font-sans">
-              <div className="rounded-md bg-background border p-3">
-                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                  {enReception ? 'Quantité reçue' : 'Quantité commandée'}
-                </p>
-                <p className="text-xl font-bold tabular-nums">{fmtNombre(quantite)} <span className="text-sm font-normal text-muted-foreground">pièces</span></p>
-              </div>
-              <div className="rounded-md bg-background border p-3">
-                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Coût moyen</p>
-                <p className="text-xl font-bold tabular-nums">{fmtAr(coutMoyen)} <span className="text-sm font-normal text-muted-foreground">/ pièce</span></p>
-              </div>
-            </div>
-          </div>
-
-          {/* Répartition */}
-          <div className="lg:col-span-2 rounded-lg border p-3">
-            <p className="text-xs font-medium mb-1">Répartition de la valeur réelle</p>
-            {donneesCamembert.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-10">Aucun montant saisi.</p>
-            ) : (
-              <div className="h-56 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={donneesCamembert}
-                      dataKey="value"
-                      nameKey="name"
-                      innerRadius="45%"
-                      outerRadius="75%"
-                      paddingAngle={2}
-                      isAnimationActive={false}
-                    >
-                      {donneesCamembert.map((d, i) => <Cell key={i} fill={d.color} />)}
-                    </Pie>
-                    <Tooltip formatter={(v: number) => fmtAr(v)} contentStyle={{ fontSize: 12 }} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Coût de revient par variante */}
-        <div>
-          <p className="text-sm font-medium mb-2">Coût de revient par variante</p>
-          {lines.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Aucune ligne.</p>
-          ) : (
-            <div className="overflow-x-auto rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Produit</TableHead>
-                    <TableHead>Variante</TableHead>
-                    <TableHead className="text-right">Quantité retenue</TableHead>
-                    <TableHead className="text-right">Valeur d'achat / pièce</TableHead>
-                    <TableHead className="text-right">Frais / pièce</TableHead>
-                    <TableHead className="text-right">Coût de revient / pièce</TableHead>
-                    <TableHead className="text-right">Prix de vente</TableHead>
-                    <TableHead className="text-right">Marge</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {lines.map((l) => {
-                    const q = enReception ? Number(l.quantite_recue) || 0 : Number(l.quantite) || 0;
-                    const achatU = q ? (Number(l.valeur_achat_mga) || 0) / q : 0;
-                    const fraisU = q ? (Number(l.frais_alloues_mga) || 0) / q : 0;
-                    const revient = Number(l.cout_unitaire_calcule) || 0;
-                    const prixVente = Number(l.prix_vente) || 0;
-                    const marge = l.marge_unitaire !== undefined && l.marge_unitaire !== null
-                      ? Number(l.marge_unitaire)
-                      : prixVente - revient;
-                    const margePct = revient > 0 ? (marge / revient) * 100 : null;
-                    return (
-                      <TableRow key={l.id}>
-                        <TableCell className="font-medium whitespace-nowrap">
-                          {l.brand_name ? `${l.brand_name} ` : ''}{l.reference_name}
-                        </TableCell>
-                        <TableCell>{l.couleur || '—'}</TableCell>
-                        <TableCell className="text-right tabular-nums">{fmtNombre(q)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{fmtAr(achatU)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{fmtAr(fraisU)}</TableCell>
-                        <TableCell className="text-right tabular-nums font-semibold">{fmtAr(revient)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{fmtAr(prixVente)}</TableCell>
-                        <TableCell className={`text-right tabular-nums font-medium ${marge < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
-                          {fmtAr(marge)}
-                          {margePct !== null && (
-                            <span className="block text-[11px] font-normal text-muted-foreground">
-                              {margePct >= 0 ? '+' : ''}{margePct.toFixed(0)} %
-                            </span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
+          </ul>
+        )}
+        <div className="mt-2 space-y-0.5">
+          {order.devise !== 'MGA' && <Ligne label={`Total payé (${symbole})`} valeur={fmtDevise(order.total_paye_devise, order.devise)} />}
+          <Ligne label="Total MGA" valeur={fmtAr(order.total_paiements_mga)} fort />
+          {prevu > 0 && (
+            <>
+              <Ligne label="Montant total prévu" valeur={fmtDevise(order.montant_prevu, order.devise)} />
+              <Ligne label="Reste à payer" valeur={<span className={Number(order.reste_a_payer_devise) > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}>{fmtDevise(order.reste_a_payer_devise, order.devise)}</span>} />
+              {!compact && <Progress value={Number(order.pourcentage_paye || 0)} className="h-1.5 mt-1" />}
+            </>
           )}
         </div>
-      </CardContent>
-    </Card>
+      </Bloc>
+
+      <Bloc titre="Transport" icon={Truck}>
+        <div className="space-y-0.5">
+          <Ligne label={`Départ ${order.lieu_depart || 'Chine'}`} valeur={fmtDate(order.date_expedition)} />
+          <Ligne label={`Arrivée ${order.destination || 'Madagascar'}`} valeur={fmtDate(order.date_arrivee)} />
+          {!compact && (order.transporteur || order.mode_transport) && (
+            <Ligne label="Transporteur" valeur={[order.transporteur, labelOf(MODES_TRANSPORT, order.mode_transport) !== '—' ? labelOf(MODES_TRANSPORT, order.mode_transport) : ''].filter(Boolean).join(' · ')} />
+          )}
+          {!compact && (order.tracking || order.numero_colis) && (
+            <Ligne label="Suivi" valeur={[order.tracking, order.numero_colis].filter(Boolean).join(' · ')} />
+          )}
+          <Ligne label="Statut" valeur={s.label} />
+        </div>
+      </Bloc>
+
+      <Bloc titre="Coût" icon={Calculator}>
+        <div className="space-y-0.5">
+          <Ligne label="Frais + Douane" valeur={fmtAr(order.frais_douane_mga)} />
+          <Ligne label="Coût total rendu Madagascar" valeur={fmtAr(order.cout_total_mga)} fort />
+          <div className="flex items-baseline justify-between gap-3 pt-1 mt-1 border-t">
+            <span className="text-sm text-muted-foreground">Coût par pièce</span>
+            <span className="text-lg font-bold tabular-nums">{fmtAr(order.cout_unitaire_mga)}</span>
+          </div>
+          {Number(order.prix_vente_unitaire) > 0 && (
+            <Ligne
+              label={`Marge / pièce (vente ${fmtAr(order.prix_vente_unitaire)})`}
+              valeur={<span className={Number(order.marge_unitaire) < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}>{fmtAr(order.marge_unitaire)}</span>}
+            />
+          )}
+          {order.statut !== 'COUT_FINALISE' && <p className="text-[11px] text-muted-foreground mt-1">Coût provisoire — figé à la finalisation.</p>}
+        </div>
+      </Bloc>
+    </div>
   );
 }

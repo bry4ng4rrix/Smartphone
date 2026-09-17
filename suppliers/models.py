@@ -6,9 +6,22 @@ from django.utils import timezone
 from catalog.models import ProductVariant
 
 # --------------------------------------------------------------------------- #
-# Devises — la devise de référence comptable est l'ariary (MGA) : chaque
-# montant saisi dans une autre devise est converti avec le taux du moment et
-# conservé avec son montant / sa devise / son taux d'origine.
+# Module Fournisseur — approvisionnements (§ demande « remplacement »).
+#
+#   Fournisseur → Approvisionnement (1 produit, 1 quantité)
+#                  → Paiement 1, Paiement 2, … (taux du jour figé, MGA)
+#                  → Expédition (départ Chine, transit, arrivée Madagascar)
+#                  → Frais + Douane (UN seul montant, MGA)
+#                  → Coût total rendu Madagascar = Σ paiements MGA + Frais + Douane
+#                  → Coût de revient par pièce = coût total / quantité
+#
+# Un approvisionnement ne porte qu'UN SEUL produit : pas de lignes, pas de
+# répartition entre produits. Le même produit acheté plusieurs fois = autant
+# d'approvisionnements, chacun avec son coût historique.
+#
+# La devise de référence comptable est l'ariary (MGA) : chaque montant saisi
+# dans une autre devise est converti avec le taux du jour et conservé avec
+# son montant / sa devise / son taux d'origine — jamais recalculé ensuite.
 # --------------------------------------------------------------------------- #
 
 DEVISE_CHOICES = (
@@ -60,40 +73,32 @@ class Supplier(models.Model):
 
 
 class SupplierOrder(models.Model):
-    """Approvisionnement / commande fournisseur (§7.6 Smartreadme.md) : suit
-    le coût RÉEL d'une importation jusqu'à l'arrivée à Madagascar —
-    paiements fournisseur (historisés, multi-devises) + transport + douane +
-    taxes + autres frais — puis le coût de revient par pièce.
+    """Approvisionnement / envoi fournisseur : UN produit, UNE quantité,
+    plusieurs paiements, UNE expédition, UN montant Frais + Douane, UN coût
+    total rendu Madagascar, UN coût de revient par pièce.
 
-    Les champs `prix_fournisseur`, `fret_import` et `douane` de la première
-    version sont conservés (montants saisis directement en MGA) : ils
-    entrent toujours dans le calcul, les anciens approvisionnements gardent
-    donc exactement leur coût. Les nouveaux passent par les lignes (prix
-    unitaire fournisseur), les paiements et les frais typés.
+    Les montants calculés (`total_paiements_mga`, `cout_total_mga`,
+    `cout_unitaire_mga`) sont recalculés par suppliers/services.py à chaque
+    paiement / frais / finalisation et figés en base : un approvisionnement
+    finalisé garde son coût historique quoi qu'il arrive ensuite (autre
+    envoi du même produit, changement de taux…).
     """
 
     STATUT_CHOICES = (
         ("BROUILLON", "Brouillon"),
-        ("COMMANDE", "Commandé"),
-        ("PARTIELLEMENT_PAYE", "Partiellement payé"),
-        ("PAYE", "Payé"),
-        ("PREPARE", "Préparé par le fournisseur"),
+        ("COMMANDE", "Commande"),
+        ("ACOMPTE_PAYE", "Acompte payé"),
+        ("PREPARATION", "Préparation"),
+        ("PAYE", "Entièrement payé"),
+        ("EXPEDIE", "Expédié"),
         ("EN_TRANSIT", "En transit"),
         ("ARRIVE", "Arrivé à Madagascar"),
-        ("PARTIELLEMENT_RECU", "Partiellement réceptionné"),
-        ("RECU", "Réceptionné"),
         ("COUT_FINALISE", "Coût finalisé"),
     )
-    # Ordre logique du workflow (les paiements peuvent survenir à tout moment
-    # avant la finalisation ; PARTIELLEMENT_PAYE / PAYE sont dérivés des
-    # paiements tant que la marchandise n'est pas plus avancée).
+    # Ordre logique du workflow (§ 15). Les statuts de paiement
+    # (ACOMPTE_PAYE / PAYE) sont dérivés des paiements enregistrés tant que
+    # la marchandise n'est pas plus avancée.
     STATUT_ORDER = [s for s, _ in STATUT_CHOICES]
-
-    ALLOCATION_CHOICES = (
-        ("VALEUR", "Proportionnelle à la valeur d'achat"),
-        ("QUANTITE", "Proportionnelle à la quantité"),
-        ("MANUEL", "Manuelle (par ligne)"),
-    )
 
     MODE_TRANSPORT_CHOICES = (
         ("AERIEN", "Aérien"),
@@ -107,50 +112,60 @@ class SupplierOrder(models.Model):
         "users.MagasinProfile", on_delete=models.CASCADE, related_name="supplier_orders"
     )
     supplier = models.ForeignKey(
-        Supplier, on_delete=models.SET_NULL, null=True, blank=True, related_name="orders"
+        Supplier, on_delete=models.PROTECT, null=True, blank=True, related_name="orders"
     )
     numero = models.CharField(max_length=30, unique=True, editable=False)
     date = models.DateField(default=timezone.localdate)
     description = models.CharField(max_length=255, blank=True, null=True)
     statut = models.CharField(max_length=20, choices=STATUT_CHOICES, default="BROUILLON")
 
-    # Devise de la commande (prix unitaires des lignes) et taux MGA retenu.
-    devise = models.CharField(max_length=3, choices=DEVISE_CHOICES, default="MGA")
-    taux_change = models.DecimalField(max_digits=14, decimal_places=4, default=Decimal("1"))
-    methode_allocation = models.CharField(max_length=10, choices=ALLOCATION_CHOICES, default="VALEUR")
+    # LE produit et LA quantité de cet envoi (§ 3). `null` uniquement pour un
+    # ancien approvisionnement multi-lignes converti (voir migration 0005).
+    product_variant = models.ForeignKey(
+        ProductVariant, on_delete=models.PROTECT, null=True, blank=True, related_name="supplier_orders"
+    )
+    quantite = models.PositiveIntegerField(default=0)
 
-    # Première version (montants MGA saisis directement) — toujours pris en compte.
-    prix_fournisseur = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    fret_import = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    douane = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # Montant total convenu avec le fournisseur, dans sa devise (facultatif) :
+    # sert à afficher « prévu / payé / reste » (§ 4). Le coût réel, lui, ne
+    # vient que des paiements réellement effectués.
+    devise = models.CharField(max_length=3, choices=DEVISE_CHOICES, default="USD")
+    montant_prevu = models.DecimalField(max_digits=16, decimal_places=2, default=0)
 
-    # Transport (phase 4)
+    # Expédition (§ 7-8-9)
     date_expedition = models.DateField(null=True, blank=True)
     transporteur = models.CharField(max_length=150, blank=True)
     mode_transport = models.CharField(max_length=10, choices=MODE_TRANSPORT_CHOICES, blank=True)
     tracking = models.CharField(max_length=150, blank=True)
-    lieu_depart = models.CharField(max_length=150, blank=True)
+    numero_colis = models.CharField(max_length=150, blank=True)
+    lieu_depart = models.CharField(max_length=150, blank=True, default="Chine")
     destination = models.CharField(max_length=150, blank=True, default="Madagascar")
     date_arrivee = models.DateField(null=True, blank=True)
+    commentaire_transport = models.CharField(max_length=255, blank=True)
 
-    # Calculés (suppliers/services.py::recompute_costs) — en MGA.
-    total_qty = models.PositiveIntegerField(default=0, editable=False)
-    valeur_achat_mga = models.DecimalField(max_digits=16, decimal_places=2, default=0, editable=False)
-    total_frais_mga = models.DecimalField(max_digits=16, decimal_places=2, default=0, editable=False)
-    cout_total = models.DecimalField(max_digits=16, decimal_places=2, default=0, editable=False)
-    cout_unitaire = models.DecimalField(max_digits=14, decimal_places=2, default=0, editable=False)
+    # Frais + Douane : UN seul montant, en MGA (§ 9).
+    frais_douane_mga = models.DecimalField(max_digits=16, decimal_places=2, default=0)
+
+    # Calculés (suppliers/services.py::recompute_costs) — en MGA (§ 10-11).
+    total_paiements_mga = models.DecimalField(max_digits=16, decimal_places=2, default=0, editable=False)
+    cout_total_mga = models.DecimalField(max_digits=16, decimal_places=2, default=0, editable=False)
+    cout_unitaire_mga = models.DecimalField(max_digits=14, decimal_places=2, default=0, editable=False)
+
+    # Réception dans le stock (à la finalisation) — § 13.
+    quantite_recue = models.PositiveIntegerField(default=0)
+    received_at = models.DateTimeField(null=True, blank=True)
+    finalise_at = models.DateTimeField(null=True, blank=True)
 
     created_by = models.ForeignKey(
         "users.CustomUser", on_delete=models.SET_NULL, null=True, blank=True, related_name="supplier_orders"
     )
     created_at = models.DateTimeField(auto_now_add=True)
-    received_at = models.DateTimeField(null=True, blank=True)
-    finalise_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         verbose_name = "Approvisionnement fournisseur"
         verbose_name_plural = "Approvisionnements fournisseur"
         ordering = ["-created_at"]
+        indexes = [models.Index(fields=["magasin", "statut"], name="suppliers_order_mag_stat_idx")]
 
     def generate_numero(self):
         today = timezone.localdate()
@@ -167,105 +182,44 @@ class SupplierOrder(models.Model):
     def __str__(self):
         return self.numero
 
-    # --- montants dérivés (MGA) --------------------------------------------- #
-
-    @property
-    def total_paye_mga(self):
-        # Somme en base (pas via un éventuel cache prefetch obsolète).
-        from django.db.models import Sum
-
-        return self.payments.aggregate(t=Sum("montant_mga"))["t"] or ZERO
-
-    @property
-    def total_paye_devise(self):
-        """Total payé exprimé dans la devise de la commande (paiements de la
-        même devise seulement — les autres sont comptés via le MGA)."""
-        return sum((p.montant for p in self.payments.all() if p.devise == self.devise), ZERO)
-
-    @property
-    def reste_a_payer_mga(self):
-        return max(self.valeur_achat_mga - self.total_paye_mga, ZERO)
-
-    @property
-    def pourcentage_paye(self):
-        if not self.valeur_achat_mga:
-            return Decimal("0")
-        return min((self.total_paye_mga / self.valeur_achat_mga * 100).quantize(Decimal("0.1")), Decimal("100"))
-
-    @property
-    def total_recu(self):
-        from django.db.models import Sum
-
-        return self.lines.aggregate(t=Sum("quantite_recue"))["t"] or 0
+    # --- dérivés ------------------------------------------------------------ #
 
     @property
     def est_finalise(self):
         return self.statut == "COUT_FINALISE"
 
     @property
-    def cout_moyen_unitaire(self):
-        """Coût moyen par pièce arrivée (valeur réelle / quantité retenue)."""
-        return self.cout_unitaire
-
-
-class SupplierOrderLine(models.Model):
-    supplier_order = models.ForeignKey(SupplierOrder, on_delete=models.CASCADE, related_name="lines")
-    product_variant = models.ForeignKey(ProductVariant, on_delete=models.PROTECT, related_name="supplier_order_lines")
-    quantite = models.PositiveIntegerField()
-    # Réception (partielle possible) — ce qui est réellement entré en stock.
-    quantite_recue = models.PositiveIntegerField(default=0)
-    # Prix fournisseur unitaire dans la devise de la commande (0 sur les
-    # anciennes commandes : la valeur d'achat vient alors de `prix_fournisseur`).
-    prix_unitaire = models.DecimalField(max_digits=14, decimal_places=4, default=0)
-    # Allocation manuelle des frais (méthode MANUEL), en MGA.
-    allocation_manuelle_mga = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
-
-    # Snapshots remplis par services.recompute_costs (MGA) : valeur d'achat
-    # de la ligne, frais qui lui sont attribués, coût de revient unitaire et
-    # total de la ligne (valeur + frais).
-    valeur_achat_mga = models.DecimalField(max_digits=16, decimal_places=2, default=0, editable=False)
-    frais_alloues_mga = models.DecimalField(max_digits=16, decimal_places=2, default=0, editable=False)
-    cout_unitaire_calcule = models.DecimalField(max_digits=14, decimal_places=2, default=0, editable=False)
-    total_ligne = models.DecimalField(max_digits=16, decimal_places=2, default=0, editable=False)
-
-    class Meta:
-        verbose_name = "Ligne d'approvisionnement"
-        verbose_name_plural = "Lignes d'approvisionnement"
+    def total_paye_devise(self):
+        """Total payé dans la devise de l'approvisionnement (paiements de
+        cette devise seulement ; les autres sont comptés via le MGA)."""
+        return sum((p.montant for p in self.payments.all() if p.devise == self.devise), ZERO)
 
     @property
-    def total_fournisseur_devise(self):
-        return (self.prix_unitaire * self.quantite).quantize(DEUX_DEC)
+    def reste_a_payer_devise(self):
+        return max(Decimal(self.montant_prevu or 0) - self.total_paye_devise, ZERO)
+
+    @property
+    def pourcentage_paye(self):
+        prevu = Decimal(self.montant_prevu or 0)
+        if not prevu:
+            return Decimal("0")
+        return min((self.total_paye_devise / prevu * 100).quantize(Decimal("0.1")), Decimal("100"))
+
+    @property
+    def prix_vente_unitaire(self):
+        return self.product_variant.product_reference.prix_vente if self.product_variant_id else ZERO
 
     @property
     def marge_unitaire(self):
-        prix_vente = self.product_variant.product_reference.prix_vente
-        return prix_vente - self.cout_unitaire_calcule
-
-    def __str__(self):
-        return f"{self.product_variant} x{self.quantite} ({self.supplier_order.numero})"
+        """Prix de vente − coût de revient unitaire (§ 20)."""
+        return Decimal(self.prix_vente_unitaire) - Decimal(self.cout_unitaire_mga)
 
 
-class _MontantDeviseMixin(models.Model):
-    """Montant saisi + devise + taux + montant converti en MGA (trace comptable)."""
-
-    montant = models.DecimalField(max_digits=16, decimal_places=2)
-    devise = models.CharField(max_length=3, choices=DEVISE_CHOICES, default="MGA")
-    taux_change = models.DecimalField(max_digits=14, decimal_places=4, default=Decimal("1"))
-    montant_mga = models.DecimalField(max_digits=16, decimal_places=2, editable=False, default=0)
-
-    class Meta:
-        abstract = True
-
-    def save(self, *args, **kwargs):
-        if self.devise == DEVISE_REFERENCE:
-            self.taux_change = Decimal("1")
-        self.montant_mga = convertir_en_mga(self.montant, self.devise, self.taux_change)
-        super().save(*args, **kwargs)
-
-
-class SupplierPayment(_MontantDeviseMixin):
+class SupplierPayment(models.Model):
     """Un versement au fournisseur (acompte, solde…) — un approvisionnement
-    en compte autant que nécessaire, l'historique est conservé."""
+    en compte autant que nécessaire, l'historique est conservé. Le montant
+    MGA est figé avec le taux du jour du paiement (§ 5-6) : les anciens
+    paiements ne sont jamais recalculés avec le taux actuel."""
 
     TYPE_CHOICES = (
         ("ACOMPTE", "Acompte"),
@@ -282,6 +236,10 @@ class SupplierPayment(_MontantDeviseMixin):
     )
 
     supplier_order = models.ForeignKey(SupplierOrder, on_delete=models.CASCADE, related_name="payments")
+    montant = models.DecimalField(max_digits=16, decimal_places=2)
+    devise = models.CharField(max_length=3, choices=DEVISE_CHOICES, default="MGA")
+    taux_change = models.DecimalField(max_digits=14, decimal_places=4, default=Decimal("1"))
+    montant_mga = models.DecimalField(max_digits=16, decimal_places=2, editable=False, default=0)
     date = models.DateField(default=timezone.localdate)
     type_paiement = models.CharField(max_length=10, choices=TYPE_CHOICES, default="ACOMPTE")
     methode = models.CharField(max_length=15, choices=METHODE_CHOICES, default="VIREMENT")
@@ -298,67 +256,11 @@ class SupplierPayment(_MontantDeviseMixin):
         verbose_name_plural = "Paiements fournisseur"
         ordering = ["date", "id"]
 
-    def __str__(self):
-        return f"{self.get_type_paiement_display()} {self.montant} {self.devise} ({self.supplier_order.numero})"
-
-
-class SupplierFee(_MontantDeviseMixin):
-    """Frais lié à l'importation (transport, douane, taxes…) — typé, daté,
-    multi-devises, réparti entre les lignes par services.recompute_costs."""
-
-    TYPE_CHOICES = (
-        ("TRANSPORT", "Transport / expédition"),
-        ("DOUANE", "Douane"),
-        ("TAXES", "Taxes"),
-        ("TRANSIT", "Frais de transit"),
-        ("TRANSPORT_LOCAL", "Transport local"),
-        ("PORTUAIRE", "Frais portuaires"),
-        ("DOSSIER", "Frais de dossier"),
-        ("AGENCE", "Frais d'agence"),
-        ("ASSURANCE", "Assurance"),
-        ("MANUTENTION", "Manutention"),
-        ("AUTRE", "Autres frais"),
-    )
-
-    supplier_order = models.ForeignKey(SupplierOrder, on_delete=models.CASCADE, related_name="fees")
-    type_frais = models.CharField(max_length=20, choices=TYPE_CHOICES, default="AUTRE")
-    date = models.DateField(default=timezone.localdate)
-    description = models.CharField(max_length=255, blank=True)
-    prestataire = models.CharField(max_length=150, blank=True)
-    justificatif = models.FileField(upload_to="supplier_fees/", blank=True, null=True)
-    created_by = models.ForeignKey(
-        "users.CustomUser", on_delete=models.SET_NULL, null=True, blank=True, related_name="supplier_fees"
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        verbose_name = "Frais d'importation"
-        verbose_name_plural = "Frais d'importation"
-        ordering = ["date", "id"]
+    def save(self, *args, **kwargs):
+        if self.devise == DEVISE_REFERENCE:
+            self.taux_change = Decimal("1")
+        self.montant_mga = convertir_en_mga(self.montant, self.devise, self.taux_change)
+        super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.get_type_frais_display()} {self.montant} {self.devise} ({self.supplier_order.numero})"
-
-
-class VariantCostHistory(models.Model):
-    """Historique du coût de revient (« masonkarena ») d'une variante : une
-    entrée par approvisionnement finalisé. Jamais écrasé — le coût ACTUEL est
-    la dernière entrée, le coût moyen pondéré se calcule sur l'ensemble."""
-
-    product_variant = models.ForeignKey(ProductVariant, on_delete=models.CASCADE, related_name="cost_history")
-    supplier_order = models.ForeignKey(SupplierOrder, on_delete=models.CASCADE, related_name="cost_history")
-    quantite = models.PositiveIntegerField()
-    valeur_achat_unitaire_mga = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    frais_unitaire_mga = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    cout_revient_unitaire_mga = models.DecimalField(max_digits=14, decimal_places=2)
-    date = models.DateField(default=timezone.localdate)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        verbose_name = "Historique de coût de revient"
-        verbose_name_plural = "Historique des coûts de revient"
-        ordering = ["-date", "-id"]
-        unique_together = ("product_variant", "supplier_order")
-
-    def __str__(self):
-        return f"{self.product_variant} — {self.cout_revient_unitaire_mga} Ar ({self.supplier_order.numero})"
+        return f"{self.montant} {self.devise} ({self.supplier_order.numero})"

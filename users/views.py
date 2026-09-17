@@ -32,7 +32,7 @@ from .authentication import CustomTokenObtainPairSerializer
 from catalog.models import Brand, ProductCategory, ProductReference, ProductType, ProductVariant, StockMovement
 from catalog.services import apply_stock_movement
 from orders.models import Order, OrderItem, OrderStatusHistory
-from suppliers.models import SupplierOrderLine
+from suppliers.models import SupplierOrder
 
 
 def is_company_owner(user):
@@ -122,13 +122,13 @@ def _stock_value_for_magasins(magasins):
 
 
 def _cost_by_variant(magasins):
-    """Coût moyen connu par variante — moyenne des coûts unitaires des
-    lignes de commande fournisseur reçues (§7.6 Smartreadme.md). Meilleure
+    """Coût moyen connu par variante — moyenne des coûts de revient unitaires
+    des approvisionnements finalisés (1 appro = 1 produit). Meilleure
     estimation disponible du coût de revient, faute de suivi de coût par
     vente individuelle (le catalogue ne porte que le prix de vente)."""
-    rows = SupplierOrderLine.objects.filter(
-        supplier_order__statut="RECU", supplier_order__magasin__in=magasins
-    ).values("product_variant_id").annotate(avg_cost=Avg("cout_unitaire_calcule"))
+    rows = SupplierOrder.objects.filter(
+        statut="COUT_FINALISE", magasin__in=magasins, product_variant__isnull=False
+    ).values("product_variant_id").annotate(avg_cost=Avg("cout_unitaire_mga"))
     return {row["product_variant_id"]: row["avg_cost"] or 0 for row in rows}
 
 

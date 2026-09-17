@@ -22,6 +22,7 @@ import '../features/orders/order_create_screen.dart';
 import '../features/orders/order_detail_screen.dart';
 import '../features/orders/orders_list_screen.dart';
 import '../features/suppliers/supplier_order_create_screen.dart';
+import '../models/supplier.dart';
 import '../features/suppliers/supplier_order_detail_screen.dart';
 import '../features/suppliers/suppliers_screen.dart';
 import '../features/stores/stores_screen.dart';
@@ -135,7 +136,10 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/suppliers',
             builder: (context, state) => const SuppliersScreen(),
             routes: [
-              GoRoute(path: 'new', builder: (context, state) => const SupplierOrderCreateScreen()),
+              GoRoute(
+                path: 'new',
+                builder: (context, state) => SupplierOrderCreateScreen(supplierInitial: state.extra is Supplier ? state.extra as Supplier : null),
+              ),
               GoRoute(
                 path: ':id',
                 builder: (context, state) => SupplierOrderDetailScreen(orderId: int.parse(state.pathParameters['id']!)),

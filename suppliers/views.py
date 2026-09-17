@@ -1,5 +1,5 @@
 from django.core.exceptions import ValidationError
-from django.db.models import Prefetch
+from django.db.models import Q
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -8,25 +8,24 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from catalog.models import ProductVariant
-from users.models import Notification
 from users.permissions import IsGerant, get_accessible_magasins, resolve_magasin_for_request
 from users.subscriptions import get_company_owner
 
 from . import services
-from .models import Supplier, SupplierOrder, VariantCostHistory
+from .models import Supplier, SupplierOrder
 from .serializers import (
+    ArriverSerializer,
     ExpedierSerializer,
     FinaliserSerializer,
-    ReceptionSerializer,
-    SupplierFeeInputSerializer,
-    SupplierFeeSerializer,
+    FraisDouaneSerializer,
+    HistoriqueCoutSerializer,
     SupplierOrderCreateSerializer,
     SupplierOrderSerializer,
     SupplierOrderUpdateSerializer,
     SupplierPaymentInputSerializer,
     SupplierPaymentSerializer,
     SupplierSerializer,
-    VariantCostHistorySerializer,
+    TransitSerializer,
 )
 
 
@@ -45,20 +44,9 @@ def _admin_profile(user):
 def _orders_qs(user):
     return (
         SupplierOrder.objects.filter(magasin__in=get_accessible_magasins(user))
-        .select_related("magasin", "supplier")
-        .prefetch_related(
-            Prefetch("lines", queryset=SupplierOrderLine_qs()),
-            "payments", "fees",
-        )
+        .select_related("magasin", "supplier", "created_by", "product_variant__product_reference__brand", "product_variant__product_reference__type")
+        .prefetch_related("payments__created_by")
     )
-
-
-def SupplierOrderLine_qs():
-    from .models import SupplierOrderLine
-
-    return SupplierOrderLine.objects.select_related(
-        "product_variant__product_reference__brand"
-    ).order_by("id")
 
 
 # --------------------------------------------------------------------------- #
@@ -81,8 +69,6 @@ class SupplierViewSet(viewsets.ModelViewSet):
         qs = Supplier.objects.filter(admin_profile=profile)
         search = (self.request.query_params.get("search") or "").strip()
         if search:
-            from django.db.models import Q
-
             qs = qs.filter(Q(nom__icontains=search) | Q(pays__icontains=search) | Q(contact__icontains=search) | Q(email__icontains=search))
         if self.request.query_params.get("actif") == "1":
             qs = qs.filter(actif=True)
@@ -135,10 +121,12 @@ class SupplierViewSet(viewsets.ModelViewSet):
 
 
 class SupplierOrderViewSet(viewsets.ModelViewSet):
-    """Module Approvisionnements fournisseur (§7.6 Smartreadme.md, étendu) — réservé au gérant."""
+    """Approvisionnements fournisseur (1 produit, N paiements, 1 expédition,
+    Frais + Douane, coût total, coût unitaire) — réservé au gérant."""
 
-    # DELETE n'est ouvert que pour les sous-ressources paiements / frais
-    # (actions ci-dessous) : un approvisionnement ne se supprime pas.
+    # DELETE n'est ouvert que pour les paiements (sous-route) : un
+    # approvisionnement ne se supprime pas (historique de coût), sauf
+    # brouillon sans paiement.
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
     serializer_class = SupplierOrderSerializer
     permission_classes = [IsGerant]
@@ -151,17 +139,29 @@ class SupplierOrderViewSet(viewsets.ModelViewSet):
             qs = qs.filter(magasin_id=p["magasin_id"])
         if p.get("supplier"):
             qs = qs.filter(supplier_id=p["supplier"])
+        if p.get("product_variant"):
+            qs = qs.filter(product_variant_id=p["product_variant"])
         if p.get("statut"):
             qs = qs.filter(statut__in=[s for s in p["statut"].split(",") if s])
         search = (p.get("search") or "").strip()
         if search:
-            from django.db.models import Q
-
-            qs = qs.filter(Q(numero__icontains=search) | Q(description__icontains=search) | Q(supplier__nom__icontains=search) | Q(tracking__icontains=search))
+            qs = qs.filter(
+                Q(numero__icontains=search) | Q(description__icontains=search) | Q(supplier__nom__icontains=search)
+                | Q(tracking__icontains=search) | Q(numero_colis__icontains=search)
+                | Q(product_variant__product_reference__reference_name__icontains=search)
+                | Q(product_variant__product_reference__brand__nom__icontains=search)
+            )
         return qs
 
     def destroy(self, request, *args, **kwargs):
-        return Response({"detail": "Un approvisionnement ne se supprime pas (historique comptable)."}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
+        order = self.get_object()
+        if order.statut != "BROUILLON" or order.payments.exists():
+            return Response(
+                {"detail": "Seul un brouillon sans paiement peut être supprimé (historique comptable)."},
+                status=status.HTTP_405_METHOD_NOT_ALLOWED,
+            )
+        order.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _reponse(self, order, code=status.HTTP_200_OK):
         return Response(SupplierOrderSerializer(self.get_queryset().get(pk=order.pk)).data, status=code)
@@ -169,10 +169,9 @@ class SupplierOrderViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         serializer = SupplierOrderCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
         magasin = resolve_magasin_for_request(request)
         try:
-            order = services.create_supplier_order(magasin=magasin, created_by=request.user, **data)
+            order = services.create_supplier_order(magasin=magasin, created_by=request.user, **serializer.validated_data)
         except ValidationError as exc:
             _erreur(exc)
         return self._reponse(order, status.HTTP_201_CREATED)
@@ -189,92 +188,83 @@ class SupplierOrderViewSet(viewsets.ModelViewSet):
 
     # --- workflow ------------------------------------------------------------ #
 
-    @action(detail=True, methods=["post"])
-    def commander(self, request, pk=None):
-        order = self.get_object()
+    def _transition(self, fn, **kw):
         try:
-            services.commander(order)
+            order = fn(self.get_object(), **kw)
         except ValidationError as exc:
             _erreur(exc)
         return self._reponse(order)
+
+    @action(detail=True, methods=["post"])
+    def commander(self, request, pk=None):
+        return self._transition(services.commander)
 
     @action(detail=True, methods=["post"])
     def preparer(self, request, pk=None):
-        order = self.get_object()
-        try:
-            services.preparer(order)
-        except ValidationError as exc:
-            _erreur(exc)
-        return self._reponse(order)
+        return self._transition(services.preparer)
 
     @action(detail=True, methods=["post"])
     def expedier(self, request, pk=None):
-        order = self.get_object()
-        ser = ExpedierSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        try:
-            services.expedier(order, **ser.validated_data)
-        except ValidationError as exc:
-            _erreur(exc)
-        return self._reponse(order)
+        s = ExpedierSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        return self._transition(services.expedier, **s.validated_data)
+
+    @action(detail=True, methods=["post"])
+    def transit(self, request, pk=None):
+        s = TransitSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        return self._transition(services.transit, **s.validated_data)
 
     @action(detail=True, methods=["post"])
     def arriver(self, request, pk=None):
-        order = self.get_object()
-        date_arrivee = request.data.get("date_arrivee") or None
-        try:
-            services.arriver(order, date_arrivee=date_arrivee)
-        except ValidationError as exc:
-            _erreur(exc)
-        return self._reponse(order)
+        s = ArriverSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        return self._transition(services.arriver, **s.validated_data)
 
-    @action(detail=True, methods=["post"])
-    def receive(self, request, pk=None):
-        """POST : réception (totale sans corps, ou partielle avec
-        `lines: [{line_id, quantite_recue}]`) -> entrée stock par variante."""
+    @action(detail=True, methods=["post"], url_path="frais-douane")
+    def frais_douane(self, request, pk=None):
+        """Saisie / modification du montant unique Frais + Douane (MGA).
+        `en_caisse: true` enregistre aussi la sortie de caisse (référence
+        APPRO:<n°>:FRAIS, une seule fois)."""
         order = self.get_object()
-        ser = ReceptionSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        quantites = None
-        if ser.validated_data.get("lines"):
-            quantites = {l["line_id"]: l["quantite_recue"] for l in ser.validated_data["lines"]}
+        s = FraisDouaneSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
         try:
-            order = services.receive_supplier_order(order, request.user, quantites=quantites)
+            order = services.update_supplier_order(order=order, data={"frais_douane_mga": s.validated_data["frais_douane_mga"]})
+            if s.validated_data.get("en_caisse"):
+                services.enregistrer_en_caisse(
+                    order, request.user, order.frais_douane_mga, f"Frais + Douane — approvisionnement {order.numero}",
+                    f"APPRO:{order.numero}:FRAIS",
+                )
         except ValidationError as exc:
             _erreur(exc)
-        Notification.objects.create(
-            notif_type="supplier_order",
-            message=(
-                f"Commande fournisseur {order.numero} reçue — stock mis à jour"
-                if order.statut == "RECU"
-                else f"Commande fournisseur {order.numero} partiellement reçue ({order.total_recu}/{sum(l.quantite for l in order.lines.all())}) — stock mis à jour"
-            ),
-            magasin=order.magasin,
-        )
         return self._reponse(order)
 
     @action(detail=True, methods=["post"])
     def finaliser(self, request, pk=None):
-        order = self.get_object()
-        ser = FinaliserSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        try:
-            services.finaliser_cout(order, mettre_a_jour_prix_achat=ser.validated_data["mettre_a_jour_prix_achat"])
-        except ValidationError as exc:
-            _erreur(exc)
-        return self._reponse(order)
+        s = FinaliserSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        return self._transition(services.finaliser_cout, user=request.user, **s.validated_data)
 
-    # --- paiements ----------------------------------------------------------- #
+    # --- paiements ------------------------------------------------------------ #
 
     @action(detail=True, methods=["get", "post"])
     def payments(self, request, pk=None):
         order = self.get_object()
         if request.method == "GET":
             return Response(SupplierPaymentSerializer(order.payments.all(), many=True).data)
-        ser = SupplierPaymentInputSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
+        s = SupplierPaymentInputSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        data = dict(s.validated_data)
+        en_caisse = data.pop("en_caisse", False)
         try:
-            services.add_payment(order=order, user=request.user, **ser.validated_data)
+            payment = services.add_payment(order=order, user=request.user, **data)
+            if en_caisse:
+                services.enregistrer_en_caisse(
+                    order, request.user, payment.montant_mga,
+                    f"Paiement fournisseur {payment.montant} {payment.devise} — approvisionnement {order.numero}",
+                    f"APPRO:{order.numero}:P{payment.id}",
+                )
         except ValidationError as exc:
             _erreur(exc)
         return self._reponse(order, status.HTTP_201_CREATED)
@@ -288,49 +278,25 @@ class SupplierOrderViewSet(viewsets.ModelViewSet):
             _erreur(exc)
         return self._reponse(order)
 
-    # --- frais d'importation ------------------------------------------------- #
-
-    @action(detail=True, methods=["get", "post"])
-    def fees(self, request, pk=None):
-        order = self.get_object()
-        if request.method == "GET":
-            return Response(SupplierFeeSerializer(order.fees.all(), many=True).data)
-        ser = SupplierFeeInputSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        try:
-            services.add_fee(order=order, user=request.user, **ser.validated_data)
-        except ValidationError as exc:
-            _erreur(exc)
-        return self._reponse(order, status.HTTP_201_CREATED)
-
-    @action(detail=True, methods=["delete"], url_path=r"fees/(?P<fee_id>\d+)")
-    def delete_fee(self, request, pk=None, fee_id=None):
-        order = self.get_object()
-        try:
-            services.delete_fee(order=order, fee_id=int(fee_id))
-        except ValidationError as exc:
-            _erreur(exc)
-        return self._reponse(order)
-
     # --- indicateurs -------------------------------------------------------- #
 
     @action(detail=False, methods=["get"])
     def kpis(self, request):
         """GET /api/suppliers/orders/kpis/ — indicateurs de la page Fournisseurs."""
         profile = _admin_profile(request.user)
-        suppliers = Supplier.objects.filter(admin_profile=profile, actif=True) if profile else Supplier.objects.none()
+        suppliers = Supplier.objects.filter(admin_profile=profile) if profile else Supplier.objects.none()
         return Response(services.kpis(self.get_queryset(), suppliers))
 
 
 # --------------------------------------------------------------------------- #
-# Coût de revient par variante
+# Coût de revient par produit (historique des envois — § 12)
 # --------------------------------------------------------------------------- #
 
 
 class VariantCostHistoryView(APIView):
-    """GET /api/suppliers/cost-history/?variant=<id> — coût de revient actuel
-    (dernier approvisionnement finalisé), moyen pondéré et historique d'une
-    variante ; sans `variant`, les 200 dernières entrées de la société."""
+    """GET /api/suppliers/cost-history/?variant=<id> — dernier coût de revient
+    finalisé, coût moyen pondéré et liste des envois finalisés d'un produit ;
+    sans `variant`, les 200 derniers envois finalisés de la société."""
 
     permission_classes = [IsGerant]
 
@@ -349,13 +315,11 @@ class VariantCostHistoryView(APIView):
                 "variant": variant.id,
                 "reference_name": variant.product_reference.reference_name,
                 "couleur": variant.couleur,
-                "prix_achat_reference": variant.product_reference.prix_achat,
+                "prix_achat_reference": info["prix_achat_reference"],
                 "prix_vente": variant.product_reference.prix_vente,
                 "cout_actuel_mga": info["dernier"],
-                "cout_moyen_pondere_mga": info["moyen_pondere"],
-                "historique": VariantCostHistorySerializer(info["historique"], many=True).data,
+                "cout_moyen_pondere_mga": info["moyen"],
+                "historique": HistoriqueCoutSerializer(info["envois"], many=True).data,
             })
-        hist = VariantCostHistory.objects.filter(supplier_order__magasin__in=magasins).select_related(
-            "supplier_order__supplier", "product_variant__product_reference"
-        )[:200]
-        return Response(VariantCostHistorySerializer(hist, many=True).data)
+        envois = SupplierOrder.objects.filter(magasin__in=magasins, statut="COUT_FINALISE").select_related("supplier").order_by("-finalise_at", "-id")[:200]
+        return Response(HistoriqueCoutSerializer(envois, many=True).data)

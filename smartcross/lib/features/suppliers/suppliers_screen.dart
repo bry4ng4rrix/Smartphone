@@ -2,21 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../data/repositories/catalog_repository.dart' show catalogErrorMessage;
+import '../../core/api_client.dart';
 import '../../models/supplier.dart';
 import '../../state/suppliers_provider.dart';
 import '../../widgets/async_state_widgets.dart';
+import 'supplier_form_dialog.dart';
+import 'supplier_order_card.dart';
 import 'supplier_status.dart';
 
-/// Page `/suppliers` du web (frontend/app/(app)/suppliers/page.tsx) —
-/// module Commandes Fournisseur (§7.6 README) : lister les commandes, en
-/// créer (écran dédié `/suppliers/new`, équivalent du dialog
-/// `CreateSupplierOrderDialog`), consulter le détail (`/suppliers/:id`,
-/// équivalent du dialog de détail) et réceptionner (entrée stock).
-///
-/// Gating : la page web n'a AUCUN garde interne (menu `adminOnly` + 403
-/// serveur). Ici le contrôle est fait en amont par `core/router.dart` /
-/// `core/nav_items.dart::canAccessPath` (gérant = admin | magasin).
+/// Page Fournisseurs (`/suppliers`) — miroir de frontend/app/(app)/suppliers :
+/// indicateurs, onglet « Approvisionnements » (cartes § 16, filtres statut /
+/// fournisseur / recherche) et onglet « Fournisseurs » (fiches).
 class SuppliersScreen extends ConsumerStatefulWidget {
   const SuppliersScreen({super.key});
 
@@ -24,241 +20,333 @@ class SuppliersScreen extends ConsumerStatefulWidget {
   ConsumerState<SuppliersScreen> createState() => _SuppliersScreenState();
 }
 
-class _SuppliersScreenState extends ConsumerState<SuppliersScreen> {
-  /// Rechargement NON silencieux en cours (bouton « Rafraîchir », après une
-  /// réception) — Riverpod 3 conserve la valeur précédente pendant un
-  /// `AsyncLoading`, l'écran s'en souvient donc lui-même pour afficher le
-  /// skeleton comme le web.
-  bool _refreshing = false;
+class _SuppliersScreenState extends ConsumerState<SuppliersScreen> with SingleTickerProviderStateMixin {
+  late final TabController _tabs = TabController(length: 2, vsync: this);
+  final _searchController = TextEditingController();
+  String _search = '';
+  SupplierOrderStatus? _statut;
+  int? _supplierId;
 
-  /// Commande en cours de réception (bouton désactivé + spinner).
-  int? _receivingId;
-
-  void _snack(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+  @override
+  void dispose() {
+    _tabs.dispose();
+    _searchController.dispose();
+    super.dispose();
   }
 
-  /// Bouton « Rafraîchir » du web : `fetchOrders()` NON silencieux.
-  Future<void> _refresh() async {
-    if (_refreshing) return;
-    setState(() => _refreshing = true);
-    try {
-      await ref.read(supplierOrdersProvider.notifier).refresh();
-    } finally {
-      if (mounted) setState(() => _refreshing = false);
-    }
-    _signalRefreshError();
-  }
-
-  /// Tirer-pour-rafraîchir : la liste reste affichée (`fetchOrders(true)`).
-  Future<void> _silentRefresh() async {
-    await ref.read(supplierOrdersProvider.notifier).refreshSilencieux();
-    _signalRefreshError();
-  }
-
-  /// Web : `toast.error(err.message || 'Erreur de chargement')`, la liste
-  /// précédente reste affichée.
-  void _signalRefreshError() {
-    if (!mounted) return;
-    final after = ref.read(supplierOrdersProvider);
-    if (after.hasError && after.hasValue) _snack(catalogErrorMessage(after.error!, 'Erreur de chargement'));
-  }
-
-  /// `receive(order)` du web : POST receive -> toast succès -> `fetchOrders()`
-  /// non silencieux. Erreur : `toast.error(err.message || 'Réception
-  /// impossible')` (ex : « Cette commande fournisseur a déjà été reçue. »).
-  Future<void> _receive(SupplierOrder order) async {
-    if (_receivingId != null) return;
-    if (!await confirmSupplierReceive(context, order.numero)) return;
-    setState(() {
-      _receivingId = order.id;
-      _refreshing = true;
-    });
-    try {
-      await ref.read(supplierOrdersProvider.notifier).receive(order.id);
-      _snack('Commande ${order.numero} reçue — stock mis à jour');
-    } catch (e) {
-      _snack(catalogErrorMessage(e, 'Réception impossible'));
-    } finally {
-      if (mounted) {
-        setState(() {
-          _receivingId = null;
-          _refreshing = false;
-        });
+  List<SupplierOrder> _filtrer(List<SupplierOrder> orders) {
+    final q = _search.trim().toLowerCase();
+    return orders.where((o) {
+      if (_statut != null && o.statut != _statut) return false;
+      if (_supplierId != null && o.supplierId != _supplierId) return false;
+      if (q.isNotEmpty) {
+        final texte = [o.numero, o.supplierNom, o.produit?.libelle ?? '', o.tracking, o.numeroColis, o.description ?? ''].join(' ').toLowerCase();
+        if (!texte.contains(q)) return false;
       }
+      return true;
+    }).toList();
+  }
+
+  Future<void> _nouvelAppro([Supplier? supplier]) async {
+    final id = await context.push<int>('/suppliers/new', extra: supplier);
+    if (id != null && mounted) context.push('/suppliers/$id');
+  }
+
+  Future<void> _formFournisseur([Supplier? supplier]) async {
+    final ok = await showDialog<bool>(context: context, builder: (_) => SupplierFormDialog(supplier: supplier));
+    if (ok == true) {
+      ref.invalidate(suppliersListProvider);
+      ref.invalidate(supplierKpisProvider);
+    }
+  }
+
+  Future<void> _supprimerFournisseur(Supplier s) async {
+    final utilise = s.nbApprovisionnements > 0;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(utilise ? 'Désactiver « ${s.nom} » ?' : 'Supprimer « ${s.nom} » ?'),
+        content: Text(utilise
+            ? 'Ce fournisseur a ${s.nbApprovisionnements} approvisionnement(s) : il sera désactivé, l\'historique est conservé.'
+            : 'Suppression définitive de la fiche.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Annuler')),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: Text(utilise ? 'Désactiver' : 'Supprimer')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ref.read(suppliersRepositoryProvider).supplierDelete(s.id);
+      ref.invalidate(suppliersListProvider);
+      ref.invalidate(supplierKpisProvider);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(utilise ? 'Fournisseur désactivé' : 'Fournisseur supprimé')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final async = ref.watch(supplierOrdersProvider);
-    final scheme = Theme.of(context).colorScheme;
-    // Chargement « bloquant » : premier chargement et « Rafraîchir »
-    // uniquement. Un rafraîchissement WebSocket garde la liste à l'écran.
-    final initialLoading = !async.hasValue && !async.hasError;
-    final loading = _refreshing || initialLoading;
-    final orders = async.value ?? const <SupplierOrder>[];
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final ordersAsync = ref.watch(supplierOrdersProvider);
+    final suppliersAsync = ref.watch(suppliersListProvider);
+    final kpisAsync = ref.watch(supplierKpisProvider);
+    final suppliers = suppliersAsync.value ?? const <Supplier>[];
 
     return Scaffold(
       appBar: AppBar(
-        title: const Row(
-          children: [
-            Icon(Icons.local_shipping_outlined),
-            SizedBox(width: 8),
-            Text('Fournisseurs'),
-          ],
-        ),
+        title: const Text('Fournisseurs'),
         actions: [
           IconButton(
             tooltip: 'Rafraîchir',
             icon: const Icon(Icons.refresh),
-            onPressed: loading ? null : _refresh,
+            onPressed: () {
+              ref.read(supplierOrdersProvider.notifier).refresh();
+              ref.invalidate(suppliersListProvider);
+              ref.invalidate(supplierKpisProvider);
+            },
           ),
-        ],
-      ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: Text(
-              'Coût de revient réel : marchandise + fret/import + douane (§7.6 du cahier des charges).',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-            ),
-          ),
-          Expanded(
-            child: loading
-                ? const LoadingState()
-                : (async.hasError && !async.hasValue)
-                    ? ErrorState(
-                        message: catalogErrorMessage(async.error!, 'Erreur de chargement'),
-                        onRetry: _refresh,
-                      )
-                    : RefreshIndicator(
-                        onRefresh: _silentRefresh,
-                        child: orders.isEmpty
-                            ? ListView(
-                                physics: const AlwaysScrollableScrollPhysics(),
-                                children: const [
-                                  SizedBox(height: 80),
-                                  EmptyState(message: 'Aucune commande fournisseur.', icon: Icons.local_shipping_outlined),
-                                ],
-                              )
-                            : ListView.builder(
-                                physics: const AlwaysScrollableScrollPhysics(),
-                                padding: const EdgeInsets.fromLTRB(12, 4, 12, 96),
-                                itemCount: orders.length,
-                                itemBuilder: (context, i) => _SupplierOrderCard(
-                                  order: orders[i],
-                                  receiving: _receivingId == orders[i].id,
-                                  onReceive: _receivingId == null ? () => _receive(orders[i]) : null,
-                                ),
-                              ),
-                      ),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push('/suppliers/new'),
-        icon: const Icon(Icons.add),
-        label: const Text('Commande fournisseur'),
-      ),
-    );
-  }
-}
-
-/// Une ligne du tableau web : N° (gras), description ('-' si vide), coût
-/// total, coût unitaire, badge statut, et le bouton « Réceptionner » (statut
-/// != RECU uniquement) — indépendant du tap sur la carte, qui ouvre le
-/// détail (`e.stopPropagation()` du web).
-class _SupplierOrderCard extends StatelessWidget {
-  const _SupplierOrderCard({required this.order, required this.receiving, required this.onReceive});
-
-  final SupplierOrder order;
-  final bool receiving;
-  final VoidCallback? onReceive;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final muted = TextStyle(color: scheme.onSurfaceVariant, fontSize: 12);
-    final description = (order.description ?? '').trim();
-
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => context.push('/suppliers/${order.id}'),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(order.numero, style: const TextStyle(fontWeight: FontWeight.w600)),
-                  ),
-                  const SizedBox(width: 8),
-                  SupplierStatusBadge(statut: order.statut),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                description.isEmpty ? '-' : description,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: scheme.onSurfaceVariant),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 16,
-                runSpacing: 4,
-                children: [
-                  _Kv(label: 'Coût total', value: supplierAr(order.coutTotal), muted: muted),
-                  _Kv(label: 'Coût unitaire', value: supplierAr(order.coutUnitaire), muted: muted),
-                  _Kv(label: 'Quantité', value: '${order.totalQty} u.', muted: muted),
-                ],
-              ),
-              if (!order.isReceived) ...[
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: FilledButton.icon(
-                    onPressed: onReceive,
-                    icon: receiving
-                        ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.inventory_outlined, size: 18),
-                    label: const Text('Réceptionner'),
-                  ),
-                ),
-              ],
+          PopupMenuButton<String>(
+            onSelected: (v) => v == 'appro' ? _nouvelAppro() : _formFournisseur(),
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'appro', child: ListTile(leading: Icon(Icons.add_box_outlined), title: Text('Nouvel approvisionnement'))),
+              PopupMenuItem(value: 'fournisseur', child: ListTile(leading: Icon(Icons.factory_outlined), title: Text('Nouveau fournisseur'))),
             ],
           ),
+        ],
+        bottom: TabBar(
+          controller: _tabs,
+          tabs: const [Tab(text: 'Approvisionnements'), Tab(text: 'Fournisseurs')],
         ),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _nouvelAppro(),
+        icon: const Icon(Icons.add),
+        label: const Text('Approvisionnement'),
+      ),
+      body: TabBarView(
+        controller: _tabs,
+        children: [
+          // ------------------------------------------------ Approvisionnements
+          RefreshIndicator(
+            onRefresh: () async {
+              await ref.read(supplierOrdersProvider.notifier).refreshSilencieux();
+              ref.invalidate(supplierKpisProvider);
+            },
+            child: CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                SliverToBoxAdapter(child: _Kpis(kpis: kpisAsync.value)),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+                    child: Column(
+                      children: [
+                        TextField(
+                          controller: _searchController,
+                          onChanged: (v) => setState(() => _search = v),
+                          decoration: InputDecoration(
+                            isDense: true,
+                            prefixIcon: const Icon(Icons.search),
+                            hintText: 'N°, produit, fournisseur, tracking, colis…',
+                            suffixIcon: _search.isEmpty
+                                ? null
+                                : IconButton(icon: const Icon(Icons.close), onPressed: () => setState(() { _searchController.clear(); _search = ''; })),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: DropdownButtonFormField<SupplierOrderStatus?>(
+                                key: ValueKey('statut-$_statut'),
+                                initialValue: _statut,
+                                isExpanded: true,
+                                decoration: const InputDecoration(labelText: 'Statut', isDense: true),
+                                items: [
+                                  const DropdownMenuItem(value: null, child: Text('Tous les statuts')),
+                                  for (final s in SupplierOrderStatus.values) DropdownMenuItem(value: s, child: Text(s.label, overflow: TextOverflow.ellipsis)),
+                                ],
+                                onChanged: (v) => setState(() => _statut = v),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: DropdownButtonFormField<int?>(
+                                key: ValueKey('supplier-$_supplierId'),
+                                initialValue: _supplierId,
+                                isExpanded: true,
+                                decoration: const InputDecoration(labelText: 'Fournisseur', isDense: true),
+                                items: [
+                                  const DropdownMenuItem(value: null, child: Text('Tous')),
+                                  for (final s in suppliers) DropdownMenuItem(value: s.id, child: Text(s.nom, overflow: TextOverflow.ellipsis)),
+                                ],
+                                onChanged: (v) => setState(() => _supplierId = v),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                ...ordersAsync.when(
+                  data: (orders) {
+                    final list = _filtrer(orders);
+                    if (list.isEmpty) {
+                      return [
+                        SliverFillRemaining(
+                          hasScrollBody: false,
+                          child: EmptyState(
+                            message: orders.isEmpty ? 'Aucun approvisionnement. Créez-en un : un fournisseur, un produit, une quantité.' : 'Aucun approvisionnement pour ces filtres.',
+                            icon: Icons.local_shipping_outlined,
+                          ),
+                        ),
+                      ];
+                    }
+                    return [
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 96),
+                        sliver: SliverList.separated(
+                          itemCount: list.length,
+                          separatorBuilder: (_, _) => const SizedBox(height: 12),
+                          itemBuilder: (context, i) => SupplierOrderCard(
+                            order: list[i],
+                            compact: true,
+                            onTap: () => context.push('/suppliers/${list[i].id}'),
+                          ),
+                        ),
+                      ),
+                    ];
+                  },
+                  loading: () => const [SliverFillRemaining(hasScrollBody: false, child: LoadingState())],
+                  error: (e, _) => [
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: ErrorState(message: ApiClient.messageFromError(e), onRetry: () => ref.read(supplierOrdersProvider.notifier).refresh()),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          // ------------------------------------------------ Fournisseurs
+          suppliersAsync.when(
+            data: (list) => list.isEmpty
+                ? const EmptyState(message: 'Aucun fournisseur. Créez une fiche pour y rattacher vos approvisionnements.', icon: Icons.factory_outlined)
+                : ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
+                    itemCount: list.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
+                    itemBuilder: (context, i) {
+                      final s = list[i];
+                      return Card(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(s.nom, style: TextStyle(fontWeight: FontWeight.w700, decoration: s.actif ? null : TextDecoration.lineThrough)),
+                                        Text([s.pays, s.contact, s.telephone].where((x) => x.isNotEmpty).join(' · '), style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+                                      ],
+                                    ),
+                                  ),
+                                  IconButton(tooltip: 'Modifier', icon: const Icon(Icons.edit_outlined), onPressed: () => _formFournisseur(s)),
+                                  IconButton(tooltip: 'Supprimer', icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () => _supprimerFournisseur(s)),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 12,
+                                runSpacing: 2,
+                                children: [
+                                  Text('${s.nbApprovisionnements} appro(s) · ${s.nbEnCours} en cours', style: const TextStyle(fontSize: 12)),
+                                  Text('Payé ${fmtAr(s.totalPayeMga)}', style: const TextStyle(fontSize: 12)),
+                                  Text('Reste ${fmtDevise(s.resteAPayerDevise, s.devise)}', style: const TextStyle(fontSize: 12)),
+                                  if (s.dernierNumero != null) Text('Dernier : ${s.dernierNumero}', style: const TextStyle(fontSize: 12)),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  OutlinedButton.icon(
+                                    onPressed: () => _nouvelAppro(s),
+                                    icon: const Icon(Icons.add, size: 16),
+                                    label: const Text('Approvisionnement'),
+                                    style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  TextButton(
+                                    onPressed: () => setState(() { _supplierId = s.id; _tabs.animateTo(0); }),
+                                    style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                                    child: const Text('Historique'),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+            loading: () => const LoadingState(),
+            error: (e, _) => ErrorState(message: ApiClient.messageFromError(e), onRetry: () => ref.invalidate(suppliersListProvider)),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _Kv extends StatelessWidget {
-  const _Kv({required this.label, required this.value, required this.muted});
-  final String label;
-  final String value;
-  final TextStyle muted;
+class _Kpis extends StatelessWidget {
+  const _Kpis({required this.kpis});
+  final SupplierKpis? kpis;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(label, style: muted),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.w500)),
-      ],
+    final k = kpis;
+    if (k == null) return const SizedBox(height: 8);
+    final scheme = Theme.of(context).colorScheme;
+    Widget tuile(String titre, String valeur, String detail) => Expanded(
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(border: Border.all(color: scheme.outlineVariant), borderRadius: BorderRadius.circular(10)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(titre, style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+                const SizedBox(height: 2),
+                Text(valeur, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+                Text(detail, style: TextStyle(fontSize: 10.5, color: scheme.onSurfaceVariant), maxLines: 2, overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+        );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+      child: Column(
+        children: [
+          Row(children: [
+            tuile('En cours', '${k.nbEnCours}', '${k.nbApprovisionnements} au total · ${k.nbFinalises} finalisé(s)'),
+            const SizedBox(width: 8),
+            tuile('En transit', '${k.enTransitNb}', '${fmtAr(k.enTransitValeurMga)} · ${k.aFinaliser} à finaliser'),
+          ]),
+          const SizedBox(height: 8),
+          Row(children: [
+            tuile('Total payé', fmtAr(k.totalPayeMga), 'Frais + Douane ${fmtAr(k.totalFraisDouaneMga)}'),
+            const SizedBox(width: 8),
+            tuile('Coût moyen / pièce', k.coutMoyenParPieceMga == null ? '—' : fmtAr(k.coutMoyenParPieceMga!), '${k.nbFournisseursActifs} fournisseur(s) actif(s)'),
+          ]),
+        ],
+      ),
     );
   }
 }

@@ -336,8 +336,8 @@ D'autres produits (chargeur…) où c'est surtout « référence + couleur + qua
 | **OrderItem**               | id, order_id, product_variant_id, prix_unitaire (snapshot), quantite (souvent 1)                                                                                            |
 | **OrderStatusHistory**      | id, order_id, ancien_statut, nouveau_statut, changed_by_user_id, timestamp, note_eventuelle                                                                                 |
 | **StockMovement**           | id, product_variant_id, type (ENTREE/SORTIE), quantite, origine (LIVRE, RETOUR, FOURNISSEUR, AJUSTEMENT), reference (order_id / supplier_order_id), timestamp, user_id      |
-| **SupplierOrder**           | id, numero, date, description, statut (Brouillon/Commandé/Reçu…), total_qty, prix_fournisseur (Ar), fret_import (Ar), douane (Ar), meta_ads (Ar), cout_total, cout_unitaire |
-| **SupplierOrderLine**       | id, supplier_order_id, product_variant_id, quantite, cout_unitaire_calcule (snapshot), total_ligne                                                                          |
+| **SupplierOrder**           | id, numero, date, statut (Brouillon → Commande → Acompte payé → Préparation → Entièrement payé → Expédié → En transit → Arrivé à Madagascar → Coût finalisé), supplier_id, product_variant_id (UN produit), quantite, devise, montant_prevu, transport, frais_douane_mga, total_paiements_mga, cout_total_mga, cout_unitaire_mga |
+| **SupplierPayment**         | id, supplier_order_id, montant, devise, taux_change (du jour, figé), montant_mga, date, type_paiement, methode, reference                                                    |
 
 ---
 

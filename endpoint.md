@@ -537,17 +537,16 @@ Les sections suivantes détaillent chaque route, application par application.
   - [POST /api/suppliers/suppliers/ — Créer un fournisseur](#post-apisupplierssuppliers-créer-un-fournisseur)
   - [GET /api/suppliers/suppliers/{id}/ — Fiche fournisseur](#get-apisupplierssuppliersid-fiche-fournisseur)
   - [PATCH /api/suppliers/suppliers/{id}/ — Modifier · DELETE /api/suppliers/suppliers/{id}/ — Supprimer / désactiver](#patch-apisupplierssuppliersid-modifier-delete-apisupplierssuppliersid-supprimer-désactiver)
-- **Approvisionnements**
+- **Approvisionnements (1 produit, N paiements, Frais + Douane)**
   - [GET /api/suppliers/orders/kpis/ — Indicateurs de la page](#get-apisuppliersorderskpis-indicateurs-de-la-page)
   - [GET /api/suppliers/orders/ — Liste · GET /api/suppliers/orders/{id}/ — Détail](#get-apisuppliersorders-liste-get-apisuppliersordersid-détail)
   - [POST /api/suppliers/orders/ — Créer un approvisionnement](#post-apisuppliersorders-créer-un-approvisionnement)
-  - [PATCH /api/suppliers/orders/{id}/ — Modifier](#patch-apisuppliersordersid-modifier)
-  - [POST /api/suppliers/orders/{id}/commander/ · …/preparer/ · …/expedier/ · …/arriver/ — Avancer le workflow](#post-apisuppliersordersidcommander-preparer-expedier-arriver-avancer-le-workflow)
-  - [POST /api/suppliers/orders/{id}/receive/ — Réceptionner (entrée en stock)](#post-apisuppliersordersidreceive-réceptionner-entrée-en-stock)
-  - [POST /api/suppliers/orders/{id}/finaliser/ — Finaliser le coût de revient](#post-apisuppliersordersidfinaliser-finaliser-le-coût-de-revient)
-  - [GET|POST /api/suppliers/orders/{id}/payments/ · DELETE /api/suppliers/orders/{id}/payments/{pid}/ — Paiements fournisseur](#getpost-apisuppliersordersidpayments-delete-apisuppliersordersidpaymentspid-paiements-fournisseur)
-  - [GET|POST /api/suppliers/orders/{id}/fees/ · DELETE /api/suppliers/orders/{id}/fees/{fid}/ — Frais d'importation](#getpost-apisuppliersordersidfees-delete-apisuppliersordersidfeesfid-frais-dimportation)
-  - [GET /api/suppliers/cost-history/ — Coût de revient actuel et historique](#get-apisupplierscost-history-coût-de-revient-actuel-et-historique)
+  - [PATCH /api/suppliers/orders/{id}/ — Modifier · DELETE — Supprimer un brouillon](#patch-apisuppliersordersid-modifier-delete-supprimer-un-brouillon)
+  - [POST …/commander/ · …/preparer/ · …/expedier/ · …/transit/ · …/arriver/ — Avancer le cycle](#post-commander-preparer-expedier-transit-arriver-avancer-le-cycle)
+  - [POST /api/suppliers/orders/{id}/frais-douane/ — Frais + Douane](#post-apisuppliersordersidfrais-douane-frais-douane)
+  - [POST /api/suppliers/orders/{id}/finaliser/ — Finaliser le coût et réceptionner en stock](#post-apisuppliersordersidfinaliser-finaliser-le-coût-et-réceptionner-en-stock)
+  - [GET|POST /api/suppliers/orders/{id}/payments/ · DELETE …/payments/{pid}/ — Paiements fournisseur](#getpost-apisuppliersordersidpayments-delete-paymentspid-paiements-fournisseur)
+  - [GET /api/suppliers/cost-history/ — Historique des envois d'un produit](#get-apisupplierscost-history-historique-des-envois-dun-produit)
 - **Espace client (nouveau — app `clients`)**
   - [Catalogue public](#catalogue-public)
   - [GET /api/boutiques/ — Boutiques](#get-apiboutiques-boutiques)
@@ -3198,7 +3197,7 @@ Erreurs : identiques au `PUT`.
 ### `DELETE /api/catalog/references/{id}/` — Supprimer une référence
 **Rôle** : Gérant · **Vue** : `ProductReferenceViewSet` (views.py)
 
-Effet : supprime la référence **et toutes ses variantes en cascade** (avec leur historique `StockMovement`). Aucune vérification préalable dans la vue : si l'une des variantes est utilisée par une ligne de commande client (`OrderItem`, `on_delete=PROTECT`) ou une ligne de commande fournisseur (`SupplierOrderLine`, `PROTECT`), la base refuse la suppression. Préférer `PATCH {"actif": false}` pour retirer une référence encore liée à des commandes.
+Effet : supprime la référence **et toutes ses variantes en cascade** (avec leur historique `StockMovement`). Aucune vérification préalable dans la vue : si l'une des variantes est utilisée par une ligne de commande client (`OrderItem`, `on_delete=PROTECT`) ou un approvisionnement fournisseur (`SupplierOrder.product_variant`, `PROTECT`), la base refuse la suppression. Préférer `PATCH {"actif": false}` pour retirer une référence encore liée à des commandes.
 
 Réponse `204` : corps vide.
 
@@ -3509,7 +3508,7 @@ Réponse `204` : corps vide.
 
 Erreurs :
 - `404` — `{"detail": "Not found."}`.
-- `500` — `ProtectedError` non interceptée : la variante figure dans au moins un `OrderItem` ou `SupplierOrderLine`.
+- `500` — `ProtectedError` non interceptée : la variante figure dans au moins un `OrderItem` ou un `SupplierOrder`.
 
 ### `POST /api/catalog/variants/{id}/adjust/` — Ajustement manuel du stock
 **Rôle** : Gérant · **Vue** : `ProductVariantViewSet.adjust` (views.py) → `services.apply_stock_movement`
@@ -5747,162 +5746,152 @@ Erreurs communes aux huit sections :
 
 ## Suppliers (approvisionnements fournisseur)
 
-Module Gérant → Fournisseurs (`/api/suppliers/`, `IsGerant` : `403` pour préparateur / livreur / client). Il suit le **coût réel** d'une importation jusqu'à Madagascar : paiements au fournisseur (historisés, multi-devises), transport, douane, taxes et autres frais, puis le **coût de revient par pièce** et son historique. Devise de référence : l'ariary (`MGA`) ; chaque montant conserve `montant` + `devise` + `taux_change` (Ar pour 1 unité) + `montant_mga`.
+**Base** : `/api/suppliers/` · **Rôle** : `GERANT` (`IsGerant`) sur toutes les routes.
 
-Workflow (`statut`) : `BROUILLON` → `COMMANDE` → (`PARTIELLEMENT_PAYE` / `PAYE`, dérivés des paiements) → `PREPARE` → `EN_TRANSIT` → `ARRIVE` → `PARTIELLEMENT_RECU` / `RECU` → `COUT_FINALISE`. Un approvisionnement finalisé est figé (`400` sur toute modification).
+**Règle métier** : un approvisionnement = **1 fournisseur + 1 produit (variante) + 1 quantité** + N paiements (chacun avec son taux du jour, montant MGA figé) + 1 expédition + **1 seul montant Frais + Douane** + 1 coût total rendu Madagascar + 1 coût de revient par pièce. Pour un autre produit, on crée un autre approvisionnement ; le même produit acheté plusieurs fois = plusieurs approvisionnements, chacun avec son coût historique.
 
-Calcul (services.recompute_costs, en MGA) : valeur d'achat = Σ lignes (prix unitaire × quantité retenue × taux) — ou `prix_fournisseur` sur les commandes de la première version ; frais communs = `fret_import` + `douane` + Σ frais typés ; **valeur réelle** = valeur d'achat + frais ; frais alloués à chaque ligne selon `methode_allocation` (`VALEUR` proportionnel à la valeur d'achat — défaut —, `QUANTITE`, `MANUEL` = `allocation_manuelle_mga` par ligne) ; coût de revient unitaire = (valeur d'achat de la ligne + frais alloués) / quantité. La quantité retenue est la quantité **reçue** dès qu'une réception a eu lieu, la quantité commandée avant.
+Formules (toutes en MGA, calculées par le serveur — `suppliers/services.py`) :
+```text
+total fournisseur MGA       = Σ (montant paiement × taux du jour du paiement)
+coût total rendu Madagascar = total fournisseur MGA + Frais + Douane
+coût de revient par pièce   = coût total rendu Madagascar / quantité
+marge / pièce               = prix de vente − coût de revient par pièce
+```
 
-Forme d'un approvisionnement (toutes les vues) :
+Statuts (`statut`) dans l'ordre du cycle : `BROUILLON` → `COMMANDE` → `ACOMPTE_PAYE` → `PREPARATION` → `PAYE` (entièrement payé) → `EXPEDIE` → `EN_TRANSIT` → `ARRIVE` → `COUT_FINALISE`. `ACOMPTE_PAYE` / `PAYE` sont dérivés des paiements (par rapport à `montant_prevu`) tant que la marchandise n'est pas expédiée ; `PREPARATION` est posé à la main. Un approvisionnement `COUT_FINALISE` ne change plus (400 sur toute modification).
+
+Objet `SupplierOrderSerializer` :
 ```json
 {
-  "id": 7, "magasin": 2, "magasin_name": "Boutique Centre", "supplier": 3, "supplier_nom": "Shenzhen Cases Co",
-  "numero": "SUP-2-20260913-0001", "date": "2026-09-13", "description": "Import Chine septembre",
-  "statut": "PARTIELLEMENT_PAYE", "statut_label": "Partiellement payé",
-  "devise": "USD", "taux_change": "4500.0000", "methode_allocation": "VALEUR",
-  "prix_fournisseur": "0.00", "fret_import": "0.00", "douane": "0.00",
-  "date_expedition": null, "transporteur": "", "mode_transport": "", "tracking": "", "lieu_depart": "", "destination": "Madagascar", "date_arrivee": null,
-  "total_qty": 150, "total_recu": 0,
-  "valeur_achat_mga": "11250000.00", "total_frais_mga": "2250000.00", "cout_total": "13500000.00", "cout_unitaire": "90000.00",
-  "total_paye_mga": "4500000.00", "total_paye_devise": "1000.00", "reste_a_payer_mga": "6750000.00", "pourcentage_paye": "40.0",
-  "frais_par_type": [ { "type": "TRANSPORT", "label": "Transport / expédition", "montant_mga": "2250000.00" } ],
-  "lines": [
-    { "id": 11, "product_variant": 40, "reference_name": "Coque A", "brand_name": "Apple", "couleur": "Noir", "prix_vente": "150000.00",
-      "quantite": 100, "quantite_recue": 0, "reste_a_recevoir": 100, "prix_unitaire": "20.0000", "total_fournisseur_devise": "2000.00",
-      "allocation_manuelle_mga": null, "valeur_achat_mga": "9000000.00", "frais_alloues_mga": "1800000.00",
-      "cout_unitaire_calcule": "108000.00", "total_ligne": "10800000.00", "marge_unitaire": "42000.00" }
-  ],
+  "id": 12,
+  "numero": "SUP-2-20260917-0001",
+  "date": "2026-09-01",
+  "description": "Envoi #001",
+  "statut": "COUT_FINALISE",
+  "statut_label": "Coût finalisé",
+  "magasin": 2,
+  "magasin_name": "Smartphone.Mg",
+  "supplier": 3,
+  "supplier_nom": "Fournisseur Chine A",
+  "supplier_pays": "Chine",
+  "product_variant": 727,
+  "produit": { "id": 727, "libelle": "Samsung Produit A — Noir", "reference_name": "Produit A", "brand_name": "Samsung", "type_name": "Coques", "couleur": "Noir", "stock_actuel": 100, "prix_vente": "200000.00", "prix_achat": "141000.00" },
+  "quantite": 100,
+  "quantite_recue": 100,
+  "devise": "USD",
+  "montant_prevu": "2000.00",
+  "total_paye_devise": "2000.00",
+  "reste_a_payer_devise": "0.00",
+  "pourcentage_paye": "100.0",
+  "date_expedition": "2026-09-10",
+  "transporteur": "DHL",
+  "mode_transport": "AERIEN",
+  "mode_transport_label": "Aérien",
+  "tracking": "TRK123",
+  "numero_colis": "COLIS-1",
+  "lieu_depart": "Chine",
+  "destination": "Madagascar",
+  "date_arrivee": "2026-09-20",
+  "commentaire_transport": "",
+  "frais_douane_mga": "5000000.00",
+  "total_paiements_mga": "9100000.00",
+  "cout_total_mga": "14100000.00",
+  "cout_unitaire_mga": "141000.00",
+  "prix_vente_unitaire": "200000.00",
+  "marge_unitaire": "59000.00",
   "payments": [
-    { "id": 4, "date": "2026-09-01", "type_paiement": "ACOMPTE", "type_label": "Acompte", "methode": "VIREMENT", "methode_label": "Virement bancaire",
-      "montant": "1000.00", "devise": "USD", "taux_change": "4500.0000", "montant_mga": "4500000.00", "reference": "TT-001", "commentaire": "", "justificatif": null,
-      "created_by_name": "Gérant", "created_at": "2026-09-13T10:00:00+03:00" }
+    { "id": 1, "date": "2026-09-01", "type_paiement": "ACOMPTE", "type_label": "Acompte", "methode": "VIREMENT", "methode_label": "Virement bancaire", "montant": "1000.00", "devise": "USD", "taux_change": "4500.0000", "montant_mga": "4500000.00", "reference": "", "commentaire": "", "justificatif": null, "created_by_name": "Gérant", "created_at": "2026-09-01T09:00:00+03:00" },
+    { "id": 2, "date": "2026-09-08", "type_paiement": "SOLDE", "type_label": "Solde", "methode": "VIREMENT", "methode_label": "Virement bancaire", "montant": "1000.00", "devise": "USD", "taux_change": "4600.0000", "montant_mga": "4600000.00", "reference": "", "commentaire": "", "justificatif": null, "created_by_name": "Gérant", "created_at": "2026-09-08T09:00:00+03:00" }
   ],
-  "fees": [
-    { "id": 2, "type_frais": "TRANSPORT", "type_label": "Transport / expédition", "date": "2026-09-10", "montant": "500.00", "devise": "USD",
-      "taux_change": "4500.0000", "montant_mga": "2250000.00", "description": "Fret aérien", "prestataire": "DHL", "justificatif": null,
-      "created_by_name": "Gérant", "created_at": "2026-09-13T10:05:00+03:00" }
-  ],
-  "created_at": "2026-09-13T09:58:00+03:00", "received_at": null, "finalise_at": null
+  "caisse": { "paiements": [1], "frais_douane": true },
+  "received_at": "2026-09-21T10:00:00+03:00",
+  "finalise_at": "2026-09-21T10:00:00+03:00",
+  "created_by_name": "Gérant",
+  "created_at": "2026-09-01T08:00:00+03:00"
 }
 ```
+`caisse` : sorties de caisse déjà enregistrées pour cet appro (paiements `APPRO:<n°>:P<id>`, frais `APPRO:<n°>:FRAIS`, origine `ACHAT_STOCK` — marchandise, exclue des charges des rapports).
+
+Temps réel : chaque enregistrement diffuse `supplier_order` (`created` / `updated`) sur `/ws/data/` ; la finalisation diffuse aussi `stock_movement`.
 
 ### Fournisseurs
 
 ### `GET /api/suppliers/suppliers/` — Liste des fournisseurs
-**Rôle** : gérant · **Vue** : `SupplierViewSet` (suppliers/views.py) · `?search=` (nom, pays, contact, e-mail), `?actif=1`
-
-Réponse `200` (résumé financier calculé sur les approvisionnements visibles) :
+Paramètres : `search` (nom, pays, contact, e-mail), `actif=1`. Chaque fiche porte son résumé financier : `nb_approvisionnements`, `nb_en_cours`, `nb_finalises`, `total_paye_mga`, `total_frais_douane_mga`, `cout_total_mga`, `reste_a_payer_devise`, `quantite_totale`, `dernier_approvisionnement {id, numero, statut, statut_label, date}`.
 ```json
-[
-  { "id": 3, "nom": "Shenzhen Cases Co", "pays": "Chine", "contact": "Li Wei", "telephone": "+86 755 0000", "email": "sales@szcases.cn",
-    "adresse": "Shenzhen, Guangdong", "notes": "", "devise": "USD", "actif": true,
-    "nb_approvisionnements": 2, "total_achats_mga": "11250000.00", "total_paye_mga": "4500000.00", "reste_a_payer_mga": "6750000.00",
-    "total_frais_mga": "2250000.00", "valeur_recue_mga": "0.00",
-    "dernier_approvisionnement": { "id": 7, "numero": "SUP-2-20260913-0001", "statut": "PARTIELLEMENT_PAYE", "statut_label": "Partiellement payé", "date": "2026-09-13" },
-    "created_at": "2026-09-13T09:00:00+03:00" }
-]
+[{ "id": 3, "nom": "Fournisseur Chine A", "pays": "Chine", "contact": "M. Li", "telephone": "+86…", "email": "li@example.cn", "adresse": "Shenzhen", "notes": "", "devise": "USD", "actif": true, "nb_approvisionnements": 2, "nb_en_cours": 1, "nb_finalises": 1, "total_paye_mga": "9100000.00", "total_frais_douane_mga": "5000000.00", "cout_total_mga": "14100000.00", "reste_a_payer_devise": "1000.00", "quantite_totale": 300, "dernier_approvisionnement": { "id": 13, "numero": "SUP-2-20260917-0002", "statut": "ACOMPTE_PAYE", "statut_label": "Acompte payé", "date": "2026-09-17" }, "created_at": "2026-09-01T08:00:00+03:00" }]
 ```
 
 ### `POST /api/suppliers/suppliers/` — Créer un fournisseur
-Requête :
-```json
-{ "nom": "Guangzhou Tech", "pays": "Chine", "contact": "Chen", "telephone": "+86 20 0000", "email": "gz@ex.com", "adresse": "", "notes": "", "devise": "USD" }
-```
-Réponse `201` : la fiche. Erreurs : `400` — `{"nom": ["This field is required."]}`, `{"email": ["Enter a valid email address."]}`.
+Corps : `nom` (obligatoire), `pays`, `contact`, `telephone`, `email`, `adresse`, `notes`, `devise` (défaut `USD`), `actif`. Réponse `201` : la fiche.
 
 ### `GET /api/suppliers/suppliers/{id}/` — Fiche fournisseur
-Réponse `200` : la fiche (ci-dessus) + `"approvisionnements": [ …approvisionnements complets, du plus récent au plus ancien… ]`.
+La fiche + `approvisionnements` : liste complète de ses approvisionnements (objets `SupplierOrderSerializer`).
 
 ### `PATCH /api/suppliers/suppliers/{id}/` — Modifier · `DELETE /api/suppliers/suppliers/{id}/` — Supprimer / désactiver
-`PATCH` accepte les mêmes champs que la création. `DELETE` → `204` ; un fournisseur déjà utilisé par un approvisionnement n'est pas supprimé mais **désactivé** (`actif: false`).
+`DELETE` : supprimé s'il n'a aucun approvisionnement, sinon **désactivé** (`actif = false`, historique conservé) — `200` avec la fiche.
 
 ### Approvisionnements
 
 ### `GET /api/suppliers/orders/kpis/` — Indicateurs de la page
-Réponse `200` :
 ```json
-{ "nb_fournisseurs": 4, "en_cours": 3, "en_transit": 1, "arrives": 2, "finalises": 5, "nb_approvisionnements": 9,
-  "total_achats_mga": "85000000.00", "total_paye_mga": "70000000.00", "reste_a_payer_mga": "15000000.00", "total_frais_mga": "21000000.00", "valeur_recue_mga": "64000000.00" }
+{ "nb_approvisionnements": 5, "nb_en_cours": 3, "nb_finalises": 2, "total_paye_mga": "23000000.00", "total_frais_douane_mga": "9000000.00", "cout_total_mga": "32000000.00", "reste_a_payer_devise": "1500.00", "quantite_totale": 600, "nb_fournisseurs": 2, "nb_fournisseurs_actifs": 2, "en_transit": { "nb": 1, "valeur_mga": "4600000.00" }, "a_finaliser": 1, "cout_moyen_par_piece_mga": "148000.00", "par_statut": [{ "statut": "BROUILLON", "label": "Brouillon", "nb": 0 }] }
 ```
 
 ### `GET /api/suppliers/orders/` — Liste · `GET /api/suppliers/orders/{id}/` — Détail
-`?magasin_id=`, `?supplier=`, `?statut=EN_TRANSIT,ARRIVE`, `?search=` (numéro, description, fournisseur, tracking). Réponse : tableau / objet « approvisionnement » (forme ci-dessus).
+Paramètres de liste : `magasin_id`, `supplier`, `product_variant`, `statut` (plusieurs séparés par `,`), `search` (n°, description, fournisseur, tracking, n° colis, référence, marque). Tri : le plus récent en premier.
 
 ### `POST /api/suppliers/orders/` — Créer un approvisionnement
-| Paramètre | Où | Type | Obligatoire | Description |
-| --- | --- | --- | --- | --- |
-| supplier | corps | int | non | Fournisseur (doit appartenir à la société). |
-| devise | corps | MGA \| USD \| EUR \| CNY | non | Devise des prix unitaires (défaut MGA). |
-| taux_change | corps | décimal | si devise ≠ MGA | Ar pour 1 unité de devise. |
-| methode_allocation | corps | VALEUR \| QUANTITE \| MANUEL | non | Répartition des frais communs (défaut VALEUR). |
-| lines | corps | liste | oui | `[{ "product_variant", "quantite", "prix_unitaire" (devise), "allocation_manuelle_mga"? }]`. |
-| date, description, destination, statut (BROUILLON \| COMMANDE) | corps | | non | |
-| prix_fournisseur, fret_import, douane | corps | décimal MGA | non | Montants globaux de la première version (toujours acceptés). |
-| magasin_id | corps | int | si plusieurs magasins | |
-
-Requête :
+| Paramètre | Type | Obligatoire | Description |
+| --- | --- | --- | --- |
+| `product_variant` | int | oui | LE produit (variante) de l'envoi |
+| `quantite` | int ≥ 1 | oui | Nombre de pièces |
+| `supplier` | int \| null | non | Fiche fournisseur de la société |
+| `devise` | `USD` \| `EUR` \| `CNY` \| `MGA` | non | Devise du fournisseur (défaut : celle du fournisseur, sinon `USD`) |
+| `montant_prevu` | decimal | non | Total convenu, dans `devise` — sert au « reste à payer » |
+| `description`, `date` | | non | |
+| `statut` | `BROUILLON` \| `COMMANDE` | non | Défaut `BROUILLON` |
+| `magasin_id` | int | admin multi-magasins | Magasin destinataire |
 ```json
-{ "supplier": 3, "devise": "USD", "taux_change": "4500", "methode_allocation": "VALEUR", "description": "Import Chine septembre", "statut": "COMMANDE",
-  "lines": [ { "product_variant": 40, "quantite": 100, "prix_unitaire": "20" }, { "product_variant": 41, "quantite": 50, "prix_unitaire": "10" } ] }
+{ "supplier": 3, "product_variant": 727, "quantite": 100, "devise": "USD", "montant_prevu": "2000", "description": "Envoi #001", "statut": "COMMANDE" }
 ```
-Réponse `201` : l'approvisionnement. Erreurs : `400` — `{"taux_change": ["Le taux de change (Ar pour 1 unité de devise) est requis."]}`, `{"supplier": ["Ce fournisseur n'appartient pas à votre société."]}`, `{"lines": ["Au moins une ligne est requise."]}`.
+Réponse `201` : l'objet. Erreurs `400` : `{"quantite": ["La quantité doit être supérieure à zéro."]}`, `{"product_variant": ["Ce produit n'appartient pas à ce magasin."]}`, `{"supplier": ["Ce fournisseur n'appartient pas à votre société."]}`. Un corps avec `lines` (ancien module) est refusé (`product_variant` requis).
 
-### `PATCH /api/suppliers/orders/{id}/` — Modifier
-Champs : description, supplier, devise, taux_change, methode_allocation, date, prix_fournisseur, fret_import, douane, date_expedition, transporteur, mode_transport, tracking, lieu_depart, destination, date_arrivee, `lines` (liste complète : `id` pour une ligne existante, sans `id` = nouvelle ; une ligne absente est supprimée si rien n'a été reçu). Recalcule les coûts.
+### `PATCH /api/suppliers/orders/{id}/` — Modifier · `DELETE` — Supprimer un brouillon
+`PATCH` (tant que non finalisé) : `supplier`, `product_variant`, `quantite` (≥ quantité déjà reçue), `devise`, `montant_prevu`, `description`, `date`, transport (`date_expedition`, `transporteur`, `mode_transport`, `tracking`, `numero_colis`, `lieu_depart`, `destination`, `date_arrivee`, `commentaire_transport`), `frais_douane_mga`. Les coûts sont recalculés.
+`DELETE` : `204` uniquement pour un brouillon sans paiement, sinon `405 {"detail": "Seul un brouillon sans paiement peut être supprimé (historique comptable)."}`.
 
-Erreurs : `400` — `["Cet approvisionnement est finalisé : son coût de revient ne peut plus changer."]`, `{"lines": ["Ligne Coque A (Noir) : 60 déjà reçu(s), quantité minimale 60."]}`.
+### `POST …/commander/` · `…/preparer/` · `…/expedier/` · `…/transit/` · `…/arriver/` — Avancer le cycle
+| Action | Depuis | Corps |
+| --- | --- | --- |
+| `commander/` | `BROUILLON` | — |
+| `preparer/` | `COMMANDE`, `ACOMPTE_PAYE`, `PAYE` | — |
+| `expedier/` (départ Chine) | `COMMANDE`, `ACOMPTE_PAYE`, `PREPARATION`, `PAYE` | `date_expedition` (défaut aujourd'hui), `transporteur`, `mode_transport` (`AERIEN` \| `MARITIME` \| `ROUTIER` \| `EXPRESS` \| `AUTRE`), `tracking`, `numero_colis`, `lieu_depart`, `destination`, `commentaire_transport` |
+| `transit/` | `EXPEDIE` | `transporteur`, `mode_transport`, `tracking`, `numero_colis`, `commentaire_transport` |
+| `arriver/` (Madagascar) | `EXPEDIE`, `EN_TRANSIT` | `date_arrivee` (défaut aujourd'hui), `frais_douane_mga` (facultatif) |
+Réponse `200` : l'objet. Transition impossible → `400 ["Passage « … » → « … » impossible."]`.
 
-### `POST /api/suppliers/orders/{id}/commander/` · `…/preparer/` · `…/expedier/` · `…/arriver/` — Avancer le workflow
-- `commander/` : BROUILLON → COMMANDE (sans corps).
-- `preparer/` : COMMANDE / PARTIELLEMENT_PAYE / PAYE → PREPARE.
-- `expedier/` → EN_TRANSIT, corps facultatif : `{ "date_expedition": "2026-09-15", "transporteur": "DHL", "mode_transport": "AERIEN", "tracking": "DHL123", "lieu_depart": "Shenzhen", "destination": "Antananarivo" }`.
-- `arriver/` → ARRIVE, corps facultatif `{ "date_arrivee": "2026-09-20" }` (défaut aujourd'hui).
-
-Réponse `200` : l'approvisionnement. Erreurs : `400` — `["Transition impossible : l'approvisionnement est 'Réceptionné'."]`.
-
-### `POST /api/suppliers/orders/{id}/receive/` — Réceptionner (entrée en stock)
-Effet : pour chaque quantité reçue, un mouvement de stock `ENTREE` / origine `FOURNISSEUR` via `apply_stock_movement` ; `quantite_recue` mise à jour ; statut `RECU` si tout est arrivé, sinon `PARTIELLEMENT_RECU` ; coûts recalculés sur les quantités reçues. Sans corps : réception de tout ce qui reste (première version).
-
-Requête (partielle) :
+### `POST /api/suppliers/orders/{id}/frais-douane/` — Frais + Douane
+Corps : `frais_douane_mga` (decimal ≥ 0, **un seul montant**), `en_caisse` (bool : enregistre aussi la sortie de caisse `APPRO:<n°>:FRAIS`, une seule fois, session ouverte requise sinon `400 {"en_caisse": [...]}`). Coût total et coût unitaire recalculés.
 ```json
-{ "lines": [ { "line_id": 11, "quantite_recue": 60 }, { "line_id": 12, "quantite_recue": 50 } ] }
+{ "frais_douane_mga": "5000000", "en_caisse": true }
 ```
-Réponse `200` : l'approvisionnement. Erreurs : `400` — `{"lines": ["Coque A (Noir) : 50 reçu(s) pour 40 restant(s) à recevoir."]}`, `["Cette commande fournisseur a déjà été reçue."]`, `["Aucune quantité reçue."]`.
 
-### `POST /api/suppliers/orders/{id}/finaliser/` — Finaliser le coût de revient
-Effet : nécessite `RECU` ou `PARTIELLEMENT_RECU` ; fige les snapshots, écrit une entrée d'historique de coût par variante reçue (`VariantCostHistory`, jamais écrasée) et, si `mettre_a_jour_prix_achat` (défaut `true`), met à jour `prix_achat` de chaque référence avec le coût de revient (moyenne pondérée si plusieurs couleurs) — base des marges des rapports.
+### `POST /api/suppliers/orders/{id}/finaliser/` — Finaliser le coût et réceptionner en stock
+Depuis `ARRIVE` uniquement. Corps : `quantite_recue` (défaut : la quantité commandée ; 0 ≤ … ≤ quantité), `mettre_a_jour_prix_achat` (défaut `true` : prix d'achat de référence = moyenne pondérée stock existant / pièces reçues au coût de revient). Effet : statut `COUT_FINALISE`, coût figé, **entrée de stock** (`StockMovement` origine `FOURNISSEUR`, référence = n° d'appro, note « … N pièce(s) à X Ar »), diffusion `stock_movement`.
 
-Requête : `{ "mettre_a_jour_prix_achat": true }`. Réponse `200` : l'approvisionnement (`statut` `COUT_FINALISE`, `finalise_at`). Erreurs : `400` — `["Réceptionnez la marchandise avant de finaliser le coût."]`, `["Cet approvisionnement est déjà finalisé."]`.
-
-### `GET|POST /api/suppliers/orders/{id}/payments/` · `DELETE /api/suppliers/orders/{id}/payments/{pid}/` — Paiements fournisseur
-Requête `POST` :
+### `GET|POST /api/suppliers/orders/{id}/payments/` · `DELETE …/payments/{pid}/` — Paiements fournisseur
+`POST` (tant que non finalisé) : `montant` (> 0), `devise`, `taux_change` (Ar pour 1 unité — **obligatoire hors MGA**, figé : `montant_mga = montant × taux`), `date`, `type_paiement` (`ACOMPTE` \| `SOLDE` \| `PARTIEL` \| `AUTRE`), `methode` (`VIREMENT` \| `MOBILE_MONEY` \| `ESPECES` \| `CARTE` \| `AUTRE`), `reference`, `commentaire`, `justificatif` (fichier, multipart), `en_caisse` (sortie `APPRO:<n°>:P<id>`). Un premier paiement sur un brouillon le passe en `COMMANDE` puis `ACOMPTE_PAYE`. Réponse `201` : l'approvisionnement complet.
 ```json
-{ "montant": "1000", "devise": "USD", "taux_change": "4500", "date": "2026-09-01", "type_paiement": "ACOMPTE", "methode": "VIREMENT", "reference": "TT-001", "commentaire": "Premier versement" }
+{ "montant": "1000", "devise": "USD", "taux_change": "4500", "date": "2026-09-01", "type_paiement": "ACOMPTE", "methode": "VIREMENT" }
 ```
-`taux_change` facultatif si la devise est celle de la commande (taux de la commande repris). Réponse `201` : l'approvisionnement (statut de paiement recalculé). Erreurs : `400` — `{"montant": ["Le montant doit être supérieur à 0."]}`, `{"taux_change": ["Le taux de change (Ar pour 1 unité) est requis."]}`. `DELETE` → `200` avec l'approvisionnement ; `400` `["Paiement introuvable."]`.
+`DELETE …/payments/{pid}/` : `200` avec l'appro recalculé (une sortie de caisse déjà enregistrée n'est pas annulée).
 
-### `GET|POST /api/suppliers/orders/{id}/fees/` · `DELETE /api/suppliers/orders/{id}/fees/{fid}/` — Frais d'importation
-Types : `TRANSPORT`, `DOUANE`, `TAXES`, `TRANSIT`, `TRANSPORT_LOCAL`, `PORTUAIRE`, `DOSSIER`, `AGENCE`, `ASSURANCE`, `MANUTENTION`, `AUTRE`.
-
-Requête `POST` :
+### `GET /api/suppliers/cost-history/` — Historique des envois d'un produit
+`?variant=<id>` : `cout_actuel_mga` (dernier envoi finalisé), `cout_moyen_pondere_mga` (Σ coûts totaux / Σ quantités des envois finalisés), `prix_achat_reference`, `prix_vente`, `historique[]` (envois finalisés : `id, numero, supplier_nom, date, finalise_at, quantite, total_paiements_mga, frais_douane_mga, cout_total_mga, cout_unitaire_mga`). Sans `variant` : les 200 derniers envois finalisés de la société.
 ```json
-{ "type_frais": "DOUANE", "montant": "5000000", "devise": "MGA", "date": "2026-09-20", "prestataire": "Douanes Toamasina", "description": "Déclaration + taxes" }
+{ "variant": 727, "reference_name": "Produit A", "couleur": "Noir", "prix_achat_reference": "150333.33", "prix_vente": "200000.00", "cout_actuel_mga": "155000.00", "cout_moyen_pondere_mga": "150333.33", "historique": [{ "id": 13, "numero": "SUP-2-20260917-0002", "supplier_nom": "Fournisseur Chine A", "date": "2026-09-17", "finalise_at": "2026-09-30T10:00:00+03:00", "quantite": 200, "total_paiements_mga": "23000000.00", "frais_douane_mga": "8000000.00", "cout_total_mga": "31000000.00", "cout_unitaire_mga": "155000.00" }] }
 ```
-Réponse `201` : l'approvisionnement (frais réparties, coûts recalculés). Erreurs identiques aux paiements.
-
-### `GET /api/suppliers/cost-history/` — Coût de revient actuel et historique
-`?variant={id}` :
-```json
-{ "variant": 40, "reference_name": "Coque A", "couleur": "Noir", "prix_achat_reference": "63000.00", "prix_vente": "150000.00",
-  "cout_actuel_mga": "63000.00", "cout_moyen_pondere_mga": "85500.00",
-  "historique": [
-    { "id": 9, "product_variant": 40, "reference_name": "Coque A", "couleur": "Noir", "supplier_order": 8, "numero": "SUP-2-20260913-0002", "supplier_nom": "Shenzhen Cases Co",
-      "date": "2026-09-25", "quantite": 100, "valeur_achat_unitaire_mga": "63000.00", "frais_unitaire_mga": "0.00", "cout_revient_unitaire_mga": "63000.00" },
-    { "id": 5, "product_variant": 40, "reference_name": "Coque A", "couleur": "Noir", "supplier_order": 7, "numero": "SUP-2-20260913-0001", "supplier_nom": "Shenzhen Cases Co",
-      "date": "2026-09-20", "quantite": 100, "valeur_achat_unitaire_mga": "90000.00", "frais_unitaire_mga": "18000.00", "cout_revient_unitaire_mga": "108000.00" }
-  ] }
-```
-`cout_actuel_mga` = dernier approvisionnement finalisé (masonkarena), `cout_moyen_pondere_mga` = moyenne pondérée par les quantités sur tout l'historique. Sans `variant` : les 200 dernières entrées de la société. Erreurs : `404` — `{"detail": "Variante introuvable."}`.
 
 ---
 

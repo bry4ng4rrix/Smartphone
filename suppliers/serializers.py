@@ -2,19 +2,11 @@ from rest_framework import serializers
 
 from catalog.models import ProductVariant
 
-from .models import (
-    DEVISE_CHOICES,
-    Supplier,
-    SupplierFee,
-    SupplierOrder,
-    SupplierOrderLine,
-    SupplierPayment,
-    VariantCostHistory,
-)
+from .models import DEVISE_CHOICES, Supplier, SupplierOrder, SupplierPayment
 
 
-def _mga(max_digits=16):
-    return serializers.DecimalField(max_digits=max_digits, decimal_places=2, read_only=True)
+def _mga(**kw):
+    return serializers.DecimalField(max_digits=16, decimal_places=2, read_only=True, **kw)
 
 
 # --------------------------------------------------------------------------- #
@@ -26,19 +18,21 @@ class SupplierSerializer(serializers.ModelSerializer):
     """Fiche fournisseur + résumé financier (calculé par la vue)."""
 
     nb_approvisionnements = serializers.IntegerField(read_only=True, default=0)
-    total_achats_mga = _mga()
+    nb_en_cours = serializers.IntegerField(read_only=True, default=0)
+    nb_finalises = serializers.IntegerField(read_only=True, default=0)
     total_paye_mga = _mga()
-    reste_a_payer_mga = _mga()
-    total_frais_mga = _mga()
-    valeur_recue_mga = _mga()
+    total_frais_douane_mga = _mga()
+    cout_total_mga = _mga()
+    reste_a_payer_devise = _mga()
+    quantite_totale = serializers.IntegerField(read_only=True, default=0)
     dernier_approvisionnement = serializers.SerializerMethodField()
 
     class Meta:
         model = Supplier
         fields = [
             "id", "nom", "pays", "contact", "telephone", "email", "adresse", "notes", "devise", "actif",
-            "nb_approvisionnements", "total_achats_mga", "total_paye_mga", "reste_a_payer_mga",
-            "total_frais_mga", "valeur_recue_mga", "dernier_approvisionnement", "created_at",
+            "nb_approvisionnements", "nb_en_cours", "nb_finalises", "total_paye_mga", "total_frais_douane_mga",
+            "cout_total_mga", "reste_a_payer_devise", "quantite_totale", "dernier_approvisionnement", "created_at",
         ]
         read_only_fields = ["created_at"]
 
@@ -50,7 +44,7 @@ class SupplierSerializer(serializers.ModelSerializer):
 
 
 # --------------------------------------------------------------------------- #
-# Paiements / frais / historique de coût
+# Paiements
 # --------------------------------------------------------------------------- #
 
 
@@ -69,8 +63,9 @@ class SupplierPaymentSerializer(serializers.ModelSerializer):
 
 
 class SupplierPaymentInputSerializer(serializers.Serializer):
-    montant = serializers.DecimalField(max_digits=16, decimal_places=2)
-    devise = serializers.ChoiceField(choices=DEVISE_CHOICES, default="MGA")
+    montant = serializers.DecimalField(max_digits=16, decimal_places=2, min_value=0)
+    devise = serializers.ChoiceField(choices=DEVISE_CHOICES, default="USD")
+    # Taux du jour : nombre d'ariary pour 1 unité de devise (1 pour le MGA).
     taux_change = serializers.DecimalField(max_digits=14, decimal_places=4, required=False, allow_null=True)
     date = serializers.DateField(required=False)
     type_paiement = serializers.ChoiceField(choices=SupplierPayment.TYPE_CHOICES, default="ACOMPTE")
@@ -78,195 +73,154 @@ class SupplierPaymentInputSerializer(serializers.Serializer):
     reference = serializers.CharField(max_length=150, required=False, allow_blank=True, default="")
     commentaire = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
     justificatif = serializers.FileField(required=False, allow_null=True)
-
-
-class SupplierFeeSerializer(serializers.ModelSerializer):
-    type_label = serializers.CharField(source="get_type_frais_display", read_only=True)
-    created_by_name = serializers.CharField(source="created_by.full_name", read_only=True, default="")
-
-    class Meta:
-        model = SupplierFee
-        fields = [
-            "id", "type_frais", "type_label", "date", "montant", "devise", "taux_change", "montant_mga",
-            "description", "prestataire", "justificatif", "created_by_name", "created_at",
-        ]
-        read_only_fields = ["montant_mga", "created_at"]
-
-
-class SupplierFeeInputSerializer(serializers.Serializer):
-    type_frais = serializers.ChoiceField(choices=SupplierFee.TYPE_CHOICES, default="AUTRE")
-    montant = serializers.DecimalField(max_digits=16, decimal_places=2)
-    devise = serializers.ChoiceField(choices=DEVISE_CHOICES, default="MGA")
-    taux_change = serializers.DecimalField(max_digits=14, decimal_places=4, required=False, allow_null=True)
-    date = serializers.DateField(required=False)
-    description = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
-    prestataire = serializers.CharField(max_length=150, required=False, allow_blank=True, default="")
-    justificatif = serializers.FileField(required=False, allow_null=True)
-
-
-class VariantCostHistorySerializer(serializers.ModelSerializer):
-    numero = serializers.CharField(source="supplier_order.numero", read_only=True)
-    supplier_nom = serializers.CharField(source="supplier_order.supplier.nom", read_only=True, default="")
-    reference_name = serializers.CharField(source="product_variant.product_reference.reference_name", read_only=True)
-    couleur = serializers.CharField(source="product_variant.couleur", read_only=True)
-
-    class Meta:
-        model = VariantCostHistory
-        fields = [
-            "id", "product_variant", "reference_name", "couleur", "supplier_order", "numero", "supplier_nom",
-            "date", "quantite", "valeur_achat_unitaire_mga", "frais_unitaire_mga", "cout_revient_unitaire_mga",
-        ]
+    # Enregistre aussi la sortie en caisse (session ouverte requise).
+    en_caisse = serializers.BooleanField(required=False, default=False)
 
 
 # --------------------------------------------------------------------------- #
-# Approvisionnement
+# Approvisionnements
 # --------------------------------------------------------------------------- #
 
 
-class SupplierOrderLineSerializer(serializers.ModelSerializer):
-    reference_name = serializers.CharField(source="product_variant.product_reference.reference_name", read_only=True)
-    brand_name = serializers.CharField(source="product_variant.product_reference.brand.nom", read_only=True, default="")
-    couleur = serializers.CharField(source="product_variant.couleur", read_only=True)
-    prix_vente = serializers.DecimalField(
-        source="product_variant.product_reference.prix_vente", max_digits=12, decimal_places=2, read_only=True,
-    )
-    marge_unitaire = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
-    total_fournisseur_devise = serializers.DecimalField(max_digits=16, decimal_places=2, read_only=True)
-    reste_a_recevoir = serializers.SerializerMethodField()
+class ProduitSerializer(serializers.ModelSerializer):
+    """LE produit de l'approvisionnement (variante + référence)."""
+
+    reference_name = serializers.CharField(source="product_reference.reference_name", read_only=True)
+    brand_name = serializers.CharField(source="product_reference.brand.nom", read_only=True, default="")
+    type_name = serializers.CharField(source="product_reference.type.nom", read_only=True, default="")
+    prix_vente = serializers.DecimalField(source="product_reference.prix_vente", max_digits=12, decimal_places=2, read_only=True)
+    prix_achat = serializers.DecimalField(source="product_reference.prix_achat", max_digits=12, decimal_places=2, read_only=True)
+    libelle = serializers.SerializerMethodField()
 
     class Meta:
-        model = SupplierOrderLine
-        fields = [
-            "id", "product_variant", "reference_name", "brand_name", "couleur", "prix_vente",
-            "quantite", "quantite_recue", "reste_a_recevoir", "prix_unitaire", "total_fournisseur_devise",
-            "allocation_manuelle_mga", "valeur_achat_mga", "frais_alloues_mga",
-            "cout_unitaire_calcule", "total_ligne", "marge_unitaire",
-        ]
-        read_only_fields = ["quantite_recue", "valeur_achat_mga", "frais_alloues_mga", "cout_unitaire_calcule", "total_ligne"]
+        model = ProductVariant
+        fields = ["id", "libelle", "reference_name", "brand_name", "type_name", "couleur", "stock_actuel", "prix_vente", "prix_achat"]
 
-    def get_reste_a_recevoir(self, obj):
-        return max(obj.quantite - obj.quantite_recue, 0)
+    def get_libelle(self, obj):
+        ref = obj.product_reference
+        return f"{ref.brand.nom} {ref.reference_name} — {obj.couleur}"
 
 
 class SupplierOrderSerializer(serializers.ModelSerializer):
-    """Vue complète d'un approvisionnement : lignes, paiements, frais, montants
-    dérivés (MGA) — tous les champs de la première version sont conservés."""
-
-    lines = SupplierOrderLineSerializer(many=True, read_only=True)
-    payments = SupplierPaymentSerializer(many=True, read_only=True)
-    fees = SupplierFeeSerializer(many=True, read_only=True)
     statut_label = serializers.CharField(source="get_statut_display", read_only=True)
+    mode_transport_label = serializers.CharField(source="get_mode_transport_display", read_only=True)
     supplier_nom = serializers.CharField(source="supplier.nom", read_only=True, default="")
+    supplier_pays = serializers.CharField(source="supplier.pays", read_only=True, default="")
     magasin_name = serializers.CharField(source="magasin.shop_name", read_only=True)
-    total_paye_mga = _mga()
+    created_by_name = serializers.CharField(source="created_by.full_name", read_only=True, default="")
+    produit = ProduitSerializer(source="product_variant", read_only=True)
+    payments = SupplierPaymentSerializer(many=True, read_only=True)
+    # Résumé « prévu / payé / reste » (§ 4) dans la devise de l'appro.
     total_paye_devise = _mga()
-    reste_a_payer_mga = _mga()
+    reste_a_payer_devise = _mga()
     pourcentage_paye = serializers.DecimalField(max_digits=5, decimal_places=1, read_only=True)
-    total_recu = serializers.IntegerField(read_only=True)
-    frais_par_type = serializers.SerializerMethodField()
+    # Marge (§ 20) : prix de vente − coût de revient unitaire.
+    prix_vente_unitaire = _mga()
+    marge_unitaire = _mga()
+    caisse = serializers.SerializerMethodField()
 
     class Meta:
         model = SupplierOrder
         fields = [
-            "id", "magasin", "magasin_name", "supplier", "supplier_nom", "numero", "date", "description",
-            "statut", "statut_label", "devise", "taux_change", "methode_allocation",
-            "prix_fournisseur", "fret_import", "douane",
-            "date_expedition", "transporteur", "mode_transport", "tracking", "lieu_depart", "destination", "date_arrivee",
-            "total_qty", "total_recu", "valeur_achat_mga", "total_frais_mga", "cout_total", "cout_unitaire",
-            "total_paye_mga", "total_paye_devise", "reste_a_payer_mga", "pourcentage_paye", "frais_par_type",
-            "lines", "payments", "fees", "created_at", "received_at", "finalise_at",
+            "id", "numero", "date", "description", "statut", "statut_label",
+            "magasin", "magasin_name", "supplier", "supplier_nom", "supplier_pays",
+            "product_variant", "produit", "quantite", "quantite_recue",
+            "devise", "montant_prevu", "total_paye_devise", "reste_a_payer_devise", "pourcentage_paye",
+            "date_expedition", "transporteur", "mode_transport", "mode_transport_label", "tracking", "numero_colis",
+            "lieu_depart", "destination", "date_arrivee", "commentaire_transport",
+            "frais_douane_mga", "total_paiements_mga", "cout_total_mga", "cout_unitaire_mga",
+            "prix_vente_unitaire", "marge_unitaire",
+            "payments", "caisse", "received_at", "finalise_at", "created_by_name", "created_at",
         ]
-        read_only_fields = [
-            "magasin", "numero", "statut", "total_qty", "valeur_achat_mga", "total_frais_mga", "cout_total",
-            "cout_unitaire", "created_at", "received_at", "finalise_at",
-        ]
+        read_only_fields = fields
 
-    def get_frais_par_type(self, obj):
-        """Synthèse des frais (MGA) par type, y compris les montants fret /
-        douane de la première version."""
-        totaux = {}
-        if obj.fret_import:
-            totaux["TRANSPORT"] = totaux.get("TRANSPORT", 0) + obj.fret_import
-        if obj.douane:
-            totaux["DOUANE"] = totaux.get("DOUANE", 0) + obj.douane
-        for f in obj.fees.all():
-            totaux[f.type_frais] = totaux.get(f.type_frais, 0) + f.montant_mga
-        labels = dict(SupplierFee.TYPE_CHOICES)
-        return [
-            {"type": t, "label": labels.get(t, t), "montant_mga": m}
-            for t, m in sorted(totaux.items(), key=lambda kv: -kv[1])
-        ]
+    def get_caisse(self, obj):
+        """Références des sorties de caisse déjà enregistrées pour cet appro
+        (paiements `APPRO:<n°>:P<id>`, frais `APPRO:<n°>:FRAIS`)."""
+        from .services import references_caisse
 
-
-class SupplierOrderLineInputSerializer(serializers.Serializer):
-    id = serializers.IntegerField(required=False)
-    product_variant = serializers.PrimaryKeyRelatedField(queryset=ProductVariant.objects.all())
-    quantite = serializers.IntegerField(min_value=1)
-    prix_unitaire = serializers.DecimalField(max_digits=14, decimal_places=4, required=False, allow_null=True, min_value=0)
-    allocation_manuelle_mga = serializers.DecimalField(max_digits=16, decimal_places=2, required=False, allow_null=True, min_value=0)
+        refs = references_caisse(obj)
+        return {
+            "paiements": [p.id for p in obj.payments.all() if f"APPRO:{obj.numero}:P{p.id}" in refs],
+            "frais_douane": f"APPRO:{obj.numero}:FRAIS" in refs,
+        }
 
 
 class SupplierOrderCreateSerializer(serializers.Serializer):
-    description = serializers.CharField(required=False, allow_blank=True, default="")
     supplier = serializers.PrimaryKeyRelatedField(queryset=Supplier.objects.all(), required=False, allow_null=True)
-    devise = serializers.ChoiceField(choices=DEVISE_CHOICES, default="MGA")
-    taux_change = serializers.DecimalField(max_digits=14, decimal_places=4, required=False, allow_null=True)
-    methode_allocation = serializers.ChoiceField(choices=SupplierOrder.ALLOCATION_CHOICES, default="VALEUR")
+    product_variant = serializers.PrimaryKeyRelatedField(queryset=ProductVariant.objects.all())
+    quantite = serializers.IntegerField(min_value=1)
+    devise = serializers.ChoiceField(choices=DEVISE_CHOICES, required=False)
+    montant_prevu = serializers.DecimalField(max_digits=16, decimal_places=2, required=False, default=0, min_value=0)
+    description = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
     date = serializers.DateField(required=False)
-    destination = serializers.CharField(max_length=150, required=False, allow_blank=True, default="Madagascar")
-    statut = serializers.ChoiceField(choices=(("BROUILLON", "Brouillon"), ("COMMANDE", "Commandé")), default="BROUILLON")
-    # Première version (montants MGA) — toujours acceptés.
-    prix_fournisseur = serializers.DecimalField(max_digits=14, decimal_places=2, default=0)
-    fret_import = serializers.DecimalField(max_digits=14, decimal_places=2, default=0)
-    douane = serializers.DecimalField(max_digits=14, decimal_places=2, default=0)
-    lines = SupplierOrderLineInputSerializer(many=True)
-
-    def validate_lines(self, value):
-        if not value:
-            raise serializers.ValidationError("Au moins une ligne est requise.")
-        return value
+    statut = serializers.ChoiceField(choices=[("BROUILLON", "Brouillon"), ("COMMANDE", "Commande")], required=False, default="BROUILLON")
 
 
 class SupplierOrderUpdateSerializer(serializers.Serializer):
-    description = serializers.CharField(required=False, allow_blank=True)
     supplier = serializers.PrimaryKeyRelatedField(queryset=Supplier.objects.all(), required=False, allow_null=True)
+    product_variant = serializers.PrimaryKeyRelatedField(queryset=ProductVariant.objects.all(), required=False)
+    quantite = serializers.IntegerField(min_value=1, required=False)
     devise = serializers.ChoiceField(choices=DEVISE_CHOICES, required=False)
-    taux_change = serializers.DecimalField(max_digits=14, decimal_places=4, required=False, allow_null=True)
-    methode_allocation = serializers.ChoiceField(choices=SupplierOrder.ALLOCATION_CHOICES, required=False)
+    montant_prevu = serializers.DecimalField(max_digits=16, decimal_places=2, required=False, min_value=0)
+    description = serializers.CharField(max_length=255, required=False, allow_blank=True)
     date = serializers.DateField(required=False)
-    prix_fournisseur = serializers.DecimalField(max_digits=14, decimal_places=2, required=False)
-    fret_import = serializers.DecimalField(max_digits=14, decimal_places=2, required=False)
-    douane = serializers.DecimalField(max_digits=14, decimal_places=2, required=False)
     date_expedition = serializers.DateField(required=False, allow_null=True)
     transporteur = serializers.CharField(max_length=150, required=False, allow_blank=True)
     mode_transport = serializers.ChoiceField(choices=SupplierOrder.MODE_TRANSPORT_CHOICES, required=False, allow_blank=True)
     tracking = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    numero_colis = serializers.CharField(max_length=150, required=False, allow_blank=True)
     lieu_depart = serializers.CharField(max_length=150, required=False, allow_blank=True)
     destination = serializers.CharField(max_length=150, required=False, allow_blank=True)
     date_arrivee = serializers.DateField(required=False, allow_null=True)
-    lines = SupplierOrderLineInputSerializer(many=True, required=False)
+    commentaire_transport = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    frais_douane_mga = serializers.DecimalField(max_digits=16, decimal_places=2, required=False, min_value=0)
 
 
 class ExpedierSerializer(serializers.Serializer):
-    date_expedition = serializers.DateField(required=False, allow_null=True)
+    date_expedition = serializers.DateField(required=False)
     transporteur = serializers.CharField(max_length=150, required=False, allow_blank=True)
     mode_transport = serializers.ChoiceField(choices=SupplierOrder.MODE_TRANSPORT_CHOICES, required=False, allow_blank=True)
     tracking = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    numero_colis = serializers.CharField(max_length=150, required=False, allow_blank=True)
     lieu_depart = serializers.CharField(max_length=150, required=False, allow_blank=True)
     destination = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    commentaire_transport = serializers.CharField(max_length=255, required=False, allow_blank=True)
 
 
-class ReceptionLineSerializer(serializers.Serializer):
-    line_id = serializers.IntegerField()
-    quantite_recue = serializers.IntegerField(min_value=0)
+class TransitSerializer(serializers.Serializer):
+    transporteur = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    mode_transport = serializers.ChoiceField(choices=SupplierOrder.MODE_TRANSPORT_CHOICES, required=False, allow_blank=True)
+    tracking = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    numero_colis = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    commentaire_transport = serializers.CharField(max_length=255, required=False, allow_blank=True)
 
 
-class ReceptionSerializer(serializers.Serializer):
-    """Sans `lines` : réception complète de tout ce qui reste (comportement
-    de la première version)."""
+class ArriverSerializer(serializers.Serializer):
+    date_arrivee = serializers.DateField(required=False)
+    frais_douane_mga = serializers.DecimalField(max_digits=16, decimal_places=2, required=False, allow_null=True, min_value=0)
 
-    lines = ReceptionLineSerializer(many=True, required=False)
+
+class FraisDouaneSerializer(serializers.Serializer):
+    frais_douane_mga = serializers.DecimalField(max_digits=16, decimal_places=2, min_value=0)
+    en_caisse = serializers.BooleanField(required=False, default=False)
 
 
 class FinaliserSerializer(serializers.Serializer):
-    mettre_a_jour_prix_achat = serializers.BooleanField(default=True)
+    mettre_a_jour_prix_achat = serializers.BooleanField(required=False, default=True)
+    quantite_recue = serializers.IntegerField(required=False, allow_null=True, min_value=0)
+
+
+class HistoriqueCoutSerializer(serializers.Serializer):
+    """Un envoi finalisé d'un produit (§ 12)."""
+
+    id = serializers.IntegerField()
+    numero = serializers.CharField()
+    supplier_nom = serializers.CharField(source="supplier.nom", default="")
+    date = serializers.DateField()
+    finalise_at = serializers.DateTimeField()
+    quantite = serializers.IntegerField()
+    total_paiements_mga = _mga()
+    frais_douane_mga = _mga()
+    cout_total_mga = _mga()
+    cout_unitaire_mga = _mga()

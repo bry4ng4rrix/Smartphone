@@ -95,7 +95,7 @@ Toutes les routes sont sous `/api/` (authentification JWT) :
 | `/api/users/` | comptes, connexion, magasins, caisse, notifications, messagerie |
 | `/api/catalog/` | catégories, sous-types, marques, couleurs, références, variantes, mouvements de stock, import/export Excel, notes produit |
 | `/api/orders/` | commandes, zones de livraison, dépenses des livreurs, campagnes marketing, rapports (`reports/{overview,sales,financial,expenses,stock,orders,deliveries,marketing}/`) |
-| `/api/suppliers/` | commandes fournisseur |
+| `/api/suppliers/` | approvisionnements fournisseur (1 produit par envoi, paiements au taux du jour, Frais + Douane, coût de revient par pièce, réception en stock) |
 | `/api/produit/`, `/api/categories/`, `/api/type/`, `/api/sous-type/`, `/api/marque/`, `/api/couleurs/`, `/api/boutiques/` | **catalogue public** (sans authentification, sans prix d'achat ni stock chiffré) — app `clients` |
 | `/api/client/` | **espace client** : inscription, connexion (JWT distinct), profil, commandes client (créées « en attente d'approbation », validées par le gérant via `POST /api/orders/{id}/approuver/`) |
 

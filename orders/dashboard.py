@@ -83,9 +83,8 @@ class DashboardView(APIView):
             supplier_qs = supplier_qs.filter(date__gte=date_from)
         if date_to:
             supplier_qs = supplier_qs.filter(date__lte=date_to)
-        total_fournisseurs = supplier_qs.aggregate(
-            total=Sum("prix_fournisseur") + Sum("fret_import") + Sum("douane")
-        )["total"] or 0
+        # Coût total rendu Madagascar (Σ paiements MGA + Frais + Douane).
+        total_fournisseurs = supplier_qs.aggregate(total=Sum("cout_total_mga"))["total"] or 0
 
         # Bénéfice estimé = CA + Livraisons − Fournisseurs (§7.7 Smartreadme.md).
         benefice_estime = (ca_produits + frais_livraison_total) - total_fournisseurs
