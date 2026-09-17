@@ -9,8 +9,10 @@ import '../../models/caisse.dart';
 import '../../models/magasin.dart';
 import '../../state/auth_provider.dart';
 import '../../state/caisse_provider.dart';
+import '../../state/finance_provider.dart';
 import '../../state/stores_provider.dart';
 import '../../widgets/async_state_widgets.dart';
+import 'tresorerie_sections.dart';
 
 /// `money(v)` du web : `toLocaleString('fr-FR', {min 0, max 2 décimales})`
 /// + « Ar » — différent du bilan qui arrondit à l'entier.
@@ -86,7 +88,11 @@ class CaisseScreen extends ConsumerStatefulWidget {
   ConsumerState<CaisseScreen> createState() => _CaisseScreenState();
 }
 
-class _CaisseScreenState extends ConsumerState<CaisseScreen> {
+class _CaisseScreenState extends ConsumerState<CaisseScreen> with SingleTickerProviderStateMixin {
+  /// Onglets de la caisse — mêmes sections que le web : Trésorerie, Journal,
+  /// Ventes, Épargne, Boost, Sessions (ouverture / mouvements / fermeture).
+  late final TabController _tabs = TabController(length: 6, vsync: this);
+
   /// Plage du résumé : `summaryFrom` = premier jour du mois courant,
   /// `summaryTo` = aujourd'hui — jours d'Antananarivo (le backend compare
   /// `created_at__date` dans ce fuseau).
@@ -118,6 +124,31 @@ class _CaisseScreenState extends ConsumerState<CaisseScreen> {
         dateTo: _apiDayFmt.format(_summaryTo),
       );
 
+  /// Même période pour la trésorerie (`/api/finance/*`).
+  FinanceQuery _financeQuery(int magasinId) => (
+        magasinId: magasinId,
+        dateFrom: _apiDayFmt.format(_summaryFrom),
+        dateTo: _apiDayFmt.format(_summaryTo),
+      );
+
+  /// Recharge tout ce qui dépend de la trésorerie (après remise, retrait,
+  /// boost, session…).
+  void _rechargerTresorerie(int magasinId) {
+    ref.invalidate(financeDashboardProvider(_financeQuery(magasinId)));
+    ref.invalidate(financeJournalProvider(_financeQuery(magasinId)));
+    ref.invalidate(financeVentesProvider(_financeQuery(magasinId)));
+    ref.invalidate(financeEpargneProvider(magasinId));
+    ref.invalidate(caisseHistoryProvider(magasinId));
+    ref.invalidate(caissePeriodProvider(_periodQuery(magasinId)));
+    ref.read(currentCaisseProvider(magasinId).notifier).refreshSilencieux();
+  }
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
+  }
+
   /// `fetchCaisse()` du web : session courante + sessions (historique),
   /// NON silencieux. Ne recharge PAS le résumé de période (asymétrie du
   /// web, reproduite).
@@ -148,6 +179,10 @@ class _CaisseScreenState extends ConsumerState<CaisseScreen> {
   Future<void> _refreshSilencieux(int magasinId) async {
     ref.invalidate(caisseHistoryProvider(magasinId));
     ref.invalidate(caissePeriodProvider(_periodQuery(magasinId)));
+    ref.invalidate(financeDashboardProvider(_financeQuery(magasinId)));
+    ref.invalidate(financeJournalProvider(_financeQuery(magasinId)));
+    ref.invalidate(financeVentesProvider(_financeQuery(magasinId)));
+    ref.invalidate(financeEpargneProvider(magasinId));
     await ref.read(currentCaisseProvider(magasinId).notifier).refreshSilencieux();
   }
 
@@ -291,23 +326,142 @@ class _CaisseScreenState extends ConsumerState<CaisseScreen> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            child: Text(
-              'Ouverture, mouvements et fermeture de la caisse',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-            ),
-          ),
           if (isAdmin)
             _StoreSelector(
               selectedId: magasinId,
               onSelect: (id) => ref.read(caisseSelectedMagasinProvider.notifier).select(id),
             ),
-          const SizedBox(height: 8),
+          // Période partagée par toutes les sections (jours d'Antananarivo).
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Row(
+              children: [
+                Expanded(child: _DateButton(label: _dayFmt.format(_summaryFrom), onTap: () => _pickSummaryDate(from: true))),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Text('→', style: TextStyle(color: scheme.onSurfaceVariant)),
+                ),
+                Expanded(child: _DateButton(label: _dayFmt.format(_summaryTo), onTap: () => _pickSummaryDate(from: false))),
+              ],
+            ),
+          ),
+          TabBar(
+            controller: _tabs,
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
+            tabs: const [
+              Tab(text: 'Trésorerie'),
+              Tab(text: 'Journal'),
+              Tab(text: 'Ventes'),
+              Tab(text: 'Épargne'),
+              Tab(text: 'Boost'),
+              Tab(text: 'Sessions'),
+            ],
+          ),
           Expanded(
-            child: magasinId == null ? _NoMagasin(isAdmin: isAdmin) : _buildCaisse(magasinId),
+            child: magasinId == null
+                ? _NoMagasin(isAdmin: isAdmin)
+                : TabBarView(
+                    controller: _tabs,
+                    children: [
+                      _tresorerie(magasinId),
+                      _journal(magasinId),
+                      _ventes(magasinId),
+                      _epargne(magasinId),
+                      _boost(magasinId),
+                      _buildCaisse(magasinId),
+                    ],
+                  ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _refreshable(int magasinId, Widget child) => RefreshIndicator(
+        onRefresh: () => _refreshSilencieux(magasinId),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+          children: [child],
+        ),
+      );
+
+  Widget _tresorerie(int magasinId) {
+    final async = ref.watch(financeDashboardProvider(_financeQuery(magasinId)));
+    final session = ref.watch(currentCaisseProvider(magasinId)).value;
+    return async.when(
+      skipLoadingOnReload: true,
+      loading: () => const LoadingState(),
+      error: (e, _) => ErrorState(message: ApiClient.messageFromError(e), onRetry: () => _rechargerTresorerie(magasinId)),
+      data: (d) => _refreshable(
+        magasinId,
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TresorerieIndicateurs(ind: d.indicateurs),
+            const SizedBox(height: 12),
+            SectionGain(d: d),
+            const SizedBox(height: 12),
+            SectionEncaissements(
+              enc: d.encaissements,
+              magasinId: magasinId,
+              sessionOuverte: session != null && session.isOpen,
+              onChanged: () => _rechargerTresorerie(magasinId),
+            ),
+            const SizedBox(height: 12),
+            SectionLivraison(d: d),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _journal(int magasinId) => _refreshable(
+        magasinId,
+        SectionJournal(
+          async: ref.watch(financeJournalProvider(_financeQuery(magasinId))),
+          onRetry: () => ref.invalidate(financeJournalProvider(_financeQuery(magasinId))),
+        ),
+      );
+
+  Widget _ventes(int magasinId) => _refreshable(
+        magasinId,
+        SectionVentes(
+          async: ref.watch(financeVentesProvider(_financeQuery(magasinId))),
+          onRetry: () => ref.invalidate(financeVentesProvider(_financeQuery(magasinId))),
+        ),
+      );
+
+  Widget _epargne(int magasinId) {
+    final d = ref.watch(financeDashboardProvider(_financeQuery(magasinId))).value;
+    return _refreshable(
+      magasinId,
+      SectionEpargne(
+        magasinId: magasinId,
+        async: ref.watch(financeEpargneProvider(magasinId)),
+        versePeriode: d?.epargneVersePeriode ?? 0,
+        retirePeriode: d?.epargneRetirePeriode ?? 0,
+        onChanged: () => _rechargerTresorerie(magasinId),
+      ),
+    );
+  }
+
+  Widget _boost(int magasinId) {
+    final async = ref.watch(financeDashboardProvider(_financeQuery(magasinId)));
+    final session = ref.watch(currentCaisseProvider(magasinId)).value;
+    return async.when(
+      skipLoadingOnReload: true,
+      loading: () => const LoadingState(),
+      error: (e, _) => ErrorState(message: ApiClient.messageFromError(e), onRetry: () => _rechargerTresorerie(magasinId)),
+      data: (d) => _refreshable(
+        magasinId,
+        SectionBoost(
+          boosts: d.boosts,
+          magasinId: magasinId,
+          sessionOuverte: session != null && session.isOpen,
+          onChanged: () => _rechargerTresorerie(magasinId),
+        ),
       ),
     );
   }
@@ -348,8 +502,6 @@ class _CaisseScreenState extends ConsumerState<CaisseScreen> {
             periodAsync: periodAsync,
             from: _summaryFrom,
             to: _summaryTo,
-            onPickFrom: () => _pickSummaryDate(from: true),
-            onPickTo: () => _pickSummaryDate(from: false),
             onRetry: () => ref.invalidate(caissePeriodProvider(_periodQuery(magasinId))),
           ),
           const SizedBox(height: 16),
@@ -847,16 +999,12 @@ class _SummaryCard extends StatelessWidget {
     required this.periodAsync,
     required this.from,
     required this.to,
-    required this.onPickFrom,
-    required this.onPickTo,
     required this.onRetry,
   });
 
   final AsyncValue<CaissePeriodData> periodAsync;
   final DateTime from;
   final DateTime to;
-  final VoidCallback onPickFrom;
-  final VoidCallback onPickTo;
   final VoidCallback onRetry;
 
   @override
@@ -942,18 +1090,10 @@ class _SummaryCard extends StatelessWidget {
               'Tous les mouvements et les ventes de la période, quelle que soit la session.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
+            const SizedBox(height: 4),
+            Text('Période ${_dayFmt.format(from)} → ${_dayFmt.format(to)} (choisie en haut de la page).',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(child: _DateButton(label: _dayFmt.format(from), onTap: onPickFrom)),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Text('→', style: TextStyle(color: scheme.onSurfaceVariant)),
-                ),
-                Expanded(child: _DateButton(label: _dayFmt.format(to), onTap: onPickTo)),
-              ],
-            ),
-            const SizedBox(height: 16),
             content,
           ],
         ),
