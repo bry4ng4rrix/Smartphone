@@ -273,42 +273,7 @@ class SectionExpenses extends ConsumerWidget {
           },
         ),
         const SizedBox(height: 16),
-        ReportTable<MouvementDepense>(
-          titre: 'Détail des dépenses',
-          description: 'Les 300 opérations les plus récentes de la période.',
-          colonnes: [
-            ReportColumn(
-              key: 'date',
-              label: 'Date',
-              valeur: (r) => r.date,
-              render: (r, _) => Text(_dateDepense(r)),
-              export: (r) => r.date,
-            ),
-            ReportColumn(
-              key: 'source',
-              label: 'Source',
-              valeur: (r) => r.source,
-              render: (r, _) => _Badge(_sourceLabel(r.source), variante: _BadgeVariante.outline),
-              export: (r) => _sourceLabel(r.source),
-            ),
-            ReportColumn(key: 'categorie', label: 'Catégorie', valeur: (r) => r.categorie),
-            ReportColumn(key: 'libelle', label: 'Libellé', valeur: (r) => r.libelle),
-            ReportColumn(key: 'auteur', label: 'Par', valeur: (r) => r.auteur),
-            ReportColumn(
-              key: 'montant',
-              label: 'Montant',
-              align: TextAlign.right,
-              valeur: (r) => r.montant,
-              render: (r, _) => Text(fmtAr(r.montant)),
-            ),
-          ],
-          lignes: data?.mouvements,
-          loading: loading,
-          error: error,
-          pageSize: 20,
-          exportNom: 'detail_depenses',
-          compact: true,
-        ),
+        _DetailDepenses(mouvements: data?.mouvements, loading: loading, error: error),
       ],
     );
   }
@@ -497,4 +462,196 @@ ReportPrintable? expensesPrintable(ExpensesData data) {
       ),
     ],
   );
+}
+
+
+/// « Détail des dépenses » avec filtres LOCAUX (§ demande, miroir du web) :
+/// date (un jour, heure de Madagascar), source, catégorie, utilisateur,
+/// libellé — appliqués aux 300 opérations déjà chargées.
+class _DetailDepenses extends StatefulWidget {
+  const _DetailDepenses({required this.mouvements, required this.loading, this.error});
+  final List<MouvementDepense>? mouvements;
+  final bool loading;
+  final String? error;
+
+  @override
+  State<_DetailDepenses> createState() => _DetailDepensesState();
+}
+
+class _DetailDepensesState extends State<_DetailDepenses> {
+  DateTime? _date;
+  String? _source;
+  String? _categorie;
+  String? _auteur;
+  final _libelle = TextEditingController();
+
+  @override
+  void dispose() {
+    _libelle.dispose();
+    super.dispose();
+  }
+
+  bool get _actif => _date != null || _source != null || _categorie != null || _auteur != null || _libelle.text.trim().isNotEmpty;
+
+  String _jour(MouvementDepense m) {
+    if (m.source == 'caisse') {
+      final d = DateTime.tryParse(m.date);
+      if (d == null) return '';
+      final local = d.toUtc().add(const Duration(hours: 3));
+      return local.toIso8601String().substring(0, 10);
+    }
+    return m.date.length >= 10 ? m.date.substring(0, 10) : m.date;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final mouvements = widget.mouvements;
+    final tous = mouvements ?? const <MouvementDepense>[];
+    final categories = {for (final m in tous) m.categorie.isEmpty ? 'Sans catégorie' : m.categorie}.toList()..sort();
+    final auteurs = {for (final m in tous) m.auteur.isEmpty ? '—' : m.auteur}.toList()..sort();
+    final q = _libelle.text.trim().toLowerCase();
+    final dateKey = _date?.toIso8601String().substring(0, 10);
+    final lignes = tous.where((m) {
+      if (dateKey != null && _jour(m) != dateKey) return false;
+      if (_source != null && m.source != _source) return false;
+      if (_categorie != null && (m.categorie.isEmpty ? 'Sans catégorie' : m.categorie) != _categorie) return false;
+      if (_auteur != null && (m.auteur.isEmpty ? '—' : m.auteur) != _auteur) return false;
+      if (q.isNotEmpty && !'${m.libelle} ${m.categorie}'.toLowerCase().contains(q)) return false;
+      return true;
+    }).toList();
+    final total = lignes.fold<num>(0, (a, m) => a + m.montant);
+    final actif = _actif;
+
+    Widget champ(Widget child, {double width = 160}) => SizedBox(width: width, child: child);
+    final filtresWidget = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            champ(
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final d = await showDatePicker(context: context, initialDate: _date ?? DateTime.now(), firstDate: DateTime(2020), lastDate: DateTime(2100));
+                  if (d != null) setState(() => _date = d);
+                },
+                icon: const Icon(Icons.event_outlined, size: 18),
+                label: Text(_date == null ? 'Date' : '${_date!.day.toString().padLeft(2, '0')}/${_date!.month.toString().padLeft(2, '0')}/${_date!.year}'),
+              ),
+            ),
+            champ(
+              DropdownButtonFormField<String?>(
+                key: ValueKey('source-$_source'),
+                initialValue: _source,
+                decoration: const InputDecoration(labelText: 'Source', isDense: true),
+                items: const [
+                  DropdownMenuItem(value: null, child: Text('Toutes')),
+                  DropdownMenuItem(value: 'caisse', child: Text('Caisse')),
+                  DropdownMenuItem(value: 'livreur', child: Text('Livreur')),
+                ],
+                onChanged: (v) => setState(() => _source = v),
+              ),
+              width: 130,
+            ),
+            champ(
+              DropdownButtonFormField<String?>(
+                key: ValueKey('cat-$_categorie'),
+                initialValue: _categorie,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Catégorie', isDense: true),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('Toutes les catégories')),
+                  for (final c in categories) DropdownMenuItem(value: c, child: Text(c, overflow: TextOverflow.ellipsis)),
+                ],
+                onChanged: (v) => setState(() => _categorie = v),
+              ),
+              width: 190,
+            ),
+            champ(
+              DropdownButtonFormField<String?>(
+                key: ValueKey('auteur-$_auteur'),
+                initialValue: _auteur,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Utilisateur', isDense: true),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('Tous les utilisateurs')),
+                  for (final a in auteurs) DropdownMenuItem(value: a, child: Text(a, overflow: TextOverflow.ellipsis)),
+                ],
+                onChanged: (v) => setState(() => _auteur = v),
+              ),
+              width: 190,
+            ),
+            champ(
+              TextField(
+                controller: _libelle,
+                decoration: InputDecoration(
+                  labelText: 'Libellé',
+                  isDense: true,
+                  prefixIcon: const Icon(Icons.search, size: 18),
+                  suffixIcon: _libelle.text.isEmpty ? null : IconButton(icon: const Icon(Icons.close, size: 18), onPressed: () => setState(() => _libelle.clear())),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              width: 240,
+            ),
+            if (actif)
+              TextButton.icon(
+                onPressed: () => setState(() { _date = null; _source = null; _categorie = null; _auteur = null; _libelle.clear(); }),
+                icon: const Icon(Icons.filter_alt_off_outlined, size: 18),
+                label: const Text('Réinitialiser'),
+              ),
+          ],
+        ),
+        if (mouvements != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            '${lignes.length} opération(s)${actif ? ' sur ${tous.length}' : ''} · total ${fmtAr(total)}',
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+          ),
+        ],
+      ],
+    );
+
+        return ReportTable<MouvementDepense>(
+          titre: 'Détail des dépenses',
+          description: 'Les 300 opérations les plus récentes de la période.',
+          colonnes: [
+            ReportColumn(
+              key: 'date',
+              label: 'Date',
+              valeur: (r) => r.date,
+              render: (r, _) => Text(_dateDepense(r)),
+              export: (r) => r.date,
+            ),
+            ReportColumn(
+              key: 'source',
+              label: 'Source',
+              valeur: (r) => r.source,
+              render: (r, _) => _Badge(_sourceLabel(r.source), variante: _BadgeVariante.outline),
+              export: (r) => _sourceLabel(r.source),
+            ),
+            ReportColumn(key: 'categorie', label: 'Catégorie', valeur: (r) => r.categorie),
+            ReportColumn(key: 'libelle', label: 'Libellé', valeur: (r) => r.libelle),
+            ReportColumn(key: 'auteur', label: 'Par', valeur: (r) => r.auteur),
+            ReportColumn(
+              key: 'montant',
+              label: 'Montant',
+              align: TextAlign.right,
+              valeur: (r) => r.montant,
+              render: (r, _) => Text(fmtAr(r.montant)),
+            ),
+          ],
+          lignes: mouvements == null ? null : lignes,
+          loading: widget.loading,
+          error: widget.error,
+          filtres: filtresWidget,
+          vide: actif ? 'Aucune opération ne correspond à ces filtres.' : 'Aucune dépense sur la période.',
+          pageSize: 20,
+          exportNom: 'detail_depenses',
+          compact: true,
+        );
+  }
 }

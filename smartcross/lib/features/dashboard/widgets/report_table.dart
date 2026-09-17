@@ -51,6 +51,7 @@ class ReportTable<T> extends StatefulWidget {
     this.rowKey,
     this.exportNom,
     this.actions,
+    this.filtres,
     this.compact = false,
   });
 
@@ -67,6 +68,9 @@ class ReportTable<T> extends StatefulWidget {
   /// Nom du fichier Excel ; le bouton d'export n'apparaît que s'il est fourni.
   final String? exportNom;
   final Widget? actions;
+
+  /// Barre de filtres rendue sous l'en-tête (au-dessus des lignes).
+  final Widget? filtres;
   final bool compact;
 
   @override
@@ -233,6 +237,8 @@ class _ReportTableState<T> extends State<ReportTable<T>> {
                 ],
               ),
             ),
+          if (widget.filtres != null)
+            Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 10), child: widget.filtres),
           corps,
           if (!widget.loading && widget.error == null && pages > 1)
             Container(
