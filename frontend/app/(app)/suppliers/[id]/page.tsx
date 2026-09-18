@@ -83,7 +83,7 @@ export default function SupplierOrderPage() {
           <Button variant="ghost" size="icon" className="shrink-0" onClick={() => router.push('/suppliers')} title="Retour"><ArrowLeft className="h-4 w-4" /></Button>
           <div className="min-w-0">
             <h1 className="text-xl sm:text-2xl font-bold truncate">{order.numero}</h1>
-            <p className="text-sm text-muted-foreground truncate">{order.produit?.libelle} · {fmtNombre(order.quantite)} pièces{order.supplier_nom ? ` · ${order.supplier_nom}` : ''}</p>
+            <p className="text-sm text-muted-foreground truncate">{order.produit_libelle} · {fmtNombre(order.quantite)} pièces{order.supplier_nom ? ` · ${order.supplier_nom}` : ''}</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -112,12 +112,12 @@ export default function SupplierOrderPage() {
             {actionPossible('transit', order.statut) && <Button variant="outline" onClick={() => setDialog('transit')} disabled={!!busy}><Ship className="h-4 w-4 mr-1" /> En transit</Button>}
             {actionPossible('arriver', order.statut) && <Button variant="outline" onClick={() => setDialog('arriver')} disabled={!!busy}><Truck className="h-4 w-4 mr-1" /> Arrivée Madagascar</Button>}
             {order.statut === 'ARRIVE' && <Button variant="outline" onClick={() => setDialog('frais')} disabled={!!busy}><Calculator className="h-4 w-4 mr-1" /> Frais + Douane</Button>}
-            {actionPossible('finaliser', order.statut) && <Button onClick={() => setDialog('finaliser')} disabled={!!busy}><CheckCircle2 className="h-4 w-4 mr-1" /> Finaliser le coût (+ stock)</Button>}
+            {actionPossible('finaliser', order.statut) && <Button onClick={() => setDialog('finaliser')} disabled={!!busy}><CheckCircle2 className="h-4 w-4 mr-1" /> Finaliser le coût</Button>}
           </CardContent>
         </Card>
       )}
       {!ouvert && (
-        <p className="text-sm text-muted-foreground">Coût finalisé le {fmtDate(order.finalise_at)} — {fmtNombre(order.quantite_recue)} pièce(s) réceptionnée(s) en stock (mouvement {order.numero}). Ce coût est historique : il ne change plus.</p>
+        <p className="text-sm text-muted-foreground">Coût finalisé le {fmtDate(order.finalise_at)} — {fmtNombre(order.quantite_recue)} pièce(s) reçue(s). Ce coût est historique : il ne change plus.</p>
       )}
 
       <div className="grid gap-4 lg:grid-cols-2">

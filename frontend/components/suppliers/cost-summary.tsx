@@ -56,12 +56,12 @@ export function CostSummary({ order, compact = false }: { order: any; compact?: 
         <p className="text-xs text-muted-foreground mt-0.5">{order.numero} · {fmtDate(order.date)}{order.description ? ` · ${order.description}` : ''}</p>
       </Bloc>
 
-      <Bloc titre="Produit" icon={Package}>
-        <p className="font-medium">{order.produit?.libelle ?? '—'}</p>
+      <Bloc titre="Sous-type" icon={Package}>
+        <p className="font-medium">{order.produit_libelle || '—'}</p>
         <div className="flex flex-wrap gap-x-4 text-sm">
           <span>Quantité : <strong className="tabular-nums">{fmtNombre(order.quantite)} pièces</strong></span>
           {order.quantite_recue > 0 && <span className="text-muted-foreground">reçues : {fmtNombre(order.quantite_recue)}</span>}
-          {order.produit?.type_name && <span className="text-muted-foreground">{order.produit.type_name}</span>}
+          {order.sous_type?.category_name && <span className="text-muted-foreground">{order.sous_type.category_name}</span>}
         </div>
       </Bloc>
 

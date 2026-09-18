@@ -1326,7 +1326,7 @@ class DjangoAPIClient {
   // ==================== Suppliers Service (approvisionnements : 1 produit, N paiements, Frais + Douane) ====================
   suppliers = {
     // ---- Approvisionnements (SupplierOrder) ----
-    list: async (params?: { magasin_id?: number; supplier?: number; product_variant?: number; statut?: string; search?: string } | number) => {
+    list: async (params?: { magasin_id?: number; supplier?: number; product_type?: number; statut?: string; search?: string } | number) => {
       const q = new URLSearchParams()
       if (typeof params === 'number') {
         if (params) q.set('magasin_id', String(params))
@@ -1339,9 +1339,9 @@ class DjangoAPIClient {
     getById: async (id: number) => this.get<any>(`/suppliers/orders/${id}/`),
     /** Indicateurs de la page Fournisseurs. */
     kpis: async () => this.get<any>('/suppliers/orders/kpis/'),
-    /** UN produit, UNE quantité, un montant prévu (devise du fournisseur). */
+    /** UN sous-type de produit, UNE quantité, un montant prévu (devise du fournisseur). */
     create: async (data: {
-      supplier?: number | null; product_variant: number; quantite: number; devise?: string;
+      supplier?: number | null; product_type: number; quantite: number; devise?: string;
       montant_prevu?: number | string; description?: string; date?: string; statut?: 'BROUILLON' | 'COMMANDE'; magasin_id?: number;
     }) => this.post<any>('/suppliers/orders/', data),
     update: async (id: number, data: Record<string, unknown>) => this.patch<any>(`/suppliers/orders/${id}/`, data),
@@ -1379,8 +1379,8 @@ class DjangoAPIClient {
       this.post<any>('/suppliers/suppliers/', data),
     supplierUpdate: async (id: number, data: Record<string, unknown>) => this.patch<any>(`/suppliers/suppliers/${id}/`, data),
     supplierDelete: async (id: number) => this.delete<void>(`/suppliers/suppliers/${id}/`),
-    // ---- Historique des envois d'un produit (coût par pièce) ----
-    costHistory: async (variantId?: number) => this.get<any>(`/suppliers/cost-history/${variantId ? `?variant=${variantId}` : ''}`),
+    // ---- Historique des envois d'un sous-type (coût par pièce) ----
+    costHistory: async (typeId?: number) => this.get<any>(`/suppliers/cost-history/${typeId ? `?type=${typeId}` : ''}`),
   }
 
   // ==================== Backup Service (admin only) ====================

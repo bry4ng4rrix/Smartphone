@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.db import models
 from django.utils import timezone
 
-from catalog.models import ProductVariant
+from catalog.models import ProductType, ProductVariant
 
 # --------------------------------------------------------------------------- #
 # Module Fournisseur — approvisionnements (§ demande « remplacement »).
@@ -119,8 +119,16 @@ class SupplierOrder(models.Model):
     description = models.CharField(max_length=255, blank=True, null=True)
     statut = models.CharField(max_length=20, choices=STATUT_CHOICES, default="BROUILLON")
 
-    # LE produit et LA quantité de cet envoi (§ 3). `null` uniquement pour un
-    # ancien approvisionnement multi-lignes converti (voir migration 0005).
+    # LE produit de cet envoi = un SOUS-TYPE du catalogue (FLIP COVER,
+    # Z-FOLD, PRIVACY…) — comme le filtre « sous-type » de la page Produits
+    # (§ demande) — et LA quantité. Le module est indépendant des variantes
+    # / couleurs : aucune couleur n'est choisie ici.
+    product_type = models.ForeignKey(
+        ProductType, on_delete=models.PROTECT, null=True, blank=True, related_name="supplier_orders"
+    )
+    # Historique : variante précise des anciens approvisionnements (avant le
+    # passage au sous-type). Plus jamais saisie ; quand elle est connue, la
+    # finalisation réceptionne encore le stock sur cette variante.
     product_variant = models.ForeignKey(
         ProductVariant, on_delete=models.PROTECT, null=True, blank=True, related_name="supplier_orders"
     )
@@ -206,8 +214,26 @@ class SupplierOrder(models.Model):
         return min((self.total_paye_devise / prevu * 100).quantize(Decimal("0.1")), Decimal("100"))
 
     @property
+    def produit_libelle(self):
+        if self.product_type_id:
+            return f"{self.product_type.category.nom} / {self.product_type.nom}"
+        if self.product_variant_id:
+            ref = self.product_variant.product_reference
+            return f"{ref.brand.nom} {ref.reference_name} — {self.product_variant.couleur}"
+        return ""
+
+    @property
     def prix_vente_unitaire(self):
-        return self.product_variant.product_reference.prix_vente if self.product_variant_id else ZERO
+        """Prix de vente de référence : celui de la variante (ancien appro),
+        sinon le prix de vente moyen des références du sous-type."""
+        if self.product_variant_id:
+            return self.product_variant.product_reference.prix_vente
+        if self.product_type_id:
+            from django.db.models import Avg
+
+            moyen = self.product_type.references.filter(actif=True).aggregate(m=Avg("prix_vente"))["m"]
+            return Decimal(moyen).quantize(DEUX_DEC) if moyen is not None else ZERO
+        return ZERO
 
     @property
     def marge_unitaire(self):

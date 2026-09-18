@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from catalog.models import ProductVariant
+from catalog.models import ProductType, ProductVariant
 
 from .models import DEVISE_CHOICES, Supplier, SupplierOrder, SupplierPayment
 
@@ -82,8 +82,22 @@ class SupplierPaymentInputSerializer(serializers.Serializer):
 # --------------------------------------------------------------------------- #
 
 
+class SousTypeSerializer(serializers.ModelSerializer):
+    """LE produit de l'approvisionnement = un sous-type (FLIP COVER, Z-FOLD…)."""
+
+    category_name = serializers.CharField(source="category.nom", read_only=True)
+    libelle = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProductType
+        fields = ["id", "libelle", "nom", "category", "category_name"]
+
+    def get_libelle(self, obj):
+        return f"{obj.category.nom} / {obj.nom}"
+
+
 class ProduitSerializer(serializers.ModelSerializer):
-    """LE produit de l'approvisionnement (variante + référence)."""
+    """Variante précise (anciens approvisionnements uniquement)."""
 
     reference_name = serializers.CharField(source="product_reference.reference_name", read_only=True)
     brand_name = serializers.CharField(source="product_reference.brand.nom", read_only=True, default="")
@@ -108,7 +122,9 @@ class SupplierOrderSerializer(serializers.ModelSerializer):
     supplier_pays = serializers.CharField(source="supplier.pays", read_only=True, default="")
     magasin_name = serializers.CharField(source="magasin.shop_name", read_only=True)
     created_by_name = serializers.CharField(source="created_by.full_name", read_only=True, default="")
+    sous_type = SousTypeSerializer(source="product_type", read_only=True)
     produit = ProduitSerializer(source="product_variant", read_only=True)
+    produit_libelle = serializers.CharField(read_only=True)
     payments = SupplierPaymentSerializer(many=True, read_only=True)
     # Résumé « prévu / payé / reste » (§ 4) dans la devise de l'appro.
     total_paye_devise = _mga()
@@ -124,7 +140,7 @@ class SupplierOrderSerializer(serializers.ModelSerializer):
         fields = [
             "id", "numero", "date", "description", "statut", "statut_label",
             "magasin", "magasin_name", "supplier", "supplier_nom", "supplier_pays",
-            "product_variant", "produit", "quantite", "quantite_recue",
+            "product_type", "sous_type", "produit_libelle", "product_variant", "produit", "quantite", "quantite_recue",
             "devise", "montant_prevu", "total_paye_devise", "reste_a_payer_devise", "pourcentage_paye",
             "date_expedition", "transporteur", "mode_transport", "mode_transport_label", "tracking", "numero_colis",
             "lieu_depart", "destination", "date_arrivee", "commentaire_transport",
@@ -148,7 +164,7 @@ class SupplierOrderSerializer(serializers.ModelSerializer):
 
 class SupplierOrderCreateSerializer(serializers.Serializer):
     supplier = serializers.PrimaryKeyRelatedField(queryset=Supplier.objects.all(), required=False, allow_null=True)
-    product_variant = serializers.PrimaryKeyRelatedField(queryset=ProductVariant.objects.all())
+    product_type = serializers.PrimaryKeyRelatedField(queryset=ProductType.objects.select_related("category"))
     quantite = serializers.IntegerField(min_value=1)
     devise = serializers.ChoiceField(choices=DEVISE_CHOICES, required=False)
     montant_prevu = serializers.DecimalField(max_digits=16, decimal_places=2, required=False, default=0, min_value=0)
@@ -159,7 +175,7 @@ class SupplierOrderCreateSerializer(serializers.Serializer):
 
 class SupplierOrderUpdateSerializer(serializers.Serializer):
     supplier = serializers.PrimaryKeyRelatedField(queryset=Supplier.objects.all(), required=False, allow_null=True)
-    product_variant = serializers.PrimaryKeyRelatedField(queryset=ProductVariant.objects.all(), required=False)
+    product_type = serializers.PrimaryKeyRelatedField(queryset=ProductType.objects.select_related("category"), required=False)
     quantite = serializers.IntegerField(min_value=1, required=False)
     devise = serializers.ChoiceField(choices=DEVISE_CHOICES, required=False)
     montant_prevu = serializers.DecimalField(max_digits=16, decimal_places=2, required=False, min_value=0)
@@ -212,11 +228,12 @@ class FinaliserSerializer(serializers.Serializer):
 
 
 class HistoriqueCoutSerializer(serializers.Serializer):
-    """Un envoi finalisé d'un produit (§ 12)."""
+    """Un envoi finalisé d'un sous-type (§ 12)."""
 
     id = serializers.IntegerField()
     numero = serializers.CharField()
     supplier_nom = serializers.CharField(source="supplier.nom", default="")
+    produit_libelle = serializers.CharField()
     date = serializers.DateField()
     finalise_at = serializers.DateTimeField()
     quantite = serializers.IntegerField()

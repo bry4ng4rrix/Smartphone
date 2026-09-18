@@ -339,7 +339,7 @@ export function FinaliserDialog({ open, onOpenChange, order, onSaved }: BaseProp
     setSubmitting(true);
     try {
       const o = await djangoClient.suppliers.finaliser(order.id, { mettre_a_jour_prix_achat: majPrix, quantite_recue: q });
-      toast.success(`Coût finalisé : ${fmtAr(o.cout_unitaire_mga)} / pièce — ${fmtNombre(q)} pièce(s) reçue(s) en stock`);
+      toast.success(`Coût finalisé : ${fmtAr(o.cout_unitaire_mga)} / pièce — ${fmtNombre(q)} pièce(s) reçue(s)`);
       onSaved(o);
       onOpenChange(false);
     } catch (e) {
@@ -354,7 +354,7 @@ export function FinaliserDialog({ open, onOpenChange, order, onSaved }: BaseProp
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Finaliser le coût — {order?.numero}</DialogTitle>
-          <DialogDescription>Fige le coût total et le coût par pièce, et réceptionne la marchandise dans le stock (entrée référencée {order?.numero}).</DialogDescription>
+          <DialogDescription>Fige le coût total et le coût par pièce. Le module est indépendant du stock : la quantité reçue est notée à titre d&apos;information{order?.product_variant ? ' (ancien approvisionnement avec variante : le stock sera réceptionné)' : ''}.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="rounded-md border p-3 text-sm space-y-0.5">
@@ -366,11 +366,13 @@ export function FinaliserDialog({ open, onOpenChange, order, onSaved }: BaseProp
           {Number(order?.frais_douane_mga) === 0 && (
             <p className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400"><AlertTriangle className="h-4 w-4 shrink-0" /> Aucun montant Frais + Douane saisi : le coût total ne comprend que les paiements fournisseur.</p>
           )}
-          <div className="space-y-1"><Label>Pièces réellement reçues (entrée de stock)</Label><Input type="number" min={0} max={order?.quantite} value={quantite} onChange={(e) => setQuantite(e.target.value)} /></div>
-          <label className="flex items-start gap-2 text-sm">
-            <Checkbox checked={majPrix} onCheckedChange={(v) => setMajPrix(v === true)} className="mt-0.5" />
-            <span>Mettre à jour le prix d&apos;achat de référence du produit (moyenne pondérée avec le stock existant)</span>
-          </label>
+          <div className="space-y-1"><Label>Pièces réellement reçues</Label><Input type="number" min={0} max={order?.quantite} value={quantite} onChange={(e) => setQuantite(e.target.value)} /></div>
+          {order?.product_variant && (
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox checked={majPrix} onCheckedChange={(v) => setMajPrix(v === true)} className="mt-0.5" />
+              <span>Mettre à jour le prix d&apos;achat de référence du produit (moyenne pondérée avec le stock existant)</span>
+            </label>
+          )}
         </div>
         <Pied onCancel={() => onOpenChange(false)} onSubmit={submit} submitting={submitting} label="Finaliser et réceptionner" />
       </DialogContent>
@@ -379,7 +381,7 @@ export function FinaliserDialog({ open, onOpenChange, order, onSaved }: BaseProp
 }
 
 /* -------------------------------------------------------------------------- */
-/* Modification (données générales, produit, quantité, transport)             */
+/* Modification (données générales, quantité, transport)                      */
 /* -------------------------------------------------------------------------- */
 
 export function EditOrderDialog({ open, onOpenChange, order, onSaved }: BaseProps) {
@@ -421,7 +423,7 @@ export function EditOrderDialog({ open, onOpenChange, order, onSaved }: BaseProp
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Modifier — {order?.numero}</DialogTitle>
-          <DialogDescription>Produit : {order?.produit?.libelle}. Le produit lui-même ne change pas (créez un autre approvisionnement).</DialogDescription>
+          <DialogDescription>Sous-type : {order?.produit_libelle}. Le sous-type lui-même ne change pas (créez un autre approvisionnement).</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="grid grid-cols-3 gap-3">

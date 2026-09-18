@@ -7,7 +7,7 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from catalog.models import ProductVariant
+from catalog.models import ProductType
 from users.permissions import IsGerant, get_accessible_magasins, resolve_magasin_for_request
 from users.subscriptions import get_company_owner
 
@@ -44,7 +44,7 @@ def _admin_profile(user):
 def _orders_qs(user):
     return (
         SupplierOrder.objects.filter(magasin__in=get_accessible_magasins(user))
-        .select_related("magasin", "supplier", "created_by", "product_variant__product_reference__brand", "product_variant__product_reference__type")
+        .select_related("magasin", "supplier", "created_by", "product_type__category", "product_variant__product_reference__brand", "product_variant__product_reference__type")
         .prefetch_related("payments__created_by")
     )
 
@@ -139,8 +139,8 @@ class SupplierOrderViewSet(viewsets.ModelViewSet):
             qs = qs.filter(magasin_id=p["magasin_id"])
         if p.get("supplier"):
             qs = qs.filter(supplier_id=p["supplier"])
-        if p.get("product_variant"):
-            qs = qs.filter(product_variant_id=p["product_variant"])
+        if p.get("product_type"):
+            qs = qs.filter(product_type_id=p["product_type"])
         if p.get("statut"):
             qs = qs.filter(statut__in=[s for s in p["statut"].split(",") if s])
         search = (p.get("search") or "").strip()
@@ -148,8 +148,7 @@ class SupplierOrderViewSet(viewsets.ModelViewSet):
             qs = qs.filter(
                 Q(numero__icontains=search) | Q(description__icontains=search) | Q(supplier__nom__icontains=search)
                 | Q(tracking__icontains=search) | Q(numero_colis__icontains=search)
-                | Q(product_variant__product_reference__reference_name__icontains=search)
-                | Q(product_variant__product_reference__brand__nom__icontains=search)
+                | Q(product_type__nom__icontains=search) | Q(product_type__category__nom__icontains=search)
             )
         return qs
 
@@ -294,32 +293,27 @@ class SupplierOrderViewSet(viewsets.ModelViewSet):
 
 
 class VariantCostHistoryView(APIView):
-    """GET /api/suppliers/cost-history/?variant=<id> — dernier coût de revient
-    finalisé, coût moyen pondéré et liste des envois finalisés d'un produit ;
-    sans `variant`, les 200 derniers envois finalisés de la société."""
+    """GET /api/suppliers/cost-history/?type=<id> — dernier coût de revient
+    finalisé, coût moyen pondéré et liste des envois finalisés d'un
+    sous-type ; sans `type`, les 200 derniers envois finalisés de la société."""
 
     permission_classes = [IsGerant]
 
     def get(self, request):
         magasins = get_accessible_magasins(request.user)
-        variant_id = request.query_params.get("variant")
-        if variant_id:
+        type_id = request.query_params.get("type")
+        if type_id:
             try:
-                variant = ProductVariant.objects.select_related("product_reference").get(
-                    id=variant_id, product_reference__type__category__magasin__in=magasins
-                )
-            except ProductVariant.DoesNotExist:
-                return Response({"detail": "Variante introuvable."}, status=status.HTTP_404_NOT_FOUND)
-            info = services.cout_revient_variante(variant)
+                product_type = ProductType.objects.select_related("category").get(id=type_id, category__magasin__in=magasins)
+            except ProductType.DoesNotExist:
+                return Response({"detail": "Sous-type introuvable."}, status=status.HTTP_404_NOT_FOUND)
+            info = services.cout_revient_type(product_type)
             return Response({
-                "variant": variant.id,
-                "reference_name": variant.product_reference.reference_name,
-                "couleur": variant.couleur,
-                "prix_achat_reference": info["prix_achat_reference"],
-                "prix_vente": variant.product_reference.prix_vente,
+                "type": product_type.id,
+                "libelle": f"{product_type.category.nom} / {product_type.nom}",
                 "cout_actuel_mga": info["dernier"],
                 "cout_moyen_pondere_mga": info["moyen"],
                 "historique": HistoriqueCoutSerializer(info["envois"], many=True).data,
             })
-        envois = SupplierOrder.objects.filter(magasin__in=magasins, statut="COUT_FINALISE").select_related("supplier").order_by("-finalise_at", "-id")[:200]
+        envois = SupplierOrder.objects.filter(magasin__in=magasins, statut="COUT_FINALISE").select_related("supplier", "product_type__category").order_by("-finalise_at", "-id")[:200]
         return Response(HistoriqueCoutSerializer(envois, many=True).data)

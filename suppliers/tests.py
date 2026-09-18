@@ -35,7 +35,9 @@ class FournisseurTestCase(APITestCase):
         self.livreur = User.objects.create_user(email="liv@test.com", password=PWD, role="employer", is_confirmed=True, full_name="Liv")
         EmployerProfile.objects.create(user=self.livreur, magasin=self.magasin, admin=self.admin, commande_role="LIVREUR")
         cat = ProductCategory.objects.create(magasin=self.magasin, nom="Coques", ordre=1)
-        typ = ProductType.objects.create(category=cat, nom="iPhone")
+        typ = ProductType.objects.create(category=cat, nom="FLIP COVER")
+        self.type_a = typ
+        self.type_b = ProductType.objects.create(category=cat, nom="Z-FOLD")
         marque = Brand.objects.create(magasin=self.magasin, nom="Apple")
         self.ref_a = ProductReference.objects.create(type=typ, brand=marque, reference_name="Produit A", prix_achat=D("0"), prix_vente=D("200000"))
         self.ref_b = ProductReference.objects.create(type=typ, brand=marque, reference_name="Produit B", prix_achat=D("0"), prix_vente=D("80000"))
@@ -48,7 +50,7 @@ class FournisseurTestCase(APITestCase):
 
     def creer(self, **extra):
         data = {
-            "supplier": self.fournisseur.id, "product_variant": self.var_a.id, "quantite": 100,
+            "supplier": self.fournisseur.id, "product_type": self.type_a.id, "quantite": 100,
             "devise": "USD", "montant_prevu": "2000", "magasin_id": self.magasin.id, "description": "Envoi #001",
         }
         data.update(extra)
@@ -75,7 +77,8 @@ class FournisseurTestCase(APITestCase):
         o = self.creer()
         self.assertEqual(o["statut"], "BROUILLON")
         self.assertEqual(o["supplier_nom"], "Fournisseur Chine A")
-        self.assertEqual(o["produit"]["reference_name"], "Produit A")
+        self.assertEqual(o["sous_type"]["nom"], "FLIP COVER")
+        self.assertEqual(o["produit_libelle"], "Coques / FLIP COVER")
         self.assertEqual(o["quantite"], 100)
 
         # Paiement 1 — 01/09, taux 4 500
@@ -113,19 +116,17 @@ class FournisseurTestCase(APITestCase):
         self.assertEqual(D(o["frais_douane_mga"]), D("5000000"))
         self.assertEqual(D(o["cout_total_mga"]), D("14100000"))
         self.assertEqual(D(o["cout_unitaire_mga"]), D("141000"))
-        self.assertEqual(D(o["marge_unitaire"]), D("200000") - D("141000"))
+        # Marge : prix de vente moyen des références du sous-type (200 000 et 80 000 → 140 000) − coût
+        self.assertEqual(D(o["marge_unitaire"]), D("140000") - D("141000"))
 
-        # Finalisation → coût figé + réception dans le stock
+        # Finalisation → coût figé. Module indépendant du stock : un
+        # sous-type n'est pas une variante, aucune entrée de stock.
         o = self.post(o["id"], "finaliser")
         self.assertEqual(o["statut"], "COUT_FINALISE")
         self.assertEqual(o["quantite_recue"], 100)
         self.var_a.refresh_from_db()
-        self.ref_a.refresh_from_db()
-        self.assertEqual(self.var_a.stock_actuel, 100)
-        self.assertEqual(self.ref_a.prix_achat, D("141000"))
-        mvt = StockMovement.objects.get(origine="FOURNISSEUR", reference=o["numero"])
-        self.assertEqual(mvt.quantite, 100)
-        self.assertIn("141000", mvt.note)
+        self.assertEqual(self.var_a.stock_actuel, 0)
+        self.assertFalse(StockMovement.objects.filter(origine="FOURNISSEUR").exists())
 
         # Un approvisionnement finalisé ne bouge plus.
         r = self.client.post(self.url(o["id"], "payments/"), {"montant": 10, "devise": "USD", "taux_change": 4700}, format="json")
@@ -134,15 +135,17 @@ class FournisseurTestCase(APITestCase):
     # --- règles ----------------------------------------------------------- #
 
     def test_un_seul_produit_par_approvisionnement(self):
-        """Pas de lignes : le second produit = un second approvisionnement."""
-        r = self.client.post("/api/suppliers/orders/", {"product_variant": self.var_a.id, "quantite": 0, "magasin_id": self.magasin.id}, format="json")
+        """Pas de lignes : le second sous-type = un second approvisionnement ;
+        aucune couleur / variante à choisir."""
+        r = self.client.post("/api/suppliers/orders/", {"product_type": self.type_a.id, "quantite": 0, "magasin_id": self.magasin.id}, format="json")
         self.assertEqual(r.status_code, 400)
-        r = self.client.post("/api/suppliers/orders/", {"lines": [{"product_variant": self.var_a.id, "quantite": 1}], "magasin_id": self.magasin.id}, format="json")
+        r = self.client.post("/api/suppliers/orders/", {"product_variant": self.var_a.id, "quantite": 1, "magasin_id": self.magasin.id}, format="json")
         self.assertEqual(r.status_code, 400)
         a = self.creer()
-        b = self.creer(product_variant=self.var_b.id, quantite=50)
+        b = self.creer(product_type=self.type_b.id, quantite=50)
         self.assertNotEqual(a["numero"], b["numero"])
-        self.assertEqual(b["produit"]["reference_name"], "Produit B")
+        self.assertEqual(b["sous_type"]["nom"], "Z-FOLD")
+        self.assertIsNone(b["produit"])
 
     def test_historique_des_envois_independants(self):
         """Le même produit acheté deux fois garde deux coûts distincts (§ 12)."""
@@ -158,17 +161,12 @@ class FournisseurTestCase(APITestCase):
         self.assertEqual(D(second["cout_unitaire_mga"]), D("155000"))
         premier_db = SupplierOrder.objects.get(pk=premier["id"])
         self.assertEqual(premier_db.cout_unitaire_mga, D("141000"))  # pas écrasé par le second
-        r = self.client.get(f"/api/suppliers/cost-history/?variant={self.var_a.id}")
+        r = self.client.get(f"/api/suppliers/cost-history/?type={self.type_a.id}")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(D(str(r.data["cout_actuel_mga"])), D("155000"))
         self.assertEqual(len(r.data["historique"]), 2)
         # Coût moyen pondéré : (14 100 000 + 31 000 000) / 300
         self.assertEqual(D(str(r.data["cout_moyen_pondere_mga"])), D("150333.33"))
-        self.var_a.refresh_from_db()
-        self.assertEqual(self.var_a.stock_actuel, 300)
-        # Prix d'achat de référence : moyenne pondérée (100 × 141 000 + 200 × 155 000) / 300
-        self.ref_a.refresh_from_db()
-        self.assertEqual(self.ref_a.prix_achat, D("150333.33"))
 
     def test_statut_paiement_derive(self):
         o = self.creer(montant_prevu="2000")
@@ -200,10 +198,6 @@ class FournisseurTestCase(APITestCase):
         self.post(o["id"], "arriver", {"frais_douane_mga": "500000"})
         o = self.post(o["id"], "finaliser", {"quantite_recue": 90, "mettre_a_jour_prix_achat": False})
         self.assertEqual(o["quantite_recue"], 90)
-        self.var_a.refresh_from_db()
-        self.ref_a.refresh_from_db()
-        self.assertEqual(self.var_a.stock_actuel, 90)
-        self.assertEqual(self.ref_a.prix_achat, D("0"))  # non mis à jour
         # Coût unitaire toujours sur la quantité commandée : (4 500 000 + 500 000) / 100
         self.assertEqual(D(o["cout_unitaire_mga"]), D("50000"))
 
@@ -266,5 +260,20 @@ class FournisseurTestCase(APITestCase):
         r = self.client.get(f"/api/orders/dashboard/?magasin_id={self.magasin.id}")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(SupplierOrder.objects.get(pk=o["id"]).cout_total_mga, D("500000"))
-        self.assertEqual(StockMovement.objects.filter(origine="FOURNISSEUR").count(), 1)
         self.assertEqual(SupplierPayment.objects.count(), 1)
+
+    def test_ancien_appro_avec_variante_receptionne_encore_le_stock(self):
+        """Compatibilité : un approvisionnement d'avant le passage au
+        sous-type connaît sa variante → la finalisation réceptionne le stock
+        et met à jour le prix d'achat de référence."""
+        o = self.creer(quantite=10)
+        SupplierOrder.objects.filter(pk=o["id"]).update(product_variant=self.var_a)
+        self.payer(o["id"], "100")
+        self.post(o["id"], "expedier")
+        self.post(o["id"], "arriver", {"frais_douane_mga": "50000"})
+        self.post(o["id"], "finaliser")
+        self.var_a.refresh_from_db()
+        self.ref_a.refresh_from_db()
+        self.assertEqual(self.var_a.stock_actuel, 10)
+        self.assertEqual(self.ref_a.prix_achat, D("50000"))
+        self.assertEqual(StockMovement.objects.filter(origine="FOURNISSEUR", reference=o["numero"]).count(), 1)

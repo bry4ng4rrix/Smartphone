@@ -35,10 +35,10 @@ class SuppliersRepository {
     return SupplierKpis.fromJson(response.data as Map<String, dynamic>);
   }
 
-  /// UN produit, UNE quantité (§ 3).
+  /// UN sous-type de produit, UNE quantité (§ 3).
   Future<SupplierOrder> create({
     int? supplierId,
-    required int productVariantId,
+    required int productTypeId,
     required int quantite,
     String devise = 'USD',
     double montantPrevu = 0,
@@ -49,7 +49,7 @@ class SuppliersRepository {
   }) async {
     final response = await _dio.post('suppliers/orders/', data: {
       'supplier': supplierId,
-      'product_variant': productVariantId,
+      'product_type': productTypeId,
       'quantite': quantite,
       'devise': devise,
       'montant_prevu': montantPrevu,
@@ -146,16 +146,12 @@ class SuppliersRepository {
   Future<void> supplierDelete(int id) => _dio.delete('suppliers/suppliers/$id/');
 
   // ---------------------------------------------------------------------------
-  // Catalogue du formulaire (recherche de LA référence du produit)
+  // Catalogue du formulaire : les sous-types (comme la page Produits)
   // ---------------------------------------------------------------------------
 
-  /// `GET catalog/references/autocomplete/?q=` — référence + couleurs
-  /// (variant_id) pour choisir le produit de l'approvisionnement.
-  Future<List<ReferenceOption>> autocomplete(String query, {int? magasinId}) async {
-    final response = await _dio.get('catalog/references/autocomplete/', queryParameters: {
-      'q': query,
-      'magasin_id': ?magasinId,
-    });
-    return (response.data as List).map((e) => ReferenceOption.fromJson(e as Map<String, dynamic>)).toList();
+  /// `GET catalog/types/?magasin_id=` — sous-types (FLIP COVER, Z-FOLD…).
+  Future<List<ProductType>> types({int? magasinId}) async {
+    final response = await _dio.get('catalog/types/', queryParameters: {'magasin_id': ?magasinId});
+    return (response.data as List).map((e) => ProductType.fromJson(e as Map<String, dynamic>)).toList();
   }
 }

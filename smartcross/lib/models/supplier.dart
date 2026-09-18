@@ -169,7 +169,25 @@ class SupplierPayment {
       );
 }
 
-/// LE produit d'un approvisionnement.
+/// LE produit d'un approvisionnement = un sous-type du catalogue.
+class SupplierSousType {
+  const SupplierSousType({required this.id, required this.libelle, required this.nom, required this.categoryId, required this.categoryName});
+  final int id;
+  final String libelle;
+  final String nom;
+  final int categoryId;
+  final String categoryName;
+
+  factory SupplierSousType.fromJson(Map<String, dynamic> json) => SupplierSousType(
+        id: asInt(json['id']),
+        libelle: asString(json['libelle']),
+        nom: asString(json['nom']),
+        categoryId: asInt(json['category']),
+        categoryName: asString(json['category_name']),
+      );
+}
+
+/// Variante précise (anciens approvisionnements uniquement).
 class SupplierProduit {
   const SupplierProduit({
     required this.variantId,
@@ -220,7 +238,9 @@ class SupplierOrder {
     required this.supplierId,
     required this.supplierNom,
     required this.supplierPays,
+    required this.sousType,
     required this.produit,
+    required this.produitLibelle,
     required this.quantite,
     required this.quantiteRecue,
     required this.devise,
@@ -263,7 +283,11 @@ class SupplierOrder {
   final int? supplierId;
   final String supplierNom;
   final String supplierPays;
+  final SupplierSousType? sousType;
   final SupplierProduit? produit;
+
+  /// Libellé du sous-type (ou de la variante d'un ancien appro).
+  final String produitLibelle;
   final int quantite;
   final int quantiteRecue;
   final String devise;
@@ -311,7 +335,9 @@ class SupplierOrder {
       supplierId: asIntOrNull(json['supplier']),
       supplierNom: asString(json['supplier_nom']),
       supplierPays: asString(json['supplier_pays']),
+      sousType: json['sous_type'] is Map ? SupplierSousType.fromJson((json['sous_type'] as Map).cast<String, dynamic>()) : null,
       produit: json['produit'] is Map ? SupplierProduit.fromJson((json['produit'] as Map).cast<String, dynamic>()) : null,
+      produitLibelle: asString(json['produit_libelle']),
       quantite: asInt(json['quantite']),
       quantiteRecue: asInt(json['quantite_recue']),
       devise: asString(json['devise'], 'USD'),

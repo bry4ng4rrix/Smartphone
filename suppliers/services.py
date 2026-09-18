@@ -51,11 +51,11 @@ def _verifier_fournisseur(magasin, supplier):
         raise ValidationError({"supplier": "Ce fournisseur n'appartient pas à votre société."})
 
 
-def _verifier_produit(magasin, variant):
-    if variant is None:
-        raise ValidationError({"product_variant": "Un approvisionnement porte sur un produit."})
-    if variant.product_reference.type.category.magasin_id != magasin.id:
-        raise ValidationError({"product_variant": "Ce produit n'appartient pas à ce magasin."})
+def _verifier_produit(magasin, product_type):
+    if product_type is None:
+        raise ValidationError({"product_type": "Un approvisionnement porte sur un sous-type de produit."})
+    if product_type.category.magasin_id != magasin.id:
+        raise ValidationError({"product_type": "Ce sous-type n'appartient pas à ce magasin."})
 
 
 # --------------------------------------------------------------------------- #
@@ -64,18 +64,19 @@ def _verifier_produit(magasin, variant):
 
 
 @transaction.atomic
-def create_supplier_order(*, magasin, created_by, product_variant, quantite, supplier=None, devise="USD",
+def create_supplier_order(*, magasin, created_by, product_type, quantite, supplier=None, devise="USD",
                           montant_prevu=0, description="", date=None, statut="BROUILLON"):
-    """UN produit, UNE quantité (§ 3). `montant_prevu` : total convenu avec
-    le fournisseur, dans `devise` (facultatif, sert au « reste à payer »)."""
+    """UN sous-type de produit, UNE quantité (§ 3). `montant_prevu` : total
+    convenu avec le fournisseur, dans `devise` (facultatif, sert au « reste
+    à payer »)."""
     _verifier_fournisseur(magasin, supplier)
-    _verifier_produit(magasin, product_variant)
+    _verifier_produit(magasin, product_type)
     if not quantite or int(quantite) <= 0:
         raise ValidationError({"quantite": "La quantité doit être supérieure à zéro."})
     order = SupplierOrder.objects.create(
         magasin=magasin,
         supplier=supplier,
-        product_variant=product_variant,
+        product_type=product_type,
         quantite=int(quantite),
         devise=devise or (supplier.devise if supplier else "USD"),
         montant_prevu=Decimal(str(montant_prevu or 0)),
@@ -94,7 +95,7 @@ def update_supplier_order(*, order, data):
     la quantité déjà réceptionnée."""
     _verifier_modifiable(order)
     champs = (
-        "description", "supplier", "devise", "montant_prevu", "date", "product_variant", "quantite",
+        "description", "supplier", "devise", "montant_prevu", "date", "product_type", "quantite",
         "date_expedition", "transporteur", "mode_transport", "tracking", "numero_colis", "lieu_depart",
         "destination", "date_arrivee", "commentaire_transport", "frais_douane_mga",
     )
@@ -106,8 +107,8 @@ def update_supplier_order(*, order, data):
             setattr(order, champ, data[champ])
     if "supplier" in data:
         _verifier_fournisseur(order.magasin, order.supplier)
-    if "product_variant" in data:
-        _verifier_produit(order.magasin, order.product_variant)
+    if "product_type" in data:
+        _verifier_produit(order.magasin, order.product_type)
     if order.quantite <= 0:
         raise ValidationError({"quantite": "La quantité doit être supérieure à zéro."})
     if order.quantite < order.quantite_recue:
@@ -260,15 +261,16 @@ def arriver(order, date_arrivee=None, frais_douane_mga=None):
 
 @transaction.atomic
 def finaliser_cout(order, user, mettre_a_jour_prix_achat=True, quantite_recue=None):
-    """Arrivé → Coût finalisé (§ 10-13) : fige le coût total et le coût de
-    revient par pièce, RÉCEPTIONNE la marchandise dans le stock (entrée
-    référencée par le n° d'appro, coût unitaire dans la note) et, si demandé,
-    met à jour le prix d'achat de référence du produit (moyenne pondérée
-    avec le stock existant).
+    """Arrivé → Coût finalisé (§ 10-12) : fige le coût total et le coût de
+    revient par pièce. Le module est indépendant du stock : l'appro porte
+    sur un sous-type, pas sur une variante précise — aucune entrée de stock
+    n'est générée (le stock se gère dans Produits). Seuls les anciens
+    approvisionnements qui connaissent leur variante (`product_variant`)
+    réceptionnent encore le stock et mettent à jour le prix d'achat de
+    référence.
 
     `quantite_recue` : pièces réellement arrivées (défaut : la quantité
-    commandée). Le coût de revient reste calculé sur la quantité
-    commandée ; le stock, lui, reçoit ce qui est réellement arrivé."""
+    commandée), à titre d'information."""
     if order.statut != "ARRIVE":
         raise ValidationError("Le coût ne se finalise qu'une fois la marchandise arrivée à Madagascar.")
     order = recompute_costs(order)
@@ -277,10 +279,10 @@ def finaliser_cout(order, user, mettre_a_jour_prix_achat=True, quantite_recue=No
         raise ValidationError({"quantite_recue": f"La quantité reçue doit être comprise entre 0 et {order.quantite}."})
     deja = order.quantite_recue
     delta = a_recevoir - deja
-    variant = order.product_variant
     if delta < 0:
         raise ValidationError({"quantite_recue": f"{deja} pièce(s) déjà réceptionnée(s)."})
-    if delta > 0:
+    variant = order.product_variant
+    if delta > 0 and variant is not None:
         if mettre_a_jour_prix_achat:
             _mettre_a_jour_prix_achat(variant, delta, order.cout_unitaire_mga)
         apply_stock_movement(
@@ -340,24 +342,19 @@ def references_caisse(order):
 # --------------------------------------------------------------------------- #
 
 
-def historique_couts_variante(variant):
-    """Les envois finalisés de ce produit, du plus récent au plus ancien —
+def historique_couts_type(product_type):
+    """Les envois finalisés de ce sous-type, du plus récent au plus ancien —
     chacun garde son coût (§ 12)."""
-    return SupplierOrder.objects.filter(product_variant=variant, statut="COUT_FINALISE").select_related("supplier").order_by("-finalise_at", "-id")
+    return SupplierOrder.objects.filter(product_type=product_type, statut="COUT_FINALISE").select_related("supplier").order_by("-finalise_at", "-id")
 
 
-def cout_revient_variante(variant):
-    """Dernier coût de revient finalisé, coût moyen pondéré des envois
-    finalisés, et prix d'achat de référence actuel."""
-    envois = list(historique_couts_variante(variant))
+def cout_revient_type(product_type):
+    """Dernier coût de revient finalisé et coût moyen pondéré des envois
+    finalisés d'un sous-type."""
+    envois = list(historique_couts_type(product_type))
     quantite = sum(e.quantite for e in envois)
     moyen = (sum((e.cout_total_mga for e in envois), ZERO) / quantite).quantize(DEUX_DEC) if quantite else None
-    return {
-        "dernier": envois[0].cout_unitaire_mga if envois else None,
-        "moyen": moyen,
-        "prix_achat_reference": variant.product_reference.prix_achat,
-        "envois": envois,
-    }
+    return {"dernier": envois[0].cout_unitaire_mga if envois else None, "moyen": moyen, "envois": envois}
 
 
 def resume_financier(orders):

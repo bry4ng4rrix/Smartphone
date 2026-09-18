@@ -123,7 +123,7 @@ function SuppliersContent() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Fournisseurs</h1>
-          <p className="text-sm text-muted-foreground">Approvisionnements : un produit par envoi, paiements au taux du jour, Frais + Douane, coût de revient par pièce.</p>
+          <p className="text-sm text-muted-foreground">Approvisionnements : un sous-type de produit par envoi, paiements au taux du jour, Frais + Douane, coût de revient par pièce. Module indépendant du stock.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={() => toutRecharger()}><RefreshCw className="h-4 w-4 mr-1" /> Actualiser</Button>
@@ -149,7 +149,7 @@ function SuppliersContent() {
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative flex-1 min-w-[220px]">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input className="pl-8" placeholder="N°, produit, fournisseur, tracking, colis…" value={rechercheAppro} onChange={(e) => setRechercheAppro(e.target.value)} />
+              <Input className="pl-8" placeholder="N°, sous-type, fournisseur, tracking, colis…" value={rechercheAppro} onChange={(e) => setRechercheAppro(e.target.value)} />
             </div>
             <Select value={filtreStatut} onValueChange={setFiltreStatut}>
               <SelectTrigger className="w-[190px]"><SelectValue /></SelectTrigger>
@@ -166,7 +166,7 @@ function SuppliersContent() {
           {approsLoading ? (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-80 w-full" />)}</div>
           ) : appros.length === 0 ? (
-            <Card><CardContent className="py-12 text-center text-sm text-muted-foreground">Aucun approvisionnement. Créez-en un : un fournisseur, un produit, une quantité.</CardContent></Card>
+            <Card><CardContent className="py-12 text-center text-sm text-muted-foreground">Aucun approvisionnement. Créez-en un : un fournisseur, un sous-type, une quantité.</CardContent></Card>
           ) : (
             <>
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -280,7 +280,7 @@ function FicheFournisseur({ supplierId, onOuvrirAppro, onNouvelAppro }: { suppli
                   <li key={o.id}>
                     <button type="button" className="w-full text-left rounded-md border p-2 hover:bg-muted/50" onClick={() => onOuvrirAppro(o.id)}>
                       <div className="flex items-center justify-between gap-2 text-sm">
-                        <span className="font-medium truncate">{o.numero} · {o.produit?.libelle}</span>
+                        <span className="font-medium truncate">{o.numero} · {o.produit_libelle}</span>
                         <Badge className={`${s.color} border-0 text-[10px] whitespace-nowrap`}>{s.label}</Badge>
                       </div>
                       <p className="text-xs text-muted-foreground">{fmtDate(o.date)} · {fmtNombre(o.quantite)} pièces · payé {fmtAr(o.total_paiements_mga)}{o.statut === 'COUT_FINALISE' ? ` · ${fmtAr(o.cout_unitaire_mga)} / pièce` : ''}</p>

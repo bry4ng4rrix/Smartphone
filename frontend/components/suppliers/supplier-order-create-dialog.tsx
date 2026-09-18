@@ -1,9 +1,11 @@
 'use client';
 
 /**
- * Nouvel approvisionnement (§ 3) : UN fournisseur, UN produit (référence +
- * couleur), UNE quantité, la devise et le montant total prévu. Les paiements,
- * le transport et les frais se saisissent ensuite sur la fiche.
+ * Nouvel approvisionnement (§ 3) : UN fournisseur, UN sous-type de produit
+ * (FLIP COVER, Z-FOLD… — la même liste que le filtre « sous-type » de la
+ * page Produits, sans couleur : le module est indépendant du stock), UNE
+ * quantité, la devise et le montant total prévu. Les paiements, le transport
+ * et les frais se saisissent ensuite sur la fiche.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { djangoClient } from '@/lib/django-client';
@@ -14,11 +16,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Search } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { DEVISES, fmtAr, messageErreur, type Devise } from './supplier-status';
+import { DEVISES, messageErreur, type Devise } from './supplier-status';
 
 const AUCUN = 'AUCUN';
+const fmtNombreOuVide = (q: string) => (q && Number(q) > 0 ? `${Number(q)} pièce(s)` : 'quantité à saisir');
 
 export function SupplierOrderCreateDialog({
   open,
@@ -43,11 +46,8 @@ export function SupplierOrderCreateDialog({
   const [date, setDate] = useState(appToday());
   const [description, setDescription] = useState('');
   const [quantite, setQuantite] = useState('');
-  const [query, setQuery] = useState('');
-  const [suggestions, setSuggestions] = useState<any[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [selectedRef, setSelectedRef] = useState<any | null>(null);
-  const [variantId, setVariantId] = useState('');
+  const [types, setTypes] = useState<any[]>([]);
+  const [typeId, setTypeId] = useState('');
   const [submitting, setSubmitting] = useState<null | 'BROUILLON' | 'COMMANDE'>(null);
 
   useEffect(() => {
@@ -55,7 +55,9 @@ export function SupplierOrderCreateDialog({
     setSupplierId(supplierInitial?.id ? String(supplierInitial.id) : AUCUN);
     setDevise((supplierInitial?.devise as Devise) || 'USD');
     setMontantPrevu(''); setDate(appToday()); setDescription(''); setQuantite('');
-    setQuery(''); setSuggestions([]); setSelectedRef(null); setVariantId(''); setMagasinId('');
+    setTypeId(''); setMagasinId('');
+    // Sous-types du catalogue (GET /catalog/types/), comme la page Produits.
+    djangoClient.catalog.types.list().then((l: any[]) => setTypes(l || [])).catch(() => setTypes([]));
     djangoClient.suppliers.suppliersList({ actif: true })
       .then((list: any[]) => {
         if (supplierInitial?.id && !list.some((s) => s.id === supplierInitial.id)) setSuppliers([supplierInitial, ...list]);
@@ -75,27 +77,18 @@ export function SupplierOrderCreateDialog({
     }
   }, [open, supplierInitial, isAdmin]);
 
-  useEffect(() => {
-    if (!query.trim() || selectedRef) { setSuggestions([]); setSearching(false); return; }
-    setSearching(true);
-    const t = setTimeout(() => {
-      djangoClient.catalog.references.autocomplete(query.trim()).then(setSuggestions).catch(() => setSuggestions([])).finally(() => setSearching(false));
-    }, 250);
-    return () => clearTimeout(t);
-  }, [query, selectedRef]);
-
   const supplierChoisi = useMemo(() => suppliers.find((s) => String(s.id) === supplierId) ?? null, [suppliers, supplierId]);
-  const variant = useMemo(() => (selectedRef?.couleurs || []).find((c: any) => String(c.variant_id) === variantId) ?? null, [selectedRef, variantId]);
+  const typeChoisi = useMemo(() => types.find((t) => String(t.id) === typeId) ?? null, [types, typeId]);
 
   const submit = async (statut: 'BROUILLON' | 'COMMANDE') => {
-    if (!selectedRef || !variantId) { toast.error('Choisissez le produit (référence + couleur).'); return; }
+    if (!typeId) { toast.error('Choisissez le sous-type.'); return; }
     const q = Math.floor(Number(quantite));
     if (!q || q < 1) { toast.error('Indiquez la quantité de pièces.'); return; }
     if (isAdmin && magasins.length > 1 && !magasinId) { toast.error('Choisissez le magasin destinataire.'); return; }
     setSubmitting(statut);
     try {
       const o = await djangoClient.suppliers.create({
-        supplier: supplierId === AUCUN ? null : Number(supplierId), product_variant: Number(variantId), quantite: q, devise,
+        supplier: supplierId === AUCUN ? null : Number(supplierId), product_type: Number(typeId), quantite: q, devise,
         montant_prevu: montantPrevu.trim() === '' ? 0 : Number(montantPrevu), description: description.trim(), date, statut,
         ...(magasinId ? { magasin_id: Number(magasinId) } : {}),
       });
@@ -114,7 +107,7 @@ export function SupplierOrderCreateDialog({
       <DialogContent className="max-w-xl">
         <DialogHeader>
           <DialogTitle>Nouvel approvisionnement</DialogTitle>
-          <DialogDescription>Un approvisionnement = un fournisseur, un produit, une quantité. Pour un autre produit, créez un autre approvisionnement.</DialogDescription>
+          <DialogDescription>Un approvisionnement = un fournisseur, un sous-type, une quantité. Pour un autre sous-type, créez un autre approvisionnement.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
@@ -142,41 +135,19 @@ export function SupplierOrderCreateDialog({
 
           <div className="rounded-md border p-3 space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Produit</p>
-            {selectedRef ? (
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <p className="font-medium">{selectedRef.brand_name} {selectedRef.reference_name}</p>
-                  <p className="text-xs text-muted-foreground">prix de vente {fmtAr(selectedRef.prix_vente)}</p>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => { setSelectedRef(null); setVariantId(''); setQuery(''); }}>Changer</Button>
-              </div>
-            ) : (
-              <div className="relative">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input className="pl-8" placeholder="Rechercher une référence (ex : A15)" value={query} onChange={(e) => setQuery(e.target.value)} autoFocus />
-                {(searching || suggestions.length > 0) && query.trim() && (
-                  <div className="absolute z-20 mt-1 w-full rounded-md border bg-popover shadow max-h-56 overflow-auto">
-                    {searching && <p className="p-2 text-xs text-muted-foreground">Recherche…</p>}
-                    {suggestions.map((r) => (
-                      <button key={r.id} type="button" className="w-full text-left px-3 py-2 text-sm hover:bg-muted" onClick={() => { setSelectedRef(r); setVariantId(r.couleurs?.length === 1 ? String(r.couleurs[0].variant_id) : ''); setSuggestions([]); }}>
-                        {r.brand_name} {r.reference_name} <span className="text-muted-foreground">· {r.type_name}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label>Couleur / variante</Label>
-                <Select value={variantId} onValueChange={setVariantId} disabled={!selectedRef}>
-                  <SelectTrigger className="w-full"><SelectValue placeholder={selectedRef ? 'Choisir' : 'Référence d’abord'} /></SelectTrigger>
-                  <SelectContent>{(selectedRef?.couleurs || []).map((c: any) => <SelectItem key={c.variant_id} value={String(c.variant_id)}>{c.couleur}{typeof c.stock_actuel === 'number' ? ` · stock ${c.stock_actuel}` : ''}</SelectItem>)}</SelectContent>
+                <Label>Sous-type</Label>
+                <Select value={typeId} onValueChange={setTypeId}>
+                  <SelectTrigger className="w-full"><SelectValue placeholder="Choisir un sous-type" /></SelectTrigger>
+                  <SelectContent>
+                    {types.map((t) => <SelectItem key={t.id} value={String(t.id)}>{t.nom}</SelectItem>)}
+                  </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1"><Label>Quantité (pièces)</Label><Input type="number" min={1} value={quantite} onChange={(e) => setQuantite(e.target.value)} placeholder="Ex : 100" /></div>
             </div>
-            {variant && <p className="text-xs text-muted-foreground">Produit : {selectedRef.brand_name} {selectedRef.reference_name} — {variant.couleur}</p>}
+            {typeChoisi && <p className="text-xs text-muted-foreground">Sous-type : {typeChoisi.nom} — {fmtNombreOuVide(quantite)}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
