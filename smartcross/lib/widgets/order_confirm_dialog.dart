@@ -334,6 +334,9 @@ class _OrderConfirmFormState extends State<OrderConfirmForm> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final items = widget.items;
+    // Retour, ou article(s) décoché(s) : la note devient le motif du ticket
+    // envoyé au gérant dans le chat (orders/services.py::envoyer_ticket_retour).
+    final motifTicket = widget.confirmWord == 'RETOUR' || (items != null && _livres.length < items.length);
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -341,7 +344,10 @@ class _OrderConfirmFormState extends State<OrderConfirmForm> {
       children: [
         TextField(
           controller: _note,
-          decoration: const InputDecoration(labelText: 'Note (optionnel)', hintText: 'ex : client absent'),
+          decoration: InputDecoration(
+            labelText: motifTicket ? 'Motif (envoyé au gérant dans le chat)' : 'Note (optionnel)',
+            hintText: motifTicket ? 'ex : client absent, téléphone éteint' : 'ex : client absent',
+          ),
           maxLines: 2,
           enabled: !widget.submitting,
         ),

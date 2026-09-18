@@ -1051,7 +1051,54 @@ class _Bubble extends StatelessWidget {
             ),
           // Retours à la ligne conservés (`whitespace-pre-wrap`) ; la copie
           // passe par l'appui long (« Copier le texte »).
-          if (m.content.isNotEmpty) Text(m.content, style: TextStyle(color: fg, fontSize: 14, height: 1.35)),
+          if (m.content.isNotEmpty)
+            _estTicket(m.content)
+                ? _TicketBubble(content: m.content, isMine: isMine, fg: fg)
+                : Text(m.content, style: TextStyle(color: fg, fontSize: 14, height: 1.35)),
+        ],
+      ),
+    );
+  }
+}
+
+/// Ticket de tournée (orders/services.py::texte_ticket_retour) : un Retour ou
+/// un article annulé par le client, déclaré par le livreur et envoyé au
+/// gérant. Le contenu reste un simple texte ; on ne fait qu'en détacher
+/// l'en-tête et colorer selon le type (miroir de `TicketBubble` du web).
+const _kTicketPrefix = '🎫 TICKET ';
+bool _estTicket(String content) => content.startsWith(_kTicketPrefix);
+
+class _TicketBubble extends StatelessWidget {
+  const _TicketBubble({required this.content, required this.isMine, required this.fg});
+  final String content;
+  final bool isMine;
+  final Color fg;
+
+  @override
+  Widget build(BuildContext context) {
+    final lignes = content.split('\n');
+    final entete = lignes.first;
+    final annule = entete.contains('ARTICLE ANNULÉ');
+    final accent = isMine ? fg.withValues(alpha: 0.6) : (annule ? const Color(0xFFD97706) : const Color(0xFFDC2626));
+    return DecoratedBox(
+      decoration: BoxDecoration(border: Border(left: BorderSide(color: accent, width: 4))),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(8, 5, 8, 5),
+            color: (isMine ? fg : accent).withValues(alpha: 0.12),
+            child: Text(
+              entete.replaceFirst(_kTicketPrefix, '🎫 '),
+              style: TextStyle(color: isMine ? fg : accent, fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 0.4),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 6, 4, 2),
+            child: Text(lignes.skip(1).join('\n'), style: TextStyle(color: fg, fontSize: 13.5, height: 1.35)),
+          ),
         ],
       ),
     );

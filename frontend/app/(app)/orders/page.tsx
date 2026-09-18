@@ -2708,10 +2708,18 @@ function NoteForm({
     saisie.trim().toLocaleLowerCase("fr") ===
       confirmWord.trim().toLocaleLowerCase("fr");
 
+  // Retour, ou article(s) décoché(s) : la note devient le motif du ticket
+  // envoyé au gérant dans le chat (orders/services.py::envoyer_ticket_retour).
+  const motifTicket =
+    confirmWord === "RETOUR" || (!!items && livres.length < items.length);
   return (
     <div className="space-y-4">
       <Textarea
-        placeholder="Note (optionnel)"
+        placeholder={
+          motifTicket
+            ? "Motif du retour / de l'annulation — envoyé au gérant dans le chat (ex : client absent, téléphone éteint)"
+            : "Note (optionnel)"
+        }
         value={note}
         onChange={(e) => setNote(e.target.value)}
       />

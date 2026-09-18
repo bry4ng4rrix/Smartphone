@@ -610,7 +610,7 @@ def _resolve_assignee(*, order, role, requesting_user, requested_role, assignee_
 
 @transaction.atomic
 def change_order_status(*, order, new_status, user, note="", preparateur_id=None, livreur_id=None, assigned_at=None,
-                         photo=None, items_livres=None):
+                         photo=None, items_livres=None, base_url=""):
     """`assigned_at` : heure manuelle optionnelle (le gérant peut consigner
     une heure passée pour l'affectation préparateur/livreur) — sans valeur,
     l'historique prend l'heure réelle (maintenant), comme avant.
@@ -621,6 +621,10 @@ def change_order_status(*, order, new_status, user, note="", preparateur_id=None
     Si AUCUN n'est remis, la commande devient un "Retour" : rien n'a été
     livré, il n'y a pas lieu de la clore comme livrée. `None` = tout est
     remis, comportement d'avant.
+
+    `base_url` : origine publique du serveur (`https://…`), utilisée pour
+    l'URL de la photo dans le ticket de retour diffusé au gérant (voir
+    envoyer_ticket_retour). Vide = URL relative.
     """
     role = user_commande_role(user)
 
@@ -739,7 +743,7 @@ def change_order_status(*, order, new_status, user, note="", preparateur_id=None
     order.statut_courant = new_status
     order.save()
 
-    OrderStatusHistory.objects.create(
+    historique = OrderStatusHistory.objects.create(
         order=order, ancien_statut=old_status, nouveau_statut=new_status, changed_by=user, note=note,
         **({"timestamp": assigned_at} if assigned_at else {}),
         **({"photo": photo} if photo else {}),
@@ -758,6 +762,16 @@ def change_order_status(*, order, new_status, user, note="", preparateur_id=None
                 user=user,
                 reference=order.numero,
             )
+
+    # Un retour ou un article annulé pendant la tournée est signalé au gérant
+    # dans la messagerie, sous forme de ticket (§ demande) — uniquement quand
+    # c'est le livreur qui le déclare : le gérant qui force lui-même un
+    # retour n'a pas besoin d'en être informé.
+    if role == "LIVREUR" and (new_status == "RETOUR" or articles_rapportes):
+        envoyer_ticket_retour(
+            order=order, livreur=user, historique=historique, note=note,
+            articles_rapportes=articles_rapportes, base_url=base_url,
+        )
 
     # Vente réalisée : gain réel, encaissement, épargne (finance/services.py).
     # Dans la même transaction : si la trésorerie échoue, la livraison n'est
@@ -785,6 +799,112 @@ def change_order_status(*, order, new_status, user, note="", preparateur_id=None
             )
 
     return order
+
+
+def gerant_du_magasin(magasin):
+    """Destinataire des tickets de tournée : le compte gérant du magasin
+    (rôle `magasin`), à défaut l'admin propriétaire."""
+    return magasin.user or magasin.admin
+
+
+def _ligne_article(item):
+    v = item.product_variant
+    ref = v.product_reference
+    marque = f"{ref.brand.nom} " if ref.brand_id and ref.brand.nom else ""
+    return f"• {marque}{ref.reference_name} ({v.couleur}) × {item.quantite} — {item.prix_unitaire * item.quantite:,.0f} Ar".replace(",", " ")
+
+
+def texte_ticket_retour(*, order, livreur, historique, note, articles_rapportes):
+    """Ticket lisible d'un coup d'œil, envoyé au gérant dans le chat quand le
+    livreur déclare un Retour (rien de remis) ou un article annulé par le
+    client pendant la livraison (livraison partielle). Reprend les
+    informations utiles de la commande, la liste précise des articles
+    rapportés et la note du livreur, reformulée en « Motif » + « Résultat »
+    pour que la conséquence (stock, encaissement) soit explicite."""
+    partiel = bool(articles_rapportes)
+    quand = timezone.localtime(historique.timestamp).strftime("%d/%m/%Y à %H:%M")
+    numeros = order.telephone + (f" / {order.telephone_2}" if order.telephone_2 else "")
+    items = list(order.items.select_related("product_variant__product_reference__brand"))
+    rapportes = list(articles_rapportes) if partiel else items
+    ids_rapportes = {i.id for i in rapportes}
+    livres = [i for i in items if i.id not in ids_rapportes]
+    motif = note.strip()
+    # En livraison partielle, la note porte déjà le suffixe automatique
+    # « Articles rapportés : … » (voir change_order_status) : on ne garde que
+    # ce que le livreur a écrit, la liste est détaillée juste au-dessus.
+    if partiel and "Articles rapportés :" in motif:
+        motif = motif.split("Articles rapportés :")[0].rstrip(" —").strip()
+
+    lignes = [
+        f"🎫 TICKET {'ARTICLE ANNULÉ' if partiel else 'RETOUR'} · Commande {order.numero}",
+        f"Livreur : {livreur.full_name or livreur.username} · {quand}",
+        f"Client : {order.client_nom} · {numeros}",
+    ]
+    if order.adresse_livraison:
+        lignes.append(f"Adresse : {order.adresse_livraison} ({order.livraison_zone})")
+    else:
+        lignes.append(f"Zone : {order.livraison_zone}")
+    lignes.append("──────────")
+    lignes.append("Articles annulés par le client (rapportés, retour en stock) :" if partiel else "Articles rapportés (retour en stock) :")
+    lignes.extend(_ligne_article(i) for i in rapportes)
+    if partiel and livres:
+        lignes.append("Articles livrés :")
+        lignes.extend(_ligne_article(i) for i in livres)
+    lignes.append("──────────")
+    lignes.append(f"Motif du livreur : « {motif} »" if motif else "Motif du livreur : non précisé")
+    if partiel:
+        encaisse = "déjà payé" if order.mode_paiement == "AVANT" else f"{order.total_a_payer:,.0f} Ar".replace(",", " ")
+        lignes.append(
+            f"Résultat : livraison partielle — {sum(i.quantite for i in livres)} article(s) remis, "
+            f"{sum(i.quantite for i in rapportes)} rapporté(s). Montant encaissé : {encaisse}."
+        )
+    else:
+        lignes.append("Résultat : commande en Retour — rien n'a été livré, tous les articles reviennent en stock, aucun encaissement.")
+    return "\n".join(lignes)
+
+
+def envoyer_ticket_retour(*, order, livreur, historique, note, articles_rapportes, base_url=""):
+    """Crée le message privé livreur → gérant (salon `dm_<a>_<b>`, comme
+    users/views.py) avec la photo jointe à l'étape s'il y en a une, et le
+    diffuse sur le WebSocket du salon. Le message est enregistré dans la
+    transaction du changement de statut ; la diffusion temps réel est
+    best-effort (il apparaîtra de toute façon au prochain chargement)."""
+    import os
+
+    from django.core.files.base import ContentFile
+
+    from users.models import ChatMessage
+    from users.serializers import ChatMessageSerializer
+
+    gerant = gerant_du_magasin(order.magasin)
+    if gerant is None or gerant.id == livreur.id:
+        return None
+    ids = sorted([livreur.id, gerant.id])
+    room_name = f"dm_{ids[0]}_{ids[1]}"
+    message = ChatMessage.objects.create(
+        sender=livreur, recipient=gerant, room_name=room_name,
+        content=texte_ticket_retour(order=order, livreur=livreur, historique=historique, note=note, articles_rapportes=articles_rapportes),
+    )
+    if historique.photo:
+        try:
+            historique.photo.open("rb")
+            message.image.save(os.path.basename(historique.photo.name), ContentFile(historique.photo.read()), save=True)
+        finally:
+            historique.photo.close()
+
+    payload = ChatMessageSerializer(message).data
+    if payload.get("image") and base_url and str(payload["image"]).startswith("/"):
+        payload["image"] = base_url.rstrip("/") + payload["image"]
+    try:
+        from asgiref.sync import async_to_sync
+        from channels.layers import get_channel_layer
+
+        channel_layer = get_channel_layer()
+        if channel_layer is not None:
+            async_to_sync(channel_layer.group_send)(f"chat_{room_name}", {"type": "chat_message", "message": payload})
+    except Exception:
+        pass
+    return message
 
 
 # Une commande déjà "Livré"/"Retour"/"Annulée" est terminale — rien à annuler.

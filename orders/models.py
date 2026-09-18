@@ -205,12 +205,11 @@ class Order(models.Model):
         facturé : le client ne paie que ce qu'il a reçu (§ demande). Les frais
         de livraison, eux, restent dus — le déplacement a bien eu lieu.
         """
+        # Requête fraîche (pas `self.items.all()`) : depuis l'API la commande
+        # arrive avec ses articles préchargés (prefetch_related), et ce cache
+        # ignorerait le `retourne` qui vient d'être posé en base.
         items_total = sum(
-            (
-                item.prix_unitaire * item.quantite
-                for item in self.items.all()
-                if not item.retourne
-            ),
+            (item.prix_unitaire * item.quantite for item in self.items.filter(retourne=False)),
             start=0,
         )
         self.total_a_payer = items_total + self.frais_livraison

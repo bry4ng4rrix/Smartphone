@@ -43,6 +43,29 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { toast } from 'sonner';
 
+// Ticket de tournée (orders/services.py::texte_ticket_retour) : un Retour ou
+// un article annulé par le client, déclaré par le livreur et envoyé au
+// gérant. Le contenu reste un simple texte (copiable, lisible sans style) ;
+// on ne fait qu'en détacher l'en-tête et colorer selon le type.
+const TICKET_PREFIX = '🎫 TICKET ';
+const isTicket = (content: string) => content.startsWith(TICKET_PREFIX);
+
+function TicketBubble({ content, own }: { content: string; own: boolean }) {
+  const [entete, ...reste] = content.split('\n');
+  const annule = entete.includes('ARTICLE ANNULÉ');
+  const accent = annule
+    ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+    : 'border-red-500 bg-red-500/10 text-red-700 dark:text-red-300';
+  return (
+    <div className={`-m-1 rounded-xl border-l-4 ${own ? 'border-primary-foreground/60' : annule ? 'border-amber-500' : 'border-red-500'}`}>
+      <p className={`rounded-tr-xl px-2.5 py-1.5 text-[11px] font-bold tracking-wide ${own ? 'bg-primary-foreground/10' : accent}`}>
+        {entete.replace(TICKET_PREFIX, '🎫 ')}
+      </p>
+      <p className="whitespace-pre-wrap leading-relaxed px-2.5 pb-2 pt-1.5">{reste.join('\n')}</p>
+    </div>
+  );
+}
+
 interface ChatUser {
   /** Messages reçus de ce contact et pas encore lus — badge de la liste. */
   unread_count?: number;
@@ -938,7 +961,9 @@ export default function ChatsPage() {
                                       </a>
                                     )}
                                     {msg.content && (
-                                      <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                                      isTicket(msg.content)
+                                        ? <TicketBubble content={msg.content} own={isOwnMessage} />
+                                        : <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                                     )}
                                   </>
                                 )}

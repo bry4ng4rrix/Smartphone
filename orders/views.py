@@ -321,6 +321,7 @@ class OrderViewSet(viewsets.ModelViewSet):
                 assigned_at=serializer.validated_data.get("assigned_at"),
                 photo=serializer.validated_data.get("photo"),
                 items_livres=serializer.validated_data.get("items_livres"),
+                base_url=request.build_absolute_uri("/"),
             )
         except PermissionDenied as exc:
             raise DRFPermissionDenied(str(exc))
