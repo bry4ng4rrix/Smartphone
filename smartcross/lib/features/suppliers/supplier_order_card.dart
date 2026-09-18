@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/supplier.dart';
 import 'supplier_status.dart';
 
-/// Fiche d'un approvisionnement (§ 16) — cinq blocs : FOURNISSEUR, PRODUIT,
+/// Fiche d'un approvisionnement (§ 16) — cinq blocs : FOURNISSEUR, SOUS-TYPE,
 /// PAIEMENTS, TRANSPORT, COÛT. Miroir de `components/suppliers/cost-summary.tsx`
 /// : toutes les valeurs viennent de l'API, rien n'est recalculé ici.
 class SupplierOrderCard extends StatelessWidget {
@@ -73,8 +73,8 @@ class SupplierOrderCard extends StatelessWidget {
               ),
               Text('${o.numero} · ${fmtDateIso(o.date)}${(o.description ?? '').isNotEmpty ? ' · ${o.description}' : ''}', style: muted),
             ], premier: true),
-            bloc('Produit', Icons.inventory_2_outlined, [
-              Text(o.produit?.libelle ?? '—', style: const TextStyle(fontWeight: FontWeight.w600)),
+            bloc('Sous-type', Icons.inventory_2_outlined, [
+              Text(o.produitLibelle.isEmpty ? '—' : o.produitLibelle, style: const TextStyle(fontWeight: FontWeight.w600)),
               Text('Quantité : ${o.quantite} pièces${o.quantiteRecue > 0 ? ' · reçues : ${o.quantiteRecue}' : ''}', style: const TextStyle(fontSize: 13)),
             ]),
             bloc('Paiements', Icons.payments_outlined, [

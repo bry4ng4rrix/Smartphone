@@ -40,7 +40,7 @@ class _SuppliersScreenState extends ConsumerState<SuppliersScreen> with SingleTi
       if (_statut != null && o.statut != _statut) return false;
       if (_supplierId != null && o.supplierId != _supplierId) return false;
       if (q.isNotEmpty) {
-        final texte = [o.numero, o.supplierNom, o.produit?.libelle ?? '', o.tracking, o.numeroColis, o.description ?? ''].join(' ').toLowerCase();
+        final texte = [o.numero, o.supplierNom, o.produitLibelle, o.tracking, o.numeroColis, o.description ?? ''].join(' ').toLowerCase();
         if (!texte.contains(q)) return false;
       }
       return true;
@@ -150,7 +150,7 @@ class _SuppliersScreenState extends ConsumerState<SuppliersScreen> with SingleTi
                           decoration: InputDecoration(
                             isDense: true,
                             prefixIcon: const Icon(Icons.search),
-                            hintText: 'N°, produit, fournisseur, tracking, colis…',
+                            hintText: 'N°, sous-type, fournisseur, tracking, colis…',
                             suffixIcon: _search.isEmpty
                                 ? null
                                 : IconButton(icon: const Icon(Icons.close), onPressed: () => setState(() { _searchController.clear(); _search = ''; })),
@@ -200,7 +200,7 @@ class _SuppliersScreenState extends ConsumerState<SuppliersScreen> with SingleTi
                         SliverFillRemaining(
                           hasScrollBody: false,
                           child: EmptyState(
-                            message: orders.isEmpty ? 'Aucun approvisionnement. Créez-en un : un fournisseur, un produit, une quantité.' : 'Aucun approvisionnement pour ces filtres.',
+                            message: orders.isEmpty ? 'Aucun approvisionnement. Créez-en un : un fournisseur, un sous-type, une quantité.' : 'Aucun approvisionnement pour ces filtres.',
                             icon: Icons.local_shipping_outlined,
                           ),
                         ),

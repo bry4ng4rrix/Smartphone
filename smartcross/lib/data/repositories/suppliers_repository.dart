@@ -4,7 +4,7 @@ import '../../core/api_client.dart';
 import '../../models/catalog.dart';
 import '../../models/supplier.dart';
 
-/// `/api/suppliers/` — approvisionnements (1 produit, N paiements, Frais +
+/// `/api/suppliers/` — approvisionnements (1 sous-type, N paiements, Frais +
 /// Douane, coût par pièce), fiches fournisseur, historique des envois.
 /// Réservé au gérant. Miroir de `djangoClient.suppliers` (frontend/lib/
 /// django-client.ts).
@@ -84,7 +84,7 @@ class SuppliersRepository {
   Future<SupplierOrder> fraisDouane(int id, {required double montant, bool enCaisse = false}) =>
       _post(id, 'frais-douane', {'frais_douane_mga': montant, 'en_caisse': enCaisse});
 
-  /// Fige le coût et réceptionne dans le stock.
+  /// Fige le coût (pas de mouvement de stock : l'appro porte sur un sous-type).
   Future<SupplierOrder> finaliser(int id, {bool mettreAJourPrixAchat = true, int? quantiteRecue}) =>
       _post(id, 'finaliser', {'mettre_a_jour_prix_achat': mettreAJourPrixAchat, 'quantite_recue': ?quantiteRecue});
 

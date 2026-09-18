@@ -11,7 +11,8 @@ import 'supplier_status.dart';
 
 /// Fiche d'un approvisionnement (§ 16) + actions du cycle : Commande →
 /// Acompte payé → Préparation → Entièrement payé → Expédié → En transit →
-/// Arrivé à Madagascar → Frais + Douane → Coût finalisé (+ stock).
+/// Arrivé à Madagascar → Frais + Douane → Coût finalisé (module indépendant
+/// du stock : l'appro porte sur un sous-type).
 /// Miroir de frontend/app/(app)/suppliers/[id]/page.tsx.
 class SupplierOrderDetailScreen extends ConsumerStatefulWidget {
   const SupplierOrderDetailScreen({super.key, required this.orderId});
@@ -116,14 +117,14 @@ class _SupplierOrderDetailScreenState extends ConsumerState<SupplierOrderDetailS
                       if (o.statut == SupplierOrderStatus.arrive)
                         OutlinedButton.icon(onPressed: _busy ? null : () => _dialogueFrais(o), icon: const Icon(Icons.calculate_outlined, size: 18), label: const Text('Frais + Douane')),
                       if (actionPossible('finaliser', o.statut))
-                        FilledButton.icon(onPressed: _busy ? null : () => _dialogueFinaliser(o), icon: const Icon(Icons.check_circle_outline, size: 18), label: const Text('Finaliser (+ stock)')),
+                        FilledButton.icon(onPressed: _busy ? null : () => _dialogueFinaliser(o), icon: const Icon(Icons.check_circle_outline, size: 18), label: const Text('Finaliser le coût')),
                       if (ouvert)
                         TextButton.icon(onPressed: _busy ? null : () => _dialogueModifier(o), icon: const Icon(Icons.edit_outlined, size: 18), label: const Text('Modifier')),
                     ],
                   )
                 else
                   Text(
-                    'Coût finalisé le ${o.finaliseAt == null ? '—' : appLocal(o.finaliseAt!).toString().substring(0, 10).split('-').reversed.join('/')} — ${o.quantiteRecue} pièce(s) réceptionnée(s) en stock (mouvement ${o.numero}). Ce coût est historique : il ne change plus.',
+                    'Coût finalisé le ${o.finaliseAt == null ? '—' : appLocal(o.finaliseAt!).toString().substring(0, 10).split('-').reversed.join('/')} — ${o.quantiteRecue} pièce(s) reçue(s). Ce coût est historique : il ne change plus.',
                     style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
                   ),
                 const SizedBox(height: 12),
@@ -248,7 +249,7 @@ class _SupplierOrderDetailScreenState extends ConsumerState<SupplierOrderDetailS
     if (r == null) return;
     await _action(
       () => ref.read(suppliersRepositoryProvider).finaliser(o.id, mettreAJourPrixAchat: r.majPrix, quantiteRecue: r.quantite),
-      'Coût finalisé — ${r.quantite} pièce(s) reçue(s) en stock',
+      'Coût finalisé — ${r.quantite} pièce(s) reçue(s)',
     );
   }
 
@@ -639,14 +640,17 @@ class _FinaliserDialogState extends State<_FinaliserDialog> {
           if (o.fraisDouaneMga == 0)
             const Padding(padding: EdgeInsets.only(top: 6), child: Text('Aucun montant Frais + Douane saisi : le coût ne comprend que les paiements.', style: TextStyle(fontSize: 12, color: Color(0xFFD97706)))),
           const SizedBox(height: 10),
-          TextField(controller: _quantite, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Pièces réellement reçues (entrée de stock)', isDense: true)),
-          CheckboxListTile(
-            contentPadding: EdgeInsets.zero,
-            controlAffinity: ListTileControlAffinity.leading,
-            title: const Text("Mettre à jour le prix d'achat de référence (moyenne pondérée)", style: TextStyle(fontSize: 13)),
-            value: _majPrix,
-            onChanged: (v) => setState(() => _majPrix = v ?? true),
-          ),
+          TextField(controller: _quantite, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Pièces réellement reçues', isDense: true)),
+          // Uniquement pour un ancien appro qui connaît sa variante : le
+          // stock est alors réceptionné et le prix d'achat mis à jour.
+          if (o.produit != null)
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: const Text("Mettre à jour le prix d'achat de référence (moyenne pondérée)", style: TextStyle(fontSize: 13)),
+              value: _majPrix,
+              onChanged: (v) => setState(() => _majPrix = v ?? true),
+            ),
         ],
       ),
       actions: [
@@ -692,7 +696,7 @@ class _ModifierDialogState extends State<_ModifierDialog> {
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('Produit : ${widget.order.produit?.libelle ?? '—'} (ne change pas : créez un autre approvisionnement).', style: const TextStyle(fontSize: 12)),
+          Text('Sous-type : ${widget.order.produitLibelle} (ne change pas : créez un autre approvisionnement).', style: const TextStyle(fontSize: 12)),
           const SizedBox(height: 10),
           TextField(controller: _quantite, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Quantité', isDense: true)),
           const SizedBox(height: 10),

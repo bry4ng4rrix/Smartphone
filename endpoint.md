@@ -16,7 +16,7 @@ Les routes sont montées par application (`Stock/urls.py`) :
 | `/api/users/` | `users` | Authentification, profil, utilisateurs et rôles, magasins, caisse, notifications, chat, sauvegardes, réinitialisation de mot de passe. |
 | `/api/catalog/` | `catalog` | Catégories, types, marques, références, variantes, mouvements de stock. |
 | `/api/orders/` | `orders` | Commandes clients, statuts, zones de livraison, dépenses livreurs, campagnes marketing, tableau de bord et rapports. |
-| `/api/suppliers/` | `suppliers` | Commandes fournisseur et réception en stock. |
+| `/api/suppliers/` | `suppliers` | Approvisionnements fournisseur (module indépendant du stock). |
 
 Toutes les routes se terminent par un `/` (routeurs DRF). Les fichiers média (photos, logos) sont servis sous `/media/` et renvoyés en URL absolue dans les réponses.
 
@@ -537,16 +537,16 @@ Les sections suivantes détaillent chaque route, application par application.
   - [POST /api/suppliers/suppliers/ — Créer un fournisseur](#post-apisupplierssuppliers-créer-un-fournisseur)
   - [GET /api/suppliers/suppliers/{id}/ — Fiche fournisseur](#get-apisupplierssuppliersid-fiche-fournisseur)
   - [PATCH /api/suppliers/suppliers/{id}/ — Modifier · DELETE /api/suppliers/suppliers/{id}/ — Supprimer / désactiver](#patch-apisupplierssuppliersid-modifier-delete-apisupplierssuppliersid-supprimer-désactiver)
-- **Approvisionnements (1 produit, N paiements, Frais + Douane)**
+- **Approvisionnements (1 sous-type, N paiements, Frais + Douane)**
   - [GET /api/suppliers/orders/kpis/ — Indicateurs de la page](#get-apisuppliersorderskpis-indicateurs-de-la-page)
   - [GET /api/suppliers/orders/ — Liste · GET /api/suppliers/orders/{id}/ — Détail](#get-apisuppliersorders-liste-get-apisuppliersordersid-détail)
   - [POST /api/suppliers/orders/ — Créer un approvisionnement](#post-apisuppliersorders-créer-un-approvisionnement)
   - [PATCH /api/suppliers/orders/{id}/ — Modifier · DELETE — Supprimer un brouillon](#patch-apisuppliersordersid-modifier-delete-supprimer-un-brouillon)
   - [POST …/commander/ · …/preparer/ · …/expedier/ · …/transit/ · …/arriver/ — Avancer le cycle](#post-commander-preparer-expedier-transit-arriver-avancer-le-cycle)
   - [POST /api/suppliers/orders/{id}/frais-douane/ — Frais + Douane](#post-apisuppliersordersidfrais-douane-frais-douane)
-  - [POST /api/suppliers/orders/{id}/finaliser/ — Finaliser le coût et réceptionner en stock](#post-apisuppliersordersidfinaliser-finaliser-le-coût-et-réceptionner-en-stock)
+  - [POST /api/suppliers/orders/{id}/finaliser/ — Finaliser le coût](#post-apisuppliersordersidfinaliser-finaliser-le-coût)
   - [GET|POST /api/suppliers/orders/{id}/payments/ · DELETE …/payments/{pid}/ — Paiements fournisseur](#getpost-apisuppliersordersidpayments-delete-paymentspid-paiements-fournisseur)
-  - [GET /api/suppliers/cost-history/ — Historique des envois d'un produit](#get-apisupplierscost-history-historique-des-envois-dun-produit)
+  - [GET /api/suppliers/cost-history/ — Historique des envois d'un sous-type](#get-apisupplierscost-history-historique-des-envois-dun-sous-type)
 - **Espace client (nouveau — app `clients`)**
   - [Catalogue public](#catalogue-public)
   - [GET /api/boutiques/ — Boutiques](#get-apiboutiques-boutiques)
@@ -5748,7 +5748,7 @@ Erreurs communes aux huit sections :
 
 **Base** : `/api/suppliers/` · **Rôle** : `GERANT` (`IsGerant`) sur toutes les routes.
 
-**Règle métier** : un approvisionnement = **1 fournisseur + 1 produit (variante) + 1 quantité** + N paiements (chacun avec son taux du jour, montant MGA figé) + 1 expédition + **1 seul montant Frais + Douane** + 1 coût total rendu Madagascar + 1 coût de revient par pièce. Pour un autre produit, on crée un autre approvisionnement ; le même produit acheté plusieurs fois = plusieurs approvisionnements, chacun avec son coût historique.
+**Règle métier** : un approvisionnement = **1 fournisseur + 1 sous-type de produit + 1 quantité** + N paiements (chacun avec son taux du jour, montant MGA figé) + 1 expédition + **1 seul montant Frais + Douane** + 1 coût total rendu Madagascar + 1 coût de revient par pièce. LE produit est un **sous-type** du catalogue (`ProductType` : FLIP COVER, Z-FOLD… — la même liste que le filtre « sous-type » de la page Produits), **sans couleur ni variante** : le module est indépendant du stock (aucun mouvement de stock, aucun changement de prix d'achat). Pour un autre sous-type, on crée un autre approvisionnement ; le même sous-type acheté plusieurs fois = plusieurs approvisionnements, chacun avec son coût historique. Le champ `product_variant` n'existe plus que pour les anciens approvisionnements convertis (legacy, `null` sinon).
 
 Formules (toutes en MGA, calculées par le serveur — `suppliers/services.py`) :
 ```text
@@ -5774,8 +5774,11 @@ Objet `SupplierOrderSerializer` :
   "supplier": 3,
   "supplier_nom": "Fournisseur Chine A",
   "supplier_pays": "Chine",
-  "product_variant": 727,
-  "produit": { "id": 727, "libelle": "Samsung Produit A — Noir", "reference_name": "Produit A", "brand_name": "Samsung", "type_name": "Coques", "couleur": "Noir", "stock_actuel": 100, "prix_vente": "200000.00", "prix_achat": "141000.00" },
+  "product_type": 14,
+  "sous_type": { "id": 14, "libelle": "Coques / FLIP COVER", "nom": "FLIP COVER", "category": 5, "category_name": "Coques" },
+  "produit_libelle": "Coques / FLIP COVER",
+  "product_variant": null,
+  "produit": null,
   "quantite": 100,
   "quantite_recue": 100,
   "devise": "USD",
@@ -5810,9 +5813,9 @@ Objet `SupplierOrderSerializer` :
   "created_at": "2026-09-01T08:00:00+03:00"
 }
 ```
-`caisse` : sorties de caisse déjà enregistrées pour cet appro (paiements `APPRO:<n°>:P<id>`, frais `APPRO:<n°>:FRAIS`, origine `ACHAT_STOCK` — marchandise, exclue des charges des rapports).
+`sous_type` / `produit_libelle` : le sous-type (« Catégorie / Sous-type »). `prix_vente_unitaire` = prix de vente moyen des références actives du sous-type (base de `marge_unitaire`) ; `produit` (legacy) n'est renseigné que pour un ancien appro converti qui connaissait sa variante. `caisse` : sorties de caisse déjà enregistrées pour cet appro (paiements `APPRO:<n°>:P<id>`, frais `APPRO:<n°>:FRAIS`, origine `ACHAT_STOCK` — marchandise, exclue des charges des rapports).
 
-Temps réel : chaque enregistrement diffuse `supplier_order` (`created` / `updated`) sur `/ws/data/` ; la finalisation diffuse aussi `stock_movement`.
+Temps réel : chaque enregistrement diffuse `supplier_order` (`created` / `updated`) sur `/ws/data/`.
 
 ### Fournisseurs
 
@@ -5839,12 +5842,12 @@ La fiche + `approvisionnements` : liste complète de ses approvisionnements (obj
 ```
 
 ### `GET /api/suppliers/orders/` — Liste · `GET /api/suppliers/orders/{id}/` — Détail
-Paramètres de liste : `magasin_id`, `supplier`, `product_variant`, `statut` (plusieurs séparés par `,`), `search` (n°, description, fournisseur, tracking, n° colis, référence, marque). Tri : le plus récent en premier.
+Paramètres de liste : `magasin_id`, `supplier`, `product_type` (sous-type), `statut` (plusieurs séparés par `,`), `search` (n°, description, fournisseur, tracking, n° colis, sous-type, catégorie). Tri : le plus récent en premier.
 
 ### `POST /api/suppliers/orders/` — Créer un approvisionnement
 | Paramètre | Type | Obligatoire | Description |
 | --- | --- | --- | --- |
-| `product_variant` | int | oui | LE produit (variante) de l'envoi |
+| `product_type` | int | oui | LE produit de l'envoi = un sous-type du catalogue (`GET /api/catalog/types/`) — pas de couleur |
 | `quantite` | int ≥ 1 | oui | Nombre de pièces |
 | `supplier` | int \| null | non | Fiche fournisseur de la société |
 | `devise` | `USD` \| `EUR` \| `CNY` \| `MGA` | non | Devise du fournisseur (défaut : celle du fournisseur, sinon `USD`) |
@@ -5853,12 +5856,12 @@ Paramètres de liste : `magasin_id`, `supplier`, `product_variant`, `statut` (pl
 | `statut` | `BROUILLON` \| `COMMANDE` | non | Défaut `BROUILLON` |
 | `magasin_id` | int | admin multi-magasins | Magasin destinataire |
 ```json
-{ "supplier": 3, "product_variant": 727, "quantite": 100, "devise": "USD", "montant_prevu": "2000", "description": "Envoi #001", "statut": "COMMANDE" }
+{ "supplier": 3, "product_type": 14, "quantite": 100, "devise": "USD", "montant_prevu": "2000", "description": "Envoi #001", "statut": "COMMANDE" }
 ```
-Réponse `201` : l'objet. Erreurs `400` : `{"quantite": ["La quantité doit être supérieure à zéro."]}`, `{"product_variant": ["Ce produit n'appartient pas à ce magasin."]}`, `{"supplier": ["Ce fournisseur n'appartient pas à votre société."]}`. Un corps avec `lines` (ancien module) est refusé (`product_variant` requis).
+Réponse `201` : l'objet. Erreurs `400` : `{"quantite": ["La quantité doit être supérieure à zéro."]}`, `{"product_type": ["Ce sous-type n'appartient pas à ce magasin."]}`, `{"supplier": ["Ce fournisseur n'appartient pas à votre société."]}`. Les champs `product_variant` / `lines` des anciens modules sont ignorés : `product_type` est requis (`400 {"product_type": ["Ce champ est obligatoire."]}`).
 
 ### `PATCH /api/suppliers/orders/{id}/` — Modifier · `DELETE` — Supprimer un brouillon
-`PATCH` (tant que non finalisé) : `supplier`, `product_variant`, `quantite` (≥ quantité déjà reçue), `devise`, `montant_prevu`, `description`, `date`, transport (`date_expedition`, `transporteur`, `mode_transport`, `tracking`, `numero_colis`, `lieu_depart`, `destination`, `date_arrivee`, `commentaire_transport`), `frais_douane_mga`. Les coûts sont recalculés.
+`PATCH` (tant que non finalisé) : `supplier`, `product_type`, `quantite` (≥ quantité déjà reçue), `devise`, `montant_prevu`, `description`, `date`, transport (`date_expedition`, `transporteur`, `mode_transport`, `tracking`, `numero_colis`, `lieu_depart`, `destination`, `date_arrivee`, `commentaire_transport`), `frais_douane_mga`. Les coûts sont recalculés.
 `DELETE` : `204` uniquement pour un brouillon sans paiement, sinon `405 {"detail": "Seul un brouillon sans paiement peut être supprimé (historique comptable)."}`.
 
 ### `POST …/commander/` · `…/preparer/` · `…/expedier/` · `…/transit/` · `…/arriver/` — Avancer le cycle
@@ -5877,8 +5880,8 @@ Corps : `frais_douane_mga` (decimal ≥ 0, **un seul montant**), `en_caisse` (bo
 { "frais_douane_mga": "5000000", "en_caisse": true }
 ```
 
-### `POST /api/suppliers/orders/{id}/finaliser/` — Finaliser le coût et réceptionner en stock
-Depuis `ARRIVE` uniquement. Corps : `quantite_recue` (défaut : la quantité commandée ; 0 ≤ … ≤ quantité), `mettre_a_jour_prix_achat` (défaut `true` : prix d'achat de référence = moyenne pondérée stock existant / pièces reçues au coût de revient). Effet : statut `COUT_FINALISE`, coût figé, **entrée de stock** (`StockMovement` origine `FOURNISSEUR`, référence = n° d'appro, note « … N pièce(s) à X Ar »), diffusion `stock_movement`.
+### `POST /api/suppliers/orders/{id}/finaliser/` — Finaliser le coût
+Depuis `ARRIVE` uniquement. Corps : `quantite_recue` (défaut : la quantité commandée ; 0 ≤ … ≤ quantité), `mettre_a_jour_prix_achat` (défaut `true`, **sans effet** sur un appro sous-type). Effet : statut `COUT_FINALISE`, coût figé (historique), `received_at` / `finalise_at` posés. **Aucun mouvement de stock** : le module fournisseur est indépendant du stock. Seul un ancien appro converti qui porte encore un `product_variant` (legacy) crée une entrée de stock (`StockMovement` origine `FOURNISSEUR`) et, si `mettre_a_jour_prix_achat`, met à jour le prix d'achat de référence (moyenne pondérée).
 
 ### `GET|POST /api/suppliers/orders/{id}/payments/` · `DELETE …/payments/{pid}/` — Paiements fournisseur
 `POST` (tant que non finalisé) : `montant` (> 0), `devise`, `taux_change` (Ar pour 1 unité — **obligatoire hors MGA**, figé : `montant_mga = montant × taux`), `date`, `type_paiement` (`ACOMPTE` \| `SOLDE` \| `PARTIEL` \| `AUTRE`), `methode` (`VIREMENT` \| `MOBILE_MONEY` \| `ESPECES` \| `CARTE` \| `AUTRE`), `reference`, `commentaire`, `justificatif` (fichier, multipart), `en_caisse` (sortie `APPRO:<n°>:P<id>`). Un premier paiement sur un brouillon le passe en `COMMANDE` puis `ACOMPTE_PAYE`. Réponse `201` : l'approvisionnement complet.
@@ -5887,10 +5890,10 @@ Depuis `ARRIVE` uniquement. Corps : `quantite_recue` (défaut : la quantité com
 ```
 `DELETE …/payments/{pid}/` : `200` avec l'appro recalculé (une sortie de caisse déjà enregistrée n'est pas annulée).
 
-### `GET /api/suppliers/cost-history/` — Historique des envois d'un produit
-`?variant=<id>` : `cout_actuel_mga` (dernier envoi finalisé), `cout_moyen_pondere_mga` (Σ coûts totaux / Σ quantités des envois finalisés), `prix_achat_reference`, `prix_vente`, `historique[]` (envois finalisés : `id, numero, supplier_nom, date, finalise_at, quantite, total_paiements_mga, frais_douane_mga, cout_total_mga, cout_unitaire_mga`). Sans `variant` : les 200 derniers envois finalisés de la société.
+### `GET /api/suppliers/cost-history/` — Historique des envois d'un sous-type
+`?type=<id>` (sous-type) : `libelle`, `cout_actuel_mga` (dernier envoi finalisé), `cout_moyen_pondere_mga` (Σ coûts totaux / Σ quantités des envois finalisés), `historique[]` (envois finalisés : `id, numero, supplier_nom, produit_libelle, date, finalise_at, quantite, total_paiements_mga, frais_douane_mga, cout_total_mga, cout_unitaire_mga`). Sous-type inconnu ou d'un autre magasin → `404 {"detail": "Sous-type introuvable."}`. Sans `type` : les 200 derniers envois finalisés de la société (liste d'`historique[]`).
 ```json
-{ "variant": 727, "reference_name": "Produit A", "couleur": "Noir", "prix_achat_reference": "150333.33", "prix_vente": "200000.00", "cout_actuel_mga": "155000.00", "cout_moyen_pondere_mga": "150333.33", "historique": [{ "id": 13, "numero": "SUP-2-20260917-0002", "supplier_nom": "Fournisseur Chine A", "date": "2026-09-17", "finalise_at": "2026-09-30T10:00:00+03:00", "quantite": 200, "total_paiements_mga": "23000000.00", "frais_douane_mga": "8000000.00", "cout_total_mga": "31000000.00", "cout_unitaire_mga": "155000.00" }] }
+{ "type": 14, "libelle": "Coques / FLIP COVER", "cout_actuel_mga": "155000.00", "cout_moyen_pondere_mga": "150333.33", "historique": [{ "id": 13, "numero": "SUP-2-20260917-0002", "supplier_nom": "Fournisseur Chine A", "produit_libelle": "Coques / FLIP COVER", "date": "2026-09-17", "finalise_at": "2026-09-30T10:00:00+03:00", "quantite": 200, "total_paiements_mga": "23000000.00", "frais_douane_mga": "8000000.00", "cout_total_mga": "31000000.00", "cout_unitaire_mga": "155000.00" }] }
 ```
 
 ---

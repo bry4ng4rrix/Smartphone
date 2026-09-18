@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -14,9 +12,11 @@ import '../../state/stores_provider.dart';
 import '../../state/suppliers_provider.dart';
 import 'supplier_status.dart';
 
-/// Nouvel approvisionnement (§ 3) : UN fournisseur, UN produit (référence +
-/// couleur), UNE quantité, la devise et le montant total prévu. Les
-/// paiements, le transport et les frais se saisissent ensuite sur la fiche.
+/// Nouvel approvisionnement (§ 3) : UN fournisseur, UN sous-type de produit
+/// (FLIP COVER, Z-FOLD… — la même liste que le filtre « sous-type » de la
+/// page Produits, sans couleur : le module est indépendant du stock), UNE
+/// quantité, la devise et le montant total prévu. Les paiements, le
+/// transport et les frais se saisissent ensuite sur la fiche.
 /// Renvoie l'id de l'approvisionnement créé (`context.pop(id)`).
 class SupplierOrderCreateScreen extends ConsumerStatefulWidget {
   const SupplierOrderCreateScreen({super.key, this.supplierInitial});
@@ -27,30 +27,37 @@ class SupplierOrderCreateScreen extends ConsumerStatefulWidget {
 }
 
 class _SupplierOrderCreateScreenState extends ConsumerState<SupplierOrderCreateScreen> {
-  final _search = TextEditingController();
   final _quantite = TextEditingController();
   final _montantPrevu = TextEditingController();
   final _description = TextEditingController();
   int? _supplierId;
   late String _devise = widget.supplierInitial?.devise ?? 'USD';
   int? _magasinId;
-  List<ReferenceOption> _suggestions = const [];
-  ReferenceOption? _reference;
-  int? _variantId;
-  bool _searching = false;
-  Timer? _debounce;
+  List<ProductType> _types = const [];
+  int? _typeId;
+  bool _typesLoading = true;
   String? _submitting;
 
   @override
   void initState() {
     super.initState();
     _supplierId = widget.supplierInitial?.id;
+    _chargerTypes();
+  }
+
+  /// Sous-types du catalogue (`GET catalog/types/`), comme la page Produits.
+  Future<void> _chargerTypes() async {
+    setState(() => _typesLoading = true);
+    try {
+      final list = await ref.read(suppliersRepositoryProvider).types(magasinId: _magasinId);
+      if (mounted) setState(() { _types = list; _typesLoading = false; });
+    } catch (_) {
+      if (mounted) setState(() { _types = const []; _typesLoading = false; });
+    }
   }
 
   @override
   void dispose() {
-    _debounce?.cancel();
-    _search.dispose();
     _quantite.dispose();
     _montantPrevu.dispose();
     _description.dispose();
@@ -59,26 +66,9 @@ class _SupplierOrderCreateScreenState extends ConsumerState<SupplierOrderCreateS
 
   void _snack(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
 
-  void _onSearch(String q) {
-    _debounce?.cancel();
-    if (q.trim().isEmpty) {
-      setState(() { _suggestions = const []; _searching = false; });
-      return;
-    }
-    setState(() => _searching = true);
-    _debounce = Timer(const Duration(milliseconds: 250), () async {
-      try {
-        final list = await ref.read(suppliersRepositoryProvider).autocomplete(q.trim(), magasinId: _magasinId);
-        if (mounted) setState(() { _suggestions = list; _searching = false; });
-      } catch (_) {
-        if (mounted) setState(() { _suggestions = const []; _searching = false; });
-      }
-    });
-  }
-
   Future<void> _submit(String statut, {required bool needsMagasin}) async {
-    final variantId = _variantId;
-    if (_reference == null || variantId == null) { _snack('Choisissez le produit (référence + couleur).'); return; }
+    final typeId = _typeId;
+    if (typeId == null) { _snack('Choisissez le sous-type.'); return; }
     final q = int.tryParse(_quantite.text.trim()) ?? 0;
     if (q < 1) { _snack('Indiquez la quantité de pièces.'); return; }
     if (needsMagasin && _magasinId == null) { _snack('Choisissez le magasin destinataire.'); return; }
@@ -86,7 +76,7 @@ class _SupplierOrderCreateScreenState extends ConsumerState<SupplierOrderCreateS
     try {
       final order = await ref.read(suppliersRepositoryProvider).create(
             supplierId: _supplierId,
-            productVariantId: variantId,
+            productTypeId: typeId,
             quantite: q,
             devise: _devise,
             montantPrevu: double.tryParse(_montantPrevu.text.replaceAll(' ', '').replaceAll(',', '.')) ?? 0,
@@ -116,14 +106,13 @@ class _SupplierOrderCreateScreenState extends ConsumerState<SupplierOrderCreateS
     final stores = needsMagasin ? (ref.watch(storesProvider).value ?? const <Magasin>[]) : const <Magasin>[];
     if (needsMagasin && _magasinId == null && stores.length == 1) _magasinId = stores.first.magasinId;
     final suppliers = ref.watch(suppliersListProvider).value ?? const <Supplier>[];
-    final couleurs = _reference?.couleurs ?? const <ColorOption>[];
 
     return Scaffold(
       appBar: AppBar(title: const Text('Nouvel approvisionnement')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
         children: [
-          Text('Un approvisionnement = un fournisseur, un produit, une quantité. Pour un autre produit, créez un autre approvisionnement.',
+          Text('Un approvisionnement = un fournisseur, un sous-type, une quantité. Pour un autre sous-type, créez un autre approvisionnement.',
               style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
           const SizedBox(height: 14),
           if (needsMagasin) ...[
@@ -131,7 +120,10 @@ class _SupplierOrderCreateScreenState extends ConsumerState<SupplierOrderCreateS
               initialValue: _magasinId,
               decoration: const InputDecoration(labelText: 'Magasin destinataire'),
               items: [for (final m in stores) DropdownMenuItem(value: m.magasinId, child: Text(m.shopName))],
-              onChanged: (v) => setState(() { _magasinId = v; _reference = null; _variantId = null; _suggestions = const []; }),
+              onChanged: (v) {
+                setState(() { _magasinId = v; _typeId = null; });
+                _chargerTypes();
+              },
             ),
             const SizedBox(height: 12),
           ],
@@ -153,46 +145,19 @@ class _SupplierOrderCreateScreenState extends ConsumerState<SupplierOrderCreateS
           const SizedBox(height: 16),
           Text('PRODUIT', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: scheme.onSurfaceVariant)),
           const SizedBox(height: 6),
-          if (_reference == null) ...[
-            TextField(
-              controller: _search,
-              onChanged: _onSearch,
-              decoration: InputDecoration(
-                labelText: 'Rechercher une référence',
-                hintText: 'Ex : A15',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _searching ? const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))) : null,
-              ),
-            ),
-            for (final r in _suggestions)
-              ListTile(
-                dense: true,
-                title: Text('${r.brandName} ${r.referenceName}'),
-                subtitle: Text('${r.typeName} · vente ${fmtAr(r.prixVente)}'),
-                onTap: () => setState(() {
-                  _reference = r;
-                  _variantId = r.couleurs.length == 1 ? r.couleurs.first.variantId : null;
-                  _suggestions = const [];
-                }),
-              ),
-          ] else
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text('${_reference!.brandName} ${_reference!.referenceName}', style: const TextStyle(fontWeight: FontWeight.w600)),
-              subtitle: Text('${_reference!.typeName} · prix de vente ${fmtAr(_reference!.prixVente)}'),
-              trailing: TextButton(onPressed: () => setState(() { _reference = null; _variantId = null; _search.clear(); }), child: const Text('Changer')),
-            ),
-          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
                 child: DropdownButtonFormField<int>(
-                  key: ValueKey('variant-${_reference?.id}-$_variantId'),
-                  initialValue: _variantId,
+                  key: ValueKey('type-$_typeId-${_types.length}'),
+                  initialValue: _typeId,
                   isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Couleur / variante'),
-                  items: [for (final c in couleurs) DropdownMenuItem(value: c.variantId, child: Text('${c.couleur} · stock ${c.stockActuel}', overflow: TextOverflow.ellipsis))],
-                  onChanged: _reference == null ? null : (v) => setState(() => _variantId = v),
+                  decoration: InputDecoration(
+                    labelText: 'Sous-type',
+                    hintText: _typesLoading ? 'Chargement…' : 'Choisir un sous-type',
+                  ),
+                  items: [for (final t in _types) DropdownMenuItem(value: t.id, child: Text(t.nom, overflow: TextOverflow.ellipsis))],
+                  onChanged: _typesLoading ? null : (v) => setState(() => _typeId = v),
                 ),
               ),
               const SizedBox(width: 8),
