@@ -20,6 +20,8 @@ import '../../state/stock_provider.dart';
 import '../../widgets/async_state_widgets.dart';
 import '../../widgets/order_confirm_dialog.dart' show arFmt;
 import '../../widgets/status_badge.dart';
+import '../../widgets/table_pager.dart';
+import '../dashboard/widgets/report_export.dart' show partagerXlsx;
 import 'import_export.dart';
 import 'product_note_dialog.dart';
 import 'reference_dialogs.dart';
@@ -93,6 +95,10 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> with AutomaticKe
   bool _exporting = false;
   bool _importing = false;
 
+  /// Page courante de la liste des références (50 par page, côté client).
+  /// Remise à 0 à chaque changement de recherche/filtre.
+  int _page = 0;
+
   @override
   void initState() {
     super.initState();
@@ -120,14 +126,22 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> with AutomaticKe
     // Débouncé à 250 ms (`useDebouncedValue`).
     _searchDebounce?.cancel();
     _searchDebounce = Timer(const Duration(milliseconds: 250), () {
-      if (mounted) setState(() => _search = value.trim().toLowerCase());
+      if (mounted) {
+        setState(() {
+          _search = value.trim().toLowerCase();
+          _page = 0;
+        });
+      }
     });
   }
 
   void _setSearch(String value) {
     _searchDebounce?.cancel();
     _searchController.text = value;
-    setState(() => _search = value.trim().toLowerCase());
+    setState(() {
+      _search = value.trim().toLowerCase();
+      _page = 0;
+    });
   }
 
   Future<void> _refresh() => ref.read(catalogHubProvider).refreshAll();
@@ -417,6 +431,7 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> with AutomaticKe
                   onSelected: (v) => setState(() {
                     _categoryFilter = v;
                     _typeFilter = null; // changer la catégorie remet le sous-type à « Tous »
+                    _page = 0;
                   }),
                   itemBuilder: (context) => [
                     const PopupMenuItem(value: null, child: Text('Toutes les catégories')),
@@ -426,7 +441,10 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> with AutomaticKe
                 PopupMenuButton<int?>(
                   tooltip: 'Filtrer par sous-type',
                   icon: Icon(Icons.style_outlined, color: _typeFilter != null ? theme.colorScheme.primary : null),
-                  onSelected: (v) => setState(() => _typeFilter = v),
+                  onSelected: (v) => setState(() {
+                    _typeFilter = v;
+                    _page = 0;
+                  }),
                   itemBuilder: (context) => [
                     const PopupMenuItem(value: null, child: Text('Tous les sous-types')),
                     for (final t in typesForCategory) PopupMenuItem(value: t.id, child: Text(t.nom)),
@@ -435,7 +453,10 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> with AutomaticKe
                 PopupMenuButton<int?>(
                   tooltip: 'Filtrer par marque',
                   icon: Icon(Icons.storefront_outlined, color: _brandFilter != null ? theme.colorScheme.primary : null),
-                  onSelected: (v) => setState(() => _brandFilter = v),
+                  onSelected: (v) => setState(() {
+                    _brandFilter = v;
+                    _page = 0;
+                  }),
                   itemBuilder: (context) => [
                     const PopupMenuItem(value: null, child: Text('Toutes les marques')),
                     for (final b in brands) PopupMenuItem(value: b.id, child: Text(b.nom)),
@@ -457,23 +478,30 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> with AutomaticKe
                       onDeleted: () => setState(() {
                         _categoryFilter = null;
                         _typeFilter = null;
+                        _page = 0;
                       }),
                     ),
                   if (_typeFilter != null)
                     Chip(
                       label: Text(types.firstWhereOrNull((t) => t.id == _typeFilter)?.nom ?? 'Sous-type'),
-                      onDeleted: () => setState(() => _typeFilter = null),
+                      onDeleted: () => setState(() {
+                        _typeFilter = null;
+                        _page = 0;
+                      }),
                     ),
                   if (_brandFilter != null)
                     Chip(
                       label: Text(brands.firstWhereOrNull((b) => b.id == _brandFilter)?.nom ?? 'Marque'),
-                      onDeleted: () => setState(() => _brandFilter = null),
+                      onDeleted: () => setState(() {
+                        _brandFilter = null;
+                        _page = 0;
+                      }),
                     ),
                 ],
               ),
             ),
           const Divider(height: 1),
-          Expanded(child: _buildBody(async, types, isGerant, notes)),
+          Expanded(child: _buildBody(async, categories, types, brands, isGerant, notes)),
         ],
       ),
       floatingActionButton: isGerant
@@ -501,7 +529,9 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> with AutomaticKe
 
   Widget _buildBody(
     AsyncValue<List<ProductReference>> async,
+    List<ProductCategory> categories,
     List<ProductType> types,
+    List<Brand> brands,
     bool isGerant,
     List<ProductNote> notes,
   ) {
@@ -520,7 +550,14 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> with AutomaticKe
     // rendue si des notes existent ou pour le gérant (qui peut en créer),
     // `(notes.length > 0 || isGerant)` côté web.
     final showNotes = notes.isNotEmpty || isGerant;
-    Widget notesCard() => _ProductNotesCard(notes: notes, isGerant: isGerant, onDelete: _confirmDeleteNote);
+    Widget notesCard() => _ProductNotesCard(
+          notes: notes,
+          categories: categories,
+          types: types,
+          brands: brands,
+          isGerant: isGerant,
+          onDelete: _confirmDeleteNote,
+        );
     final filtered = _filter(references, types);
     if (filtered.isEmpty) {
       return RefreshIndicator(
@@ -539,18 +576,30 @@ class _ReferencesTabState extends ConsumerState<_ReferencesTab> with AutomaticKe
     // Carte verticale plutôt qu'un DataTable : sur un écran de téléphone, un
     // vrai tableau (10 colonnes côté web) impose un scroll horizontal — pas
     // souhaité (§ demande). Toutes les colonnes du web sont sur la carte.
+    // Pagination côté client, 50 références par page (comme le web) : la
+    // page visible, puis le pied « x–y sur N » et la carte des notes.
+    final page = clampPage(_page, filtered.length, kTablePageSize);
+    final visibles = filtered.skip(page * kTablePageSize).take(kTablePageSize).toList();
     return RefreshIndicator(
       onRefresh: _refreshSilent,
       child: ListView.builder(
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
-        itemCount: filtered.length + (showNotes ? 1 : 0),
+        itemCount: visibles.length + 1 + (showNotes ? 1 : 0),
         itemBuilder: (context, i) {
-          if (i == filtered.length) return notesCard();
+          if (i == visibles.length) {
+            return TablePager(
+              page: page,
+              total: filtered.length,
+              pageSize: kTablePageSize,
+              onPageChange: (p) => setState(() => _page = p),
+            );
+          }
+          if (i == visibles.length + 1) return notesCard();
           return _ReferenceCard(
-            reference: filtered[i],
+            reference: visibles[i],
             isGerant: isGerant,
-            onOpen: () => showProductDetailDialog(context, filtered[i].id),
-            onDelete: () => _confirmDelete(filtered[i]),
+            onOpen: () => showProductDetailDialog(context, visibles[i].id),
+            onDelete: () => _confirmDelete(visibles[i]),
           );
         },
       ),
@@ -727,17 +776,164 @@ class _PriceStat extends StatelessWidget {
 /// Adaptation mobile : le tableau garde ses colonnes et défile
 /// horizontalement (`overflow-x-auto` côté web) ; le sous-titre, masqué sur
 /// petit écran par le web (`hidden sm:block`), passe sous le titre.
-class _ProductNotesCard extends StatelessWidget {
-  const _ProductNotesCard({required this.notes, required this.isGerant, required this.onDelete});
+class _ProductNotesCard extends StatefulWidget {
+  const _ProductNotesCard({
+    required this.notes,
+    required this.categories,
+    required this.types,
+    required this.brands,
+    required this.isGerant,
+    required this.onDelete,
+  });
 
   final List<ProductNote> notes;
+  final List<ProductCategory> categories;
+  final List<ProductType> types;
+  final List<Brand> brands;
   final bool isGerant;
   final void Function(ProductNote note) onDelete;
 
   @override
+  State<_ProductNotesCard> createState() => _ProductNotesCardState();
+}
+
+/// Filtres du tableau des notes (indépendants de ceux du catalogue) :
+/// recherche (nom, marque, catégorie, sous-type, couleur, auteur),
+/// catégorie / sous-type / marque, et UNE date d'ajout (pas de plage).
+/// Pagination côté client (50 par page) et export Excel des notes visibles,
+/// comme le web.
+class _ProductNotesCardState extends State<_ProductNotesCard> with AutomaticKeepAliveClientMixin {
+  final _searchController = TextEditingController();
+  Timer? _searchDebounce;
+  String _search = '';
+  int? _categoryFilter;
+  int? _typeFilter;
+  int? _brandFilter;
+  DateTime? _dateFilter;
+  int _page = 0;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _searchDebounce?.cancel();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String value) {
+    setState(() {}); // bouton « effacer »
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) {
+        setState(() {
+          _search = value.trim().toLowerCase();
+          _page = 0;
+        });
+      }
+    });
+  }
+
+  /// Tout changement de filtre ramène en première page.
+  void _setFilter(VoidCallback change) => setState(() {
+        change();
+        _page = 0;
+      });
+
+  bool get _filtersActive =>
+      _search.isNotEmpty || _categoryFilter != null || _typeFilter != null || _brandFilter != null || _dateFilter != null;
+
+  void _resetFilters() {
+    _searchDebounce?.cancel();
+    _searchController.clear();
+    _setFilter(() {
+      _search = '';
+      _categoryFilter = null;
+      _typeFilter = null;
+      _brandFilter = null;
+      _dateFilter = null;
+    });
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _dateFilter ?? appToday(),
+      firstDate: DateTime(2020),
+      lastDate: appToday().add(const Duration(days: 1)),
+      helpText: "Date d'ajout",
+    );
+    if (picked == null) return;
+    _setFilter(() => _dateFilter = DateTime(picked.year, picked.month, picked.day));
+  }
+
+  List<ProductNote> _filter() {
+    final tokens = _search.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
+    return widget.notes.where((n) {
+      if (_categoryFilter != null && n.categoryId != _categoryFilter) return false;
+      if (_typeFilter != null && n.typeId != _typeFilter) return false;
+      if (_brandFilter != null && n.brandId != _brandFilter) return false;
+      if (_dateFilter != null) {
+        // Jour d'ajout à l'heure d'Antananarivo (celui affiché dans la colonne).
+        if (n.createdAt == null || appDay(n.createdAt!) != _dateFilter) return false;
+      }
+      if (tokens.isEmpty) return true;
+      final haystack = [
+        n.nom,
+        n.brandName,
+        n.categoryName,
+        n.typeName,
+        n.createdByName,
+        ...n.couleurs,
+      ].where((s) => s.isNotEmpty).join(' ').toLowerCase();
+      return tokens.every((t) => haystack.contains(t));
+    }).toList();
+  }
+
+  /// `handleExportNotes` du web : notes visibles (filtres appliqués, toutes
+  /// pages), classeur remis à la feuille de partage.
+  Future<void> _export(List<ProductNote> visibles) async {
+    if (visibles.isEmpty) {
+      _toast(context, 'Aucune note à exporter');
+      return;
+    }
+    try {
+      await partagerXlsx(
+        nomFichier: 'notes_produits_a_commander',
+        sheetName: 'Notes',
+        headers: const ['Nom', 'Catégorie', 'Sous-type', 'Marque', 'Couleurs', 'Ajoutée le', 'Ajoutée par'],
+        rows: [
+          for (final n in visibles)
+            [
+              n.nom,
+              n.categoryName,
+              n.typeName,
+              n.brandName,
+              n.couleurs.join(', '),
+              n.createdAt == null ? '' : _dayFmt.format(appLocal(n.createdAt!)),
+              n.createdByName,
+            ],
+        ],
+      );
+    } catch (e) {
+      if (mounted) _toast(context, catalogErrorMessage(e, "Erreur lors de l'export"));
+    }
+  }
+
+  /// La carte vit dans le ListView des références : sans ça, ses filtres et
+  /// sa page seraient perdus dès qu'elle sort de l'écran.
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
+    final notes = widget.notes;
+    final filtered = _filter();
+    final page = clampPage(_page, filtered.length, kTablePageSize);
+    final visibles = filtered.skip(page * kTablePageSize).take(kTablePageSize).toList();
+    final typesForCategory =
+        _categoryFilter == null ? widget.types : widget.types.where((t) => t.categoryId == _categoryFilter).toList();
     return Card(
       margin: const EdgeInsets.only(top: 12, bottom: 4),
       clipBehavior: Clip.antiAlias,
@@ -757,7 +953,14 @@ class _ProductNotesCard extends StatelessWidget {
                       child: Text('Notes — produits à commander', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                     ),
                     const SizedBox(width: 8),
-                    _CountBadge(count: notes.length),
+                    _CountBadge(label: _filtersActive ? '${filtered.length} / ${notes.length}' : '${notes.length}'),
+                    if (notes.isNotEmpty)
+                      IconButton(
+                        tooltip: 'Exporter Excel',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: filtered.isEmpty ? null : () => _export(filtered),
+                        icon: const Icon(Icons.download_outlined, size: 18),
+                      ),
                   ],
                 ),
                 const SizedBox(height: 2),
@@ -769,6 +972,113 @@ class _ProductNotesCard extends StatelessWidget {
             ),
           ),
           const Divider(height: 1),
+          if (notes.isNotEmpty) ...[
+            // Recherche + filtres en icônes (même esprit que la liste des
+            // références) ; les puces en dessous rappellent ce qui est actif.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        hintText: 'Nom, marque, couleur...',
+                        prefixIcon: const Icon(Icons.search, size: 20),
+                        isDense: true,
+                        suffixIcon: _searchController.text.isEmpty
+                            ? null
+                            : IconButton(
+                                icon: const Icon(Icons.clear, size: 18),
+                                onPressed: () {
+                                  _searchController.clear();
+                                  _onSearchChanged('');
+                                },
+                              ),
+                      ),
+                      onChanged: _onSearchChanged,
+                    ),
+                  ),
+                  PopupMenuButton<int?>(
+                    tooltip: 'Filtrer par catégorie',
+                    icon: Icon(Icons.category_outlined, color: _categoryFilter != null ? theme.colorScheme.primary : null),
+                    onSelected: (v) => _setFilter(() {
+                      _categoryFilter = v;
+                      _typeFilter = null;
+                    }),
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(value: null, child: Text('Toutes les catégories')),
+                      for (final c in widget.categories) PopupMenuItem(value: c.id, child: Text(c.nom)),
+                    ],
+                  ),
+                  PopupMenuButton<int?>(
+                    tooltip: 'Filtrer par sous-type',
+                    icon: Icon(Icons.style_outlined, color: _typeFilter != null ? theme.colorScheme.primary : null),
+                    onSelected: (v) => _setFilter(() => _typeFilter = v),
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(value: null, child: Text('Tous les sous-types')),
+                      for (final t in typesForCategory) PopupMenuItem(value: t.id, child: Text(t.nom)),
+                    ],
+                  ),
+                  PopupMenuButton<int?>(
+                    tooltip: 'Filtrer par marque',
+                    icon: Icon(Icons.storefront_outlined, color: _brandFilter != null ? theme.colorScheme.primary : null),
+                    onSelected: (v) => _setFilter(() => _brandFilter = v),
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(value: null, child: Text('Toutes les marques')),
+                      for (final b in widget.brands) PopupMenuItem(value: b.id, child: Text(b.nom)),
+                    ],
+                  ),
+                  IconButton(
+                    tooltip: "Filtrer par date d'ajout",
+                    icon: Icon(Icons.event_outlined, color: _dateFilter != null ? theme.colorScheme.primary : null),
+                    onPressed: _pickDate,
+                  ),
+                ],
+              ),
+            ),
+            if (_categoryFilter != null || _typeFilter != null || _brandFilter != null || _dateFilter != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    if (_categoryFilter != null)
+                      Chip(
+                        label: Text(widget.categories.firstWhereOrNull((c) => c.id == _categoryFilter)?.nom ?? 'Catégorie'),
+                        onDeleted: () => _setFilter(() {
+                          _categoryFilter = null;
+                          _typeFilter = null;
+                        }),
+                      ),
+                    if (_typeFilter != null)
+                      Chip(
+                        label: Text(widget.types.firstWhereOrNull((t) => t.id == _typeFilter)?.nom ?? 'Sous-type'),
+                        onDeleted: () => _setFilter(() => _typeFilter = null),
+                      ),
+                    if (_brandFilter != null)
+                      Chip(
+                        label: Text(widget.brands.firstWhereOrNull((b) => b.id == _brandFilter)?.nom ?? 'Marque'),
+                        onDeleted: () => _setFilter(() => _brandFilter = null),
+                      ),
+                    if (_dateFilter != null)
+                      Chip(
+                        avatar: const Icon(Icons.event_outlined, size: 16),
+                        label: Text(_dayFmt.format(_dateFilter!)),
+                        onDeleted: () => _setFilter(() => _dateFilter = null),
+                      ),
+                    if (_filtersActive)
+                      ActionChip(
+                        avatar: const Icon(Icons.clear, size: 16),
+                        label: const Text('Effacer'),
+                        onPressed: _resetFilters,
+                      ),
+                  ],
+                ),
+              ),
+            const Divider(height: 1),
+          ],
           if (notes.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
@@ -778,7 +1088,16 @@ class _ProductNotesCard extends StatelessWidget {
                 style: theme.textTheme.bodySmall?.copyWith(color: muted),
               ),
             )
-          else
+          else if (filtered.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
+              child: Text(
+                'Aucune note ne correspond aux filtres.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(color: muted),
+              ),
+            )
+          else ...[
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
@@ -797,10 +1116,10 @@ class _ProductNotesCard extends StatelessWidget {
                   const DataColumn(label: Text('Marque')),
                   const DataColumn(label: Text('Couleurs')),
                   const DataColumn(label: Text('Ajoutée le')),
-                  if (isGerant) const DataColumn(label: Text('Actions'), headingRowAlignment: MainAxisAlignment.end),
+                  if (widget.isGerant) const DataColumn(label: Text('Actions'), headingRowAlignment: MainAxisAlignment.end),
                 ],
                 rows: [
-                  for (final n in notes)
+                  for (final n in visibles)
                     DataRow(
                       cells: [
                         DataCell(Text(n.nom, style: const TextStyle(fontWeight: FontWeight.w500))),
@@ -823,7 +1142,7 @@ class _ProductNotesCard extends StatelessWidget {
                                 ),
                         ),
                         DataCell(Text(_noteAddedLabel(n), style: TextStyle(color: muted))),
-                        if (isGerant)
+                        if (widget.isGerant)
                           DataCell(
                             Align(
                               alignment: Alignment.centerRight,
@@ -831,7 +1150,7 @@ class _ProductNotesCard extends StatelessWidget {
                                 tooltip: 'Supprimer la note',
                                 visualDensity: VisualDensity.compact,
                                 icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
-                                onPressed: () => onDelete(n),
+                                onPressed: () => widget.onDelete(n),
                               ),
                             ),
                           ),
@@ -840,6 +1159,13 @@ class _ProductNotesCard extends StatelessWidget {
                 ],
               ),
             ),
+            TablePager(
+              page: page,
+              total: filtered.length,
+              pageSize: kTablePageSize,
+              onPageChange: (p) => setState(() => _page = p),
+            ),
+          ],
         ],
       ),
     );
@@ -855,8 +1181,8 @@ class _ProductNotesCard extends StatelessWidget {
 
 /// `<Badge variant="secondary">` : compteur de notes.
 class _CountBadge extends StatelessWidget {
-  const _CountBadge({required this.count});
-  final int count;
+  const _CountBadge({required this.label});
+  final String label;
 
   @override
   Widget build(BuildContext context) {
@@ -865,7 +1191,7 @@ class _CountBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(color: scheme.secondaryContainer, borderRadius: BorderRadius.circular(999)),
       child: Text(
-        '$count',
+        label,
         style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSecondaryContainer),
       ),
     );

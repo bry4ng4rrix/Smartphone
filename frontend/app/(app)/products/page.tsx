@@ -829,14 +829,16 @@ export default function ProductsPage() {
                   })}
                 </TableBody>
               </Table>
-              <TablePager
-                page={refsPager.page}
-                pages={refsPager.pages}
-                total={refsPager.total}
-                pageSize={refsPager.pageSize}
-                onPageChange={refsPager.setPage}
-              />
             </div>
+          )}
+          {!loading && (
+            <TablePager
+              page={refsPager.page}
+              pages={refsPager.pages}
+              total={refsPager.total}
+              pageSize={refsPager.pageSize}
+              onPageChange={refsPager.setPage}
+            />
           )}
         </CardContent>
       </Card>
@@ -1005,15 +1007,15 @@ export default function ProductsPage() {
                     ))}
                   </TableBody>
                 </Table>
-                <TablePager
-                  page={notesPager.page}
-                  pages={notesPager.pages}
-                  total={notesPager.total}
-                  pageSize={notesPager.pageSize}
-                  onPageChange={notesPager.setPage}
-                />
               </div>
             )}
+            <TablePager
+              page={notesPager.page}
+              pages={notesPager.pages}
+              total={notesPager.total}
+              pageSize={notesPager.pageSize}
+              onPageChange={notesPager.setPage}
+            />
           </CardContent>
         </Card>
       )}
