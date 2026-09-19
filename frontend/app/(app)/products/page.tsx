@@ -14,6 +14,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TablePager, usePagination } from "@/components/ui/table-pager";
+import { exporterExcel } from "@/components/reports/export";
 import {
   Table,
   TableBody,
@@ -58,6 +60,7 @@ import {
   FolderPlus,
   Palette,
   StickyNote,
+  X,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
@@ -65,6 +68,16 @@ import { toast } from "sonner";
 // Indicateur de couleur par variante (badge "Variantes") — seuils fixes,
 // affichés en légende dans l'entête du tableau (§ demande) : rouge = plus
 // aucun stock, bleu = 2 pièces ou moins, vert = 3 pièces ou plus.
+/** Lignes par page pour le catalogue et les notes (pagination côté client). */
+const PAGE_SIZE = 50;
+
+/** Jour local (YYYY-MM-DD) d'une date ISO — pour comparer à un `<input type="date">`. */
+const localDateKey = (iso: string) => {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
 const variantStockBadgeClass = (stock: number) => {
   if (stock <= 0)
     return "font-normal border-red-200 text-red-700 dark:text-red-500 bg-red-50/50 dark:bg-red-900/20";
@@ -87,6 +100,13 @@ export default function ProductsPage() {
   const [notes, setNotes] = useState<any[]>([]);
   const [createNoteOpen, setCreateNoteOpen] = useState(false);
   const [deleteNoteTarget, setDeleteNoteTarget] = useState<any | null>(null);
+  // Filtres du tableau des notes (indépendants de ceux du catalogue).
+  const [noteSearch, setNoteSearch] = useState("");
+  const [noteCategoryFilter, setNoteCategoryFilter] = useState<string>("ALL");
+  const [noteTypeFilter, setNoteTypeFilter] = useState<string>("ALL");
+  const [noteBrandFilter, setNoteBrandFilter] = useState<string>("ALL");
+  // Une seule date (jour d'ajout), pas de plage — format YYYY-MM-DD.
+  const [noteDateFilter, setNoteDateFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("ALL");
@@ -209,6 +229,108 @@ export default function ProductsPage() {
     brandFilter,
     typeToCategory,
   ]);
+
+  const refsPager = usePagination(filtered, PAGE_SIZE);
+  const { reset: resetRefsPage } = refsPager;
+  // Retour en première page dès qu'un filtre change (sinon on peut se
+  // retrouver sur une page vide ou décalée).
+  useEffect(() => {
+    resetRefsPage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch, categoryFilter, typeFilter, brandFilter]);
+
+  const noteTypesForCategoryFilter = useMemo(
+    () =>
+      noteCategoryFilter === "ALL"
+        ? types
+        : types.filter((t) => String(t.category) === noteCategoryFilter),
+    [types, noteCategoryFilter],
+  );
+
+  const debouncedNoteSearch = useDebouncedValue(noteSearch);
+
+  const filteredNotes = useMemo(() => {
+    const tokens = debouncedNoteSearch
+      .trim()
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean);
+    return notes.filter((n) => {
+      if (noteCategoryFilter !== "ALL" && String(n.category) !== noteCategoryFilter)
+        return false;
+      if (noteTypeFilter !== "ALL" && String(n.type) !== noteTypeFilter) return false;
+      if (noteBrandFilter !== "ALL" && String(n.brand) !== noteBrandFilter) return false;
+      if (noteDateFilter && localDateKey(n.created_at) !== noteDateFilter) return false;
+      if (tokens.length === 0) return true;
+      const haystack = [
+        n.nom,
+        n.brand_name,
+        n.category_name,
+        n.type_name,
+        n.created_by_name,
+        ...(n.couleurs || []),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return tokens.every((t) => haystack.includes(t));
+    });
+  }, [
+    notes,
+    debouncedNoteSearch,
+    noteCategoryFilter,
+    noteTypeFilter,
+    noteBrandFilter,
+    noteDateFilter,
+  ]);
+
+  const notesPager = usePagination(filteredNotes, PAGE_SIZE);
+  const { reset: resetNotesPage } = notesPager;
+  useEffect(() => {
+    resetNotesPage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedNoteSearch, noteCategoryFilter, noteTypeFilter, noteBrandFilter, noteDateFilter]);
+
+  const noteFiltersActive =
+    noteSearch !== "" ||
+    noteCategoryFilter !== "ALL" ||
+    noteTypeFilter !== "ALL" ||
+    noteBrandFilter !== "ALL" ||
+    noteDateFilter !== "";
+
+  const resetNoteFilters = () => {
+    setNoteSearch("");
+    setNoteCategoryFilter("ALL");
+    setNoteTypeFilter("ALL");
+    setNoteBrandFilter("ALL");
+    setNoteDateFilter("");
+  };
+
+  // Export des notes visibles (filtres appliqués, toutes pages confondues) —
+  // généré côté client, comme les rapports.
+  const handleExportNotes = () => {
+    if (filteredNotes.length === 0) {
+      toast.info("Aucune note à exporter");
+      return;
+    }
+    exporterExcel(
+      [
+        {
+          nom: "Notes",
+          lignes: filteredNotes.map((n) => ({
+            Nom: n.nom,
+            Catégorie: n.category_name || "",
+            "Sous-type": n.type_name || "",
+            Marque: n.brand_name || "",
+            Couleurs: (n.couleurs || []).join(", "),
+            "Ajoutée le": new Date(n.created_at).toLocaleDateString("fr-FR"),
+            "Ajoutée par": n.created_by_name || "",
+          })),
+        },
+      ],
+      "notes_produits_a_commander",
+    );
+  };
 
   const stockInfo = (ref: any) => {
     const variants = ref.variants || [];
@@ -603,7 +725,7 @@ export default function ProductsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtered.map((ref) => {
+                  {refsPager.slice.map((ref) => {
                     const info = stockInfo(ref);
                     const total = (ref.variants || []).reduce(
                       (s: number, v: any) => s + v.stock_actuel,
@@ -707,6 +829,13 @@ export default function ProductsPage() {
                   })}
                 </TableBody>
               </Table>
+              <TablePager
+                page={refsPager.page}
+                pages={refsPager.pages}
+                total={refsPager.total}
+                pageSize={refsPager.pageSize}
+                onPageChange={refsPager.setPage}
+              />
             </div>
           )}
         </CardContent>
@@ -719,15 +848,109 @@ export default function ProductsPage() {
               <div className="flex items-center gap-2">
                 <StickyNote className="h-4 w-4 text-muted-foreground" />
                 <p className="text-sm font-semibold">Notes — produits à commander</p>
-                <Badge variant="secondary">{notes.length}</Badge>
+                <Badge variant="secondary">
+                  {noteFiltersActive ? `${filteredNotes.length} / ${notes.length}` : notes.length}
+                </Badge>
               </div>
-              <p className="text-xs text-muted-foreground hidden sm:block">
-                Produits repérés mais pas encore au catalogue (sans prix ni stock).
-              </p>
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-muted-foreground hidden sm:block">
+                  Produits repérés mais pas encore au catalogue (sans prix ni stock).
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8"
+                  onClick={handleExportNotes}
+                  disabled={filteredNotes.length === 0}
+                >
+                  <Download className="h-4 w-4 mr-2" /> Exporter Excel
+                </Button>
+              </div>
             </div>
+            {notes.length > 0 && (
+              <div className="flex flex-col gap-2 px-4 py-3 border-b lg:flex-row lg:items-center">
+                <div className="relative flex-1 lg:max-w-xs">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Nom, marque, couleur..."
+                    value={noteSearch}
+                    onChange={(e) => setNoteSearch(e.target.value)}
+                    className="pl-10 h-9"
+                  />
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2 lg:flex lg:flex-1 lg:items-center">
+                  <Select
+                    value={noteCategoryFilter}
+                    onValueChange={(v) => {
+                      setNoteCategoryFilter(v);
+                      setNoteTypeFilter("ALL");
+                    }}
+                  >
+                    <SelectTrigger className="h-9 w-full lg:w-44">
+                      <SelectValue placeholder="Toutes les catégories" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ALL">Toutes les catégories</SelectItem>
+                      {categories.map((c) => (
+                        <SelectItem key={c.id} value={String(c.id)}>
+                          {c.nom}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={noteTypeFilter} onValueChange={setNoteTypeFilter}>
+                    <SelectTrigger className="h-9 w-full lg:w-44">
+                      <SelectValue placeholder="Tous les sous-types" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ALL">Tous les sous-types</SelectItem>
+                      {noteTypesForCategoryFilter.map((t) => (
+                        <SelectItem key={t.id} value={String(t.id)}>
+                          {t.nom}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={noteBrandFilter} onValueChange={setNoteBrandFilter}>
+                    <SelectTrigger className="h-9 w-full lg:w-44">
+                      <SelectValue placeholder="Toutes les marques" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ALL">Toutes les marques</SelectItem>
+                      {brands.map((b) => (
+                        <SelectItem key={b.id} value={String(b.id)}>
+                          {b.nom}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    type="date"
+                    value={noteDateFilter}
+                    onChange={(e) => setNoteDateFilter(e.target.value)}
+                    className="h-9 w-full lg:w-40"
+                    aria-label="Filtrer par date d'ajout"
+                  />
+                  {noteFiltersActive && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-9 px-2 text-muted-foreground"
+                      onClick={resetNoteFilters}
+                    >
+                      <X className="h-4 w-4 mr-1" /> Effacer
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
             {notes.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">
                 Aucune note. Utilisez « Nouvelle note » pour noter un produit à commander au fournisseur.
+              </p>
+            ) : filteredNotes.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">
+                Aucune note ne correspond aux filtres.
               </p>
             ) : (
               <div className="overflow-x-auto">
@@ -744,7 +967,7 @@ export default function ProductsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {notes.map((n) => (
+                    {notesPager.slice.map((n) => (
                       <TableRow key={n.id}>
                         <TableCell className="font-medium">{n.nom}</TableCell>
                         <TableCell>{n.category_name}</TableCell>
@@ -782,6 +1005,13 @@ export default function ProductsPage() {
                     ))}
                   </TableBody>
                 </Table>
+                <TablePager
+                  page={notesPager.page}
+                  pages={notesPager.pages}
+                  total={notesPager.total}
+                  pageSize={notesPager.pageSize}
+                  onPageChange={notesPager.setPage}
+                />
               </div>
             )}
           </CardContent>
