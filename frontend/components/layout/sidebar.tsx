@@ -103,6 +103,12 @@ const navigationItems: NavItem[] = [
     adminOnly: true,
   },
   {
+    label: "Clients",
+    href: "/client",
+    icon: Users,
+    adminOnly: true,
+  },
+  {
     label: "Alertes",
     href: "/alerts",
     icon: AlertCircle,
@@ -258,7 +264,9 @@ export function Sidebar() {
               .map((item) => {
                 const Icon = item.icon;
                 // Actif aussi sur les sous-pages (ex. /dashboard/sales).
-                const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                const isActive =
+                  pathname === item.href ||
+                  pathname.startsWith(`${item.href}/`);
 
                 return (
                   <Link
