@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Check, CreditCard, MapPin, Receipt, ShoppingBag, Store, Truck } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, CreditCard, Hourglass, MapPin, Receipt, ShoppingBag, Store, Truck } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { ColorDot } from "@/components/ui/color-dot";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -464,15 +464,20 @@ export function CheckoutVue() {
             <dt className="text-muted">Livraison</dt>
             <dd className="text-right text-xs text-muted">{retrait ? "Retrait sur place — sans frais" : "Fixée par la boutique"}</dd>
           </div>
-          <div className="flex items-baseline justify-between border-t border-[var(--glass-border)] pt-3">
-            <dt className="font-medium">Total articles</dt>
-            <dd className="text-lg font-semibold tracking-tight tabular-nums">{formatAr(sousTotal)}</dd>
+          {/* Pas de total affiché : les frais de livraison — donc le montant
+              réel — sont fixés par la boutique à la validation. */}
+          <div className="flex items-start justify-between gap-4 border-t border-[var(--glass-border)] pt-3">
+            <dt className="font-medium">Total à payer</dt>
+            <dd className="flex items-center gap-1.5 text-right text-[13px] font-medium text-amber-600 dark:text-amber-400">
+              <Hourglass className="size-3.5 shrink-0" aria-hidden />
+              En attente de confirmation du gérant
+            </dd>
           </div>
         </dl>
 
         <p className="mt-3 text-[11px] leading-relaxed text-muted">
-          Estimation d&apos;après les prix affichés, hors livraison. Le montant à payer, frais compris, est calculé par la
-          boutique à la validation de votre commande.
+          La boutique confirme le montant à payer — frais de livraison compris — au moment de valider votre commande. Vous
+          le retrouverez ensuite dans « Mes commandes ».
         </p>
       </aside>
     </div>

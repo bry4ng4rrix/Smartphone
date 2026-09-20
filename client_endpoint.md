@@ -792,7 +792,39 @@ l'adresse saisie.
 **Endpoints utilisés** : `GET /api/boutiques/{id}/zones/`,
 `POST /api/client/orders/`, `PATCH /api/client/orders/{id}/`.
 
-### 9.9 Proxy d'API same-origin
+### 9.9 Compteur « commandes en attente »
+
+**Type** : frontend uniquement.
+
+**Description** : la barre de navigation mène aux commandes que la boutique
+n'a pas encore validées, avec une pastille indiquant leur nombre (elle
+remplace l'ancien raccourci « Favoris », toujours accessible depuis le pied
+de page).
+
+**Comportement** : lorsque le client est connecté, le compteur est relu à
+chaque changement de page — donc juste après une commande ou une annulation.
+Hors session, le lien renvoie vers la connexion.
+
+**Endpoint utilisé** : `GET /api/client/orders/?statut=EN_ATTENTE_APPROBATION`.
+
+### 9.10 Montant confirmé par la boutique
+
+**Type** : frontend uniquement.
+
+**Description** : tant que la commande est `EN_ATTENTE_APPROBATION`, aucun
+total n'est affiché au client — ni au moment de commander, ni sur la fiche de
+suivi. À la place : « En attente de confirmation du gérant ». Le détail des
+articles, lui, reste affiché (ce sont les prix catalogue réels).
+
+**Pourquoi** : les frais de livraison dépendent de la zone que la boutique
+fixe à la validation (voir 9.8) ; afficher un total avant cela reviendrait à
+annoncer un montant qui va changer.
+
+**Comportement** : dès que la commande passe à `NOUVELLE` ou au-delà, la
+fiche affiche `total_a_payer` et `frais_livraison` tels que renvoyés par
+l'API.
+
+### 9.11 Proxy d'API same-origin
 
 **Type** : frontend uniquement (aucune modification du backend).
 

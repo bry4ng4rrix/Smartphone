@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, CheckCircle2, MapPin, Pencil, Store, X } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Hourglass, MapPin, Pencil, Store, X } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { ColorDot } from "@/components/ui/color-dot";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -67,6 +67,8 @@ export function CommandeDetail({ id }: { id: string }) {
 
   const articles = commande.items.reduce((n, i) => n + i.quantite, 0);
   const retrait = commande.livraison_zone === "RECUPERATION";
+  // Avant l'approbation, la zone de livraison (et ses frais) reste provisoire.
+  const enAttente = commande.statut === "EN_ATTENTE_APPROBATION";
 
   return (
     <div>
@@ -166,13 +168,30 @@ export function CommandeDetail({ id }: { id: string }) {
                 <dt className="text-muted">Articles</dt>
                 <dd className="tabular-nums">{formatAr(commande.total_a_payer - commande.frais_livraison)}</dd>
               </div>
-              <div className="flex items-baseline justify-between">
+              <div className="flex items-baseline justify-between gap-4">
                 <dt className="text-muted">Livraison</dt>
-                <dd className="tabular-nums">{commande.frais_livraison > 0 ? formatAr(commande.frais_livraison) : "Sans frais"}</dd>
+                <dd className={cn("tabular-nums", enAttente && "text-right text-xs text-muted")}>
+                  {enAttente
+                    ? retrait
+                      ? "Retrait sur place — sans frais"
+                      : "Fixée par la boutique"
+                    : commande.frais_livraison > 0
+                      ? formatAr(commande.frais_livraison)
+                      : "Sans frais"}
+                </dd>
               </div>
-              <div className="flex items-baseline justify-between border-t border-[var(--glass-border)] pt-3">
+              {/* Tant que la boutique n'a pas validé, les frais — donc le total —
+                  ne sont pas arrêtés : on n'affiche pas de montant provisoire. */}
+              <div className="flex items-start justify-between gap-4 border-t border-[var(--glass-border)] pt-3">
                 <dt className="font-medium">Total à payer</dt>
-                <dd className="text-xl font-semibold tracking-tight tabular-nums">{formatAr(commande.total_a_payer)}</dd>
+                {enAttente ? (
+                  <dd className="flex items-center gap-1.5 text-right text-[13px] font-medium text-amber-600 dark:text-amber-400">
+                    <Hourglass className="size-3.5 shrink-0" aria-hidden />
+                    En attente de confirmation du gérant
+                  </dd>
+                ) : (
+                  <dd className="text-xl font-semibold tracking-tight tabular-nums">{formatAr(commande.total_a_payer)}</dd>
+                )}
               </div>
             </dl>
             <p className="mt-3 text-[11px] text-muted">

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 /**
- * Proxy d'API same-origin (voir « 9.9 » dans client_endpoint.md).
+ * Proxy d'API same-origin (voir « 9.11 » dans client_endpoint.md).
  *
  * L'API Django n'autorise pas l'origine du front client dans ses en-têtes
  * CORS, et on ne touche pas au backend. Le navigateur appelle donc toujours

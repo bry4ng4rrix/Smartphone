@@ -2,21 +2,21 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Heart, Menu, Moon, Search, Sun, User } from "lucide-react";
+import { Hourglass, Menu, Moon, Search, Sun, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Panel, PanelClose } from "@/components/ui/panel";
 import { CartButton } from "@/components/layout/cart-drawer";
+import { commandes } from "@/lib/endpoints";
 import { useAuth } from "@/providers/auth-provider";
 import { useTheme } from "@/providers/theme-provider";
-import { useWishlist } from "@/providers/wishlist-provider";
 import { cn } from "@/lib/utils";
 
 // Repli si le catalogue est injoignable : aucun lien de catégorie inventé.
 const LIENS = [
   { href: "/catalogue", label: "CATALOGUE" },
-  { href: "/favoris", label: "FAVORIS" },
+  { href: "/compte/commandes", label: "COMMANDES EN ATTENTE" },
 ];
 
 export function SiteHeader({
@@ -25,9 +25,14 @@ export function SiteHeader({
   categories: { id: number; nom: string }[];
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const { statut, client } = useAuth();
   const { theme, basculer } = useTheme();
-  const { ids } = useWishlist();
+  const [enAttente, setEnAttente] = useState(0);
+
+  // Commandes que la boutique n'a pas encore validées : le client les suit
+  // depuis la barre de navigation.
+  const lienCommandes = statut === "connecte" ? "/compte/commandes" : "/connexion?suite=%2Fcompte%2Fcommandes";
   const [menuOuvert, setMenuOuvert] = useState(false);
   const [rechercheOuverte, setRechercheOuverte] = useState(false);
   const [compact, setCompact] = useState(false);
@@ -49,6 +54,26 @@ export function SiteHeader({
     if (rechercheOuverte) champRecherche.current?.focus();
   }, [rechercheOuverte]);
 
+  useEffect(() => {
+    let annule = false;
+    (async () => {
+      if (statut !== "connecte") {
+        setEnAttente(0);
+        return;
+      }
+      try {
+        const liste = await commandes.liste("EN_ATTENTE_APPROBATION");
+        if (!annule) setEnAttente(liste.length);
+      } catch {
+        if (!annule) setEnAttente(0);
+      }
+    })();
+    return () => {
+      annule = true;
+    };
+    // `pathname` : le compteur se rafraîchit après une commande ou une annulation.
+  }, [statut, pathname]);
+
   const liens = categories.length
     ? [
         { href: "/catalogue", label: "Catalogue" },
@@ -56,7 +81,7 @@ export function SiteHeader({
           href: `/catalogue?category=${c.id}`,
           label: c.nom,
         })),
-        { href: "/favoris", label: "Favoris" },
+        { href: lienCommandes, label: "Commandes en attente" },
       ]
     : LIENS;
 
@@ -186,14 +211,16 @@ export function SiteHeader({
               </Button>
 
               <Link
-                href="/favoris"
-                aria-label={`Favoris${ids.length ? ` (${ids.length})` : ""}`}
+                href={lienCommandes}
+                aria-label={`Commandes en attente${enAttente ? ` (${enAttente})` : ""}`}
                 className="hidden size-10 place-items-center rounded-full text-muted transition-colors hover:bg-foreground/[0.06] hover:text-foreground sm:grid"
               >
                 <span className="relative">
-                  <Heart className="size-[18px]" aria-hidden />
-                  {ids.length > 0 ? (
-                    <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-accent" />
+                  <Hourglass className="size-[18px]" aria-hidden />
+                  {enAttente > 0 ? (
+                    <span className="absolute -top-1.5 -right-2 grid min-w-4 place-items-center rounded-full bg-amber-500 px-1 text-[10px] leading-4 font-semibold text-black tabular-nums">
+                      {enAttente > 9 ? "9+" : enAttente}
+                    </span>
                   ) : null}
                 </span>
               </Link>
