@@ -1,402 +1,668 @@
-# API Espace client — Smartphone.Mg
+# API de l'espace client — Smartphone.Mg
 
-Référence des endpoints ajoutés pour le futur espace client en ligne (web / mobile).
-Extension du backend Django existant (app `clients`) : le catalogue et les commandes sont ceux de
-l'application de gestion, sans duplication ; les données internes (prix d'achat, marges, stock chiffré,
-personnel, caisse, rapports) ne sont jamais exposées.
+Référence des routes destinées à **l'application client** (boutique en ligne web/mobile) : catalogue public, compte client, panier et commandes. C'est l'unique document nécessaire pour développer l'app client : les routes de l'application de gestion interne (`/api/users/`, `/api/catalog/`, `/api/orders/`, `/api/suppliers/`, `/api/finance/`) ne le concernent pas et **ne sont jamais accessibles** avec un jeton client.
 
-- **Base URL** : production `http://185.215.167.79:8010/api` · local `http://127.0.0.1:8010/api`
-- **Authentification client** : `POST /api/client/login/` → `{ access, refresh }`, puis `Authorization: Bearer <access>`
-  (access 5 min, refresh 24 h, `POST /api/client/refresh/`). Les jetons clients portent `client_id` : ils sont refusés
-  par l'API interne, et les jetons internes sont refusés ici.
-- **Dates** ISO 8601 en heure d'Antananarivo (`+03:00`) · **montants** en Ar (nombres) · **erreurs** `{"champ": ["message"]}` ou `{"detail": "…"}`.
-- Référence complète de toute l'API (routes internes comprises) : `endpoint.md`.
-
-## Sommaire
-
-- **Catalogue public**
-  - [GET /api/boutiques/ — Boutiques](#get-apiboutiques-boutiques)
-  - [GET /api/boutiques/{id}/zones/ — Zones de livraison d'une boutique](#get-apiboutiquesidzones-zones-de-livraison-dune-boutique)
-  - [GET /api/categories/ — Catégories (alias : GET /api/type/)](#get-apicategories-catégories-alias-get-apitype)
-  - [GET /api/sous-type/ — Sous-types](#get-apisous-type-sous-types)
-  - [GET /api/marque/ — Marques](#get-apimarque-marques)
-  - [GET /api/couleurs/ — Couleurs](#get-apicouleurs-couleurs)
-  - [GET /api/produit/ — Produits (liste paginée)](#get-apiproduit-produits-liste-paginée)
-  - [GET /api/produit/{id}/ — Détail d'un produit](#get-apiproduitid-détail-dun-produit)
-- **Compte client**
-  - [POST /api/client/register/ — Inscription](#post-apiclientregister-inscription)
-  - [POST /api/client/login/ — Connexion](#post-apiclientlogin-connexion)
-  - [POST /api/client/refresh/ — Renouveler l'access](#post-apiclientrefresh-renouveler-laccess)
-  - [GET /api/client/me/ — Profil](#get-apiclientme-profil)
-  - [PATCH /api/client/me/ — Modifier le profil](#patch-apiclientme-modifier-le-profil)
-  - [POST /api/client/change-password/ — Changer de mot de passe](#post-apiclientchange-password-changer-de-mot-de-passe)
-- **Commandes du client**
-  - [GET /api/client/orders/ — Mes commandes](#get-apiclientorders-mes-commandes)
-  - [POST /api/client/orders/ — Passer une commande](#post-apiclientorders-passer-une-commande)
-  - [GET /api/client/orders/{id}/ — Suivi d'une commande](#get-apiclientordersid-suivi-dune-commande)
-  - [PATCH /api/client/orders/{id}/ — Modifier une commande en attente](#patch-apiclientordersid-modifier-une-commande-en-attente)
-  - [POST /api/client/orders/{id}/cancel/ — Annuler une commande](#post-apiclientordersidcancel-annuler-une-commande)
-- **Côté gérant (API interne, ajouts)**
-  - [POST /api/orders/{id}/approuver/ — Approuver une commande client](#post-apiordersidapprouver-approuver-une-commande-client)
-  - [POST /api/orders/{id}/refuser/ — Refuser une commande client](#post-apiordersidrefuser-refuser-une-commande-client)
+Tous les exemples de ce document sont des **réponses réelles** capturées sur la base de test (`python manage.py test clients`), avec le jeu de données suivant : boutique 1 « Boutique Centre », catégorie « Coques » → sous-type « iPhone » → marque « Apple » → produit « Coque iPhone 15 » à 25 000 Ar (couleur Noir en stock, Rouge épuisée), zone `CENTREVILLE` à 3 000 Ar, cliente `alice@test.com`.
 
 ---
 
-## Espace client (app `clients`)
+## Sommaire
 
-Couche API ajoutée à côté de l'application de gestion, pour le futur espace client en ligne (web/mobile). Elle réutilise le catalogue et le modèle `Order` existants — aucun catalogue ni système de commande parallèle — et n'expose jamais les données internes (prix d'achat, marges, stock chiffré, personnel, caisse, rapports).
+- [1. Conventions](#1-conventions)
+- [2. Authentification](#2-authentification)
+- [3. Catalogue public](#3-catalogue-public)
+  - [GET /api/boutiques/](#get-apiboutiques--liste-des-boutiques)
+  - [GET /api/boutiques/{id}/zones/](#get-apiboutiquesidzones--zones-de-livraison-dune-boutique)
+  - [GET /api/categories/](#get-apicategories--catégories-alias-apitype)
+  - [GET /api/sous-type/](#get-apisous-type--sous-types)
+  - [GET /api/marque/](#get-apimarque--marques)
+  - [GET /api/couleurs/](#get-apicouleurs--couleurs)
+  - [GET /api/produit/](#get-apiproduit--catalogue-paginé)
+  - [GET /api/produit/{id}/](#get-apiproduitid--fiche-produit)
+- [4. Compte client](#4-compte-client)
+  - [POST /api/client/register/](#post-apiclientregister--créer-un-compte)
+  - [POST /api/client/login/](#post-apiclientlogin--se-connecter)
+  - [POST /api/client/refresh/](#post-apiclientrefresh--renouveler-laccess)
+  - [GET/PATCH /api/client/me/](#getpatch-apiclientme--profil)
+  - [POST /api/client/change-password/](#post-apiclientchange-password--changer-de-mot-de-passe)
+- [5. Commandes du client](#5-commandes-du-client)
+  - [POST /api/client/orders/](#post-apiclientorders--passer-commande)
+  - [GET /api/client/orders/](#get-apiclientorders--mes-commandes)
+  - [GET /api/client/orders/{id}/](#get-apiclientordersid--détail-dune-commande)
+  - [PATCH /api/client/orders/{id}/](#patch-apiclientordersid--modifier-avant-approbation)
+  - [POST /api/client/orders/{id}/cancel/](#post-apiclientordersidcancel--annuler)
+- [6. Cycle de vie d'une commande](#6-cycle-de-vie-dune-commande)
+- [7. Erreurs et limitation de débit](#7-erreurs-et-limitation-de-débit)
+- [8. Ce que l'API client n'expose jamais](#8-ce-que-lapi-client-nexpose-jamais)
 
-- **Catalogue public** (`/api/produit/`, `/api/categories/`, `/api/type/`, `/api/sous-type/`, `/api/marque/`, `/api/couleurs/`, `/api/boutiques/`) : sans authentification, lecture seule.
-- **Compte client** (`/api/client/…`) : authentification JWT **distincte** — les jetons portent `client_id` (pas `user_id`) ; un jeton client est refusé par toute route interne (`401`), un jeton interne est refusé par toute route client (`401`). En-tête : `Authorization: Bearer <access>` (access 5 min, refresh 24 h).
-- **Commandes client** : créées en statut **`EN_ATTENTE_APPROBATION`** (nouveau statut, sans effet sur le stock) ; le gérant les **approuve** (`→ NOUVELLE`, puis workflow habituel : préparation, livraison…) ou les **refuse** (`→ ANNULEE`). Le client peut modifier/annuler tant que la préparation n'a pas commencé.
-- **Limitation de débit** (`429 {"detail": "Request was throttled. Expected available in N seconds."}`) : `client_auth` 20/min (inscription, connexion, refresh), `client_public` 300/min (catalogue), `client_orders` 60/min.
-- **Erreurs métier** : `400` avec `{"champ": ["message"]}` ou `{"items": ["message par article", …]}` ; `404` si la ressource n'appartient pas au client.
+---
 
-### Catalogue public
+## 1. Conventions
 
-### `GET /api/boutiques/` — Boutiques
-**Rôle** : public · **Vue** : `PublicBoutiqueListView` (clients/views.py)
+| | |
+| --- | --- |
+| **Base d'URL** | `http://185.215.167.79:8010/api/` (production) · `http://localhost:8010/api/` (développement) |
+| **Format** | JSON (`Content-Type: application/json`) en entrée et en sortie |
+| **Fuseau horaire** | `Indian/Antananarivo` (UTC+3). Toutes les dates sont ISO 8601 avec décalage : `2026-09-20T10:00:41.993449+03:00` |
+| **Montants** | Ariary (MGA), **nombres JSON** et non chaînes : `25000.0`, `53000.0` |
+| **Téléphone** | Format strict `+261XXXXXXXXX` (13 caractères). Sinon : `{"telephone": ["Format attendu : +261XXXXXXXXX"]}` |
+| **Langue** | Les messages **métier** (stock, prix, zone, statut) sont en français et affichables tels quels. Les messages de **validation de format** viennent du framework et sont en anglais (`"This field is required."`, `"Enter a valid email address."`, `"Ensure this field has at least 8 characters."`) : les traduire dans l'app |
 
-Réponse `200` :
+Un client ne voit et ne modifie **que ses propres données**. Toute commande demandée par id qui ne lui appartient pas répond `404` (et non `403`) : l'API ne révèle pas l'existence des commandes des autres.
+
+---
+
+## 2. Authentification
+
+Deux mondes étanches partagent le même serveur :
+
+| | Application de gestion | **Application client** |
+| --- | --- | --- |
+| Compte | `users.CustomUser` (admin / gérant / employé) | `clients.Client` |
+| Connexion | `/api/users/login/` | `/api/client/login/` |
+| Revendication JWT | `user_id` | **`client_id`** |
+| Accès aux routes de l'autre monde | refusé | refusé |
+
+Un jeton client présenté à une route interne est rejeté, et inversement — il n'y a donc rien à filtrer côté application.
+
+**En-tête à envoyer** sur toutes les routes authentifiées :
+
+```http
+Authorization: Bearer <access>
+```
+
+Durées : l'`access` est court (≈ 5 min), le `refresh` long (≈ 1 jour). Quand une requête renvoie `401`, appeler `/api/client/refresh/` puis rejouer la requête ; si le refresh échoue lui aussi, renvoyer l'utilisateur vers l'écran de connexion.
+
+Sans en-tête, sur une route protégée :
+
+```json
+{ "detail": "Authentication credentials were not provided." }
+```
+
+Les routes du **catalogue public** (section 3) ne demandent aucune authentification : on peut afficher toute la boutique avant même d'avoir un compte, et ne demander la connexion qu'au moment de valider le panier.
+
+---
+
+## 3. Catalogue public
+
+Toutes ces routes acceptent `?boutique=<id>` pour ne garder que le catalogue d'une boutique. Aucune authentification, aucune donnée interne.
+
+### `GET /api/boutiques/` — liste des boutiques
+
 ```json
 [
-  { "id": 2, "nom": "Boutique Centre", "description": "Accessoires téléphone", "logo": "http://185.215.167.79:8010/media/shop_logo/centre.png" }
+  { "id": 1, "nom": "Boutique Centre", "description": null, "logo": null },
+  { "id": 2, "nom": "Boutique Nord", "description": null, "logo": null }
 ]
 ```
 
-### `GET /api/boutiques/{id}/zones/` — Zones de livraison d'une boutique
-**Rôle** : public · **Vue** : `PublicBoutiqueZonesView`
+`logo` est une URL absolue quand la boutique en a une (`http://185.215.167.79:8010/media/shop_logo/...`).
 
-Effet : zones actives de la société de la boutique (le `code` est à renvoyer dans `livraison_zone`) + le retrait sur place.
+### `GET /api/boutiques/{id}/zones/` — zones de livraison d'une boutique
 
-Réponse `200` :
+Le `code` renvoyé ici est **exactement** ce qu'il faut remettre dans `livraison_zone` à la commande.
+
 ```json
 {
-  "boutique": 2,
+  "boutique": 1,
   "recuperation": { "code": "RECUPERATION", "nom": "Retrait sur place", "prix": 0 },
   "zones": [
-    { "code": "CENTREVILLE", "nom": "Centre-ville", "prix": 3000.0 },
-    { "code": "PERIPHERIE", "nom": "Périphérie", "prix": 5000.0 }
+    { "code": "CENTREVILLE", "nom": "Centre-ville", "prix": 3000.0 }
   ]
 }
 ```
 
-Erreurs : `404` — `{"detail": "No MagasinProfile matches the given query."}`.
+`RECUPERATION` (retrait en boutique) est toujours proposé, sans frais et sans adresse.
 
-### `GET /api/categories/` — Catégories (alias : `GET /api/type/`)
-**Rôle** : public · **Vue** : `PublicCategorieListView`
+### `GET /api/categories/` — catégories (alias : `/api/type/`)
 
-| Paramètre | Où | Type | Obligatoire | Description |
-| --- | --- | --- | --- | --- |
-| boutique | query | int | non | Ne garder que les catégories de cette boutique. |
+`?boutique=1`
 
-Réponse `200` :
 ```json
-[
-  { "id": 1, "nom": "Coques", "avec_couleurs": true, "boutique": 2 },
-  { "id": 2, "nom": "Chargeurs", "avec_couleurs": false, "boutique": 2 }
-]
+[ { "id": 1, "nom": "Coques", "avec_couleurs": true, "boutique": 1 } ]
 ```
 
-### `GET /api/sous-type/` — Sous-types
-**Rôle** : public · **Vue** : `PublicSousTypeListView`
+`avec_couleurs: false` signifie que les produits de cette catégorie n'ont qu'une variante technique : inutile d'afficher un sélecteur de couleur.
 
-| Paramètre | Où | Type | Obligatoire | Description |
-| --- | --- | --- | --- | --- |
-| category (ou categorie) | query | int | non | Sous-types d'une catégorie. |
-| boutique | query | int | non | Boutique. |
+### `GET /api/sous-type/` — sous-types
 
-Réponse `200` :
+`?boutique=1` · `?category=1` (alias `?categorie=`)
+
 ```json
-[ { "id": 4, "nom": "iPhone", "categorie": 1, "categorie_nom": "Coques" } ]
+[ { "id": 1, "nom": "iPhone", "categorie": 1, "categorie_nom": "Coques" } ]
 ```
 
-### `GET /api/marque/` — Marques
-**Rôle** : public · **Vue** : `PublicMarqueListView` · `?boutique=`
+### `GET /api/marque/` — marques
 
-Réponse `200` :
+`?boutique=1`
+
 ```json
-[ { "id": 3, "nom": "Apple", "boutique": 2 } ]
+[ { "id": 1, "nom": "Apple", "boutique": 1 } ]
 ```
 
-### `GET /api/couleurs/` — Couleurs
-**Rôle** : public · **Vue** : `PublicCouleurListView` · `?boutique=`
+### `GET /api/couleurs/` — couleurs
 
-Réponse `200` :
+`?boutique=1`
+
 ```json
-[ { "id": 7, "nom": "Noir", "boutique": 2 }, { "id": 8, "nom": "Rouge", "boutique": 2 } ]
+[ { "id": 1, "nom": "Noir", "boutique": 1 } ]
 ```
 
-### `GET /api/produit/` — Produits (liste paginée)
-**Rôle** : public · **Vue** : `PublicProduitViewSet` (références actives uniquement)
+Référentiel des couleurs de la boutique (pour construire un filtre). Les couleurs réellement disponibles d'un produit sont dans `variantes`.
 
-| Paramètre | Où | Type | Obligatoire | Description |
-| --- | --- | --- | --- | --- |
-| search | query | string | non | Recherche dans le nom, la marque, le sous-type et la catégorie (insensible à la casse). |
-| category (ou categorie, ou type) | query | int | non | Catégorie. |
-| sous_type | query | int | non | Sous-type. |
-| brand (ou marque) | query | int | non | Marque. |
-| couleur | query | string | non | Nom de couleur exact (insensible à la casse). |
-| available | query | `true`/`1` | non | Seulement les produits ayant au moins une couleur en stock. |
-| min_price / max_price | query | nombre | non | Fourchette de prix de vente (Ar). |
-| boutique | query | int | non | Boutique. |
-| page / page_size | query | int | non | Pagination (24 par page, 100 max). |
+### `GET /api/produit/` — catalogue paginé
 
-Réponse `200` :
+**Filtres** (tous cumulables) :
+
+| Paramètre | Effet |
+| --- | --- |
+| `search` | Cherche dans le nom du produit, la marque, le sous-type et la catégorie |
+| `boutique` | Une seule boutique |
+| `category` (alias `categorie`, `type`) | Une catégorie |
+| `sous_type` | Un sous-type |
+| `brand` (alias `marque`) | Une marque |
+| `couleur` | Nom de couleur exact, insensible à la casse (`?couleur=Noir`) |
+| `available=1` | Seulement les produits avec au moins une couleur en stock |
+| `min_price`, `max_price` | Bornes de prix en Ariary |
+| `page`, `page_size` | Pagination — 24 par page par défaut, 100 maximum |
+
+`GET /api/produit/?boutique=1&available=1`
+
 ```json
 {
-  "count": 278,
-  "next": "http://185.215.167.79:8010/api/produit/?page=2",
+  "count": 1,
+  "next": null,
   "previous": null,
   "results": [
     {
-      "id": 12,
+      "id": 1,
       "nom": "Coque iPhone 15",
       "nom_complet": "Apple Coque iPhone 15",
       "prix_vente": 25000.0,
-      "photo": "http://185.215.167.79:8010/media/products/coque-15.jpg",
+      "photo": null,
       "categorie": { "id": 1, "nom": "Coques" },
-      "sous_type": { "id": 4, "nom": "iPhone" },
-      "marque": { "id": 3, "nom": "Apple" },
-      "boutique": { "id": 2, "nom": "Boutique Centre" },
+      "sous_type": { "id": 1, "nom": "iPhone" },
+      "marque": { "id": 1, "nom": "Apple" },
+      "boutique": { "id": 1, "nom": "Boutique Centre" },
       "disponible": true,
       "variantes": [
-        { "id": 40, "couleur": "Noir", "disponible": true },
-        { "id": 41, "couleur": "Rouge", "disponible": false }
+        { "id": 1, "couleur": "Noir", "disponible": true },
+        { "id": 2, "couleur": "Rouge", "disponible": false }
       ]
     }
   ]
 }
 ```
 
-Erreurs : `400` — `{"detail": "min_price / max_price doivent être des nombres."}`.
+Points importants pour l'app :
 
-### `GET /api/produit/{id}/` — Détail d'un produit
-**Rôle** : public · **Vue** : `PublicProduitViewSet`
+- **`variantes[].id` est ce qu'il faut envoyer comme `variante`** dans le panier — jamais l'`id` du produit.
+- `disponible` est un simple booléen : la quantité exacte en stock n'est jamais exposée. Afficher « Disponible » / « Épuisé », pas un nombre.
+- `prix_vente` est le prix du produit (toutes couleurs confondues).
+- `min_price`/`max_price` non numériques → `400 {"detail": "min_price / max_price doivent être des nombres."}`.
 
-Réponse `200` : même objet qu'un élément de `results` ci-dessus. Erreurs : `404` (produit inexistant ou inactif).
+### `GET /api/produit/{id}/` — fiche produit
 
-### Compte client
+Même objet que dans `results`, non paginé :
 
-### `POST /api/client/register/` — Inscription
-**Rôle** : public (20/min) · **Vue** : `ClientRegisterView`
-
-| Paramètre | Où | Type | Obligatoire | Description |
-| --- | --- | --- | --- | --- |
-| email | corps | string | oui | Unique (insensible à la casse). |
-| password | corps | string | oui | 8 caractères minimum. |
-| nom | corps | string | oui | Nom complet. |
-| telephone | corps | string | oui | `+261XXXXXXXXX`. |
-| adresse | corps | string | non | Adresse par défaut des livraisons. |
-
-Requête :
-```json
-{ "email": "alice@example.mg", "password": "MotDePasse123", "nom": "Alice Rakoto", "telephone": "+261340000001", "adresse": "Lot II A Antananarivo" }
-```
-
-Réponse `201` :
 ```json
 {
-  "client": { "id": 1, "email": "alice@example.mg", "nom": "Alice Rakoto", "telephone": "+261340000001", "adresse": "Lot II A Antananarivo", "created_at": "2026-09-13T14:02:11.120000+03:00", "last_login": "2026-09-13T14:02:11.130000+03:00" },
-  "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  "id": 1,
+  "nom": "Coque iPhone 15",
+  "nom_complet": "Apple Coque iPhone 15",
+  "prix_vente": 25000.0,
+  "photo": null,
+  "categorie": { "id": 1, "nom": "Coques" },
+  "sous_type": { "id": 1, "nom": "iPhone" },
+  "marque": { "id": 1, "nom": "Apple" },
+  "boutique": { "id": 1, "nom": "Boutique Centre" },
+  "disponible": true,
+  "variantes": [
+    { "id": 1, "couleur": "Noir", "disponible": true },
+    { "id": 2, "couleur": "Rouge", "disponible": false }
+  ]
 }
 ```
 
-Erreurs : `400` — `{"email": ["Un compte existe déjà avec cet e-mail."]}`, `{"password": ["Ensure this field has at least 8 characters."]}`, `{"telephone": ["Format attendu : +261XXXXXXXXX"]}` ; `429` limitation de débit.
+Seuls les produits **actifs** apparaissent ; un produit retiré du catalogue renvoie `404`.
 
-### `POST /api/client/login/` — Connexion
-**Rôle** : public (20/min) · **Vue** : `ClientLoginView`
+---
 
-Requête :
-```json
-{ "email": "alice@example.mg", "password": "MotDePasse123" }
-```
+## 4. Compte client
 
-Réponse `200` : `{ "client": {…}, "refresh": "…", "access": "…" }` (même forme que l'inscription).
+### `POST /api/client/register/` — créer un compte
 
-Erreurs : `401` — `{"detail": "E-mail ou mot de passe incorrect."}` (message identique que l'e-mail existe ou non) ; `403` — `{"detail": "Compte désactivé."}`.
-
-### `POST /api/client/refresh/` — Renouveler l'access
-**Rôle** : public (20/min) · **Vue** : `ClientRefreshView`
-
-Requête :
-```json
-{ "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." }
-```
-
-Réponse `200` :
-```json
-{ "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." }
-```
-
-Erreurs : `401` — `{"detail": "Jeton invalide ou expiré : …"}` (y compris un refresh interne présenté ici).
-
-### `GET /api/client/me/` — Profil
-**Rôle** : client · **Vue** : `ClientMeView`
-
-Réponse `200` :
-```json
-{ "id": 1, "email": "alice@example.mg", "nom": "Alice Rakoto", "telephone": "+261340000001", "adresse": "Lot II A Antananarivo", "created_at": "2026-09-13T14:02:11.120000+03:00", "last_login": "2026-09-13T15:10:00.000000+03:00" }
-```
-
-Erreurs : `401` — `{"detail": "Authentication credentials were not provided."}` / `{"detail": "Ce jeton n'est pas un jeton client."}`.
-
-### `PATCH /api/client/me/` — Modifier le profil
-**Rôle** : client · **Vue** : `ClientMeView` · champs modifiables : `nom`, `telephone`, `adresse` (l'e-mail est en lecture seule).
+| Champ | Obligatoire | Règle |
+| --- | --- | --- |
+| `email` | oui | Unique, normalisé en minuscules |
+| `password` | oui | 8 caractères minimum |
+| `nom` | oui | Non vide |
+| `telephone` | oui | `+261XXXXXXXXX` |
+| `adresse` | non | Adresse par défaut, réutilisée à la commande |
 
 Requête :
-```json
-{ "adresse": "Ivandry, Antananarivo", "telephone": "+261330000002" }
-```
 
-Réponse `200` : profil mis à jour (même forme que `GET`). Erreurs : `400` — `{"telephone": ["Format attendu : +261XXXXXXXXX"]}`.
-
-### `POST /api/client/change-password/` — Changer de mot de passe
-**Rôle** : client · **Vue** : `ClientChangePasswordView`
-
-Requête :
-```json
-{ "ancien_mot_de_passe": "MotDePasse123", "nouveau_mot_de_passe": "NouveauPass456" }
-```
-
-Réponse `200` : `{ "detail": "Mot de passe modifié." }`. Erreurs : `400` — `{"ancien_mot_de_passe": ["Mot de passe actuel incorrect."]}`, `{"nouveau_mot_de_passe": ["Ensure this field has at least 8 characters."]}`.
-
-### Commandes du client
-
-Forme d'une commande côté client (aucune donnée interne : ni préparateur, ni livreur, ni notes du gérant, ni photos) :
 ```json
 {
-  "id": 981,
-  "numero": "CMD-2-20260913-0007",
+  "email": "carla@test.com",
+  "password": "MotDePasse123",
+  "nom": "Carla Rakoto",
+  "telephone": "+261341112233",
+  "adresse": "Lot II B Ankorondrano"
+}
+```
+
+Réponse `201` — le compte est créé **et** connecté, il n'y a pas besoin d'enchaîner sur `/login/` :
+
+```json
+{
+  "client": {
+    "id": 3,
+    "email": "carla@test.com",
+    "nom": "Carla Rakoto",
+    "telephone": "+261341112233",
+    "adresse": "Lot II B Ankorondrano",
+    "created_at": "2026-09-20T10:00:39.269749+03:00",
+    "last_login": "2026-09-20T10:00:39.270034+03:00"
+  },
+  "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTc4OTk3NDAzOSwiY2xpZW50X2lkIjozfQ...",
+  "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg5ODg3OTM5LCJjbGllbnRfaWQiOjN9..."
+}
+```
+
+E-mail déjà pris → `400` :
+
+```json
+{ "email": ["Un compte existe déjà avec cet e-mail."] }
+```
+
+Champs manquants ou mal formés → `400`, un tableau de messages par champ :
+
+```json
+{
+  "email": ["Enter a valid email address."],
+  "password": ["Ensure this field has at least 8 characters."],
+  "nom": ["This field may not be blank."],
+  "telephone": ["Format attendu : +261XXXXXXXXX"]
+}
+```
+
+### `POST /api/client/login/` — se connecter
+
+```json
+{ "email": "alice@test.com", "password": "MotDePasse123" }
+```
+
+Réponse `200` : même forme que `register` (`client` + `refresh` + `access`).
+
+```json
+{
+  "client": {
+    "id": 1,
+    "email": "alice@test.com",
+    "nom": "Alice",
+    "telephone": "+261340000001",
+    "adresse": "Lot II A Antananarivo",
+    "created_at": "2026-09-20T10:00:37.862409+03:00",
+    "last_login": "2026-09-20T10:00:40.041063+03:00"
+  },
+  "refresh": "eyJ...",
+  "access": "eyJ..."
+}
+```
+
+Identifiants faux → `401` (même message que l'e-mail existe ou non, pour ne pas révéler les comptes) :
+
+```json
+{ "detail": "E-mail ou mot de passe incorrect." }
+```
+
+Compte désactivé par la boutique → `403 {"detail": "Compte désactivé."}`.
+
+### `POST /api/client/refresh/` — renouveler l'access
+
+```json
+{ "refresh": "eyJhbGciOiJIUzI1NiIs..." }
+```
+
+```json
+{ "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiY2xpZW50X2lkIjoxfQ..." }
+```
+
+Refresh expiré, invalide ou jeton interne → `401 {"detail": "Jeton invalide ou expiré : …"}`.
+
+### `GET`/`PATCH` `/api/client/me/` — profil
+
+`GET` :
+
+```json
+{
+  "id": 1,
+  "email": "alice@test.com",
+  "nom": "Alice",
+  "telephone": "+261340000001",
+  "adresse": "Lot II A Antananarivo",
+  "created_at": "2026-09-20T10:00:37.862409+03:00",
+  "last_login": "2026-09-20T10:00:40.041063+03:00"
+}
+```
+
+`PATCH` — modifiables : `nom`, `telephone`, `adresse`. L'`email` est en lecture seule.
+
+```json
+{ "nom": "Alice R.", "telephone": "+261340000009", "adresse": "Lot II A Antananarivo" }
+```
+
+```json
+{
+  "id": 1,
+  "email": "alice@test.com",
+  "nom": "Alice R.",
+  "telephone": "+261340000009",
+  "adresse": "Lot II A Antananarivo",
+  "created_at": "2026-09-20T10:00:37.862409+03:00",
+  "last_login": "2026-09-20T10:00:40.041063+03:00"
+}
+```
+
+### `POST /api/client/change-password/` — changer de mot de passe
+
+```json
+{ "ancien_mot_de_passe": "MotDePasse123", "nouveau_mot_de_passe": "NouveauPass123" }
+```
+
+```json
+{ "detail": "Mot de passe modifié." }
+```
+
+Ancien mot de passe faux → `400 {"ancien_mot_de_passe": ["Mot de passe actuel incorrect."]}`. Nouveau trop court → `400 {"nouveau_mot_de_passe": ["Ensure this field has at least 8 characters."]}`. Les jetons déjà émis restent valides jusqu'à leur expiration.
+
+---
+
+## 5. Commandes du client
+
+Toutes ces routes exigent `Authorization: Bearer <access>`.
+
+### `POST /api/client/orders/` — passer commande
+
+| Champ | Obligatoire | Description |
+| --- | --- | --- |
+| `boutique` | oui | Id de la boutique. **Tous les articles doivent lui appartenir** |
+| `items` | oui | Liste de `{variante, quantite, prix_attendu?}`, au moins un élément |
+| `items[].variante` | oui | Id d'une **variante** (`variantes[].id` du catalogue), pas du produit |
+| `items[].quantite` | oui | ≥ 1. Les doublons de variante sont additionnés |
+| `items[].prix_attendu` | non | Prix affiché dans l'app. S'il ne correspond plus au catalogue, la commande est refusée avec le nouveau prix |
+| `livraison_zone` | oui | `code` d'une zone de la boutique, ou `RECUPERATION` |
+| `adresse_livraison` | si livraison | Requise hors retrait sur place, sauf si le profil a déjà une adresse (elle est alors reprise) |
+| `telephone` | non | Par défaut celui du profil |
+| `telephone_2` | non | Second numéro, `+261XXXXXXXXX` ou chaîne vide |
+| `mode_paiement` | non | `LIVRAISON` (défaut) ou `AVANT` |
+| `note` | non | Message pour le livreur (« Appeler avant de venir ») |
+
+Requête :
+
+```json
+{
+  "boutique": 1,
+  "items": [
+    { "variante": 1, "quantite": 2, "prix_attendu": "25000" }
+  ],
+  "livraison_zone": "CENTREVILLE",
+  "adresse_livraison": "Lot II A Antananarivo",
+  "telephone": "+261340000001",
+  "mode_paiement": "LIVRAISON",
+  "note": "Appeler avant de venir"
+}
+```
+
+Réponse `201` :
+
+```json
+{
+  "id": 1,
+  "numero": "CMD-1-20260920-0001",
   "statut": "EN_ATTENTE_APPROBATION",
   "statut_label": "En attente d'approbation",
-  "date_commande": "2026-09-13T14:20:05.410000+03:00",
-  "boutique": { "id": 2, "nom": "Boutique Centre" },
+  "date_commande": "2026-09-20T10:00:41.993449+03:00",
+  "boutique": { "id": 1, "nom": "Boutique Centre" },
   "livraison_zone": "CENTREVILLE",
   "adresse_livraison": "Lot II A Antananarivo",
   "telephone": "+261340000001",
   "telephone_2": "",
   "mode_paiement": "LIVRAISON",
-  "note": "Appeler avant de passer",
+  "note": "Appeler avant de venir",
   "frais_livraison": 3000.0,
   "total_a_payer": 53000.0,
   "items": [
-    { "id": 1501, "produit": { "id": 12, "nom": "Coque iPhone 15", "nom_complet": "Apple Coque iPhone 15" }, "variante": { "id": 40, "couleur": "Noir" }, "quantite": 2, "prix_unitaire": 25000.0, "total": 50000.0, "retourne": false }
+    {
+      "id": 1,
+      "produit": { "id": 1, "nom": "Coque iPhone 15", "nom_complet": "Apple Coque iPhone 15" },
+      "variante": { "id": 1, "couleur": "Noir" },
+      "quantite": 2,
+      "prix_unitaire": 25000.0,
+      "total": 50000.0,
+      "retourne": false
+    }
   ],
   "peut_modifier": true,
   "peut_annuler": true,
-  "created_at": "2026-09-13T14:20:05.412000+03:00",
-  "updated_at": "2026-09-13T14:20:05.412000+03:00"
+  "created_at": "2026-09-20T10:00:41.996740+03:00",
+  "updated_at": "2026-09-20T10:00:41.996761+03:00"
 }
 ```
 
-Statuts vus par le client : `EN_ATTENTE_APPROBATION` → (approbation du gérant) `NOUVELLE` → `EN_PREPARATION` → `PRETE` → `EN_LIVRAISON` → `LIVRE` | `RETOUR` ; `ANNULEE` (refus du gérant, annulation par le client ou par la boutique). `peut_modifier` = en attente d'approbation ; `peut_annuler` = en attente ou nouvelle.
+- Le **prix et les frais sont calculés par le serveur** : ne jamais envoyer de total, ne jamais recalculer côté app. `total_a_payer = Σ items[].total + frais_livraison` (ici 2 × 25 000 + 3 000 = 53 000).
+- La commande naît en `EN_ATTENTE_APPROBATION` : la boutique doit l'approuver. **Aucun stock n'est réservé** à ce stade, la disponibilité est seulement vérifiée.
+- `peut_modifier` / `peut_annuler` disent directement s'il faut afficher les boutons correspondants — ne pas déduire ces droits du statut dans l'app.
 
-### `GET /api/client/orders/` — Mes commandes
-**Rôle** : client · **Vue** : `ClientOrderViewSet.list` · `?statut=NOUVELLE,EN_LIVRAISON` (facultatif, valeurs séparées par des virgules)
+**Erreurs `400` — articles** (tous les problèmes sont renvoyés d'un coup, chaque message est affichable tel quel) :
 
-Réponse `200` : tableau de commandes (forme ci-dessus), les plus récentes en premier.
-
-### `POST /api/client/orders/` — Passer une commande
-**Rôle** : client (60/min) · **Vue** : `ClientOrderViewSet.create` → `clients/services.py::create_client_order`
-
-Effet : vérifie sous verrou que chaque variante est active, appartient à la boutique, a un stock suffisant et (si `prix_attendu` est fourni) que son prix n'a pas changé ; crée la commande en `EN_ATTENTE_APPROBATION` aux prix catalogue du moment, calcule frais et total, notifie le gérant. **Le stock n'est pas touché** : il sort, comme pour toute commande, au passage « En préparation ».
-
-| Paramètre | Où | Type | Obligatoire | Description |
-| --- | --- | --- | --- | --- |
-| boutique | corps | int | oui | Boutique (tous les articles doivent en faire partie). |
-| items | corps | liste | oui | `[{ "variante": id, "quantite": n, "prix_attendu": "25000.00" }]` — `prix_attendu` facultatif. |
-| livraison_zone | corps | string | oui | `code` d'une zone de la boutique ou `RECUPERATION`. |
-| adresse_livraison | corps | string | non | Requise pour une livraison si le profil n'a pas d'adresse. |
-| telephone / telephone_2 | corps | string | non | `+261XXXXXXXXX` (défaut : téléphone du profil). |
-| mode_paiement | corps | `AVANT` \| `LIVRAISON` | non | Défaut `LIVRAISON`. |
-| note | corps | string | non | Consigne pour la livraison. |
-
-Requête :
 ```json
 {
-  "boutique": 2,
-  "livraison_zone": "CENTREVILLE",
-  "adresse_livraison": "Lot II A Antananarivo",
-  "mode_paiement": "LIVRAISON",
-  "note": "Appeler avant de passer",
   "items": [
-    { "variante": 40, "quantite": 2, "prix_attendu": "25000.00" }
+    "Stock insuffisant pour « Coque iPhone 15 (Rouge) » : 0 disponible(s), 1 demandé(s).",
+    "L'article « Chargeur 25W » n'appartient pas à cette boutique."
   ]
 }
 ```
 
-Réponse `201` : la commande créée (forme ci-dessus).
+**Prix changé entre l'ajout au panier et la validation** (grâce à `prix_attendu`) :
 
-Erreurs `400` :
-- `{"items": ["Stock insuffisant pour « Coque iPhone 15 (Noir) » : 1 disponible(s), 2 demandé(s)."]}`
-- `{"items": ["Le prix de « Coque iPhone 15 » a changé : 25000 Ar (vous aviez 20000 Ar)."]}`
-- `{"items": ["Article 999 indisponible."]}` (variante inconnue ou référence inactive)
-- `{"items": ["L'article « Chargeur 25W » n'appartient pas à cette boutique."]}`
-- `{"livraison_zone": ["Zone de livraison invalide pour cette boutique."]}`
-- `{"adresse_livraison": ["Adresse de livraison requise pour une livraison."]}`
-- `{"boutique": ["Boutique introuvable."]}`, `{"items": ["Ajoutez au moins un article."]}`
-
-### `GET /api/client/orders/{id}/` — Suivi d'une commande
-**Rôle** : client · **Vue** : `ClientOrderViewSet.retrieve`
-
-Réponse `200` : la commande. Erreurs : `404` — `{"detail": "No Order matches the given query."}` (commande d'un autre client ou inexistante).
-
-### `PATCH /api/client/orders/{id}/` — Modifier une commande en attente
-**Rôle** : client · **Vue** : `ClientOrderViewSet.partial_update` → `update_client_order`
-
-Effet : uniquement tant que la commande est `EN_ATTENTE_APPROBATION`. Champs : `adresse_livraison`, `telephone`, `telephone_2`, `livraison_zone`, `mode_paiement`, `note` (les articles ne se modifient pas : annuler puis recommander). Changer la zone recalcule frais et total.
-
-Requête :
 ```json
-{ "livraison_zone": "RECUPERATION", "note": "Je passe samedi matin" }
+{ "items": ["Le prix de « Coque iPhone 15 » a changé : 25000 Ar (vous aviez 20000 Ar)."] }
 ```
 
-Réponse `200` : la commande mise à jour (`frais_livraison` 0, `adresse_livraison` vidée pour un retrait).
+→ rafraîchir le panier depuis `/api/produit/` et faire reconfirmer le client.
 
-Erreurs : `400` — `{"detail": ["Cette commande est 'Nouvelle' — elle ne peut plus être modifiée depuis l'espace client."]}`, `{"livraison_zone": ["Zone de livraison invalide pour cette boutique."]}`, `{"detail": ["Aucune modification demandée."]}` ; `404`.
+**Zone inconnue** :
 
-### `POST /api/client/orders/{id}/cancel/` — Annuler une commande
-**Rôle** : client · **Vue** : `ClientOrderViewSet.cancel` → `orders/services.py::annuler_commande_par_client`
-
-Effet : possible tant que la commande est `EN_ATTENTE_APPROBATION` ou `NOUVELLE` (stock intact) ; passe en `ANNULEE`, trace « Annulée par le client — motif » dans l'historique, notifie la boutique.
-
-Requête :
 ```json
-{ "note": "Changement d'avis" }
+{ "livraison_zone": ["Zone de livraison invalide pour cette boutique."] }
 ```
 
-Réponse `200` : la commande (`statut` = `ANNULEE`, `peut_annuler` = `false`).
+**Autres `400` courants** : `{"items": ["Ajoutez au moins un article."]}`, `{"adresse_livraison": ["Adresse de livraison requise pour une livraison."]}`, `{"boutique": ["Boutique introuvable."]}`.
 
-Erreurs : `400` — `{"detail": ["Cette commande est 'En préparation' — elle ne peut plus être annulée depuis l'espace client, contactez la boutique."]}` ; `404`.
+### `GET /api/client/orders/` — mes commandes
 
-### Côté gérant (API interne, ajouts)
+Filtre facultatif : `?statut=EN_ATTENTE_APPROBATION,NOUVELLE` (plusieurs valeurs séparées par des virgules). Tri : la plus récente en premier. Réponse non paginée.
 
-Les commandes client apparaissent dans `GET /api/orders/` (gérant) avec le statut `EN_ATTENTE_APPROBATION` et trois champs additionnels dans `OrderGerantSerializer` : `client` (id du compte client, `null` en interne), `client_email`, `est_commande_client` (`true`/`false`). Les préparateurs et livreurs ne les voient qu'une fois approuvées et assignées, comme toute commande. Le gérant peut aussi les corriger (`PATCH /api/orders/{id}/`, régime complet) avant approbation.
-
-### `POST /api/orders/{id}/approuver/` — Approuver une commande client
-**Rôle** : gérant (`IsGerant`) · **Vue** : `OrderViewSet.approuver` → `orders/services.py::approuver_commande_client`
-
-Effet : `EN_ATTENTE_APPROBATION` → `NOUVELLE`, entrée d'historique, notification des préparateurs (comme une commande interne) et notification « commande approuvée ».
-
-Requête (facultative) :
 ```json
-{ "note": "Validée par téléphone" }
+[
+  {
+    "id": 1,
+    "numero": "CMD-1-20260920-0001",
+    "statut": "EN_ATTENTE_APPROBATION",
+    "statut_label": "En attente d'approbation",
+    "date_commande": "2026-09-20T10:01:05.490855+03:00",
+    "boutique": { "id": 1, "nom": "Boutique Centre" },
+    "livraison_zone": "CENTREVILLE",
+    "adresse_livraison": "Lot II A Antananarivo",
+    "telephone": "+261340000001",
+    "telephone_2": "",
+    "mode_paiement": "LIVRAISON",
+    "note": "Appeler avant de venir",
+    "frais_livraison": 3000.0,
+    "total_a_payer": 53000.0,
+    "items": [
+      {
+        "id": 1,
+        "produit": { "id": 1, "nom": "Coque iPhone 15", "nom_complet": "Apple Coque iPhone 15" },
+        "variante": { "id": 1, "couleur": "Noir" },
+        "quantite": 2,
+        "prix_unitaire": 25000.0,
+        "total": 50000.0,
+        "retourne": false
+      }
+    ],
+    "peut_modifier": true,
+    "peut_annuler": true,
+    "created_at": "2026-09-20T10:01:05.496294+03:00",
+    "updated_at": "2026-09-20T10:01:05.496322+03:00"
+  }
+]
 ```
 
-Réponse `200` : la commande (vue gérant complète, `statut_courant` = `NOUVELLE`).
+### `GET /api/client/orders/{id}/` — détail d'une commande
 
-Erreurs : `400` — `["Cette commande est 'Nouvelle' — seule une commande en attente d'approbation peut être approuvée."]` ; `403` pour un préparateur / livreur.
+Même objet, seul. Une commande qui n'appartient pas au client connecté :
 
-### `POST /api/orders/{id}/refuser/` — Refuser une commande client
-**Rôle** : gérant · **Vue** : `OrderViewSet.refuser` → `refuser_commande_client`
-
-Effet : `EN_ATTENTE_APPROBATION` → `ANNULEE` (aucun stock n'avait été touché), motif dans l'historique.
-
-Requête :
 ```json
-{ "note": "Rupture fournisseur" }
+{ "detail": "No Order matches the given query." }
 ```
 
-Réponse `200` : la commande (`statut_courant` = `ANNULEE`). Erreurs : `400` si la commande n'est pas en attente ; `403` hors gérant.
+(statut `404`)
+
+### `PATCH /api/client/orders/{id}/` — modifier avant approbation
+
+Possible **uniquement** tant que `peut_modifier` vaut `true` (statut `EN_ATTENTE_APPROBATION`). Champs acceptés : `adresse_livraison`, `telephone`, `telephone_2`, `livraison_zone`, `mode_paiement`, `note`.
+
+**Les articles ne se modifient pas** : pour changer le panier, annuler et repasser commande.
+
+```json
+{ "adresse_livraison": "Lot III C Ivandry", "telephone_2": "+261331112244", "note": "Livrer le matin" }
+```
+
+Réponse `200` : la commande complète, frais et total recalculés si la zone a changé.
+
+```json
+{
+  "id": 1,
+  "numero": "CMD-1-20260920-0001",
+  "statut": "EN_ATTENTE_APPROBATION",
+  "statut_label": "En attente d'approbation",
+  "livraison_zone": "CENTREVILLE",
+  "adresse_livraison": "Lot III C Ivandry",
+  "telephone": "+261340000001",
+  "telephone_2": "+261331112244",
+  "note": "Livrer le matin",
+  "frais_livraison": 3000.0,
+  "total_a_payer": 53000.0,
+  "peut_modifier": true,
+  "peut_annuler": true,
+  "updated_at": "2026-09-20T10:01:05.565905+03:00"
+}
+```
+
+Trop tard :
+
+```json
+{ "detail": ["Cette commande est 'En préparation' — elle ne peut plus être modifiée depuis l'espace client."] }
+```
+
+Aucun champ modifiable envoyé → `400 {"detail": ["Aucune modification demandée."]}`. Passer `livraison_zone: "RECUPERATION"` vide automatiquement l'adresse.
+
+### `POST /api/client/orders/{id}/cancel/` — annuler
+
+Possible tant que `peut_annuler` vaut `true` (statuts `EN_ATTENTE_APPROBATION` et `NOUVELLE`, c'est-à-dire avant le début de la préparation). Corps facultatif :
+
+```json
+{ "note": "Erreur de couleur" }
+```
+
+Réponse `200` — la commande passe en `ANNULEE`, la boutique est notifiée, le stock éventuellement réservé revient en rayon :
+
+```json
+{
+  "id": 1,
+  "numero": "CMD-1-20260920-0001",
+  "statut": "ANNULEE",
+  "statut_label": "Annulée",
+  "total_a_payer": 53000.0,
+  "peut_modifier": false,
+  "peut_annuler": false,
+  "updated_at": "2026-09-20T10:01:05.594864+03:00"
+}
+```
+
+Trop tard :
+
+```json
+{ "detail": ["Cette commande est 'En préparation' — elle ne peut plus être annulée depuis l'espace client, contactez la boutique."] }
+```
+
+---
+
+## 6. Cycle de vie d'une commande
+
+| `statut` | `statut_label` | Ce que voit le client | `peut_modifier` | `peut_annuler` |
+| --- | --- | --- | --- | --- |
+| `EN_ATTENTE_APPROBATION` | En attente d'approbation | Commande envoyée, la boutique doit la valider | ✅ | ✅ |
+| `NOUVELLE` | Nouvelle | Validée par la boutique, articles réservés | ❌ | ✅ |
+| `EN_PREPARATION` | En préparation | En cours d'emballage | ❌ | ❌ |
+| `PRETE` | Prête | Prête à partir (ou à retirer si `RECUPERATION`) | ❌ | ❌ |
+| `EN_LIVRAISON` | En livraison | Le livreur est en route | ❌ | ❌ |
+| `LIVRE` | Livré | Terminée | ❌ | ❌ |
+| `RETOUR` | Retour | Livraison non aboutie, colis revenu en boutique | ❌ | ❌ |
+| `ANNULEE` | Annulée | Annulée par le client ou refusée par la boutique | ❌ | ❌ |
+
+```
+      app client                    boutique (gestion)
+   POST /client/orders/
+           │
+  EN_ATTENTE_APPROBATION ──approuve──> NOUVELLE ──> EN_PREPARATION ──> PRETE ──> EN_LIVRAISON ──> LIVRE
+           │        │                     │                                            └──> RETOUR
+           │        └──refuse──> ANNULEE  │
+           └──cancel──> ANNULEE ──────────┘
+```
+
+Côté boutique, le gérant **approuve** (la commande passe en `NOUVELLE` et le stock est réservé) ou **refuse** (elle passe directement en `ANNULEE`, aucun stock touché) ; dans les deux cas le client le voit au prochain chargement de ses commandes.
+
+Il n'y a **pas de WebSocket côté client** : pour suivre l'avancement, recharger `GET /api/client/orders/` (par exemple à l'ouverture de l'écran et par un « tirer pour rafraîchir »).
+
+Un article marqué `retourne: true` dans `items` a été rapporté par le livreur (le client n'en a pas voulu) : son `total` passe à `0` et il sort du `total_a_payer`.
+
+---
+
+## 7. Erreurs et limitation de débit
+
+| Code | Signification | Réaction conseillée dans l'app |
+| --- | --- | --- |
+| `400` | Données invalides — corps `{champ: [messages]}` ou `{"detail": [messages]}` | Afficher les messages métier tels quels (français) ; traduire les messages de format du framework (anglais) |
+| `401` | Jeton absent, invalide ou expiré | Tenter `/api/client/refresh/`, sinon déconnecter |
+| `403` | Compte désactivé, ou jeton interne sur une route client | Message « Compte désactivé, contactez la boutique » |
+| `404` | Ressource inexistante **ou appartenant à un autre client** | « Commande introuvable » |
+| `429` | Trop de requêtes | Attendre et réessayer (voir ci-dessous) |
+
+**Limitation de débit**, par adresse IP :
+
+| Portée | Routes | Limite |
+| --- | --- | --- |
+| `client_public` | Catalogue (section 3) | 300 requêtes / minute |
+| `client_auth` | `register`, `login`, `refresh` | 20 requêtes / minute |
+| `client_orders` | `/api/client/orders/…` | 60 requêtes / minute |
+
+Réponse `429` : `{"detail": "Request was throttled. Expected available in 42 seconds."}` — l'en-tête `Retry-After` donne le délai en secondes.
+
+---
+
+## 8. Ce que l'API client n'expose jamais
+
+Volontairement absent de toutes les réponses ci-dessus, et inaccessible avec un jeton client :
+
+- prix d'achat, marges, coûts de revient, chiffre d'affaires ;
+- quantités en stock (seulement `disponible: true/false`) et seuils d'alerte ;
+- personnel de la boutique : préparateur, livreur, gérant, leurs notes internes et leurs photos de préparation ;
+- caisse, dépenses, campagnes publicitaires, rapports, approvisionnements fournisseur ;
+- commandes des autres clients, y compris par id.
+
+L'application cliente n'a donc besoin d'aucun filtrage de sécurité de son côté : tout ce qu'elle reçoit est destiné au client connecté.
