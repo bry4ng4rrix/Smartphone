@@ -1888,12 +1888,12 @@ export default function OrdersPage() {
                             it.category_name && ` ${it.category_name}`,
                             it.type_name && ` ${it.type_name}`,
                             it.brand_name && ` ${it.brand_name}`,
-                            it.quantite && `Quantité : ${it.quantite}`,
                           ]
                             .filter(Boolean)
                             .join(" • ") || "Sans métadonnées"}
                         </div>
-                        <div className="text-2xl font-bold text-red-700 dark:text-red-400 ">
+                        {/* Agrandir le texte du quantite  */}
+                        <div className="text-2xl font-bold text-sky-700 dark:text-sky-400 ">
                           {it.quantite && `Quantité : ${it.quantite}`}
                         </div>
                         {/* Prix de l'article — gérant et préparateur
