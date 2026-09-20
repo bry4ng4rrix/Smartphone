@@ -13,12 +13,16 @@ Une commande client :
   vérifiée ici, sous verrou, pour ne pas accepter ce qui n'est plus en rayon ;
 * prend les prix catalogue du moment (snapshot OrderItem.prix_unitaire) ;
   le client peut envoyer le prix qu'il a vu (`prix_attendu`) pour être
-  averti si le prix a changé entre-temps.
+  averti si le prix a changé entre-temps ;
+* porte la date de livraison souhaitée dans `Order.date_commande` — le champ
+  que l'application de gestion utilise déjà comme date de livraison planifiée
+  (page livreur, ouverture des actions).
 """
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.utils import timezone
 
 from catalog.models import ProductVariant
 from orders.models import DeliveryZoneOption, Order, OrderItem, OrderStatusHistory
@@ -44,9 +48,19 @@ def valider_zone(magasin, code):
     return code
 
 
+def valider_date_livraison(valeur):
+    """Date de livraison souhaitée : jamais dans le passé (on compare au jour,
+    pas à la minute — un client qui demande « aujourd'hui » reste valide)."""
+    if valeur is None:
+        return None
+    if timezone.localtime(valeur).date() < timezone.localdate():
+        raise ValidationError({"date_livraison_souhaitee": "La date de livraison ne peut pas être dans le passé."})
+    return valeur
+
+
 @transaction.atomic
 def create_client_order(*, client, magasin, items, livraison_zone, adresse_livraison="", telephone=None,
-                        telephone_2="", mode_paiement="LIVRAISON", note=""):
+                        telephone_2="", mode_paiement="LIVRAISON", note="", date_livraison=None):
     """`items` : liste de {"variante": id, "quantite": int, "prix_attendu": Decimal|None}.
 
     Vérifications, sous verrou (`select_for_update`) pour tenir la concurrence :
@@ -59,6 +73,7 @@ def create_client_order(*, client, magasin, items, livraison_zone, adresse_livra
     if not items:
         raise ValidationError({"items": "Ajoutez au moins un article."})
     valider_zone(magasin, livraison_zone)
+    valider_date_livraison(date_livraison)
     if livraison_zone != "RECUPERATION" and not (adresse_livraison or "").strip() and not (client.adresse or "").strip():
         raise ValidationError({"adresse_livraison": "Adresse de livraison requise pour une livraison."})
 
@@ -106,6 +121,9 @@ def create_client_order(*, client, magasin, items, livraison_zone, adresse_livra
     order = Order.objects.create(
         magasin=magasin,
         client=client,
+        # Sans souhait exprimé, `date_commande` garde sa valeur par défaut
+        # (maintenant), comme pour une commande saisie en interne.
+        **({"date_commande": date_livraison} if date_livraison else {}),
         client_nom=client.nom,
         telephone=(telephone or client.telephone),
         telephone_2=telephone_2 or "",
@@ -135,7 +153,10 @@ def create_client_order(*, client, magasin, items, livraison_zone, adresse_livra
     return order
 
 
-_CLIENT_EDITABLE = {"adresse_livraison", "telephone", "telephone_2", "note", "livraison_zone", "mode_paiement"}
+_CLIENT_EDITABLE = {
+    "adresse_livraison", "telephone", "telephone_2", "note", "livraison_zone", "mode_paiement",
+    "date_livraison_souhaitee",
+}
 
 
 @transaction.atomic
@@ -153,6 +174,8 @@ def update_client_order(*, order, data):
         raise ValidationError("Aucune modification demandée.")
     if "livraison_zone" in champs:
         valider_zone(order.magasin, champs["livraison_zone"])
+    if "date_livraison_souhaitee" in champs:
+        order.date_commande = valider_date_livraison(champs.pop("date_livraison_souhaitee"))
     if "note" in champs:
         order.note_livreur = champs.pop("note")
     for champ, valeur in champs.items():

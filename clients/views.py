@@ -331,6 +331,7 @@ class ClientOrderViewSet(ClientAuthMixin, viewsets.GenericViewSet):
                 telephone_2=d.get("telephone_2", ""),
                 mode_paiement=d.get("mode_paiement", "LIVRAISON"),
                 note=d.get("note", ""),
+                date_livraison=d.get("date_livraison_souhaitee"),
             )
         except DjangoValidationError as e:
             return Response(_erreurs(e), status=status.HTTP_400_BAD_REQUEST)

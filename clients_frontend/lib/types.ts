@@ -134,6 +134,8 @@ export type Commande = {
   statut: Statut;
   statut_label: string;
   date_commande: string;
+  /** Date et heure de livraison souhaitées par le client (= `date_commande`). */
+  date_livraison_souhaitee: string;
   boutique: { id: number; nom: string };
   livraison_zone: string;
   adresse_livraison: string | null;
@@ -161,6 +163,8 @@ export type CommandeInput = {
   boutique: number;
   items: CommandeItemInput[];
   livraison_zone: string;
+  /** ISO local (`2026-09-22T14:00`) — la boutique peut l'ajuster. */
+  date_livraison_souhaitee?: string;
   adresse_livraison?: string;
   telephone?: string;
   telephone_2?: string;
@@ -169,6 +173,7 @@ export type CommandeInput = {
 };
 
 export type CommandeUpdate = Partial<{
+  date_livraison_souhaitee: string;
   adresse_livraison: string;
   telephone: string;
   telephone_2: string;

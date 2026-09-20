@@ -801,6 +801,15 @@ class DjangoAPIClient {
         `/orders/available-staff/?${params.toString()}`
       )
     },
+    // Espace client : le gérant valide (ou refuse) une commande passée en
+    // ligne, encore "En attente d'approbation". L'approbation la fait entrer
+    // dans le circuit habituel ("Nouvelle") et réserve le stock.
+    approuver: async (id: number, note?: string) => {
+      return this.post<any>(`/orders/${id}/approuver/`, note ? { note } : {})
+    },
+    refuser: async (id: number, note?: string) => {
+      return this.post<any>(`/orders/${id}/refuser/`, note ? { note } : {})
+    },
     // Uniquement pour une commande encore "Nouvelle" (voir orders/views.py).
     update: async (id: number, data: {
       client_nom?: string

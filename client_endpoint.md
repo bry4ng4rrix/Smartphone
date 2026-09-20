@@ -401,6 +401,7 @@ Toutes ces routes exigent `Authorization: Bearer <access>`.
 | `telephone_2` | non | Second numéro, `+261XXXXXXXXX` ou chaîne vide |
 | `mode_paiement` | non | `LIVRAISON` (défaut) ou `AVANT` |
 | `note` | non | Message pour le livreur (« Appeler avant de venir ») |
+| `date_livraison_souhaitee` | non | Jour et heure de livraison souhaités, ISO 8601 (`2026-09-25T14:30:00`, interprété à l'heure de Madagascar si sans décalage). Jamais dans le passé. La boutique peut l'ajuster à la validation |
 
 Requête :
 
@@ -414,7 +415,8 @@ Requête :
   "adresse_livraison": "Lot II A Antananarivo",
   "telephone": "+261340000001",
   "mode_paiement": "LIVRAISON",
-  "note": "Appeler avant de venir"
+  "note": "Appeler avant de venir",
+  "date_livraison_souhaitee": "2026-09-25T14:30:00"
 }
 ```
 
@@ -426,7 +428,8 @@ Réponse `201` :
   "numero": "CMD-1-20260920-0001",
   "statut": "EN_ATTENTE_APPROBATION",
   "statut_label": "En attente d'approbation",
-  "date_commande": "2026-09-20T10:00:41.993449+03:00",
+  "date_commande": "2026-09-25T14:30:00+03:00",
+  "date_livraison_souhaitee": "2026-09-25T14:30:00+03:00",
   "boutique": { "id": 1, "nom": "Boutique Centre" },
   "livraison_zone": "CENTREVILLE",
   "adresse_livraison": "Lot II A Antananarivo",
@@ -457,6 +460,7 @@ Réponse `201` :
 - Le **prix et les frais sont calculés par le serveur** : ne jamais envoyer de total, ne jamais recalculer côté app. `total_a_payer = Σ items[].total + frais_livraison` (ici 2 × 25 000 + 3 000 = 53 000).
 - La commande naît en `EN_ATTENTE_APPROBATION` : la boutique doit l'approuver. **Aucun stock n'est réservé** à ce stade, la disponibilité est seulement vérifiée.
 - `peut_modifier` / `peut_annuler` disent directement s'il faut afficher les boutons correspondants — ne pas déduire ces droits du statut dans l'app.
+- `date_livraison_souhaitee` est renvoyée sous le même nom qu'à l'envoi ; c'est aussi la valeur de `date_commande`, la date de livraison planifiée côté boutique (la page du livreur s'en sert). Sans souhait exprimé, elle vaut l'instant de la commande.
 
 **Erreurs `400` — articles** (tous les problèmes sont renvoyés d'un coup, chaque message est affichable tel quel) :
 
@@ -481,6 +485,12 @@ Réponse `201` :
 
 ```json
 { "livraison_zone": ["Zone de livraison invalide pour cette boutique."] }
+```
+
+**Date de livraison passée** :
+
+```json
+{ "date_livraison_souhaitee": ["La date de livraison ne peut pas être dans le passé."] }
 ```
 
 **Autres `400` courants** : `{"items": ["Ajoutez au moins un article."]}`, `{"adresse_livraison": ["Adresse de livraison requise pour une livraison."]}`, `{"boutique": ["Boutique introuvable."]}`.
@@ -537,7 +547,7 @@ Même objet, seul. Une commande qui n'appartient pas au client connecté :
 
 ### `PATCH /api/client/orders/{id}/` — modifier avant approbation
 
-Possible **uniquement** tant que `peut_modifier` vaut `true` (statut `EN_ATTENTE_APPROBATION`). Champs acceptés : `adresse_livraison`, `telephone`, `telephone_2`, `livraison_zone`, `mode_paiement`, `note`.
+Possible **uniquement** tant que `peut_modifier` vaut `true` (statut `EN_ATTENTE_APPROBATION`). Champs acceptés : `adresse_livraison`, `telephone`, `telephone_2`, `livraison_zone`, `mode_paiement`, `note`, `date_livraison_souhaitee` (mêmes règles qu'à la création).
 
 **Les articles ne se modifient pas** : pour changer le panier, annuler et repasser commande.
 
@@ -824,7 +834,26 @@ annoncer un montant qui va changer.
 fiche affiche `total_a_payer` et `frais_livraison` tels que renvoyés par
 l'API.
 
-### 9.11 Proxy d'API same-origin
+### 9.11 Date et heure de livraison souhaitées
+
+**Type** : frontend + API (`date_livraison_souhaitee`, section 5).
+
+**Description** : pour une livraison à domicile, le client indique le jour
+souhaité (obligatoire dans le formulaire) et l'heure (facultative ; vide =
+minuit, comme les commandes saisies en interne). Pour un retrait sur place,
+ces champs sont masqués et rien n'est envoyé.
+
+**Comportement** : le front convertit date + heure en ISO local
+(`2026-09-25T14:30:00`) et l'envoie dans `date_livraison_souhaitee`. La fiche
+de suivi affiche « Livraison souhaitée le … » tant que la boutique n'a pas
+validé, puis « Livraison prévue le … » — la boutique peut avoir ajusté le
+créneau, la valeur affichée est toujours celle de l'API. La modification de
+commande propose les deux champs pré-remplis.
+
+**Endpoints utilisés** : `POST /api/client/orders/`,
+`PATCH /api/client/orders/{id}/`.
+
+### 9.12 Proxy d'API same-origin
 
 **Type** : frontend uniquement (aucune modification du backend).
 

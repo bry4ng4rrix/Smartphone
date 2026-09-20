@@ -3,7 +3,19 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Check, CreditCard, Hourglass, MapPin, Receipt, ShoppingBag, Store, Truck } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CalendarClock,
+  Check,
+  CreditCard,
+  Hourglass,
+  MapPin,
+  Receipt,
+  ShoppingBag,
+  Store,
+  Truck,
+} from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { ColorDot } from "@/components/ui/color-dot";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -11,6 +23,7 @@ import { Field, Input, Textarea } from "@/components/ui/field";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, messageErreur } from "@/lib/api";
 import { catalogue, commandes } from "@/lib/endpoints";
+import { aujourdhuiIso, libelleSouhait, versIso } from "@/lib/livraison";
 import { cn, formatAr, pluriel } from "@/lib/utils";
 import { useAuth } from "@/providers/auth-provider";
 import { useCart } from "@/providers/cart-provider";
@@ -48,6 +61,10 @@ export function CheckoutVue() {
   const [telephone2, setTelephone2] = useState("");
   const [modePaiement, setModePaiement] = useState<ModePaiement>("LIVRAISON");
   const [note, setNote] = useState("");
+  // Créneau souhaité : transmis au gérant via `note` (l'API n'a pas de champ
+  // dédié — voir « 10.5 Date de livraison souhaitée » dans client_endpoint.md).
+  const [dateSouhaitee, setDateSouhaitee] = useState("");
+  const [heureSouhaitee, setHeureSouhaitee] = useState("");
 
   const [envoi, setEnvoi] = useState(false);
   const [erreur, setErreur] = useState<ApiError | null>(null);
@@ -86,6 +103,10 @@ export function CheckoutVue() {
       toast.erreur("Adresse requise", "Indiquez où livrer la commande.");
       return;
     }
+    if (!retrait && !dateSouhaitee) {
+      toast.erreur("Date de livraison requise", "Indiquez le jour où vous souhaitez être livré.");
+      return;
+    }
     setEtape("paiement");
   };
 
@@ -103,6 +124,9 @@ export function CheckoutVue() {
         telephone_2: telephone2.trim(),
         mode_paiement: modePaiement,
         note: note.trim(),
+        // Champ dédié de l'API : la boutique retrouve le créneau sur la
+        // commande, et la page du livreur s'en sert comme date de tournée.
+        date_livraison_souhaitee: retrait ? undefined : versIso(dateSouhaitee, heureSouhaitee),
       });
       vider();
       toast.succes("Commande envoyée", `${commande.numero} · en attente de validation`);
@@ -268,6 +292,30 @@ export function CheckoutVue() {
                     </p>
                   )}
 
+                  {!retrait ? (
+                    <>
+                      <Field label="Date de livraison souhaitée" htmlFor="date-livraison">
+                        <Input
+                          id="date-livraison"
+                          type="date"
+                          min={aujourdhuiIso()}
+                          value={dateSouhaitee}
+                          onChange={(e) => setDateSouhaitee(e.target.value)}
+                          required
+                        />
+                      </Field>
+
+                      <Field label="Heure souhaitée (facultatif)" htmlFor="heure-livraison" aide="La boutique confirme le créneau.">
+                        <Input
+                          id="heure-livraison"
+                          type="time"
+                          value={heureSouhaitee}
+                          onChange={(e) => setHeureSouhaitee(e.target.value)}
+                        />
+                      </Field>
+                    </>
+                  ) : null}
+
                   <Field label="Téléphone" htmlFor="telephone" aide="+261XXXXXXXXX" erreurs={erreur?.pour("telephone")}>
                     <Input
                       id="telephone"
@@ -392,7 +440,15 @@ export function CheckoutVue() {
                   {retrait ? zones?.recuperation.nom ?? "Retrait sur place" : `Livraison · ${adresse}`}
                 </dd>
                 {!retrait ? (
-                  <dd className="mt-0.5 text-xs text-muted">Frais de livraison fixés par la boutique selon votre adresse.</dd>
+                  <>
+                    <dd className="mt-0.5 text-xs text-muted">Frais de livraison fixés par la boutique selon votre adresse.</dd>
+                    {dateSouhaitee ? (
+                      <dd className="mt-1 flex items-center gap-1.5 text-sm">
+                        <CalendarClock className="size-3.5 text-muted" aria-hidden />
+                        Souhaitée le {libelleSouhait(versIso(dateSouhaitee, heureSouhaitee))}
+                      </dd>
+                    ) : null}
+                  </>
                 ) : null}
               </div>
               <div>

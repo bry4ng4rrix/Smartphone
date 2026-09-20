@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, CheckCircle2, Hourglass, MapPin, Pencil, Store, X } from "lucide-react";
+import { ArrowLeft, CalendarClock, CheckCircle2, Hourglass, MapPin, Pencil, Store, X } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { ColorDot } from "@/components/ui/color-dot";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -12,11 +12,12 @@ import { Modal } from "@/components/ui/panel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatutBadge, Timeline } from "@/components/orders/status";
 import { ApiError, messageErreur } from "@/lib/api";
-import { commandes as apiCommandes } from "@/lib/endpoints";
+import { catalogue, commandes as apiCommandes } from "@/lib/endpoints";
+import { aujourdhuiIso, depuisIso, libelleSouhait, versIso } from "@/lib/livraison";
 import { DESCRIPTION_STATUT } from "@/lib/statuts";
 import { cn, formatAr, formatDateTime, pluriel } from "@/lib/utils";
 import { useToast } from "@/providers/toast-provider";
-import type { Commande, ModePaiement } from "@/lib/types";
+import type { Commande, ModePaiement, ZonesReponse } from "@/lib/types";
 
 export function CommandeDetail({ id }: { id: string }) {
   const toast = useToast();
@@ -25,6 +26,7 @@ export function CommandeDetail({ id }: { id: string }) {
 
   const [commande, setCommande] = useState<Commande | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
+  const [zones, setZones] = useState<ZonesReponse | null>(null);
   const [modifier, setModifier] = useState(false);
   const [annuler, setAnnuler] = useState(false);
 
@@ -33,7 +35,16 @@ export function CommandeDetail({ id }: { id: string }) {
     (async () => {
       try {
         const donnees = await apiCommandes.detail(id);
-        if (!annule) setCommande(donnees);
+        if (annule) return;
+        setCommande(donnees);
+        // Nom de la zone fixée par la boutique : l'API client n'en renvoie
+        // que le code.
+        try {
+          const liste = await catalogue.zones(donnees.boutique.id);
+          if (!annule) setZones(liste);
+        } catch {
+          /* le code de zone restera affiché tel quel */
+        }
       } catch (e) {
         if (!annule) setErreur(messageErreur(e, "Commande introuvable."));
       }
@@ -69,6 +80,10 @@ export function CommandeDetail({ id }: { id: string }) {
   const retrait = commande.livraison_zone === "RECUPERATION";
   // Avant l'approbation, la zone de livraison (et ses frais) reste provisoire.
   const enAttente = commande.statut === "EN_ATTENTE_APPROBATION";
+  const nomZone = zones?.zones.find((z) => z.code === commande.livraison_zone)?.nom ?? null;
+  // Créneau de livraison : champ dédié de l'API, ajusté par la boutique.
+  const souhait = libelleSouhait(commande.date_livraison_souhaitee);
+  const remarque = commande.note ?? "";
 
   return (
     <div>
@@ -205,14 +220,27 @@ export function CommandeDetail({ id }: { id: string }) {
               {retrait ? <Store className="mt-0.5 size-4 shrink-0" aria-hidden /> : <MapPin className="mt-0.5 size-4 shrink-0" aria-hidden />}
               <span>
                 {retrait ? "Retrait sur place" : commande.adresse_livraison || "Adresse non précisée"}
-                <span className="mt-0.5 block text-xs">Zone : {commande.livraison_zone}</span>
+                {!retrait ? (
+                  <span className="mt-0.5 block text-xs">
+                    Zone : {enAttente ? "à confirmer par la boutique" : nomZone ?? commande.livraison_zone}
+                  </span>
+                ) : null}
               </span>
             </p>
             <p className="mt-3 text-muted">
               {commande.telephone}
               {commande.telephone_2 ? ` / ${commande.telephone_2}` : ""}
             </p>
-            {commande.note ? <p className="mt-3 border-t border-border/70 pt-3 text-xs whitespace-pre-line text-muted">« {commande.note} »</p> : null}
+            {souhait ? (
+              <p className="mt-3 flex items-center gap-2 border-t border-border/70 pt-3 text-sm">
+                <CalendarClock className="size-4 shrink-0 text-muted" aria-hidden />
+                {enAttente ? "Livraison souhaitée le " : "Livraison prévue le "}
+                {souhait}
+              </p>
+            ) : null}
+            {remarque ? (
+              <p className="mt-3 border-t border-border/70 pt-3 text-xs whitespace-pre-line text-muted">« {remarque} »</p>
+            ) : null}
           </div>
         </aside>
       </div>
@@ -258,6 +286,9 @@ function ModifierCommande({
   const [telephone, setTelephone] = useState(commande.telephone);
   const [telephone2, setTelephone2] = useState(commande.telephone_2);
   const [modePaiement, setModePaiement] = useState<ModePaiement>(commande.mode_paiement);
+  const creneau = depuisIso(commande.date_livraison_souhaitee);
+  const [dateSouhaitee, setDateSouhaitee] = useState(creneau.date);
+  const [heureSouhaitee, setHeureSouhaitee] = useState(creneau.heure);
   const [note, setNote] = useState(commande.note ?? "");
   const [envoi, setEnvoi] = useState(false);
   const [erreur, setErreur] = useState<ApiError | null>(null);
@@ -274,6 +305,7 @@ function ModifierCommande({
         telephone_2: telephone2.trim(),
         mode_paiement: modePaiement,
         note: note.trim(),
+        date_livraison_souhaitee: retrait ? undefined : versIso(dateSouhaitee, heureSouhaitee),
       });
       onMaj(maj);
       onOuvertChange(false);
@@ -300,9 +332,26 @@ function ModifierCommande({
         ) : null}
 
         {!retrait ? (
-          <Field label="Adresse de livraison" htmlFor="maj-adresse" erreurs={erreur?.pour("adresse_livraison")}>
-            <Input id="maj-adresse" value={adresse} onChange={(e) => setAdresse(e.target.value)} />
-          </Field>
+          <>
+            <Field label="Adresse de livraison" htmlFor="maj-adresse" erreurs={erreur?.pour("adresse_livraison")}>
+              <Input id="maj-adresse" value={adresse} onChange={(e) => setAdresse(e.target.value)} />
+            </Field>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Date de livraison souhaitée" htmlFor="maj-date">
+                <Input
+                  id="maj-date"
+                  type="date"
+                  min={aujourdhuiIso()}
+                  value={dateSouhaitee}
+                  onChange={(e) => setDateSouhaitee(e.target.value)}
+                />
+              </Field>
+              <Field label="Heure souhaitée" htmlFor="maj-heure">
+                <Input id="maj-heure" type="time" value={heureSouhaitee} onChange={(e) => setHeureSouhaitee(e.target.value)} />
+              </Field>
+            </div>
+          </>
         ) : (
           <p className="rounded-lg bg-foreground/[0.04] px-4 py-3 text-xs text-muted">
             Retrait sur place : aucune adresse n&apos;est nécessaire.

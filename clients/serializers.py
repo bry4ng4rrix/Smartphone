@@ -237,6 +237,9 @@ class ClientOrderSerializer(serializers.ModelSerializer):
 
     statut = serializers.CharField(source="statut_courant", read_only=True)
     statut_label = serializers.CharField(source="get_statut_courant_display", read_only=True)
+    # Même champ que `date_commande`, sous le nom utilisé à la création : c'est
+    # la date de livraison souhaitée par le client (la boutique peut l'ajuster).
+    date_livraison_souhaitee = serializers.DateTimeField(source="date_commande", read_only=True)
     boutique = serializers.SerializerMethodField()
     items = ClientOrderItemSerializer(many=True, read_only=True)
     note = serializers.CharField(source="note_livreur", read_only=True)
@@ -248,7 +251,7 @@ class ClientOrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
-            "id", "numero", "statut", "statut_label", "date_commande", "boutique", "livraison_zone",
+            "id", "numero", "statut", "statut_label", "date_commande", "date_livraison_souhaitee", "boutique", "livraison_zone",
             "adresse_livraison", "telephone", "telephone_2", "mode_paiement", "note", "frais_livraison",
             "total_a_payer", "items", "peut_modifier", "peut_annuler", "created_at", "updated_at",
         ]
@@ -284,6 +287,10 @@ class ClientOrderCreateSerializer(serializers.Serializer):
     )
     mode_paiement = serializers.ChoiceField(choices=Order.MODE_PAIEMENT_CHOICES, default="LIVRAISON")
     note = serializers.CharField(required=False, allow_blank=True, default="")
+    # Jour (et heure) auxquels le client souhaite être livré. Alimente
+    # `Order.date_commande`, la date de livraison planifiée que l'application
+    # de gestion utilise déjà (page livreur, ouverture des actions).
+    date_livraison_souhaitee = serializers.DateTimeField(required=False, allow_null=True)
 
     def validate_items(self, value):
         if not value:
@@ -300,6 +307,7 @@ class ClientOrderUpdateSerializer(serializers.Serializer):
     livraison_zone = serializers.CharField(max_length=20, required=False)
     mode_paiement = serializers.ChoiceField(choices=Order.MODE_PAIEMENT_CHOICES, required=False)
     note = serializers.CharField(required=False, allow_blank=True)
+    date_livraison_souhaitee = serializers.DateTimeField(required=False)
 
 
 class ClientOrderCancelSerializer(serializers.Serializer):

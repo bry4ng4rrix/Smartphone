@@ -3,10 +3,13 @@ client, commandes client et étanchéité avec l'application interne.
 
 Exécution : `python manage.py test clients` (SQLite de test par défaut).
 """
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -38,6 +41,10 @@ class EspaceClientTestCase(APITestCase):
             email="prep@test.com", password=PWD, role="employer", is_confirmed=True, full_name="Hery",
         )
         EmployerProfile.objects.create(user=self.preparateur, magasin=self.magasin, admin=self.admin, commande_role="PREPARATEUR")
+        self.livreur = User.objects.create_user(
+            email="livreur@test.com", password=PWD, role="employer", is_confirmed=True, full_name="Rija",
+        )
+        EmployerProfile.objects.create(user=self.livreur, magasin=self.magasin, admin=self.admin, commande_role="LIVREUR")
         self.zone = DeliveryZoneOption.objects.create(admin_profile=self.admin_profile, nom="Centre-ville", prix=Decimal("3000"))
 
         self.categorie = ProductCategory.objects.create(magasin=self.magasin, nom="Coques", ordre=1)
@@ -255,6 +262,108 @@ class CompteClientTests(EspaceClientTestCase):
 
 
 # =========================================================================== #
+# Date de livraison souhaitée
+# =========================================================================== #
+
+
+class DateLivraisonSouhaiteeTests(EspaceClientTestCase):
+    """`date_livraison_souhaitee` alimente `Order.date_commande` — la date de
+    livraison planifiée que l'application de gestion utilise déjà."""
+
+    def demain(self, heure=14, minute=30):
+        jour = timezone.localdate() + timedelta(days=1)
+        return timezone.make_aware(
+            datetime.combine(jour, time(hour=heure, minute=minute)),
+            timezone.get_current_timezone(),
+        )
+
+    def test_date_souhaitee_enregistree_sur_la_commande(self):
+        self.login_client()
+        souhait = self.demain()
+        r = self.client.post(
+            "/api/client/orders/",
+            self.commande_valide(date_livraison_souhaitee=souhait.isoformat()),
+            format="json",
+        )
+        self.assertEqual(r.status_code, 201, r.content)
+
+        order = Order.objects.get(pk=r.data["id"])
+        self.assertEqual(timezone.localtime(order.date_commande), timezone.localtime(souhait))
+        # Le client relit sa date sous le nom qu'il a envoyé.
+        self.assertEqual(
+            timezone.localtime(parse_datetime(r.data["date_livraison_souhaitee"])),
+            timezone.localtime(souhait),
+        )
+        self.assertEqual(r.data["date_livraison_souhaitee"], r.data["date_commande"])
+
+    def test_sans_date_le_comportement_ne_change_pas(self):
+        avant = timezone.now()
+        data = self.creer_commande()
+        order = Order.objects.get(pk=data["id"])
+        self.assertGreaterEqual(order.date_commande, avant)
+        self.assertLessEqual(order.date_commande, timezone.now())
+
+    def test_date_passee_refusee(self):
+        self.login_client()
+        hier = timezone.now() - timedelta(days=1)
+        r = self.client.post(
+            "/api/client/orders/",
+            self.commande_valide(date_livraison_souhaitee=hier.isoformat()),
+            format="json",
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertIn("date_livraison_souhaitee", r.data)
+        self.assertIn("passé", str(r.data["date_livraison_souhaitee"]))
+
+    def test_aujourd_hui_accepte(self):
+        self.login_client()
+        aujourdhui = timezone.make_aware(
+            datetime.combine(timezone.localdate(), time(hour=8)),
+            timezone.get_current_timezone(),
+        )
+        r = self.client.post(
+            "/api/client/orders/",
+            self.commande_valide(date_livraison_souhaitee=aujourdhui.isoformat()),
+            format="json",
+        )
+        self.assertEqual(r.status_code, 201, r.content)
+
+    def test_modification_de_la_date_avant_approbation(self):
+        data = self.creer_commande()
+        nouvelle = self.demain(heure=9, minute=0)
+        r = self.client.patch(
+            f"/api/client/orders/{data['id']}/",
+            {"date_livraison_souhaitee": nouvelle.isoformat()},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        order = Order.objects.get(pk=data["id"])
+        self.assertEqual(timezone.localtime(order.date_commande), timezone.localtime(nouvelle))
+
+    def test_modification_avec_date_passee_refusee(self):
+        data = self.creer_commande()
+        r = self.client.patch(
+            f"/api/client/orders/{data['id']}/",
+            {"date_livraison_souhaitee": (timezone.now() - timedelta(days=2)).isoformat()},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+
+    def test_date_ignoree_une_fois_la_commande_approuvee(self):
+        data = self.creer_commande()
+        order = Order.objects.get(pk=data["id"])
+        order.statut_courant = "EN_PREPARATION"
+        order.save(update_fields=["statut_courant"])
+        r = self.client.patch(
+            f"/api/client/orders/{data['id']}/",
+            {"date_livraison_souhaitee": self.demain().isoformat()},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertIn("ne peut plus être modifiée", str(r.data))
+
+
+# =========================================================================== #
 # Commandes client
 # =========================================================================== #
 
@@ -385,6 +494,84 @@ class ApprobationGerantTests(EspaceClientTestCase):
         # Une commande déjà approuvée ne peut pas l'être deux fois
         r = self.client.post(f"/api/orders/{data['id']}/approuver/", {}, format="json")
         self.assertEqual(r.status_code, 400)
+
+    def test_gerant_complete_puis_confirme_la_demande(self):
+        """Parcours de la page « Demandes des clients » (frontend/app/(app)/client) :
+        le gérant ajuste date, zone, paiement et notes, approuve, puis assigne
+        préparateur et livreur."""
+        souhait = timezone.make_aware(
+            datetime.combine(timezone.localdate() + timedelta(days=1), time(hour=10)),
+            timezone.get_current_timezone(),
+        )
+        self.login_client()
+        r = self.client.post(
+            "/api/client/orders/",
+            self.commande_valide(date_livraison_souhaitee=souhait.isoformat(), note="Portail bleu"),
+            format="json",
+        )
+        self.assertEqual(r.status_code, 201, r.content)
+        commande_id = r.data["id"]
+
+        # Zone plus chère, créée par la société pour ce test.
+        zone_lointaine = DeliveryZoneOption.objects.create(
+            admin_profile=self.admin_profile, nom="Périphérie", prix=Decimal("8000")
+        )
+
+        self.client.credentials()
+        self.client.force_authenticate(user=self.admin)
+
+        retenu = souhait + timedelta(hours=2)
+        r = self.client.patch(
+            f"/api/orders/{commande_id}/",
+            {
+                "livraison_zone": zone_lointaine.code,
+                "mode_paiement": "AVANT",
+                "date_commande": retenu.isoformat(),
+                "note_preparateur": "Emballer avec soin",
+                "note_livreur": "Portail bleu — appeler avant",
+            },
+            format="json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+
+        r = self.client.post(f"/api/orders/{commande_id}/approuver/", {}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.data["statut_courant"], "NOUVELLE")
+
+        for url, cle, personne in (
+            ("assign-preparateur", "preparateur_id", self.preparateur),
+            ("assign-livreur", "livreur_id", self.livreur),
+        ):
+            r = self.client.post(f"/api/orders/{commande_id}/{url}/", {cle: personne.id}, format="json")
+            self.assertEqual(r.status_code, 200, f"{url}: {r.content}")
+
+        order = Order.objects.get(pk=commande_id)
+        self.assertEqual(order.livraison_zone, zone_lointaine.code)
+        self.assertEqual(order.frais_livraison, Decimal("8000.00"))
+        self.assertEqual(order.total_a_payer, Decimal("58000.00"))  # 2 × 25 000 + 8 000
+        self.assertEqual(order.mode_paiement, "AVANT")
+        self.assertEqual(timezone.localtime(order.date_commande), timezone.localtime(retenu))
+        self.assertEqual(order.note_preparateur, "Emballer avec soin")
+        self.assertEqual(order.preparateur, self.preparateur)
+        self.assertEqual(order.livreur, self.livreur)
+        # Le stock est réservé à l'approbation, pas avant.
+        self.noir.refresh_from_db()
+        self.assertEqual(self.noir.stock_actuel, 3)
+
+        # Côté client : la zone et le total définitifs sont visibles.
+        self.client.force_authenticate(user=None)
+        self.login_client()
+        r = self.client.get(f"/api/client/orders/{commande_id}/")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.data["statut"], "NOUVELLE")
+        self.assertEqual(r.data["livraison_zone"], zone_lointaine.code)
+        self.assertEqual(r.data["frais_livraison"], 8000)
+        self.assertEqual(r.data["total_a_payer"], 58000)
+        self.assertFalse(r.data["peut_modifier"])
+        self.assertTrue(r.data["peut_annuler"])
+        # Les notes internes ne fuient jamais vers le client.
+        self.assertEqual(r.data["note"], "Portail bleu — appeler avant")
+        self.assertNotIn("note_preparateur", r.data)
 
     def test_gerant_refuse(self):
         data = self.creer_commande()
