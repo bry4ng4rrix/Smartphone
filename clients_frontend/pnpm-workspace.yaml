@@ -1,2 +1,7 @@
 allowBuilds:
   unrs-resolver: set this to true or false
+# pnpm 10 : les réglages ne sont plus lus depuis package.json.
+# `unrs-resolver` (résolveur natif d'eslint-plugin-import-x) a besoin de son
+# script postinstall pour compiler son binaire.
+onlyBuiltDependencies:
+  - unrs-resolver

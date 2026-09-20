@@ -8,14 +8,12 @@ export function Reveal({
   children,
   className,
   delai = 0,
-  as: Tag = "div",
 }: {
   children: React.ReactNode;
   className?: string;
   delai?: number;
-  as?: "div" | "section" | "li" | "article";
 }) {
-  const ref = useRef<HTMLElement>(null);
+  const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const el = ref.current;
@@ -38,12 +36,8 @@ export function Reveal({
   }, []);
 
   return (
-    <Tag
-      ref={ref as React.Ref<HTMLDivElement & HTMLElement>}
-      className={cn("reveal", className)}
-      style={delai ? { transitionDelay: `${delai}ms` } : undefined}
-    >
+    <div ref={ref} className={cn("reveal", className)} style={delai ? { transitionDelay: `${delai}ms` } : undefined}>
       {children}
-    </Tag>
+    </div>
   );
 }

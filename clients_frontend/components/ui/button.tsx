@@ -1,4 +1,5 @@
 import * as React from "react";
+import Link from "next/link";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
@@ -45,3 +46,13 @@ export function Button({ className, variant, size, chargement, children, disable
 }
 
 export { buttonVariants };
+
+/** Même apparence, mais c'est un lien (navigation, pas action). */
+export function ButtonLink({
+  className,
+  variant,
+  size,
+  ...props
+}: React.ComponentProps<typeof Link> & VariantProps<typeof buttonVariants>) {
+  return <Link className={cn(buttonVariants({ variant, size }), className)} {...props} />;
+}

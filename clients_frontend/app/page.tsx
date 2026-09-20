@@ -1,69 +1,212 @@
-import Image from "next/image";
+import Link from "next/link";
+import { ArrowRight, PackageCheck, ShieldCheck, Store, Truck } from "lucide-react";
+import { ProductCard } from "@/components/catalog/product-card";
+import { Reveal } from "@/components/ui/reveal";
+import { EmptyState } from "@/components/ui/empty-state";
+import { catalogue } from "@/lib/endpoints";
+import type { Categorie, Marque, Produit } from "@/lib/types";
+import { WifiOff } from "lucide-react";
 
-export default function Home() {
+type Donnees = {
+  total: number;
+  disponibles: Produit[];
+  categories: Array<Categorie & { nb: number }>;
+  marques: Marque[];
+  boutique: string | null;
+  enPanne: boolean;
+};
+
+/** Tout ce que la page affiche vient de l'API — aucun chiffre décoratif. */
+async function charger(): Promise<Donnees> {
+  try {
+    const [tous, dispo, categories, marques, boutiques] = await Promise.all([
+      catalogue.produits({ page_size: 1 }),
+      catalogue.produits({ available: "1", page_size: 8 }),
+      catalogue.categories(),
+      catalogue.marques(),
+      catalogue.boutiques(),
+    ]);
+
+    // Nombre réel de produits par catégorie : une requête comptée par l'API.
+    const avecNb = await Promise.all(
+      categories.map(async (c) => {
+        try {
+          const page = await catalogue.produits({ category: c.id, page_size: 1 });
+          return { ...c, nb: page.count };
+        } catch {
+          return { ...c, nb: 0 };
+        }
+      }),
+    );
+
+    return {
+      total: tous.count,
+      disponibles: dispo.results,
+      categories: avecNb,
+      marques,
+      boutique: boutiques[0]?.nom ?? null,
+      enPanne: false,
+    };
+  } catch {
+    return { total: 0, disponibles: [], categories: [], marques: [], boutique: null, enPanne: true };
+  }
+}
+
+const ETAPES = [
+  { icone: Store, titre: "Vous commandez", texte: "Ajoutez vos accessoires au panier et choisissez livraison ou retrait sur place." },
+  { icone: ShieldCheck, titre: "La boutique valide", texte: "Votre commande est vérifiée puis confirmée. Elle reste modifiable jusque-là." },
+  { icone: PackageCheck, titre: "Préparation", texte: "Les articles sont emballés et préparés pour le départ." },
+  { icone: Truck, titre: "Livraison", texte: "Le livreur vous apporte la commande, ou vous la retirez en boutique." },
+];
+
+export default async function Accueil() {
+  const { total, disponibles, categories, marques, boutique, enPanne } = await charger();
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <>
+      {/* ------------------------------------------------------------ Hero */}
+      <section className="aurora relative overflow-hidden px-4 pt-10 pb-16 sm:px-6 sm:pt-16 sm:pb-24">
+        <div className="aurora-layer" aria-hidden />
+        <div className="mx-auto w-full max-w-[1400px]">
+          <div className="grid items-center gap-10 lg:grid-cols-[1.1fr_0.9fr]">
+            <div>
+              <p className="text-[11px] font-medium tracking-[0.24em] text-muted uppercase">
+                {boutique ?? "Smartphone.Mg"} — Antananarivo
+              </p>
+              <h1 className="mt-5 text-[2.5rem] leading-[1.05] font-semibold tracking-[-0.02em] text-balance sm:text-6xl lg:text-7xl">
+                L&apos;accessoire juste,
+                <br />
+                <span className="text-muted">pour votre téléphone.</span>
+              </h1>
+              <p className="mt-6 max-w-md text-[15px] leading-relaxed text-muted">
+                Housses, cache-écrans et accessoires sélectionnés pour les modèles qui circulent vraiment à Madagascar.
+                Commande en ligne, validation par la boutique, livraison ou retrait.
+              </p>
+
+              <div className="mt-9 flex flex-wrap items-center gap-3">
+                <Link
+                  href="/catalogue"
+                  className="group inline-flex h-13 items-center gap-2 rounded-full bg-foreground px-8 text-[15px] font-medium text-background transition-all duration-300 hover:-translate-y-px hover:shadow-[0_18px_44px_-16px_color-mix(in_oklab,var(--foreground)_70%,transparent)]"
+                >
+                  Découvrir le catalogue
+                  <ArrowRight className="size-4 transition-transform duration-300 group-hover:translate-x-0.5" aria-hidden />
+                </Link>
+                {total > 0 ? (
+                  <span className="glass rounded-full px-4 py-2.5 text-[13px] text-muted">
+                    <span className="font-semibold text-foreground tabular-nums">{total}</span> références en ligne
+                  </span>
+                ) : null}
+              </div>
+            </div>
+
+            {/* Composition éditoriale : les vraies catégories de la boutique. */}
+            {categories.length > 0 ? (
+              <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                {categories.slice(0, 4).map((c, i) => (
+                  <Reveal key={c.id} delai={i * 90}>
+                    <Link
+                      href={`/catalogue?category=${c.id}`}
+                      className="glass elevate hover:elevate-hover group flex aspect-[4/5] flex-col justify-end rounded-xl p-5"
+                    >
+                      <span className="text-[10px] tracking-[0.2em] text-muted uppercase">Catégorie</span>
+                      <span className="mt-1 text-lg leading-tight font-medium tracking-tight">{c.nom}</span>
+                      <span className="mt-1 text-xs text-muted tabular-nums">{c.nb} référence{c.nb > 1 ? "s" : ""}</span>
+                      <ArrowRight
+                        className="mt-3 size-4 text-muted transition-transform duration-300 group-hover:translate-x-1"
+                        aria-hidden
+                      />
+                    </Link>
+                  </Reveal>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      </section>
+
+      {enPanne ? (
+        <div className="mx-auto w-full max-w-[1400px] px-4 sm:px-6">
+          <EmptyState
+            icone={WifiOff}
+            titre="Boutique momentanément indisponible"
+            description="Le serveur ne répond pas. Réessayez dans quelques instants."
+            className="hairline bg-surface/40"
+          />
         </div>
-      </main>
-    </div>
+      ) : null}
+
+      {/* ------------------------------------------------ Disponibles */}
+      {disponibles.length > 0 ? (
+        <section className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6" aria-labelledby="dispo">
+          <Reveal>
+            <div className="mb-6 flex items-end justify-between gap-4">
+              <div>
+                <p className="text-[11px] font-medium tracking-[0.22em] text-muted uppercase">En rayon</p>
+                <h2 id="dispo" className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+                  Disponibles maintenant
+                </h2>
+              </div>
+              <Link href="/catalogue?available=1" className="shrink-0 text-sm text-accent hover:underline">
+                Tout voir
+              </Link>
+            </div>
+          </Reveal>
+
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+            {disponibles.map((p, i) => (
+              <ProductCard key={p.id} produit={p} priority={i < 2} />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {/* ------------------------------------------------ Marques */}
+      {marques.length > 0 ? (
+        <section className="mx-auto w-full max-w-[1400px] px-4 py-14 sm:px-6" aria-labelledby="marques">
+          <Reveal>
+            <p className="text-[11px] font-medium tracking-[0.22em] text-muted uppercase">Compatibilité</p>
+            <h2 id="marques" className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+              Pour votre modèle
+            </h2>
+            <div className="mt-6 flex flex-wrap gap-2">
+              {marques.map((m) => (
+                <Link
+                  key={m.id}
+                  href={`/catalogue?brand=${m.id}`}
+                  className="hairline rounded-full px-4 py-2 text-sm text-muted transition-all duration-300 hover:-translate-y-px hover:text-foreground"
+                >
+                  {m.nom}
+                </Link>
+              ))}
+            </div>
+          </Reveal>
+        </section>
+      ) : null}
+
+      {/* ------------------------------------------------ Parcours */}
+      <section className="mx-auto w-full max-w-[1400px] px-4 pb-8 sm:px-6" aria-labelledby="parcours">
+        <Reveal>
+          <div className="glass grain relative overflow-hidden rounded-2xl px-6 py-12 sm:px-12">
+            <p className="text-[11px] font-medium tracking-[0.22em] text-muted uppercase">Comment ça marche</p>
+            <h2 id="parcours" className="mt-2 max-w-lg text-2xl leading-tight font-semibold tracking-tight sm:text-3xl">
+              De la commande à la livraison, vous suivez chaque étape.
+            </h2>
+
+            <ol className="mt-10 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+              {ETAPES.map((e, i) => (
+                <li key={e.titre}>
+                  <span className="flex size-10 items-center justify-center rounded-full bg-foreground/[0.06] text-muted">
+                    <e.icone className="size-4" aria-hidden />
+                  </span>
+                  <p className="mt-4 text-[11px] tracking-[0.2em] text-muted uppercase tabular-nums">0{i + 1}</p>
+                  <p className="mt-1 font-medium tracking-tight">{e.titre}</p>
+                  <p className="mt-1.5 text-sm leading-relaxed text-muted">{e.texte}</p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </Reveal>
+      </section>
+    </>
   );
 }
