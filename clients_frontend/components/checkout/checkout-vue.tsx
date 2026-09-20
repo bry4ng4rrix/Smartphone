@@ -38,7 +38,9 @@ export function CheckoutVue() {
   const [zones, setZones] = useState<ZonesReponse | null>(null);
   const [zonesErreur, setZonesErreur] = useState<string | null>(null);
 
-  const [zone, setZone] = useState<string>("");
+  // Le client choisit seulement « livraison » ou « retrait » : la zone (et
+  // donc les frais) est fixée par la boutique à la validation de la commande.
+  const [retrait, setRetrait] = useState(false);
   // Le composant n'est rendu qu'une fois la session confirmée (AuthGuard) :
   // le profil est donc déjà disponible pour pré-remplir les coordonnées.
   const [adresse, setAdresse] = useState(client?.adresse ?? "");
@@ -59,7 +61,6 @@ export function CheckoutVue() {
         const reponse = await catalogue.zones(boutiqueId);
         if (annule) return;
         setZones(reponse);
-        setZone((actuelle) => actuelle || reponse.zones[0]?.code || reponse.recuperation.code);
       } catch (e) {
         if (!annule) setZonesErreur(messageErreur(e, "Impossible de charger les zones de livraison."));
       }
@@ -69,17 +70,18 @@ export function CheckoutVue() {
     };
   }, [boutiqueId]);
 
-  const zoneChoisie: Zone | null = useMemo(() => {
+  // `livraison_zone` est obligatoire côté API : pour une livraison on envoie
+  // la première zone de la boutique, que le gérant ajuste ensuite selon
+  // l'adresse. Le client ne voit donc aucun montant de livraison ici.
+  const zoneEnvoyee: Zone | null = useMemo(() => {
     if (!zones) return null;
-    if (zone === zones.recuperation.code) return zones.recuperation;
-    return zones.zones.find((z) => z.code === zone) ?? null;
-  }, [zones, zone]);
+    return retrait ? zones.recuperation : (zones.zones[0] ?? null);
+  }, [zones, retrait]);
 
-  const retrait = zoneChoisie?.code === "RECUPERATION";
-  const fraisEstimes = zoneChoisie?.prix ?? 0;
+  const livraisonIndisponible = zones !== null && !retrait && zones.zones.length === 0;
 
   const passerAPaiement = () => {
-    if (!zoneChoisie) return;
+    if (!zoneEnvoyee) return;
     if (!retrait && !adresse.trim()) {
       toast.erreur("Adresse requise", "Indiquez où livrer la commande.");
       return;
@@ -88,14 +90,14 @@ export function CheckoutVue() {
   };
 
   const commander = async () => {
-    if (boutiqueId === null || !zoneChoisie) return;
+    if (boutiqueId === null || !zoneEnvoyee) return;
     setEnvoi(true);
     setErreur(null);
     try {
       const commande = await commandes.creer({
         boutique: boutiqueId,
         items: lignes.map((l) => ({ variante: l.varianteId, quantite: l.quantite, prix_attendu: l.prix })),
-        livraison_zone: zoneChoisie.code,
+        livraison_zone: zoneEnvoyee.code,
         adresse_livraison: retrait ? "" : adresse.trim(),
         telephone: telephone.trim() || undefined,
         telephone_2: telephone2.trim(),
@@ -191,38 +193,56 @@ export function CheckoutVue() {
                 <fieldset className="mt-5">
                   <legend className="text-[11px] font-medium tracking-[0.18em] text-muted uppercase">Mode de réception</legend>
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    {[zones.recuperation, ...zones.zones].map((z) => {
-                      const choisie = zone === z.code;
-                      const estRetrait = z.code === "RECUPERATION";
-                      return (
-                        <label
-                          key={z.code}
-                          className={cn(
-                            "flex cursor-pointer items-start gap-3 rounded-lg p-4 transition-all duration-200",
-                            choisie ? "glass-strong ring-1 ring-accent/50" : "hairline hover:border-foreground/25",
-                          )}
-                        >
-                          <input
-                            type="radio"
-                            name="zone"
-                            value={z.code}
-                            checked={choisie}
-                            onChange={() => setZone(z.code)}
-                            className="mt-1 size-4 accent-[var(--accent)]"
-                          />
-                          <span className="min-w-0 flex-1">
-                            <span className="flex items-center gap-2 text-sm font-medium">
-                              {estRetrait ? <Store className="size-3.5 text-muted" aria-hidden /> : <Truck className="size-3.5 text-muted" aria-hidden />}
-                              {z.nom}
-                            </span>
-                            <span className="mt-0.5 block text-xs text-muted tabular-nums">
-                              {z.prix > 0 ? formatAr(z.prix) : "Sans frais"}
-                            </span>
+                    {(
+                      [
+                        {
+                          valeur: false,
+                          titre: "Livraison à domicile",
+                          detail: "Frais fixés par la boutique selon votre adresse.",
+                          icone: Truck,
+                          actif: zones.zones.length > 0,
+                        },
+                        {
+                          valeur: true,
+                          titre: zones.recuperation.nom,
+                          detail: "Sans frais — vous récupérez la commande en boutique.",
+                          icone: Store,
+                          actif: true,
+                        },
+                      ] as const
+                    ).map((mode) => (
+                      <label
+                        key={mode.titre}
+                        className={cn(
+                          "flex items-start gap-3 rounded-lg p-4 transition-all duration-200",
+                          mode.actif ? "cursor-pointer" : "cursor-not-allowed opacity-45",
+                          retrait === mode.valeur ? "glass-strong ring-1 ring-accent/50" : "hairline hover:border-foreground/25",
+                        )}
+                      >
+                        <input
+                          type="radio"
+                          name="reception"
+                          checked={retrait === mode.valeur}
+                          disabled={!mode.actif}
+                          onChange={() => setRetrait(mode.valeur)}
+                          className="mt-1 size-4 accent-[var(--accent)]"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center gap-2 text-sm font-medium">
+                            <mode.icone className="size-3.5 text-muted" aria-hidden />
+                            {mode.titre}
                           </span>
-                        </label>
-                      );
-                    })}
+                          <span className="mt-0.5 block text-xs text-muted">{mode.detail}</span>
+                        </span>
+                      </label>
+                    ))}
                   </div>
+
+                  {livraisonIndisponible ? (
+                    <p className="mt-3 rounded-lg bg-amber-500/10 px-4 py-3 text-xs text-amber-700 dark:text-amber-300">
+                      Cette boutique ne propose pas encore de livraison : seul le retrait sur place est disponible.
+                    </p>
+                  ) : null}
                 </fieldset>
 
                 <div className="mt-5 grid gap-4 sm:grid-cols-2">
@@ -269,7 +289,7 @@ export function CheckoutVue() {
                     />
                   </Field>
 
-                  <Field label="Note pour le livreur (facultatif)" htmlFor="note" className="sm:col-span-2" erreurs={erreur?.pour("note")}>
+                  <Field label="Remarque (facultatif)" htmlFor="note" className="sm:col-span-2" erreurs={erreur?.pour("note")}>
                     <Textarea
                       id="note"
                       value={note}
@@ -280,7 +300,7 @@ export function CheckoutVue() {
                 </div>
 
                 <div className="mt-6 flex justify-end">
-                  <Button variant="primaire" size="lg" onClick={passerAPaiement} disabled={!zoneChoisie}>
+                  <Button variant="primaire" size="lg" onClick={passerAPaiement} disabled={!zoneEnvoyee || livraisonIndisponible}>
                     Continuer
                     <ArrowRight aria-hidden />
                   </Button>
@@ -369,9 +389,11 @@ export function CheckoutVue() {
               <div>
                 <dt className="text-[11px] tracking-[0.18em] text-muted uppercase">Réception</dt>
                 <dd className="mt-1">
-                  {zoneChoisie?.nom}
-                  {!retrait && adresse ? ` · ${adresse}` : ""}
+                  {retrait ? zones?.recuperation.nom ?? "Retrait sur place" : `Livraison · ${adresse}`}
                 </dd>
+                {!retrait ? (
+                  <dd className="mt-0.5 text-xs text-muted">Frais de livraison fixés par la boutique selon votre adresse.</dd>
+                ) : null}
               </div>
               <div>
                 <dt className="text-[11px] tracking-[0.18em] text-muted uppercase">Contact</dt>
@@ -386,7 +408,7 @@ export function CheckoutVue() {
               </div>
               {note ? (
                 <div>
-                  <dt className="text-[11px] tracking-[0.18em] text-muted uppercase">Note</dt>
+                  <dt className="text-[11px] tracking-[0.18em] text-muted uppercase">Remarque</dt>
                   <dd className="mt-1 whitespace-pre-line">{note}</dd>
                 </div>
               ) : null}
@@ -438,18 +460,19 @@ export function CheckoutVue() {
             <dt className="text-muted">Articles</dt>
             <dd className="tabular-nums">{formatAr(sousTotal)}</dd>
           </div>
-          <div className="flex items-baseline justify-between">
-            <dt className="text-muted">Livraison{zoneChoisie ? ` · ${zoneChoisie.nom}` : ""}</dt>
-            <dd className="tabular-nums">{zoneChoisie ? (fraisEstimes > 0 ? formatAr(fraisEstimes) : "Sans frais") : "—"}</dd>
+          <div className="flex items-baseline justify-between gap-4">
+            <dt className="text-muted">Livraison</dt>
+            <dd className="text-right text-xs text-muted">{retrait ? "Retrait sur place — sans frais" : "Fixée par la boutique"}</dd>
           </div>
           <div className="flex items-baseline justify-between border-t border-[var(--glass-border)] pt-3">
-            <dt className="font-medium">Total estimé</dt>
-            <dd className="text-lg font-semibold tracking-tight tabular-nums">{formatAr(sousTotal + fraisEstimes)}</dd>
+            <dt className="font-medium">Total articles</dt>
+            <dd className="text-lg font-semibold tracking-tight tabular-nums">{formatAr(sousTotal)}</dd>
           </div>
         </dl>
 
         <p className="mt-3 text-[11px] leading-relaxed text-muted">
-          Estimation d&apos;après les prix affichés. Le montant qui fait foi est celui calculé par la boutique sur la commande.
+          Estimation d&apos;après les prix affichés, hors livraison. Le montant à payer, frais compris, est calculé par la
+          boutique à la validation de votre commande.
         </p>
       </aside>
     </div>

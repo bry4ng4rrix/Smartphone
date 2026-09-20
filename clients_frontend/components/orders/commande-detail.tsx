@@ -12,11 +12,11 @@ import { Modal } from "@/components/ui/panel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatutBadge, Timeline } from "@/components/orders/status";
 import { ApiError, messageErreur } from "@/lib/api";
-import { catalogue, commandes as apiCommandes } from "@/lib/endpoints";
+import { commandes as apiCommandes } from "@/lib/endpoints";
 import { DESCRIPTION_STATUT } from "@/lib/statuts";
 import { cn, formatAr, formatDateTime, pluriel } from "@/lib/utils";
 import { useToast } from "@/providers/toast-provider";
-import type { Commande, ModePaiement, ZonesReponse } from "@/lib/types";
+import type { Commande, ModePaiement } from "@/lib/types";
 
 export function CommandeDetail({ id }: { id: string }) {
   const toast = useToast();
@@ -234,8 +234,7 @@ function ModifierCommande({
   onMaj: (c: Commande) => void;
 }) {
   const toast = useToast();
-  const [zones, setZones] = useState<ZonesReponse | null>(null);
-  const [zone, setZone] = useState(commande.livraison_zone);
+  const retrait = commande.livraison_zone === "RECUPERATION";
   const [adresse, setAdresse] = useState(commande.adresse_livraison ?? "");
   const [telephone, setTelephone] = useState(commande.telephone);
   const [telephone2, setTelephone2] = useState(commande.telephone_2);
@@ -244,29 +243,14 @@ function ModifierCommande({
   const [envoi, setEnvoi] = useState(false);
   const [erreur, setErreur] = useState<ApiError | null>(null);
 
-  useEffect(() => {
-    if (!ouvert) return;
-    let annule = false;
-    (async () => {
-      try {
-        const reponse = await catalogue.zones(commande.boutique.id);
-        if (!annule) setZones(reponse);
-      } catch {
-        if (!annule) setZones(null);
-      }
-    })();
-    return () => {
-      annule = true;
-    };
-  }, [ouvert, commande.boutique.id]);
-
   const enregistrer = async () => {
     setEnvoi(true);
     setErreur(null);
     try {
       const maj = await apiCommandes.modifier(commande.id, {
-        livraison_zone: zone,
-        adresse_livraison: zone === "RECUPERATION" ? "" : adresse.trim(),
+        // La zone de livraison n'est pas modifiable ici : la boutique la fixe
+        // (et avec elle les frais) au moment de valider la commande.
+        adresse_livraison: retrait ? "" : adresse.trim(),
         telephone: telephone.trim(),
         telephone_2: telephone2.trim(),
         mode_paiement: modePaiement,
@@ -286,8 +270,8 @@ function ModifierCommande({
     <Modal
       ouvert={ouvert}
       onOuvertChange={onOuvertChange}
-      titre="Modifier la livraison"
-      description="Les articles ne sont pas modifiables : pour changer le panier, annulez et repassez commande."
+      titre="Modifier mes informations"
+      description="Adresse, téléphones, paiement et remarque. Les articles et les frais de livraison ne sont pas modifiables ici : pour changer le panier, annulez et repassez commande."
     >
       <div className="space-y-4">
         {erreur ? (
@@ -296,26 +280,15 @@ function ModifierCommande({
           </p>
         ) : null}
 
-        <Field label="Zone" htmlFor="maj-zone" erreurs={erreur?.pour("livraison_zone")}>
-          <Select id="maj-zone" value={zone} onChange={(e) => setZone(e.target.value)}>
-            {zones ? (
-              [zones.recuperation, ...zones.zones].map((z) => (
-                <option key={z.code} value={z.code}>
-                  {z.nom}
-                  {z.prix > 0 ? ` — ${formatAr(z.prix)}` : ""}
-                </option>
-              ))
-            ) : (
-              <option value={zone}>{zone}</option>
-            )}
-          </Select>
-        </Field>
-
-        {zone !== "RECUPERATION" ? (
+        {!retrait ? (
           <Field label="Adresse de livraison" htmlFor="maj-adresse" erreurs={erreur?.pour("adresse_livraison")}>
             <Input id="maj-adresse" value={adresse} onChange={(e) => setAdresse(e.target.value)} />
           </Field>
-        ) : null}
+        ) : (
+          <p className="rounded-lg bg-foreground/[0.04] px-4 py-3 text-xs text-muted">
+            Retrait sur place : aucune adresse n&apos;est nécessaire.
+          </p>
+        )}
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Téléphone" htmlFor="maj-tel" aide="+261XXXXXXXXX" erreurs={erreur?.pour("telephone")}>
@@ -333,7 +306,7 @@ function ModifierCommande({
           </Select>
         </Field>
 
-        <Field label="Note" htmlFor="maj-note" erreurs={erreur?.pour("note")}>
+        <Field label="Remarque" htmlFor="maj-note" erreurs={erreur?.pour("note")}>
           <Textarea id="maj-note" value={note} onChange={(e) => setNote(e.target.value)} />
         </Field>
 

@@ -764,7 +764,35 @@ tel quel à côté de la pastille.
 composition sobre construite à partir des vraies données du produit (marque,
 sous-type, couleurs des variantes). Aucune image factice n'est utilisée.
 
-### 9.8 Proxy d'API same-origin
+### 9.8 Zone de livraison décidée par la boutique
+
+**Type** : frontend uniquement (le contrat de l'API ne change pas).
+
+**Description** : à la commande, le client choisit seulement **livraison** ou
+**retrait sur place**. Il ne choisit plus de zone : c'est la boutique qui la
+fixe — et avec elle les frais — au moment de valider la commande, d'après
+l'adresse saisie.
+
+**Comportement** :
+- `livraison_zone` restant obligatoire côté API, le front envoie
+  `RECUPERATION` pour un retrait, et sinon la **première zone** renvoyée par
+  `GET /api/boutiques/{id}/zones/` (la moins chère, l'API les ordonne par
+  prix) à titre provisoire ;
+- le gérant ajuste ensuite la zone depuis l'application de gestion, ce qui
+  recalcule `frais_livraison` et `total_a_payer` ;
+- aucun montant de livraison n'est donc affiché au client avant validation :
+  le récapitulatif indique « Total articles » et « Livraison : fixée par la
+  boutique » ;
+- l'adresse n'est demandée (et envoyée) que pour une livraison ;
+- si la boutique n'a aucune zone active, seul le retrait est proposé ;
+- le client ne peut pas non plus changer la zone en modifiant sa commande :
+  `PATCH /api/client/orders/{id}/` n'envoie plus `livraison_zone`, pour ne pas
+  écraser ce que la boutique a fixé.
+
+**Endpoints utilisés** : `GET /api/boutiques/{id}/zones/`,
+`POST /api/client/orders/`, `PATCH /api/client/orders/{id}/`.
+
+### 9.9 Proxy d'API same-origin
 
 **Type** : frontend uniquement (aucune modification du backend).
 
