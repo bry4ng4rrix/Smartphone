@@ -17,14 +17,20 @@ const store = creerStorePersistant<Theme | null>(CLE, null, (donnees) =>
 type ThemeApi = { theme: Theme; basculer: () => void };
 const ThemeContext = createContext<ThemeApi | null>(null);
 
+/** Thème effectif côté navigateur : choix mémorisé, sinon préférence système. */
+function themeCourant(): Theme {
+  return store.get() ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "sombre" : "clair");
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const enregistre = useSyncExternalStore(store.subscribe, store.get, store.getServer);
-  // Aucun choix mémorisé : on suit la préférence du système, comme le script.
-  const systemeSombre = typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const theme: Theme = enregistre ?? (systemeSombre ? "sombre" : "clair");
+  // `getServerSnapshot` renvoie « clair » : React rend le même HTML côté
+  // serveur et à l'hydratation, puis re-rend avec la vraie valeur — pas de
+  // divergence d'hydratation. La classe `dark` de <html>, elle, est déjà
+  // posée par SCRIPT_THEME avant le premier rendu, donc rien ne clignote.
+  const theme = useSyncExternalStore(store.subscribe, themeCourant, (): Theme => "clair");
 
   const basculer = useCallback(() => {
-    const suivant: Theme = (store.get() ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "sombre" : "clair")) === "sombre" ? "clair" : "sombre";
+    const suivant: Theme = themeCourant() === "sombre" ? "clair" : "sombre";
     document.documentElement.classList.toggle("dark", suivant === "sombre");
     document.documentElement.style.colorScheme = suivant === "sombre" ? "dark" : "light";
     store.set(suivant);

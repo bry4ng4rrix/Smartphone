@@ -14,9 +14,22 @@ import type { NextConfig } from "next";
 const DJANGO_ORIGIN = process.env.DJANGO_ORIGIN ?? "http://localhost:8010";
 
 const nextConfig: NextConfig = {
+  // Image Docker minimale : `next build` produit un serveur autonome
+  // (.next/standalone) qui n'embarque que les dépendances réellement usées.
+  output: "standalone",
+
+  // Django exige la barre oblique finale (`APPEND_SLASH`). Sans cette option,
+  // Next normalise `/backend/boutiques/` en `/backend/boutiques` AVANT le
+  // rewrite, et Django renvoie alors une redirection vers son propre domaine
+  // — que le navigateur bloque (CORS). Les routes de l'app n'utilisent pas de
+  // barre finale, ce réglage ne change donc rien pour elles.
+  skipTrailingSlashRedirect: true,
+
   async rewrites() {
     return [
-      { source: "/backend/:path*", destination: `${DJANGO_ORIGIN}/api/:path*` },
+      // La barre finale est ajoutée côté destination : Next normalise le
+      // chemin entrant en la retirant, alors que Django l'exige (APPEND_SLASH).
+      { source: "/backend/:path*", destination: `${DJANGO_ORIGIN}/api/:path*/` },
       { source: "/media/:path*", destination: `${DJANGO_ORIGIN}/media/:path*` },
     ];
   },

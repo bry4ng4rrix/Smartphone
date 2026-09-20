@@ -12,10 +12,9 @@ import { useTheme } from "@/providers/theme-provider";
 import { useWishlist } from "@/providers/wishlist-provider";
 import { cn } from "@/lib/utils";
 
+// Repli si le catalogue est injoignable : aucun lien de catégorie inventé.
 const LIENS = [
   { href: "/catalogue", label: "Catalogue" },
-  { href: "/catalogue?category=4", label: "Housses" },
-  { href: "/catalogue?category=5", label: "Cache-écrans" },
   { href: "/favoris", label: "Favoris" },
 ];
 

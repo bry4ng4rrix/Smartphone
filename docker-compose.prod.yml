@@ -84,6 +84,28 @@ services:
     depends_on:
       - backend
 
+  clients-frontend:
+    # Espace client en ligne (app `clients` côté API) — indépendant du
+    # frontend de gestion ci-dessus : sa propre image, son propre port.
+    build:
+      context: ./clients_frontend
+      dockerfile: Dockerfile
+    container_name: smart_clients_frontend
+    environment:
+      # Origine du backend, lue au démarrage par les rewrites Next :
+      # le navigateur n'appelle jamais Django directement (pas de CORS à
+      # ouvrir), tout passe par /backend et /media servis sur ce port.
+      DJANGO_ORIGIN: ${CLIENTS_DJANGO_ORIGIN:-http://backend:8010}
+      SITE_URL: ${CLIENTS_SITE_URL:-http://localhost:3000}
+      PORT: "3000"
+    ports:
+      # Port hôte configurable ; 3000 par défaut, distinct du 3010 du
+      # frontend de gestion.
+      - "${CLIENTS_FRONTEND_PORT:-3000}:3000"
+    restart: unless-stopped
+    depends_on:
+      - backend
+
 volumes:
   postgres_data:
   static_volume:

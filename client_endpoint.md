@@ -34,6 +34,9 @@ Tous les exemples de ce document sont des **réponses réelles** capturées sur 
 - [6. Cycle de vie d'une commande](#6-cycle-de-vie-dune-commande)
 - [7. Erreurs et limitation de débit](#7-erreurs-et-limitation-de-débit)
 - [8. Ce que l'API client n'expose jamais](#8-ce-que-lapi-client-nexpose-jamais)
+- [9. Fonctionnalités frontend supplémentaires](#9-fonctionnalités-frontend-supplémentaires)
+- [10. Propositions d'évolution API](#10-propositions-dévolution-api)
+- [11. Architecture du front client](#11-architecture-du-front-client)
 
 ---
 
@@ -666,3 +669,195 @@ Volontairement absent de toutes les réponses ci-dessus, et inaccessible avec un
 - commandes des autres clients, y compris par id.
 
 L'application cliente n'a donc besoin d'aucun filtrage de sécurité de son côté : tout ce qu'elle reçoit est destiné au client connecté.
+
+---
+
+## 9. Fonctionnalités frontend supplémentaires
+
+> Cette section décrit des comportements de **l'application cliente uniquement**
+> (`clients_frontend/`). Ce ne sont **pas** des endpoints : le backend les
+> ignore totalement, et rien ici n'ajoute, ne modifie ni ne contourne une règle
+> de l'API décrite plus haut.
+
+### 9.1 Panier local
+
+**Type** : frontend uniquement.
+
+**Description** : l'API ne connaît pas de panier — une commande est créée d'un
+bloc par `POST /api/client/orders/`. Le panier est donc construit côté client.
+
+**Stockage** : `localStorage`, clé `smg_client_panier`. Une ligne contient
+l'identifiant de variante, la quantité, et une copie d'affichage du produit
+(nom, couleur, prix, photo, boutique).
+
+**Comportement** :
+- une commande ne pouvant concerner qu'une seule boutique, l'ajout d'un article
+  d'une autre boutique demande confirmation et remplace le panier ;
+- le prix mémorisé est envoyé comme `prix_attendu` à la création de la commande :
+  si la boutique a changé son prix, l'API refuse et le client voit le nouveau prix ;
+- le total affiché est explicitement présenté comme **estimatif** ; le montant
+  qui fait foi reste `total_a_payer` renvoyé par l'API ;
+- le panier est partagé entre les onglets ouverts (événement `storage`).
+
+**Endpoints utilisés** : aucun pour le panier lui-même ; `POST /api/client/orders/`
+à la validation.
+
+### 9.2 Favoris
+
+**Type** : frontend uniquement.
+
+**Description** : liste de produits mis de côté, accessible sans compte.
+
+**Stockage** : `localStorage`, clé `smg_client_favoris` — uniquement des
+identifiants produit.
+
+**Comportement** : la page `/favoris` recharge chaque fiche via
+`GET /api/produit/{id}/`, donc prix et disponibilité sont toujours à jour ; un
+produit devenu introuvable (404) est retiré silencieusement de la liste locale.
+
+**Endpoints utilisés** : `GET /api/produit/{id}/`.
+
+### 9.3 Préférence de thème (clair / sombre)
+
+**Type** : frontend uniquement.
+
+**Stockage** : `localStorage`, clé `smg_client_theme`. Sans valeur enregistrée,
+la préférence système (`prefers-color-scheme`) s'applique.
+
+### 9.4 Tri des produits affichés
+
+**Type** : frontend uniquement.
+
+**Description** : `GET /api/produit/` n'expose aucun paramètre d'ordre. Le
+catalogue propose donc un tri (prix croissant/décroissant, nom) appliqué aux
+produits **déjà chargés**, et le libellé du contrôle le dit explicitement
+(« Trier les produits affichés »). Les filtres, eux, sont bien envoyés à l'API.
+
+Voir la proposition d'évolution 10.1 pour un tri complet côté serveur.
+
+### 9.5 Chargement progressif du catalogue
+
+**Type** : frontend uniquement.
+
+**Description** : la première page du catalogue est rendue côté serveur (SEO) ;
+le bouton « Charger plus de produits » appelle la page suivante avec le
+paramètre `page` déjà documenté, et concatène les résultats sans recharger la
+page.
+
+**Endpoints utilisés** : `GET /api/produit/?page=N`.
+
+### 9.6 Pastilles de couleur
+
+**Type** : frontend uniquement.
+
+**Description** : l'API renvoie la couleur d'une variante sous forme de texte
+(`"Bleu ciel"`). L'interface affiche une pastille colorée à côté du nom, par
+correspondance de mots-clés ; un nom inconnu reçoit une teinte stable dérivée
+de ses lettres. Aucune donnée n'est inventée : le texte de l'API reste affiché
+tel quel à côté de la pastille.
+
+### 9.7 Visuel de remplacement
+
+**Type** : frontend uniquement.
+
+**Description** : quand `photo` vaut `null`, la carte produit affiche une
+composition sobre construite à partir des vraies données du produit (marque,
+sous-type, couleurs des variantes). Aucune image factice n'est utilisée.
+
+### 9.8 Proxy d'API same-origin
+
+**Type** : frontend uniquement (aucune modification du backend).
+
+**Description** : le backend n'autorise pas l'origine du front client dans
+`CORS_ALLOWED_ORIGINS`. Le navigateur n'appelle donc jamais Django
+directement : Next réécrit `/backend/<chemin>` vers `<DJANGO_ORIGIN>/api/<chemin>/`
+et `/media/<fichier>` vers `<DJANGO_ORIGIN>/media/<fichier>` côté serveur.
+Les chemins, corps et en-têtes (dont `Authorization`) sont inchangés — le
+contrat d'API décrit dans ce document reste valable tel quel.
+
+> **Note d'exploitation** : la limitation de débit (section 7) est comptée par
+> adresse IP. Derrière ce proxy, toutes les requêtes navigateur arrivent avec
+> l'IP du serveur Next. Pour retrouver un comptage par visiteur, il suffit
+> d'ajouter l'origine publique du front client à la variable d'environnement
+> `CORS_ALLOWED_ORIGINS` du backend (aucune modification de code) et de faire
+> pointer le front directement sur l'API.
+
+---
+
+## 10. Propositions d'évolution API
+
+> Fonctionnalités utiles qui **nécessiteraient une évolution du backend**.
+> Rien de tout cela n'est implémenté ni appelé aujourd'hui : le front
+> fonctionne uniquement avec les endpoints des sections 3 à 5.
+
+### 10.1 Tri côté serveur du catalogue
+
+**Fonctionnalité** : trier l'ensemble du catalogue, pas seulement la page chargée.
+
+**Endpoint proposé** : `GET /api/produit/?ordering=prix_vente|-prix_vente|reference_name`.
+
+**Pourquoi** : le tri actuel ne porte que sur les produits déjà reçus ; avec 298
+références, « le moins cher d'abord » ne donne pas le vrai premier prix.
+
+**Statut** : à implémenter côté backend ultérieurement.
+
+### 10.2 Nouveautés
+
+**Fonctionnalité** : une section « Nouveautés » en page d'accueil.
+
+**Endpoint proposé** : exposer `created_at` sur `PublicProduitSerializer`, ou
+`GET /api/produit/?ordering=-created_at`.
+
+**Pourquoi** : aujourd'hui aucune donnée ne permet de savoir ce qui est récent.
+La page d'accueil se limite donc à « Disponibles maintenant »
+(`?available=1`), qui est vérifiable.
+
+**Statut** : à implémenter côté backend ultérieurement.
+
+### 10.3 Galerie produit
+
+**Fonctionnalité** : plusieurs visuels par produit, et un visuel par couleur.
+
+**Endpoint proposé** : `photos: [...]` sur le produit, et/ou `photo` sur la variante.
+
+**Pourquoi** : `PublicProduitSerializer` ne renvoie qu'une seule `photo` pour
+toute la référence ; la fiche produit ne peut donc pas proposer de galerie.
+
+**Statut** : à implémenter côté backend ultérieurement.
+
+### 10.4 Réinitialisation du mot de passe
+
+**Fonctionnalité** : « mot de passe oublié » pour un client.
+
+**Endpoints proposés** : `POST /api/client/password-reset/` et
+`POST /api/client/password-reset/confirm/`.
+
+**Pourquoi** : `POST /api/client/change-password/` exige le mot de passe
+actuel ; un client qui l'a perdu n'a aujourd'hui aucun recours en ligne.
+
+**Statut** : à implémenter côté backend ultérieurement.
+
+---
+
+## 11. Architecture du front client
+
+L'application cliente vit dans `clients_frontend/` (Next.js 16, App Router,
+React 19, Tailwind CSS v4, TypeScript). Elle écoute le port **3000**, distinct
+du front de gestion (3010) et de l'API (8010).
+
+| Dossier | Rôle |
+| --- | --- |
+| `app/` | Routes : accueil, `catalogue`, `produit/[id]`, `panier`, `checkout`, `connexion`, `inscription`, `favoris`, `compte` (profil, commandes, suivi) |
+| `components/` | UI (`ui/`), enveloppe du site (`layout/`), catalogue, fiche produit, panier, checkout, commandes, compte |
+| `lib/` | `api.ts` (fetch + JWT + refresh), `endpoints.ts` (une fonction par route), `types.ts`, `statuts.ts`, `store.ts`, utilitaires |
+| `providers/` | Session client, panier, favoris, thème, notifications |
+
+**Rendu** : le catalogue et les fiches produit sont rendus côté serveur (appel
+direct à Django, bon pour le référencement) ; tout ce qui dépend du compte
+(panier, commandes, profil) est rendu côté client avec le jeton du visiteur.
+
+**Jetons** : `access` et `refresh` en `localStorage`. Sur `401`, un seul refresh
+est lancé pour toutes les requêtes en attente, puis la requête est rejouée ; si
+le refresh échoue, les jetons sont effacés et le visiteur est redirigé vers la
+connexion.
+

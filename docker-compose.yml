@@ -36,3 +36,19 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+
+  clients-frontend:
+    # Espace client en ligne — développement : image construite depuis
+    # clients_frontend/Dockerfile, servie sur http://localhost:3000.
+    build:
+      context: ./clients_frontend
+      dockerfile: Dockerfile
+    container_name: smart_clients_frontend
+    environment:
+      DJANGO_ORIGIN: "http://backend:8010"
+      PORT: "3000"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped

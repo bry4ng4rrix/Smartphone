@@ -1,0 +1,192 @@
+# Espace client (clients_frontend/) — vérification, image Docker, déploiement.
+#
+# Volontairement séparé de `deploy.yml` : l'espace client a son propre cycle
+# de vie, son propre port (3000) et son propre conteneur. Ce workflow ne
+# touche ni au backend ni au frontend de gestion (3010).
+name: Clients frontend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "clients_frontend/**"
+      - "docker-compose.prod.yml"
+      - ".github/workflows/clients-frontend.yml"
+  pull_request:
+    paths:
+      - "clients_frontend/**"
+      - ".github/workflows/clients-frontend.yml"
+  # Permet de relancer la construction/le déploiement à la demande.
+  workflow_dispatch:
+
+concurrency:
+  group: clients-frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: clients_frontend
+
+jobs:
+  # ============================================================
+  # VERIFY — lint, types, build applicatif
+  # ============================================================
+  verify:
+    name: Lint, types et build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # La version de pnpm vient du champ `packageManager` de package.json.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: clients_frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+  # ============================================================
+  # DOCKER — construction de l'image (validation du Dockerfile)
+  # ============================================================
+  docker:
+    name: Image Docker
+    needs: verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./clients_frontend
+          file: ./clients_frontend/Dockerfile
+          push: false
+          load: true
+          tags: smartphonemg/clients-frontend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test du conteneur
+        working-directory: .
+        run: |
+          set -e
+          docker run -d --name clients_smoke -p 3000:3000 \
+            -e DJANGO_ORIGIN=http://127.0.0.1:8010 \
+            smartphonemg/clients-frontend:${{ github.sha }}
+
+          # L'API n'est pas jointe ici : on vérifie seulement que le serveur
+          # Next démarre et répond (les pages dégradent proprement sans API).
+          for i in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:3000/; then
+              echo "Conteneur opérationnel sur le port 3000."
+              docker rm -f clients_smoke
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "Le conteneur n'a pas répondu sur le port 3000 :"
+          docker logs clients_smoke
+          docker rm -f clients_smoke
+          exit 1
+
+  # ============================================================
+  # DEPLOY — VPS, uniquement le service clients-frontend
+  # ============================================================
+  deploy:
+    name: Déploiement VPS
+    needs: docker
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add server to known_hosts
+        working-directory: .
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -H "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Build et démarrage du conteneur client
+        working-directory: .
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" 'bash -s' << 'REMOTE'
+            set -e
+
+            PROJECT_DIR="/home/smart/Smartphone"
+            COMPOSE_FILE="docker-compose.prod.yml"
+            SERVICE="clients-frontend"
+
+            cd "$PROJECT_DIR"
+
+            echo "======================================"
+            echo "Mise à jour du dépôt"
+            echo "======================================"
+            git fetch origin main
+            git reset --hard origin/main
+            git rev-parse --short HEAD
+
+            echo ""
+            echo "======================================"
+            echo "Construction de l'image $SERVICE"
+            echo "======================================"
+            docker compose -f "$COMPOSE_FILE" build "$SERVICE"
+
+            echo ""
+            echo "======================================"
+            echo "Redémarrage du service $SERVICE"
+            echo "======================================"
+            # Seul ce service est recréé : backend et frontend de gestion
+            # (port 3010) ne sont pas touchés.
+            docker compose -f "$COMPOSE_FILE" up -d --no-deps "$SERVICE"
+
+            docker compose -f "$COMPOSE_FILE" ps "$SERVICE"
+
+            echo ""
+            echo "======================================"
+            echo "Vérification HTTP"
+            echo "======================================"
+            PORT="$(grep -E '^CLIENTS_FRONTEND_PORT=' .env 2>/dev/null | cut -d= -f2)"
+            PORT="${PORT:-3000}"
+
+            for i in $(seq 1 30); do
+              if curl -fsS -o /dev/null "http://127.0.0.1:${PORT}/"; then
+                echo "Espace client en ligne sur le port ${PORT}."
+                exit 0
+              fi
+              sleep 2
+            done
+
+            echo "Pas de réponse sur le port ${PORT} :"
+            docker compose -f "$COMPOSE_FILE" logs --tail=100 "$SERVICE"
+            exit 1
+          REMOTE
