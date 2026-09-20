@@ -36,6 +36,17 @@ export const metadata: Metadata = {
   applicationName: "Smartphone.Mg",
 };
 
+/**
+ * Rendu à la demande pour toute l'application.
+ *
+ * Sans cela, Next pré-génère les pages au moment du `next build` — c'est-à-dire
+ * dans l'image Docker, où l'API n'est pas joignable : l'accueil et la barre de
+ * navigation seraient figés sur leur état de repli (aucune catégorie, aucun
+ * produit) jusqu'à la première régénération. Les appels catalogue restent mis
+ * en cache 60 s côté données (voir lib/endpoints.ts), donc le coût reste faible.
+ */
+export const dynamic = "force-dynamic";
+
 export const viewport: Viewport = {
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#faf9f7" },

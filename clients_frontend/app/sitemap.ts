@@ -3,6 +3,10 @@ import { catalogue } from "@/lib/endpoints";
 
 const SITE = process.env.SITE_URL ?? "http://localhost:3000";
 
+// Même raison que le layout : le plan de site doit être construit avec l'API
+// joignable, pas au moment de la construction de l'image.
+export const dynamic = "force-dynamic";
+
 /** Pages publiques + fiches produit réellement présentes au catalogue. */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const pages: MetadataRoute.Sitemap = [
