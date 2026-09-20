@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { ArrowRight, PackageCheck, ShieldCheck, Store, Truck } from "lucide-react";
 import { ProductCard } from "@/components/catalog/product-card";
+import { ProductImage } from "@/components/product/product-image";
+import { Aurora } from "@/components/ui/aurora";
 import { Reveal } from "@/components/ui/reveal";
 import { EmptyState } from "@/components/ui/empty-state";
 import { catalogue } from "@/lib/endpoints";
@@ -10,7 +12,7 @@ import { WifiOff } from "lucide-react";
 type Donnees = {
   total: number;
   disponibles: Produit[];
-  categories: Array<Categorie & { nb: number }>;
+  categories: Array<Categorie & { nb: number; apercu: Produit[] }>;
   marques: Marque[];
   boutique: string | null;
   enPanne: boolean;
@@ -27,14 +29,15 @@ async function charger(): Promise<Donnees> {
       catalogue.boutiques(),
     ]);
 
-    // Nombre réel de produits par catégorie : une requête comptée par l'API.
+    // Nombre réel de produits par catégorie + un aperçu de la page visée :
+    // la tuile montre ce qu'on y trouve au lieu d'un aplat vide.
     const avecNb = await Promise.all(
       categories.map(async (c) => {
         try {
-          const page = await catalogue.produits({ category: c.id, page_size: 1 });
-          return { ...c, nb: page.count };
+          const page = await catalogue.produits({ category: c.id, available: "1", page_size: 4 });
+          return { ...c, nb: page.count, apercu: page.results };
         } catch {
-          return { ...c, nb: 0 };
+          return { ...c, nb: 0, apercu: [] as Produit[] };
         }
       }),
     );
@@ -64,9 +67,13 @@ export default async function Accueil() {
 
   return (
     <>
+      {/* Fond animé de la page : fixé en haut de la fenêtre, il passe derrière
+          l'en-tête flottant et se fond vers le bas — aucune bande sombre ne
+          vient couper la composition. */}
+      <Aurora />
+
       {/* ------------------------------------------------------------ Hero */}
-      <section className="aurora relative overflow-hidden px-4 pt-10 pb-16 sm:px-6 sm:pt-16 sm:pb-24">
-        <div className="aurora-layer" aria-hidden />
+      <section className="relative px-4 pt-10 pb-16 sm:px-6 sm:pt-16 sm:pb-24">
         <div className="mx-auto w-full max-w-[1400px]">
           <div className="grid items-center gap-10 lg:grid-cols-[1.1fr_0.9fr]">
             <div>
@@ -106,15 +113,31 @@ export default async function Accueil() {
                   <Reveal key={c.id} delai={i * 90}>
                     <Link
                       href={`/catalogue?category=${c.id}`}
-                      className="glass elevate hover:elevate-hover group flex aspect-[4/5] flex-col justify-end rounded-xl p-5"
+                      className="glass elevate hover:elevate-hover group flex aspect-[4/5] flex-col overflow-hidden rounded-xl"
                     >
-                      <span className="text-[10px] tracking-[0.2em] text-muted uppercase">Catégorie</span>
-                      <span className="mt-1 text-lg leading-tight font-medium tracking-tight">{c.nom}</span>
-                      <span className="mt-1 text-xs text-muted tabular-nums">{c.nb} référence{c.nb > 1 ? "s" : ""}</span>
-                      <ArrowRight
-                        className="mt-3 size-4 text-muted transition-transform duration-300 group-hover:translate-x-1"
-                        aria-hidden
-                      />
+                      {/* Aperçu de la page visée : les produits réellement
+                          disponibles dans cette catégorie. */}
+                      {c.apercu.length > 0 ? (
+                        <span className="grid flex-1 grid-cols-2 gap-px bg-foreground/[0.06] p-px">
+                          {c.apercu.slice(0, 4).map((p) => (
+                            <ProductImage key={p.id} produit={p} className="size-full" sizes="20vw" />
+                          ))}
+                        </span>
+                      ) : (
+                        <span className="flex-1" />
+                      )}
+
+                      <span className="flex flex-col p-5">
+                        <span className="text-[10px] tracking-[0.2em] text-muted uppercase">Catégorie</span>
+                        <span className="mt-1 text-lg leading-tight font-medium tracking-tight">{c.nom}</span>
+                        <span className="mt-1 flex items-center gap-2 text-xs text-muted tabular-nums">
+                          {c.nb} référence{c.nb > 1 ? "s" : ""}
+                          <ArrowRight
+                            className="size-3.5 transition-transform duration-300 group-hover:translate-x-1"
+                            aria-hidden
+                          />
+                        </span>
+                      </span>
                     </Link>
                   </Reveal>
                 ))}
@@ -186,7 +209,8 @@ export default async function Accueil() {
       {/* ------------------------------------------------ Parcours */}
       <section className="mx-auto w-full max-w-[1400px] px-4 pb-8 sm:px-6" aria-labelledby="parcours">
         <Reveal>
-          <div className="glass grain relative overflow-hidden rounded-2xl px-6 py-12 sm:px-12">
+          <div className="glass grain aurora relative overflow-hidden rounded-2xl px-6 py-12 sm:px-12">
+            <Aurora portee="bloc" intensite="discrete" />
             <p className="text-[11px] font-medium tracking-[0.22em] text-muted uppercase">Comment ça marche</p>
             <h2 id="parcours" className="mt-2 max-w-lg text-2xl leading-tight font-semibold tracking-tight sm:text-3xl">
               De la commande à la livraison, vous suivez chaque étape.

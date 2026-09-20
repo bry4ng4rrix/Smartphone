@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { WifiOff } from "lucide-react";
 import { CatalogGrid } from "@/components/catalog/catalog-grid";
 import { FiltresContenu, FiltresMobile, type Referentiels } from "@/components/catalog/filters";
+import { Aurora } from "@/components/ui/aurora";
 import { EmptyState } from "@/components/ui/empty-state";
 import { catalogue } from "@/lib/endpoints";
 import type { Page, Produit } from "@/lib/types";
@@ -55,7 +56,8 @@ export default async function CataloguePage(props: PageProps<"/catalogue">) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1400px] px-4 pt-8 pb-16 sm:px-6 sm:pt-12">
+    <div className="relative mx-auto w-full max-w-[1400px] px-4 pt-8 pb-16 sm:px-6 sm:pt-12">
+      <Aurora intensite="discrete" />
       <header className="mb-8">
         <p className="text-[11px] font-medium tracking-[0.22em] text-muted uppercase">Boutique</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">

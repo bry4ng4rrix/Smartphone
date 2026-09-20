@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { ProductDetail } from "@/components/product/product-detail";
 import { ProductCard } from "@/components/catalog/product-card";
+import { Aurora } from "@/components/ui/aurora";
 import { Reveal } from "@/components/ui/reveal";
 import { ApiError } from "@/lib/api";
 import { catalogue } from "@/lib/endpoints";
@@ -55,7 +56,8 @@ export default async function ProduitPage(props: PageProps<"/produit/[id]">) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1400px] px-4 pt-6 pb-16 sm:px-6 sm:pt-10">
+    <div className="relative mx-auto w-full max-w-[1400px] px-4 pt-6 pb-16 sm:px-6 sm:pt-10">
+      <Aurora intensite="discrete" />
       <Link
         href="/catalogue"
         className="mb-6 inline-flex items-center gap-2 text-sm text-muted transition-colors hover:text-foreground"

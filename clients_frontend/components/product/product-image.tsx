@@ -37,14 +37,14 @@ export function ProductImage({
   const teintes = produit.variantes.slice(0, 3).map((v) => couleurCss(v.couleur));
   const fond =
     teintes.length > 0
-      ? `radial-gradient(120% 90% at 25% 15%, ${teintes[0]}33, transparent 60%), radial-gradient(90% 80% at 80% 80%, ${
+      ? `radial-gradient(90% 70% at 25% 20%, ${teintes[0]}3d, transparent 62%), radial-gradient(70% 60% at 78% 78%, ${
           teintes[1] ?? teintes[0]
-        }2e, transparent 60%)`
+        }33, transparent 62%), radial-gradient(60% 50% at 55% 50%, ${teintes[2] ?? teintes[0]}24, transparent 65%)`
       : undefined;
 
   return (
     <div
-      className={cn("relative flex items-center justify-center overflow-hidden bg-surface-2", className)}
+      className={cn("relative flex items-center justify-center overflow-hidden bg-surface-2", fond && "degrade-anime", className)}
       style={fond ? { backgroundImage: fond } : undefined}
       role="img"
       aria-label={`${produit.nom_complet} — visuel non disponible`}
