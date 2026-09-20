@@ -1893,9 +1893,6 @@ export default function OrdersPage() {
                             .filter(Boolean)
                             .join(" • ") || "Sans métadonnées"}
                         </div>
-                        <div className="text-xl font-bold text-red-700 dark:text-red-400">
-                          {it.quantite && `Quantité : ${it.quantite}`}
-                        </div>
                         {/* Prix de l'article — gérant et préparateur
                             (§ demande) ; le livreur, lui, ne voit que le
                             total à encaisser. Remise accordée affichée. */}
