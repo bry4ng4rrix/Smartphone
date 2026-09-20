@@ -4,4 +4,6 @@ node_modules
 .env*
 !.env.example
 npm-debug.log*
+pnpm-lock.yaml
+pnpm-workspace.yaml
 README.md

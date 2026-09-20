@@ -1,25 +1,26 @@
 # syntax=docker/dockerfile:1.7
 # Espace client Smartphone.Mg — Next.js 16 (App Router) servi sur le port 3000.
 # Image en trois étapes : dépendances, build, exécution (sortie « standalone »).
+#
+# L'image se construit avec **npm** (comme le reste du déploiement VPS) à
+# partir de package-lock.json. Le développement local, lui, reste sous pnpm :
+# les deux fichiers de verrouillage décrivent les mêmes dépendances.
 
 # ----------------------------------------------------------------- deps ----
 FROM node:22-alpine AS deps
 WORKDIR /app
-RUN corepack enable
-# La version de pnpm vient du champ `packageManager` de package.json.
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-# Délai de récupération généreux : les registres sont parfois lents depuis
-# certains réseaux, et un échec ici ferait échouer toute l'image.
-RUN pnpm install --frozen-lockfile --fetch-timeout 600000 --network-concurrency 4
+COPY package.json package-lock.json ./
+# `npm ci` installe exactement le contenu du lockfile. Le délai est allongé :
+# un registre lent ne doit pas faire échouer toute la construction.
+RUN npm ci --no-audit --no-fund --fetch-timeout=600000
 
 # ---------------------------------------------------------------- build ----
 FROM node:22-alpine AS builder
 WORKDIR /app
-RUN corepack enable
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN pnpm build
+RUN npm run build
 
 # --------------------------------------------------------------- runner ----
 FROM node:22-alpine AS runner
