@@ -30,6 +30,10 @@ export const metadata: Metadata = {
     title: "Smartphone.Mg — Accessoires premium pour smartphone",
     description: "Housses, cache-écrans et accessoires pour smartphone à Madagascar.",
   },
+  // Les icônes viennent des conventions de fichiers (app/favicon.ico,
+  // app/icon.png, app/apple-icon.png), toutes dérivées de public/logo.jpeg.
+  // L'image de partage vient de app/opengraph-image.png.
+  applicationName: "Smartphone.Mg",
 };
 
 export const viewport: Viewport = {

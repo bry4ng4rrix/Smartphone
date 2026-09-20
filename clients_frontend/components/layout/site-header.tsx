@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -77,8 +78,17 @@ export function SiteHeader({ categories }: { categories: { id: number; nom: stri
               <Menu aria-hidden />
             </Button>
 
-            <Link href="/" className="group flex items-center gap-2 pr-2 pl-1 lg:pl-2">
-              <span className="grid size-7 place-items-center rounded-lg bg-foreground text-[11px] font-bold text-background">S</span>
+            <Link href="/" className="group flex items-center gap-2 pr-2 pl-1 lg:pl-2" aria-label="Smartphone.Mg — accueil">
+              {/* Pictogramme du logo fourni (public/logo.jpeg) : le mot-symbole
+                  reste en texte, lisible à toutes les tailles. */}
+              <Image
+                src="/logo-mark.png"
+                alt=""
+                width={28}
+                height={28}
+                priority
+                className="size-7 rounded-lg object-cover ring-1 ring-foreground/[0.06]"
+              />
               <span className="text-[15px] font-semibold tracking-tight">
                 Smartphone<span className="text-accent">.Mg</span>
               </span>

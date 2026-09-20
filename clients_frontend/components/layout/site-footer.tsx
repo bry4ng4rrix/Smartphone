@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import type { Boutique } from "@/lib/types";
 
@@ -7,8 +8,14 @@ export function SiteFooter({ boutiques }: { boutiques: Boutique[] }) {
       <div className="mx-auto w-full max-w-[1400px] px-4 py-14 sm:px-6">
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
           <div className="lg:col-span-2">
-            <Link href="/" className="flex items-center gap-2">
-              <span className="grid size-7 place-items-center rounded-lg bg-foreground text-[11px] font-bold text-background">S</span>
+            <Link href="/" className="flex items-center gap-2.5" aria-label="Smartphone.Mg — accueil">
+              <Image
+                src="/logo-mark.png"
+                alt=""
+                width={36}
+                height={36}
+                className="size-9 rounded-xl object-cover ring-1 ring-foreground/[0.06]"
+              />
               <span className="text-[15px] font-semibold tracking-tight">
                 Smartphone<span className="text-accent">.Mg</span>
               </span>
