@@ -989,7 +989,14 @@ export default function OrdersPage() {
       ANCIENNES: (a, b) => creeLe(a) - creeLe(b),
     };
     return [...base].sort(tri[livreurTri]);
-  }, [ordersFiltresStatut, isLivreur, viewMode, livreurTri, livreurPeriode, livreurDate]);
+  }, [
+    ordersFiltresStatut,
+    isLivreur,
+    viewMode,
+    livreurTri,
+    livreurPeriode,
+    livreurDate,
+  ]);
 
   // Pastille « quand livrer » d'une commande (vue livreur), jour métier
   // d'Antananarivo : « Aujourd'hui · HH:mm », « Demain · HH:mm »,
@@ -1885,6 +1892,9 @@ export default function OrdersPage() {
                           ]
                             .filter(Boolean)
                             .join(" • ") || "Sans métadonnées"}
+                        </div>
+                        <div className="text-xl font-bold text-red-700 dark:text-red-400">
+                          {it.quantite && `Quantité : ${it.quantite}`}
                         </div>
                         {/* Prix de l'article — gérant et préparateur
                             (§ demande) ; le livreur, lui, ne voit que le
@@ -3022,8 +3032,12 @@ function EditOrderDialog({
   // Couleur choisie par article (id article -> id variante) et couleurs
   // disponibles de chaque référence : le client change souvent d'avis sur la
   // couleur alors que la commande est déjà prête (§ demande).
-  const [couleurParItem, setCouleurParItem] = useState<Record<number, string>>({});
-  const [variantesParRef, setVariantesParRef] = useState<Record<number, any[]>>({});
+  const [couleurParItem, setCouleurParItem] = useState<Record<number, string>>(
+    {},
+  );
+  const [variantesParRef, setVariantesParRef] = useState<Record<number, any[]>>(
+    {},
+  );
 
   // Au-delà de "En préparation" la commande est trop engagée pour tout
   // modifier, mais les données de LIVRAISON doivent rester ajustables : le
@@ -3256,68 +3270,86 @@ function EditOrderDialog({
             (§ demande) — le client change d'avis alors que la commande est
             déjà prête. Le serveur ajuste le stock des deux couleurs, le
             total et l'historique (orders/services.py::changer_couleur_item). */}
-        {livraisonSeule && (order?.items || []).some((it: any) => !it.retourne) && (
-          <div className="space-y-2">
-            <Label>Couleur des articles</Label>
+        {livraisonSeule &&
+          (order?.items || []).some((it: any) => !it.retourne) && (
             <div className="space-y-2">
-              {(order?.items || [])
-                .filter((it: any) => !it.retourne)
-                .map((it: any) => {
-                  const variantes = variantesParRef[it.product_reference] || [];
-                  const choisie = couleurParItem[it.id] ?? String(it.product_variant);
-                  const modifiee = Number(choisie) !== it.product_variant;
-                  return (
-                    <div
-                      key={it.id}
-                      className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">
-                          {[it.brand_name, it.reference_name].filter(Boolean).join(" ")}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {it.type_name} · Quantité : {it.quantite}
-                        </p>
-                      </div>
-                      <div className="sm:w-56">
-                        <Select
-                          value={choisie}
-                          onValueChange={(v) =>
-                            setCouleurParItem((prev) => ({ ...prev, [it.id]: v }))
-                          }
-                          disabled={variantes.length <= 1}
-                        >
-                          <SelectTrigger
-                            className={`w-full ${modifiee ? "border-primary ring-1 ring-primary/30" : ""}`}
-                            aria-label={`Couleur de ${it.reference_name}`}
+              <Label>Couleur des articles</Label>
+              <div className="space-y-2">
+                {(order?.items || [])
+                  .filter((it: any) => !it.retourne)
+                  .map((it: any) => {
+                    const variantes =
+                      variantesParRef[it.product_reference] || [];
+                    const choisie =
+                      couleurParItem[it.id] ?? String(it.product_variant);
+                    const modifiee = Number(choisie) !== it.product_variant;
+                    return (
+                      <div
+                        key={it.id}
+                        className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {[it.brand_name, it.reference_name]
+                              .filter(Boolean)
+                              .join(" ")}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {it.type_name} · Quantité : {it.quantite}
+                          </p>
+                        </div>
+                        <div className="sm:w-56">
+                          <Select
+                            value={choisie}
+                            onValueChange={(v) =>
+                              setCouleurParItem((prev) => ({
+                                ...prev,
+                                [it.id]: v,
+                              }))
+                            }
+                            disabled={variantes.length <= 1}
                           >
-                            <SelectValue placeholder={it.couleur || "Couleur"} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(variantes.length
-                              ? variantes
-                              : [{ id: it.product_variant, couleur: it.couleur, stock_actuel: null }]
-                            ).map((v: any) => (
-                              <SelectItem key={v.id} value={String(v.id)}>
-                                {v.couleur}
-                                {v.stock_actuel !== null && v.stock_actuel !== undefined
-                                  ? ` — stock ${v.stock_actuel}`
-                                  : ""}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                            <SelectTrigger
+                              className={`w-full ${modifiee ? "border-primary ring-1 ring-primary/30" : ""}`}
+                              aria-label={`Couleur de ${it.reference_name}`}
+                            >
+                              <SelectValue
+                                placeholder={it.couleur || "Couleur"}
+                              />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(variantes.length
+                                ? variantes
+                                : [
+                                    {
+                                      id: it.product_variant,
+                                      couleur: it.couleur,
+                                      stock_actuel: null,
+                                    },
+                                  ]
+                              ).map((v: any) => (
+                                <SelectItem key={v.id} value={String(v.id)}>
+                                  {v.couleur}
+                                  {v.stock_actuel !== null &&
+                                  v.stock_actuel !== undefined
+                                    ? ` — stock ${v.stock_actuel}`
+                                    : ""}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Changer la couleur remet l&apos;ancienne en stock et sort la
+                nouvelle ; le préparateur et le livreur en sont informés. Le
+                prix et le total ne changent pas.
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Changer la couleur remet l&apos;ancienne en stock et sort la nouvelle ; le
-              préparateur et le livreur en sont informés. Le prix et le total ne changent pas.
-            </p>
-          </div>
-        )}
+          )}
 
         {/* Régime restreint : au-delà de "En préparation" seul le
             mode de paiement reste modifiable (§ demande). Tout le
