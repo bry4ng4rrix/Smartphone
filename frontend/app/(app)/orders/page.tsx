@@ -1891,11 +1891,11 @@ export default function OrdersPage() {
                           ]
                             .filter(Boolean)
                             .join(" • ") || "Sans métadonnées"}
+                          {/* Agrandir le texte du quantite  */}
                           <div className="text-xl font-bold text-sky-700 dark:text-sky-400 ">
                             {it.quantite && `Quantité : ${it.quantite}`}
                           </div>
                         </div>
-                        {/* Agrandir le texte du quantite  */}
 
                         {/* Prix de l'article — gérant et préparateur
                             (§ demande) ; le livreur, lui, ne voit que le
