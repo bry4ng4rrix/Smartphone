@@ -30,6 +30,13 @@ Color _remiseColor(BuildContext context) =>
     ? const Color(0xFF6EE7B7)
     : const Color(0xFF047857);
 
+/// Quantité mise en avant sur la fiche article — `text-sky-700 dark:text-sky-400`
+/// du web (frontend/app/(app)/orders/page.tsx).
+Color _quantiteColor(BuildContext context) =>
+    Theme.of(context).brightness == Brightness.dark
+    ? const Color(0xFF38BDF8)
+    : const Color(0xFF0369A1);
+
 /// `fmtAppDateTime` du web : JJ/MM/AAAA HH:mm à l'heure d'Antananarivo, quel
 /// que soit le fuseau de l'appareil — « — » si la valeur est absente.
 String _fmtAppDateTime(DateTime? d) =>
@@ -991,6 +998,18 @@ class _ArticlesCard extends StatelessWidget {
                 ],
               ),
               Text(_meta(item), style: small),
+              // Quantité agrandie (§ demande — copie du web : `text-2xl
+              // font-bold text-sky-700 dark:text-sky-400`), pour qu'elle
+              // saute aux yeux du préparateur pendant l'emballage.
+              if (item.quantite > 0)
+                Text(
+                  'Quantité : ${item.quantite}',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700,
+                    color: _quantiteColor(context),
+                  ),
+                ),
               // Prix unitaire : exposé au gérant seulement (serializer complet),
               // avec la remise accordée — prix catalogue barré + badge vert.
               if (item.prixUnitaire != null)
@@ -1063,7 +1082,6 @@ class _ArticlesCard extends StatelessWidget {
         ' ${item.typeName}',
       if (item.brandName != null && item.brandName!.isNotEmpty)
         ' ${item.brandName}',
-      if (item.quantite > 0) 'Quantité : ${item.quantite}',
     ];
     return parts.isEmpty ? 'Sans métadonnées' : parts.join(' • ');
   }

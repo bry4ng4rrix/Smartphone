@@ -1883,7 +1883,7 @@ export default function OrdersPage() {
                           {it.reference_name || "Article"}
                           {it.couleur ? ` (${it.couleur})` : ""}
                         </div>
-                        <div className="text-xs text-muted-foreground">
+                        <div className="text-xs text-muted-foreground flex justify-between items-center">
                           {[
                             it.category_name && ` ${it.category_name}`,
                             it.type_name && ` ${it.type_name}`,
@@ -1891,11 +1891,12 @@ export default function OrdersPage() {
                           ]
                             .filter(Boolean)
                             .join(" • ") || "Sans métadonnées"}
+                          <div className="text-xl font-bold text-sky-700 dark:text-sky-400 ">
+                            {it.quantite && `Quantité : ${it.quantite}`}
+                          </div>
                         </div>
                         {/* Agrandir le texte du quantite  */}
-                        <div className="text-2xl font-bold text-sky-700 dark:text-sky-400 ">
-                          {it.quantite && `Quantité : ${it.quantite}`}
-                        </div>
+
                         {/* Prix de l'article — gérant et préparateur
                             (§ demande) ; le livreur, lui, ne voit que le
                             total à encaisser. Remise accordée affichée. */}
