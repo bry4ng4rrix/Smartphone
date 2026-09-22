@@ -1,7 +1,7 @@
+import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, PackageCheck, ShieldCheck, Store, Truck } from "lucide-react";
 import { ProductCard } from "@/components/catalog/product-card";
-import { ProductImage } from "@/components/product/product-image";
 import { Aurora } from "@/components/ui/aurora";
 import { Reveal } from "@/components/ui/reveal";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -12,7 +12,7 @@ import { WifiOff } from "lucide-react";
 type Donnees = {
   total: number;
   disponibles: Produit[];
-  categories: Array<Categorie & { nb: number; apercu: Produit[] }>;
+  categories: Array<Categorie & { nb: number }>;
   marques: Marque[];
   boutique: string | null;
   enPanne: boolean;
@@ -29,15 +29,15 @@ async function charger(): Promise<Donnees> {
       catalogue.boutiques(),
     ]);
 
-    // Nombre réel de produits par catégorie + un aperçu de la page visée :
-    // la tuile montre ce qu'on y trouve au lieu d'un aplat vide.
+    // Nombre réel de produits disponibles par catégorie (affiché sous la
+    // tuile) — une page vide suffit, seul le total compte.
     const avecNb = await Promise.all(
       categories.map(async (c) => {
         try {
-          const page = await catalogue.produits({ category: c.id, available: "1", page_size: 4 });
-          return { ...c, nb: page.count, apercu: page.results };
+          const page = await catalogue.produits({ category: c.id, available: "1", page_size: 1 });
+          return { ...c, nb: page.count };
         } catch {
-          return { ...c, nb: 0, apercu: [] as Produit[] };
+          return { ...c, nb: 0 };
         }
       }),
     );
@@ -53,6 +53,28 @@ async function charger(): Promise<Donnees> {
   } catch {
     return { total: 0, disponibles: [], categories: [], marques: [], boutique: null, enPanne: true };
   }
+}
+
+/**
+ * Composition du hero : quatre tuiles fixes, une par catégorie phare, avec sa
+ * photo (public/hero/). Elles ne dépendent plus de l'ordre de l'API — celle-ci
+ * ne fournit que le lien et le nombre de références, quand la catégorie est
+ * bien présente en base.
+ */
+const TUILES_HERO = [
+  { cle: "housse", titre: "Housse", src: "/hero/housse.png" },
+  { cle: "cache", titre: "Cache écran", src: "/hero/cache.png" },
+  { cle: "charge", titre: "Chargeur", src: "/hero/chargeur.png" },
+  // Catégorie SANTE en base, présentée sous le libellé « Autre » côté client.
+  { cle: "sante", titre: "Autre", src: "/hero/sante.png" },
+] as const;
+
+/** Nom comparable : sans accent ni casse (« CACHE ÉCRAN » → « cache ecran »). */
+function normaliser(nom: string): string {
+  return nom
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
 }
 
 const ETAPES = [
@@ -106,32 +128,41 @@ export default async function Accueil() {
               </div>
             </div>
 
-            {/* Composition éditoriale : les vraies catégories de la boutique. */}
-            {categories.length > 0 ? (
-              <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                {categories.slice(0, 4).map((c, i) => (
-                  <Reveal key={c.id} delai={i * 90}>
+            {/* Composition éditoriale : quatre tuiles fixes (TUILES_HERO), pas
+                les quatre premières catégories renvoyées par l'API. */}
+            <div className="grid grid-cols-2 gap-3 sm:gap-4">
+              {TUILES_HERO.map((tuile, i) => {
+                const categorie = categories.find((c) => normaliser(c.nom).includes(tuile.cle));
+                return (
+                  <Reveal key={tuile.cle} delai={i * 90}>
                     <Link
-                      href={`/catalogue?category=${c.id}`}
+                      href={categorie ? `/catalogue?category=${categorie.id}` : "/catalogue"}
                       className="glass elevate hover:elevate-hover group flex aspect-[4/5] flex-col overflow-hidden rounded-xl"
                     >
-                      {/* Aperçu de la page visée : les produits réellement
-                          disponibles dans cette catégorie. */}
-                      {c.apercu.length > 0 ? (
-                        <span className="grid flex-1 grid-cols-2 gap-px bg-foreground/[0.06] p-px">
-                          {c.apercu.slice(0, 4).map((p) => (
-                            <ProductImage key={p.id} produit={p} className="size-full" sizes="20vw" />
-                          ))}
-                        </span>
-                      ) : (
-                        <span className="flex-1" />
-                      )}
+                      <span className="relative flex-1 overflow-hidden bg-white">
+                        <Image
+                          src={tuile.src}
+                          alt=""
+                          fill
+                          sizes="(min-width: 1024px) 22vw, 45vw"
+                          priority={i < 2}
+                          className="object-cover transition-transform duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-[1.04]"
+                        />
+                        {/* Fond blanc des photos studio : un dégradé rattache
+                            le bas de l'image au bandeau sombre du libellé. */}
+                        <span
+                          className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/25 to-transparent"
+                          aria-hidden
+                        />
+                      </span>
 
                       <span className="flex flex-col p-5">
                         <span className="text-[10px] tracking-[0.2em] text-muted uppercase">Catégorie</span>
-                        <span className="mt-1 text-lg leading-tight font-medium tracking-tight">{c.nom}</span>
+                        <span className="mt-1 text-lg leading-tight font-medium tracking-tight">{tuile.titre}</span>
+                        {/* Le compteur ne s'affiche que si la catégorie existe
+                            vraiment côté API — aucun chiffre décoratif. */}
                         <span className="mt-1 flex items-center gap-2 text-xs text-muted tabular-nums">
-                          {c.nb} référence{c.nb > 1 ? "s" : ""}
+                          {categorie ? `${categorie.nb} référence${categorie.nb > 1 ? "s" : ""}` : "Voir le catalogue"}
                           <ArrowRight
                             className="size-3.5 transition-transform duration-300 group-hover:translate-x-1"
                             aria-hidden
@@ -140,9 +171,9 @@ export default async function Accueil() {
                       </span>
                     </Link>
                   </Reveal>
-                ))}
-              </div>
-            ) : null}
+                );
+              })}
+            </div>
           </div>
         </div>
       </section>
