@@ -6,7 +6,7 @@ import { SlidersHorizontal, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ColorDot } from "@/components/ui/color-dot";
 import { Panel } from "@/components/ui/panel";
-import { Field, Input, Select } from "@/components/ui/field";
+import { Field, Select } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
 import type { Categorie, Couleur, Marque, SousType } from "@/lib/types";
 
@@ -18,7 +18,7 @@ export type Referentiels = {
 };
 
 /** Paramètres réellement acceptés par `GET /api/produit/`. */
-const CLES = ["search", "category", "sous_type", "brand", "couleur", "available", "min_price", "max_price"] as const;
+const CLES = ["search", "category", "sous_type", "brand", "couleur", "available"] as const;
 type Cle = (typeof CLES)[number];
 
 function useFiltres() {
@@ -170,35 +170,6 @@ export function FiltresContenu({ referentiels }: { referentiels: Referentiels })
           </div>
         </Groupe>
       ) : null}
-
-      <Groupe titre="Prix (Ar)">
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Minimum" htmlFor="filtre-min">
-            <Input
-              id="filtre-min"
-              type="number"
-              inputMode="numeric"
-              min={0}
-              placeholder="0"
-              defaultValue={valeurs.min_price ?? ""}
-              onBlur={(e) => appliquer({ min_price: e.target.value || null })}
-              onKeyDown={(e) => e.key === "Enter" && appliquer({ min_price: e.currentTarget.value || null })}
-            />
-          </Field>
-          <Field label="Maximum" htmlFor="filtre-max">
-            <Input
-              id="filtre-max"
-              type="number"
-              inputMode="numeric"
-              min={0}
-              placeholder="—"
-              defaultValue={valeurs.max_price ?? ""}
-              onBlur={(e) => appliquer({ max_price: e.target.value || null })}
-              onKeyDown={(e) => e.key === "Enter" && appliquer({ max_price: e.currentTarget.value || null })}
-            />
-          </Field>
-        </div>
-      </Groupe>
 
       <Groupe titre="Disponibilité">
         <label className="flex cursor-pointer items-center gap-2.5 text-sm">

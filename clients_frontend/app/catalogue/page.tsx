@@ -9,7 +9,7 @@ import type { Page, Produit } from "@/lib/types";
 
 export const metadata: Metadata = {
   title: "Catalogue",
-  description: "Housses, cache-écrans et accessoires pour smartphone — filtrez par catégorie, marque, couleur et prix.",
+  description: "Housses, cache-écrans et accessoires pour smartphone — filtrez par catégorie, marque et couleur.",
 };
 
 function nombre(valeur: string | string[] | undefined): number | undefined {
@@ -33,8 +33,6 @@ export default async function CataloguePage(props: PageProps<"/catalogue">) {
     brand: nombre(sp.brand),
     couleur: texte(sp.couleur),
     available: texte(sp.available) === "1" ? "1" : undefined,
-    min_price: nombre(sp.min_price),
-    max_price: nombre(sp.max_price),
     boutique: nombre(sp.boutique),
   };
 

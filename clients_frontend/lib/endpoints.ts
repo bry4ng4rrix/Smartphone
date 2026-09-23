@@ -60,8 +60,6 @@ export const catalogue = {
       brand?: number;
       couleur?: string;
       available?: string;
-      min_price?: number;
-      max_price?: number;
       page?: number;
       page_size?: number;
     } = {},
