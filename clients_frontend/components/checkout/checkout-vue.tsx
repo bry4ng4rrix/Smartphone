@@ -27,6 +27,7 @@ import { aujourdhuiIso, libelleSouhait, versIso } from "@/lib/livraison";
 import { cn, formatAr, pluriel } from "@/lib/utils";
 import { useAuth } from "@/providers/auth-provider";
 import { useCart } from "@/providers/cart-provider";
+import { usePointerTilt } from "@/lib/use-pointer-tilt";
 import { useToast } from "@/providers/toast-provider";
 import type { ModePaiement, Zone, ZonesReponse } from "@/lib/types";
 
@@ -40,6 +41,7 @@ type Etape = (typeof ETAPES)[number]["cle"];
 
 export function CheckoutVue() {
   const { lignes, nbArticles, sousTotal, vider } = useCart();
+  const recapTilt = usePointerTilt<HTMLElement>(4);
   const { client } = useAuth();
   const router = useRouter();
   const toast = useToast();
@@ -488,7 +490,7 @@ export function CheckoutVue() {
       </div>
 
       {/* Récapitulatif */}
-      <aside className="glass sticky top-24 rounded-xl p-5">
+      <aside {...recapTilt} className="glass sticky top-24 rounded-xl p-5">
         <h2 className="text-sm font-medium tracking-tight">
           {nbArticles} {pluriel(nbArticles, "article")}
         </h2>

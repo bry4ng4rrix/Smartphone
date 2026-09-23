@@ -4,6 +4,7 @@ import { CheckCircle2, PackageSearch, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProductCard } from "@/components/catalog/product-card";
 import { formatAr, pluriel } from "@/lib/utils";
+import { usePointerTilt } from "@/lib/use-pointer-tilt";
 import { DELAI_COMMANDE_SPECIALE_JOURS, TAUX_ACOMPTE, prixIndicatif } from "@/lib/compatibilite";
 import type { Produit } from "@/lib/types";
 
@@ -56,6 +57,10 @@ export function ResultatsCompatibles({
   produits: Produit[];
   onCommandeSpeciale: () => void;
 }) {
+  // Déclarés avant tout retour anticipé : un hook ne se conditionne pas.
+  const videTilt = usePointerTilt<HTMLDivElement>(3);
+  const relanceTilt = usePointerTilt<HTMLDivElement>(3);
+
   const disponibles = produits.filter((p) => p.disponible);
   const epuises = produits.filter((p) => !p.disponible);
 
@@ -64,7 +69,7 @@ export function ResultatsCompatibles({
   if (disponibles.length === 0) {
     const depart = prixIndicatif(epuises);
     return (
-      <div className="hairline rounded-xl bg-surface/60 px-6 py-12 text-center sm:px-10">
+      <div {...videTilt} className="hairline relative rounded-xl bg-surface/60 px-6 py-12 text-center sm:px-10">
         <span className="glass mx-auto mb-5 flex size-14 items-center justify-center rounded-full text-muted">
           <PackageSearch className="size-6" aria-hidden />
         </span>
@@ -132,7 +137,7 @@ export function ResultatsCompatibles({
       {epuises.length > 0 ? (
         <>
           <Section ton="ko" titre="Non disponible" produits={epuises} />
-          <div className="mt-8 hairline flex flex-col items-start gap-3 rounded-xl bg-surface/60 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div {...relanceTilt} className="mt-8 hairline relative flex flex-col items-start gap-3 rounded-xl bg-surface/60 p-5 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-muted">
               Le {accroche.replace(/s$/, "")} que vous cherchez est épuisé ? La boutique peut le commander pour vous.
             </p>

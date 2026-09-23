@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Modal } from "@/components/ui/panel";
 import { Skeleton } from "@/components/ui/skeleton";
+import { usePointerTilt } from "@/lib/use-pointer-tilt";
 import { StatutBadge, Timeline } from "@/components/orders/status";
 import { ApiError, messageErreur } from "@/lib/api";
 import { catalogue, commandes as apiCommandes } from "@/lib/endpoints";
@@ -20,6 +21,9 @@ import { useToast } from "@/providers/toast-provider";
 import type { Commande, ModePaiement, ZonesReponse } from "@/lib/types";
 
 export function CommandeDetail({ id }: { id: string }) {
+  const confirmationTilt = usePointerTilt<HTMLDivElement>(3);
+  const montantTilt = usePointerTilt<HTMLDivElement>(4);
+  const receptionTilt = usePointerTilt<HTMLDivElement>(4);
   const toast = useToast();
   const params = useSearchParams();
   const nouvelle = params.get("nouvelle") === "1";
@@ -93,7 +97,7 @@ export function CommandeDetail({ id }: { id: string }) {
       </Link>
 
       {nouvelle ? (
-        <div className="glass mb-6 flex items-start gap-3 rounded-xl p-4">
+        <div {...confirmationTilt} className="glass relative mb-6 flex items-start gap-3 rounded-xl p-4">
           <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
           <div>
             <p className="text-sm font-medium">Commande envoyée à {commande.boutique.nom}</p>
@@ -176,7 +180,7 @@ export function CommandeDetail({ id }: { id: string }) {
         </div>
 
         <aside className="space-y-4">
-          <div className="glass rounded-xl p-5">
+          <div {...montantTilt} className="glass relative rounded-xl p-5">
             <h2 className="text-sm font-medium tracking-tight">Montant</h2>
             <dl className="mt-4 space-y-2 text-sm">
               <div className="flex items-baseline justify-between">
@@ -214,7 +218,7 @@ export function CommandeDetail({ id }: { id: string }) {
             </p>
           </div>
 
-          <div className="hairline rounded-xl bg-surface/50 p-5 text-sm">
+          <div {...receptionTilt} className="hairline relative rounded-xl bg-surface/50 p-5 text-sm">
             <h2 className="text-sm font-medium tracking-tight">Réception</h2>
             <p className="mt-3 flex items-start gap-2 text-muted">
               {retrait ? <Store className="mt-0.5 size-4 shrink-0" aria-hidden /> : <MapPin className="mt-0.5 size-4 shrink-0" aria-hidden />}

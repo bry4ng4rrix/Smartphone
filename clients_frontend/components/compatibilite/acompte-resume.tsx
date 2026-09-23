@@ -1,6 +1,7 @@
 "use client";
 
 import { Info } from "lucide-react";
+import { usePointerTilt } from "@/lib/use-pointer-tilt";
 import { formatAr, formatDate } from "@/lib/utils";
 import {
   DELAI_COMMANDE_SPECIALE_JOURS,
@@ -36,8 +37,10 @@ export function AcompteResume({
   const { acompte, solde } = total !== null ? repartirAcompte(total) : { acompte: null, solde: null };
   const pourcent = Math.round(TAUX_ACOMPTE * 100);
 
+  const tilt = usePointerTilt<HTMLDivElement>(4);
+
   return (
-    <div className="hairline rounded-xl bg-surface/60 p-5">
+    <div {...tilt} className="hairline relative rounded-xl bg-surface/60 p-5">
       <h3 className="text-sm font-medium">Acompte et délai</h3>
 
       <dl className="mt-3 divide-y divide-border/70">

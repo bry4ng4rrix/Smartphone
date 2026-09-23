@@ -1,13 +1,15 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { usePointerTilt } from "@/lib/use-pointer-tilt";
 import { cn } from "@/lib/utils";
 
 /**
- * Inclinaison 3D au pointeur : deux variables CSS mises à jour au survol,
- * aucune dépendance, aucun re-rendu React. Désactivée au clavier, sur les
- * pointeurs grossiers (tactile) et si `prefers-reduced-motion` est demandé
- * (voir globals.css).
+ * Enveloppe une carte pour la mettre en volume au survol (voir
+ * `usePointerTilt` pour le détail et les garde-fous).
+ *
+ * À utiliser quand la carte est un élément à soi ; sur un élément qui existe
+ * déjà (un `<Link>`, un `<article>`…), préférer le hook et répandre ses
+ * propriétés directement dessus, pour ne pas ajouter un `<div>` de plus.
  */
 export function Tilt({
   children,
@@ -18,30 +20,9 @@ export function Tilt({
   className?: string;
   intensite?: number;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  const bouger = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      const el = ref.current;
-      if (!el || e.pointerType !== "mouse") return;
-      const r = el.getBoundingClientRect();
-      const x = (e.clientX - r.left) / r.width - 0.5;
-      const y = (e.clientY - r.top) / r.height - 0.5;
-      el.style.setProperty("--tilt-y", `${x * intensite}deg`);
-      el.style.setProperty("--tilt-x", `${-y * intensite}deg`);
-    },
-    [intensite],
-  );
-
-  const quitter = useCallback(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.setProperty("--tilt-x", "0deg");
-    el.style.setProperty("--tilt-y", "0deg");
-  }, []);
-
+  const tilt = usePointerTilt<HTMLDivElement>(intensite);
   return (
-    <div ref={ref} onPointerMove={bouger} onPointerLeave={quitter} className={cn("tilt-surface", className)}>
+    <div {...tilt} className={cn(className)}>
       {children}
     </div>
   );

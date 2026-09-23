@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Package, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/providers/auth-provider";
+import { usePointerTilt } from "@/lib/use-pointer-tilt";
 
 const LIENS = [
   { href: "/compte", label: "Mon profil", icone: UserRound },
@@ -15,10 +16,12 @@ export function AccountNav() {
   const pathname = usePathname();
   const { client } = useAuth();
 
+  const tilt = usePointerTilt<HTMLDivElement>(4);
+
   return (
     <div>
       {client ? (
-        <div className="glass mb-4 rounded-xl p-4">
+        <div {...tilt} className="glass relative mb-4 rounded-xl p-4">
           <p className="text-sm font-medium tracking-tight">{client.nom}</p>
           <p className="mt-0.5 truncate text-xs text-muted">{client.email}</p>
         </div>

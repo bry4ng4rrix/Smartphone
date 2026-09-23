@@ -10,6 +10,7 @@ import {
 import { ProductCard } from "@/components/catalog/product-card";
 import { Aurora } from "@/components/ui/aurora";
 import { Reveal } from "@/components/ui/reveal";
+import { Tilt } from "@/components/ui/tilt";
 import { EmptyState } from "@/components/ui/empty-state";
 import { catalogue } from "@/lib/endpoints";
 import { lienCategorie } from "@/lib/compatibilite";
@@ -182,9 +183,10 @@ export default async function Accueil() {
                 );
                 return (
                   <Reveal key={tuile.cle} delai={i * 90}>
+                    <Tilt className="glass group relative flex aspect-[4/5] flex-col overflow-hidden rounded-xl" intensite={6}>
                     <Link
                       href={categorie ? lienCategorie(categorie) : "/catalogue"}
-                      className="glass elevate hover:elevate-hover group flex aspect-[4/5] flex-col overflow-hidden rounded-xl"
+                      className="flex flex-1 flex-col overflow-hidden rounded-xl"
                     >
                       <span className="relative flex-1 overflow-hidden bg-white">
                         <Image
@@ -220,6 +222,7 @@ export default async function Accueil() {
                         </span>
                       </span>
                     </Link>
+                    </Tilt>
                   </Reveal>
                 );
               })}

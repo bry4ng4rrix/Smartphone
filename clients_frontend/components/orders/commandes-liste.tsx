@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Tilt } from "@/components/ui/tilt";
 import Link from "next/link";
 import { ArrowRight, PackageOpen } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
@@ -70,9 +71,10 @@ export function CommandesListe() {
         const articles = c.items.reduce((n, i) => n + i.quantite, 0);
         return (
           <li key={c.id}>
+            <Tilt className="hairline relative rounded-xl bg-surface/50" intensite={4}>
             <Link
               href={`/compte/commandes/${c.id}`}
-              className="hairline elevate hover:elevate-hover group flex flex-col gap-3 rounded-xl bg-surface/50 p-5 sm:flex-row sm:items-center sm:justify-between"
+              className="group flex flex-col gap-3 rounded-xl p-5 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
@@ -90,6 +92,7 @@ export function CommandesListe() {
                 <ArrowRight className="size-4 text-muted transition-transform duration-300 group-hover:translate-x-0.5" aria-hidden />
               </div>
             </Link>
+            </Tilt>
           </li>
         );
       })}

@@ -2,6 +2,7 @@ import { Check, Circle } from "lucide-react";
 import { CLASSES_TON, DESCRIPTION_STATUT, EST_TERMINAL, ETAPES_SUIVI, TON_STATUT } from "@/lib/statuts";
 import { cn, formatDateTime } from "@/lib/utils";
 import type { Commande, Statut } from "@/lib/types";
+import { Tilt } from "@/components/ui/tilt";
 
 export function StatutBadge({ statut, label, className }: { statut: Statut; label: string; className?: string }) {
   return (
@@ -25,11 +26,11 @@ export function Timeline({ commande }: { commande: Commande }) {
 
   if (horsParcours) {
     return (
-      <div className="hairline rounded-xl bg-surface/50 p-5">
+      <Tilt className="hairline relative rounded-xl bg-surface/50 p-5" intensite={3}>
         <StatutBadge statut={commande.statut} label={commande.statut_label} />
         <p className="mt-3 text-sm text-muted">{DESCRIPTION_STATUT[commande.statut]}</p>
         <p className="mt-1 text-xs text-muted">Dernière mise à jour le {formatDateTime(commande.updated_at)}</p>
-      </div>
+      </Tilt>
     );
   }
 

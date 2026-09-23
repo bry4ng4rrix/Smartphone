@@ -215,13 +215,71 @@
   }
 }
 
-/* Carte 3D : l'inclinaison est pilotée par deux variables mises à jour au
-   pointeur (composant Tilt). Sans JS, la carte reste parfaitement plate. */
-@utility tilt-surface {
-  transform: perspective(900px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)) translateZ(0);
-  transform-style: preserve-3d;
-  transition: transform 500ms var(--ease-premium);
-  will-change: transform;
+/* ─────────────────────────────────────────────────────────────────────────
+   Cartes en volume — pointeur fin uniquement.
+   L'attribut `data-tilt` et les variables sont posés par usePointerTilt : là
+   où le hook se désactive (tactile, mouvement réduit), rien ne s'applique et
+   la carte reste parfaitement plate.
+
+   Dans `components` volontairement : les utilitaires Tailwind sont dans une
+   couche postérieure, donc une carte peut encore choisir son positionnement
+   (`sticky` sur les récapitulatifs) sans que le `relative` par défaut ne
+   l'écrase.
+   ───────────────────────────────────────────────────────────────────────── */
+@layer components {
+  [data-tilt] {
+    --tilt-x: 0deg;
+    --tilt-y: 0deg;
+    --tilt-rz: 0deg;
+    --mx: 50%;
+    --my: 50%;
+    position: relative;
+    transition:
+      transform 450ms var(--ease-premium),
+      box-shadow 450ms var(--ease-premium);
+  }
+
+  /* Les trois axes : rotateX/rotateY suivent le pointeur, rotateZ donne le
+     roulis, translateZ avance la carte vers le regard. La perspective est
+     portée ici pour que translateZ produise une vraie profondeur (la carte
+     grandit en s'approchant) plutôt qu'un simple décalage.
+
+     Le transform porte sur la carte elle-même, pas sur un enfant : il reste
+     donc valable même quand `overflow: hidden` aplatit le contexte 3D. */
+  [data-tilt]:hover {
+    transform: perspective(900px) translateZ(18px) rotateX(var(--tilt-x)) rotateY(var(--tilt-y))
+      rotateZ(var(--tilt-rz));
+    box-shadow: 0 30px 70px -28px color-mix(in oklab, var(--foreground) 38%, transparent);
+    /* Posé au survol seulement : garder une couche de composition permanente
+       sur chaque carte d'une grille coûterait plus qu'elle ne rapporte. */
+    will-change: transform;
+  }
+
+  /* Reflet suivant le pointeur : un seul dégradé, aucun coût de mise en page. */
+  [data-tilt]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    border-radius: inherit;
+    opacity: 0;
+    pointer-events: none;
+    background: radial-gradient(
+      420px circle at var(--mx) var(--my),
+      color-mix(in oklab, var(--accent) 14%, transparent),
+      transparent 62%
+    );
+    transition: opacity 450ms var(--ease-premium);
+  }
+
+  [data-tilt]:hover::before {
+    opacity: 1;
+  }
+
+  [data-tilt] > * {
+    position: relative;
+    z-index: 1;
+  }
 }
 
 @utility elevate {
@@ -319,8 +377,13 @@
     scroll-behavior: auto !important;
   }
 
-  .tilt-surface {
+  [data-tilt],
+  [data-tilt]:hover {
     transform: none !important;
+  }
+
+  [data-tilt]::before {
+    display: none;
   }
 
   .reveal {

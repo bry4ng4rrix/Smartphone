@@ -34,8 +34,11 @@ export function ProductCard({ produit, priority = false }: { produit: Produit; p
 
   return (
     <>
-      <Tilt className="group h-full" intensite={5}>
-        <article className="hairline elevate hover:elevate-hover relative flex h-full flex-col overflow-hidden rounded-xl bg-surface/70 backdrop-blur-sm">
+      {/* `elevate-hover` retiré : le survol 3D porte désormais la levée et
+          l'ombre (voir [data-tilt] dans globals.css), les cumuler doublait
+          l'ombre portée. */}
+      <Tilt className="group hairline relative flex h-full flex-col overflow-hidden rounded-xl bg-surface/70 backdrop-blur-sm" intensite={5}>
+        <article className="flex h-full flex-col">
           <Link href={`/produit/${produit.id}`} className="block focus-visible:outline-none" aria-label={produit.nom_complet}>
             <ProductImage produit={produit} className="aspect-square w-full" priority={priority} />
           </Link>

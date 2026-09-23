@@ -6,10 +6,12 @@ import { ButtonLink } from "@/components/ui/button";
 import { ColorDot } from "@/components/ui/color-dot";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useCart } from "@/providers/cart-provider";
+import { usePointerTilt } from "@/lib/use-pointer-tilt";
 import { formatAr, pluriel } from "@/lib/utils";
 
 export function PanierVue() {
   const { lignes, nbArticles, sousTotal, definirQuantite, retirer, vider } = useCart();
+  const recapTilt = usePointerTilt<HTMLElement>(4);
 
   if (lignes.length === 0) {
     return (
@@ -105,7 +107,7 @@ export function PanierVue() {
         </ul>
       </div>
 
-      <aside className="glass sticky top-24 rounded-xl p-5">
+      <aside {...recapTilt} className="glass sticky top-24 rounded-xl p-5">
         <h2 className="text-sm font-medium tracking-tight">Récapitulatif</h2>
         <dl className="mt-4 space-y-2 text-sm">
           <div className="flex items-baseline justify-between">
