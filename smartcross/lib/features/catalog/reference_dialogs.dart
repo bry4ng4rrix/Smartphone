@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../core/media_url.dart';
 import '../../core/permissions.dart';
 import '../../models/catalog.dart';
 import '../../state/auth_provider.dart';
@@ -45,9 +46,9 @@ class CatalogPhoto extends StatelessWidget {
     Widget? image;
     if (localPath != null) {
       image = Image.file(File(localPath!), width: size, height: size, fit: BoxFit.cover);
-    } else if (url != null && url!.isNotEmpty) {
+    } else if (mediaUrl(url) case final source?) {
       image = Image.network(
-        url!,
+        source,
         width: size,
         height: size,
         fit: BoxFit.cover,

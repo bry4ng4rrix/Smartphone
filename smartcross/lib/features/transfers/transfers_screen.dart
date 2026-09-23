@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_client.dart';
+import '../../core/media_url.dart';
 import '../../core/permissions.dart';
 import '../../data/repositories/catalog_repository.dart' show catalogErrorMessage;
 import '../../data/repositories/stores_repository.dart';
@@ -322,10 +323,11 @@ class _StoreLogo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fallback = Icon(Icons.storefront_outlined, size: size, color: Theme.of(context).colorScheme.onSurfaceVariant);
-    if (url == null || url!.isEmpty) return fallback;
+    final source = mediaUrl(url);
+    if (source == null) return fallback;
     return ClipOval(
       child: Image.network(
-        url!,
+        source,
         width: size,
         height: size,
         fit: BoxFit.cover,

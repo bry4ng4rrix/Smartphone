@@ -13,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/api_client.dart';
 import '../../core/app_time.dart';
 import '../../core/chat_socket_service.dart';
+import '../../core/media_url.dart';
 import '../../models/chat.dart';
 import '../../state/auth_provider.dart';
 import '../../state/chat_unread_provider.dart';
@@ -31,35 +32,6 @@ const List<String> kChatQuickSuggestions = [
   'Merci pour votre aide !',
   "Je m'en occupe tout de suite.",
 ];
-
-/// URL d'image telle que CE device peut la charger.
-///
-/// Le serveur construit l'URL absolue à partir de l'hôte de la requête qui a
-/// créé le message : un message poussé en direct par le socket porte donc
-/// l'hôte de l'EXPÉDITEUR — `localhost` si le collègue est sur le web de la
-/// même machine, injoignable depuis un téléphone ou l'émulateur. On rebase
-/// alors sur l'URL serveur configurée dans l'app ; une URL relative est
-/// simplement préfixée ; tout autre hôte (CDN, IP du LAN) est laissé tel quel.
-String chatImageUrl(String url) {
-  final base = ApiClient.instance.baseUrl;
-  final uri = Uri.tryParse(url);
-  if (uri == null) return url;
-  if (!uri.hasScheme) {
-    return url.startsWith('/') ? '$base$url' : '$base/$url';
-  }
-  const loopback = {'localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]'};
-  if (loopback.contains(uri.host)) {
-    final origin = Uri.parse(base);
-    return Uri(
-      scheme: origin.scheme,
-      host: origin.host,
-      port: origin.hasPort ? origin.port : null,
-      path: uri.path,
-      query: uri.hasQuery ? uri.query : null,
-    ).toString();
-  }
-  return url;
-}
 
 /// Conversation DIRECTE avec [recipientId] — `/chats/dm/:id`.
 ///
@@ -999,7 +971,7 @@ class _Bubble extends StatelessWidget {
     }
 
     final fg = isMine ? scheme.onPrimary : scheme.onSurface;
-    final url = m.hasImage ? chatImageUrl(m.image!) : null;
+    final url = m.hasImage ? mediaUrl(m.image!) : null;
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(color: isMine ? scheme.primary : scheme.surfaceContainerHighest, borderRadius: radius),

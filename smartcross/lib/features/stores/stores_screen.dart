@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/api_client.dart';
+import '../../core/media_url.dart';
 import '../../core/permissions.dart';
 import '../../data/repositories/stores_repository.dart' show StoreCreateResult;
 import '../../models/magasin.dart';
@@ -316,10 +317,11 @@ class _StoreLogo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const fallback = Icon(Icons.storefront_outlined, size: size);
-    if (url == null || url!.isEmpty) return fallback;
+    final source = mediaUrl(url);
+    if (source == null) return fallback;
     return ClipOval(
       child: Image.network(
-        url!,
+        source,
         width: size,
         height: size,
         fit: BoxFit.cover,
@@ -854,7 +856,7 @@ class _EditStoreDialogState extends ConsumerState<_EditStoreDialog> {
                       child: _logoFile != null
                           ? Image.file(File(_logoFile!.path), fit: BoxFit.contain)
                           : Image.network(
-                              existingLogo!,
+                              mediaUrl(existingLogo)!,
                               fit: BoxFit.contain,
                               errorBuilder: (context, error, stack) => const Icon(Icons.storefront_outlined),
                             ),

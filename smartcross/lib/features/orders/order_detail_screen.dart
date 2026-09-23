@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/api_client.dart';
 import '../../core/app_time.dart';
 import '../../core/constants.dart';
+import '../../core/media_url.dart';
 import '../../core/permissions.dart';
 import '../../models/delivery_zone.dart';
 import '../../models/order.dart';
@@ -1196,12 +1197,14 @@ class _HistoriqueEntry extends StatelessWidget {
             '$statut — ${h.changedByName ?? 'Système'} — ${_fmtAppDateTime(h.timestamp)}$note',
             style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
           ),
-          if (h.aPhoto)
+          // `mediaUrl` : le serveur peut renvoyer un chemin relatif ou un hôte
+          // interne, ni l'un ni l'autre n'étant chargeable depuis l'appareil.
+          if (mediaUrl(h.photo) case final photo?)
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: InkWell(
                 onTap: () => launchUrl(
-                  Uri.parse(h.photo!),
+                  Uri.parse(photo),
                   mode: LaunchMode.externalApplication,
                 ),
                 child: Row(
@@ -1209,7 +1212,7 @@ class _HistoriqueEntry extends StatelessWidget {
                     ClipRRect(
                       borderRadius: BorderRadius.circular(6),
                       child: Image.network(
-                        h.photo!,
+                        photo,
                         width: 64,
                         height: 64,
                         fit: BoxFit.cover,

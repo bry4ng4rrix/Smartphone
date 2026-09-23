@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../../core/api_client.dart';
 import '../../core/app_time.dart';
+import '../../core/media_url.dart';
 import '../../core/permissions.dart';
 import '../../models/caisse.dart';
 import '../../models/magasin.dart';
@@ -633,10 +634,11 @@ class _StoreLogo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fallback = Icon(Icons.storefront_outlined, size: 16, color: Theme.of(context).colorScheme.onSurfaceVariant);
-    if (url == null || url!.isEmpty) return fallback;
+    final source = mediaUrl(url);
+    if (source == null) return fallback;
     return ClipOval(
       child: Image.network(
-        url!,
+        source,
         width: 16,
         height: 16,
         fit: BoxFit.cover,

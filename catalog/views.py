@@ -159,7 +159,11 @@ class ProductReferenceViewSet(viewsets.ModelViewSet):
         if q:
             qs = qs.filter(reference_name__icontains=q)
         qs = qs[:20]
-        return Response(ProductReferenceAutocompleteSerializer(qs, many=True).data)
+        return Response(
+            ProductReferenceAutocompleteSerializer(
+                qs, many=True, context={"request": request}
+            ).data
+        )
 
     @action(detail=False, methods=["post"], url_path="bulk-update-price")
     def bulk_update_price(self, request):

@@ -266,14 +266,17 @@ class OrderViewSet(viewsets.ModelViewSet):
         # Plus d'affectation manuelle à une campagne : elle est automatique,
         # par période (finance/services.py::commandes_du_boost).
         response_serializer = OrderPreparateurSerializer if role == "PREPARATEUR" else OrderGerantSerializer
-        return Response(response_serializer(order).data, status=status.HTTP_201_CREATED)
+        return Response(
+            response_serializer(order, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
     @action(detail=True, methods=["post"], url_path="campagne", permission_classes=[IsGerant])
     def set_campagne(self, request, pk=None):
         """Conservé pour les anciens clients : l'affectation est désormais
         automatique par période, cette action ne fait plus rien et renvoie
         la commande avec ses campagnes calculées."""
-        return Response(OrderGerantSerializer(self.get_object()).data)
+        return Response(OrderGerantSerializer(self.get_object(), context={"request": request}).data)
 
     def partial_update(self, request, *args, **kwargs):
         order = self.get_object()
@@ -284,7 +287,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             order = services.update_order(order=order, user=request.user, **data)
         except ValidationError as exc:
             raise DRFValidationError(str(exc))
-        return Response(OrderGerantSerializer(order).data)
+        return Response(OrderGerantSerializer(order, context={"request": request}).data)
 
     @transaction.atomic
     def destroy(self, request, *args, **kwargs):
