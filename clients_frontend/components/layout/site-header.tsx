@@ -89,7 +89,6 @@ export function SiteHeader({
           href: `/catalogue?category=${c.id}`,
           label: capitaliser(c.nom),
         })),
-        { href: lienCommandes, label: "Commandes en attente" },
       ]
     : LIENS;
 
