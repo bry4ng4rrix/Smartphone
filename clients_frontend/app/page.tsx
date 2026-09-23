@@ -1,6 +1,12 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, PackageCheck, ShieldCheck, Store, Truck } from "lucide-react";
+import {
+  ArrowRight,
+  PackageCheck,
+  ShieldCheck,
+  Store,
+  Truck,
+} from "lucide-react";
 import { ProductCard } from "@/components/catalog/product-card";
 import { Aurora } from "@/components/ui/aurora";
 import { Reveal } from "@/components/ui/reveal";
@@ -35,7 +41,11 @@ async function charger(): Promise<Donnees> {
     const avecNb = await Promise.all(
       categories.map(async (c) => {
         try {
-          const page = await catalogue.produits({ category: c.id, available: "1", page_size: 1 });
+          const page = await catalogue.produits({
+            category: c.id,
+            available: "1",
+            page_size: 1,
+          });
           return { ...c, nb: page.count };
         } catch {
           return { ...c, nb: 0 };
@@ -52,7 +62,14 @@ async function charger(): Promise<Donnees> {
       enPanne: false,
     };
   } catch {
-    return { total: 0, disponibles: [], categories: [], marques: [], boutique: null, enPanne: true };
+    return {
+      total: 0,
+      disponibles: [],
+      categories: [],
+      marques: [],
+      boutique: null,
+      enPanne: true,
+    };
   }
 }
 
@@ -79,14 +96,34 @@ function normaliser(nom: string): string {
 }
 
 const ETAPES = [
-  { icone: Store, titre: "Vous commandez", texte: "Ajoutez vos accessoires au panier et choisissez livraison ou retrait sur place." },
-  { icone: ShieldCheck, titre: "La boutique valide", texte: "Votre commande est vérifiée puis confirmée. Elle reste modifiable jusque-là." },
-  { icone: PackageCheck, titre: "Préparation", texte: "Les articles sont emballés et préparés pour le départ." },
-  { icone: Truck, titre: "Livraison", texte: "Le livreur vous apporte la commande, ou vous la retirez en boutique." },
+  {
+    icone: Store,
+    titre: "Vous commandez",
+    texte:
+      "Ajoutez vos accessoires au panier et choisissez livraison ou retrait sur place.",
+  },
+  {
+    icone: ShieldCheck,
+    titre: "La boutique valide",
+    texte:
+      "Votre commande est vérifiée puis confirmée. Elle reste modifiable jusque-là.",
+  },
+  {
+    icone: PackageCheck,
+    titre: "Préparation",
+    texte: "Les articles sont emballés et préparés pour le départ.",
+  },
+  {
+    icone: Truck,
+    titre: "Livraison",
+    texte:
+      "Le livreur vous apporte la commande, ou vous la retirez en boutique.",
+  },
 ];
 
 export default async function Accueil() {
-  const { total, disponibles, categories, marques, boutique, enPanne } = await charger();
+  const { total, disponibles, categories, marques, boutique, enPanne } =
+    await charger();
 
   return (
     <>
@@ -109,8 +146,9 @@ export default async function Accueil() {
                 <span className="text-muted">pour votre téléphone.</span>
               </h1>
               <p className="mt-6 max-w-md text-[15px] leading-relaxed text-muted">
-                Housses, cache-écrans et accessoires sélectionnés pour les modèles qui circulent vraiment à Madagascar.
-                Commande en ligne, validation par la boutique, livraison ou retrait.
+                Housses, cache-écrans et accessoires sélectionnés pour les
+                modèles qui circulent vraiment à Madagascar. Commande en ligne,
+                validation par la boutique, livraison ou retrait.
               </p>
 
               <div className="mt-9 flex flex-wrap items-center gap-3">
@@ -119,11 +157,17 @@ export default async function Accueil() {
                   className="group inline-flex h-13 items-center gap-2 rounded-full bg-foreground px-8 text-[15px] font-medium text-background transition-all duration-300 hover:-translate-y-px hover:shadow-[0_18px_44px_-16px_color-mix(in_oklab,var(--foreground)_70%,transparent)]"
                 >
                   Découvrir le catalogue
-                  <ArrowRight className="size-4 transition-transform duration-300 group-hover:translate-x-0.5" aria-hidden />
+                  <ArrowRight
+                    className="size-4 transition-transform duration-300 group-hover:translate-x-0.5"
+                    aria-hidden
+                  />
                 </Link>
                 {total > 0 ? (
                   <span className="glass rounded-full px-4 py-2.5 text-[13px] text-muted">
-                    <span className="font-semibold text-foreground tabular-nums">{total}</span> références en ligne
+                    <span className="font-semibold text-foreground tabular-nums">
+                      {total}
+                    </span>{" "}
+                    références en ligne
                   </span>
                 ) : null}
               </div>
@@ -133,7 +177,9 @@ export default async function Accueil() {
                 les quatre premières catégories renvoyées par l'API. */}
             <div className="grid grid-cols-2 gap-3 sm:gap-4">
               {TUILES_HERO.map((tuile, i) => {
-                const categorie = categories.find((c) => normaliser(c.nom).includes(tuile.cle));
+                const categorie = categories.find((c) =>
+                  normaliser(c.nom).includes(tuile.cle),
+                );
                 return (
                   <Reveal key={tuile.cle} delai={i * 90}>
                     <Link
@@ -158,12 +204,15 @@ export default async function Accueil() {
                       </span>
 
                       <span className="flex flex-col p-5">
-                        <span className="text-[10px] tracking-[0.2em] text-muted uppercase">Catégorie</span>
-                        <span className="mt-1 text-lg leading-tight font-medium tracking-tight">{tuile.titre}</span>
+                        <span className="mt-1 text-lg leading-tight font-medium tracking-tight">
+                          {tuile.titre}
+                        </span>
                         {/* Le compteur ne s'affiche que si la catégorie existe
                             vraiment côté API — aucun chiffre décoratif. */}
                         <span className="mt-1 flex items-center gap-2 text-xs text-muted tabular-nums">
-                          {categorie ? `${categorie.nb} référence${categorie.nb > 1 ? "s" : ""}` : "Voir le catalogue"}
+                          {categorie
+                            ? `${categorie.nb} référence${categorie.nb > 1 ? "s" : ""}`
+                            : "Voir le catalogue"}
                           <ArrowRight
                             className="size-3.5 transition-transform duration-300 group-hover:translate-x-1"
                             aria-hidden
@@ -192,16 +241,27 @@ export default async function Accueil() {
 
       {/* ------------------------------------------------ Disponibles */}
       {disponibles.length > 0 ? (
-        <section className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6" aria-labelledby="dispo">
+        <section
+          className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6"
+          aria-labelledby="dispo"
+        >
           <Reveal>
             <div className="mb-6 flex items-end justify-between gap-4">
               <div>
-                <p className="text-[11px] font-medium tracking-[0.22em] text-muted uppercase">En rayon</p>
-                <h2 id="dispo" className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+                <p className="text-[11px] font-medium tracking-[0.22em] text-muted uppercase">
+                  En rayon
+                </p>
+                <h2
+                  id="dispo"
+                  className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl"
+                >
                   Disponibles maintenant
                 </h2>
               </div>
-              <Link href="/catalogue?available=1" className="shrink-0 text-sm text-accent hover:underline">
+              <Link
+                href="/catalogue?available=1"
+                className="shrink-0 text-sm text-accent hover:underline"
+              >
                 Tout voir
               </Link>
             </div>
@@ -217,10 +277,18 @@ export default async function Accueil() {
 
       {/* ------------------------------------------------ Marques */}
       {marques.length > 0 ? (
-        <section className="mx-auto w-full max-w-[1400px] px-4 py-14 sm:px-6" aria-labelledby="marques">
+        <section
+          className="mx-auto w-full max-w-[1400px] px-4 py-14 sm:px-6"
+          aria-labelledby="marques"
+        >
           <Reveal>
-            <p className="text-[11px] font-medium tracking-[0.22em] text-muted uppercase">Compatibilité</p>
-            <h2 id="marques" className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+            <p className="text-[11px] font-medium tracking-[0.22em] text-muted uppercase">
+              Compatibilité
+            </p>
+            <h2
+              id="marques"
+              className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl"
+            >
               Pour votre modèle
             </h2>
             <div className="mt-6 flex flex-wrap gap-2">
@@ -239,12 +307,20 @@ export default async function Accueil() {
       ) : null}
 
       {/* ------------------------------------------------ Parcours */}
-      <section className="mx-auto w-full max-w-[1400px] px-4 pb-8 sm:px-6" aria-labelledby="parcours">
+      <section
+        className="mx-auto w-full max-w-[1400px] px-4 pb-8 sm:px-6"
+        aria-labelledby="parcours"
+      >
         <Reveal>
           <div className="glass grain aurora relative overflow-hidden rounded-2xl px-6 py-12 sm:px-12">
             <Aurora portee="bloc" intensite="discrete" />
-            <p className="text-[11px] font-medium tracking-[0.22em] text-muted uppercase">Comment ça marche</p>
-            <h2 id="parcours" className="mt-2 max-w-lg text-2xl leading-tight font-semibold tracking-tight sm:text-3xl">
+            <p className="text-[11px] font-medium tracking-[0.22em] text-muted uppercase">
+              Comment ça marche
+            </p>
+            <h2
+              id="parcours"
+              className="mt-2 max-w-lg text-2xl leading-tight font-semibold tracking-tight sm:text-3xl"
+            >
               De la commande à la livraison, vous suivez chaque étape.
             </h2>
 
@@ -254,9 +330,13 @@ export default async function Accueil() {
                   <span className="flex size-10 items-center justify-center rounded-full bg-foreground/[0.06] text-muted">
                     <e.icone className="size-4" aria-hidden />
                   </span>
-                  <p className="mt-4 text-[11px] tracking-[0.2em] text-muted uppercase tabular-nums">0{i + 1}</p>
+                  <p className="mt-4 text-[11px] tracking-[0.2em] text-muted uppercase tabular-nums">
+                    0{i + 1}
+                  </p>
                   <p className="mt-1 font-medium tracking-tight">{e.titre}</p>
-                  <p className="mt-1.5 text-sm leading-relaxed text-muted">{e.texte}</p>
+                  <p className="mt-1.5 text-sm leading-relaxed text-muted">
+                    {e.texte}
+                  </p>
                 </li>
               ))}
             </ol>
