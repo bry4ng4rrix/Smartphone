@@ -198,7 +198,7 @@ export default async function Accueil() {
                         {/* Fond blanc des photos studio : un dégradé rattache
                             le bas de l'image au bandeau sombre du libellé. */}
                         <span
-                          className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/25 to-transparent"
+                          className="absolute inset-x-0 bottom-0 h-1/3 bg-linear-to-t from-black/25 to-transparent"
                           aria-hidden
                         />
                       </span>
