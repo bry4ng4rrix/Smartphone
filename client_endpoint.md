@@ -37,6 +37,7 @@ Tous les exemples de ce document sont des **réponses réelles** capturées sur 
 - [9. Fonctionnalités frontend supplémentaires](#9-fonctionnalités-frontend-supplémentaires)
 - [10. Propositions d'évolution API](#10-propositions-dévolution-api)
 - [11. Architecture du front client](#11-architecture-du-front-client)
+- [12. Commande spéciale Housse / Cache-écran](#12-commande-spéciale-housse--cache-écran)
 
 ---
 
@@ -87,6 +88,15 @@ Les routes du **catalogue public** (section 3) ne demandent aucune authentificat
 ---
 
 ## 3. Catalogue public
+
+> **Vitrine filtrée par la boutique.** Depuis l'ajout de `visible_client` sur
+> la catégorie et le sous-type (front de gestion → Produits → Paramètres),
+> l'API publique ne sert QUE ce que le gérant a marqué « Affiché ». Une
+> catégorie masquée (ex. `SANTE`, usage interne) disparaît de
+> `/api/categories/`, de `/api/sous-type/`, du catalogue paginé et de la fiche
+> produit — qui renvoie alors `404`. Le drapeau vaut `true` par défaut :
+> l'existant reste affiché tant que personne ne le change. Ce champ n'est pas
+> exposé côté client, il n'y a rien à filtrer dans le front.
 
 Toutes ces routes acceptent `?boutique=<id>` pour ne garder que le catalogue d'une boutique. Aucune authentification, aucune donnée interne.
 
@@ -914,7 +924,34 @@ toute la référence ; la fiche produit ne peut donc pas proposer de galerie.
 
 **Statut** : à implémenter côté backend ultérieurement.
 
-### 10.4 Réinitialisation du mot de passe
+### 10.4 Modèles de téléphone d'une marque
+
+**Fonctionnalité** : alimenter la liste « Modèle / Référence » du parcours
+Housse / Cache-écran (section 12) sans télécharger tout le catalogue.
+
+**Endpoint proposé** :
+
+```
+GET /api/modeles/?category=<id>&brand=<id>&boutique=<id>
+```
+
+```json
+[
+  { "nom": "Galaxy A15", "disponible": true, "nb_produits": 3 },
+  { "nom": "Galaxy S25 Ultra", "disponible": false, "nb_produits": 1 }
+]
+```
+
+**Pourquoi** : le modèle du téléphone est déjà porté par
+`ProductReference.reference_name`, mais aucun endpoint ne renvoie la liste
+*distincte* de ces valeurs. Le front la dérive donc aujourd'hui de
+`GET /api/produit/?category=&brand=&page_size=100`, en suivant la pagination
+(voir `hooks/use-modeles-telephone.ts`) : correct, mais il transfère toutes
+les références d'une marque pour n'en afficher que les noms.
+
+**Statut** : optimisation. Le parcours fonctionne sans, rien n'est bloqué.
+
+### 10.5 Réinitialisation du mot de passe
 
 **Fonctionnalité** : « mot de passe oublié » pour un client.
 
@@ -936,9 +973,10 @@ du front de gestion (3010) et de l'API (8010).
 
 | Dossier | Rôle |
 | --- | --- |
-| `app/` | Routes : accueil, `catalogue`, `produit/[id]`, `panier`, `checkout`, `connexion`, `inscription`, `favoris`, `compte` (profil, commandes, suivi) |
-| `components/` | UI (`ui/`), enveloppe du site (`layout/`), catalogue, fiche produit, panier, checkout, commandes, compte |
-| `lib/` | `api.ts` (fetch + JWT + refresh), `endpoints.ts` (une fonction par route), `types.ts`, `statuts.ts`, `store.ts`, utilitaires |
+| `app/` | Routes : accueil, `catalogue`, `compatibilite/[slug]` (parcours Housse / Cache-écran, §12), `produit/[id]`, `panier`, `checkout`, `connexion`, `inscription`, `favoris`, `compte` (profil, commandes, suivi) |
+| `components/` | UI (`ui/`), enveloppe du site (`layout/`), catalogue, `compatibilite/` (sélecteur de téléphone, résultats, commande spéciale), fiche produit, panier, checkout, commandes, compte |
+| `hooks/` | `use-modeles-telephone.ts` — modèles couverts par une catégorie pour une marque |
+| `lib/` | `api.ts` (fetch + JWT + refresh), `endpoints.ts` (une fonction par route), `types.ts`, `statuts.ts`, `store.ts`, `compatibilite.ts` (règles du parcours téléphone), utilitaires |
 | `providers/` | Session client, panier, favoris, thème, notifications |
 
 **Rendu** : le catalogue et les fiches produit sont rendus côté serveur (appel
@@ -950,3 +988,188 @@ est lancé pour toutes les requêtes en attente, puis la requête est rejouée ;
 le refresh échoue, les jetons sont effacés et le visiteur est redirigé vers la
 connexion.
 
+
+---
+
+## 12. Commande spéciale Housse / Cache-écran
+
+### 12.1 Le parcours
+
+Housse et Cache-écran ne mènent plus à un listing général : on demande
+d'abord le téléphone, parce que ces deux catégories n'ont de sens que
+rapportées à un modèle précis.
+
+```
+Catégorie (Housse / Cache-écran)
+  └─ Marque du téléphone          GET /api/marque/
+      └─ Modèle / référence        dérivé de GET /api/produit/
+          └─ Rechercher
+              ├─ produits compatibles disponibles → panier et commande habituels (§5)
+              └─ aucun disponible → commande spéciale
+                      └─ formulaire (prérempli depuis le compte)
+                          └─ acompte de 50 %
+                              └─ validation par la boutique
+```
+
+**La compatibilité n'est pas une recherche textuelle.** Le catalogue est déjà
+structuré par téléphone : une référence porte une marque (`marque.nom` =
+Samsung) et un nom qui est le modèle (`nom` = « Galaxy A15 »). Chercher les
+housses d'un Galaxy A15 revient donc à filtrer sur ces relations, pas à faire
+un `search=` approximatif.
+
+Routes front : `/compatibilite/housse` et `/compatibilite/cache-ecran`.
+`/catalogue?category=<id>` reste accessible et inchangé.
+
+### 12.2 Endpoints utilisés (existants)
+
+| Appel | Rôle dans le parcours |
+| --- | --- |
+| `GET /api/categories/` | Retrouver la catégorie Housse / Cache-écran de la boutique |
+| `GET /api/marque/` | Remplir « Marque du téléphone » |
+| `GET /api/produit/?category=&brand=&page_size=100` | Modèles de la marque, puis produits compatibles et leur `disponible` |
+| `GET /api/client/me/` | Préremplir nom et téléphone du formulaire |
+| `POST /api/client/orders/` | Achat normal quand un produit compatible est en stock |
+
+Aucun endpoint n'a été inventé pour faire tourner cette partie : elle
+fonctionne telle quelle.
+
+### 12.3 Ce qui manque au backend
+
+> **Rien de cette sous-section n'existe aujourd'hui.** Vérifié sur `orders/`,
+> `clients/`, `finance/` et `users/` : il n'y a **ni modèle de commande
+> spéciale, ni notion d'acompte, ni système de paiement** — `mode_paiement`
+> ne fait que distinguer « paiement à la livraison » de « paiement avant ».
+>
+> Le front va donc jusqu'au récapitulatif de la demande et **ne simule ni
+> enregistrement ni paiement**. Le code d'appel est écrit
+> (`lib/endpoints.ts::commandesSpeciales`) et reste inactif tant que
+> `NEXT_PUBLIC_COMMANDE_SPECIALE=1` n'est pas positionné.
+
+#### `POST /api/client/commandes-speciales/` — déposer une demande
+
+| | |
+| --- | --- |
+| **Authentification** | requise (`Authorization: Bearer <access>`) |
+| **Corps** | JSON |
+
+| Champ | Type | Obligatoire | Notes |
+| --- | --- | --- | --- |
+| `boutique` | int | oui | id de la boutique |
+| `categorie` | int | oui | id de la catégorie (Housse / Cache-écran) |
+| `telephone_marque` | string | oui | « Samsung » |
+| `telephone_modele` | string | oui | « Galaxy A15 » — texte libre : le modèle peut ne pas être au catalogue |
+| `produit_souhaite` | string | oui | « Housse silicone noire » |
+| `quantite` | int | oui | ≥ 1 |
+| `contact_nom` | string | oui | prérempli depuis le compte |
+| `contact_telephone` | string | oui | format `+261XXXXXXXXX` |
+| `precision` | string | non | couleur, matière, motif… |
+
+**Le corps ne porte aucun montant, volontairement.** Le prix, l'acompte et le
+solde sont fixés par la boutique : un montant envoyé par le client ne doit
+jamais être accepté.
+
+```http
+POST /api/client/commandes-speciales/
+Authorization: Bearer <access>
+Content-Type: application/json
+
+{
+  "boutique": 1,
+  "categorie": 3,
+  "telephone_marque": "Samsung",
+  "telephone_modele": "Galaxy A15",
+  "produit_souhaite": "Housse silicone noire",
+  "quantite": 1,
+  "contact_nom": "Rakoto Jean",
+  "contact_telephone": "+261340000000",
+  "precision": "Plutôt mat si possible"
+}
+```
+
+**Réponse `201`**
+
+```json
+{
+  "id": 12,
+  "numero": "CS-000012",
+  "statut": "EN_ATTENTE_ACOMPTE",
+  "statut_label": "En attente d'acompte",
+  "boutique": { "id": 1, "nom": "Smartphone.Mg" },
+  "categorie": { "id": 3, "nom": "HOUSSE" },
+  "telephone_marque": "Samsung",
+  "telephone_modele": "Galaxy A15",
+  "produit_souhaite": "Housse silicone noire",
+  "quantite": 1,
+  "contact_nom": "Rakoto Jean",
+  "contact_telephone": "+261340000000",
+  "precision": "Plutôt mat si possible",
+  "prix_unitaire": null,
+  "total": null,
+  "acompte_du": null,
+  "acompte_paye": 0,
+  "reste_a_payer": null,
+  "date_disponibilite_estimee": null,
+  "created_at": "2026-09-23T10:12:00+03:00",
+  "updated_at": "2026-09-23T10:12:00+03:00"
+}
+```
+
+Les montants sont `null` tant que la boutique n'a pas chiffré : le client voit
+« chiffré par la boutique », pas un faux total.
+
+**Erreurs** : `400` (champ manquant ou `quantite < 1`), `401` (jeton absent ou
+expiré), `404` (boutique ou catégorie inconnue), `429` (limitation de débit,
+§7).
+
+#### `GET /api/client/commandes-speciales/` et `/{id}/` — suivi
+
+Authentification requise, portée au client connecté. Même structure que
+ci-dessus. Permet d'afficher les demandes à côté des commandes classiques.
+
+#### Acompte
+
+Deux options selon ce que la boutique veut vraiment :
+
+1. **Sans paiement en ligne** (le plus proche de l'existant) : la boutique
+   chiffre, encaisse l'acompte sur place ou par mobile money, puis marque
+   `POST /api/client/commandes-speciales/{id}/acompte/` côté gestion. Aucune
+   intégration de paiement à construire.
+2. **Avec paiement en ligne** : il faut alors un vrai prestataire et une
+   confirmation côté serveur. **Ne pas** faire confiance à un appel du
+   navigateur qui déclarerait l'acompte payé.
+
+Dans les deux cas, `acompte_du` est calculé **par le serveur**
+(`total × 0,5`). Le front affiche 50 % et un ordre de grandeur, jamais un
+montant qui ferait foi.
+
+### 12.4 Statuts proposés
+
+Le projet nomme déjà ses statuts en français et en majuscules
+(`EN_ATTENTE_APPROBATION`, `EN_PREPARATION`, `LIVRE`…). La commande spéciale
+suit la même convention plutôt que d'introduire de l'anglais :
+
+| Statut | Sens |
+| --- | --- |
+| `EN_ATTENTE_ACOMPTE` | Demande déposée, acompte pas encore réglé |
+| `ACOMPTE_PAYE` | Acompte encaissé |
+| `EN_ATTENTE_VALIDATION` | Soumise à la boutique |
+| `APPROUVEE` | Validée, commande lancée chez le fournisseur |
+| `REFUSEE` | Refusée (motif attendu dans la réponse) |
+| `EN_COURS` | En cours d'approvisionnement |
+| `PRETE` | Disponible en boutique |
+| `LIVREE` | Remise au client |
+| `ANNULEE` | Annulée |
+
+### 12.5 Délai de 15 jours
+
+Le délai annoncé est de **15 jours**. La date affichée est calculée, jamais
+écrite en dur. Aujourd'hui le front la calcule depuis le jour courant, faute
+de mieux ; dès que l'endpoint existe, `date_disponibilite_estimee` fait foi et
+doit être comptée **à partir de la validation**, pas du dépôt de la demande.
+
+### 12.6 Côté gestion
+
+Pour traiter ces demandes, le gérant doit voir : client et contact, téléphone
+demandé (marque + modèle), catégorie, produit souhaité, quantité, prix,
+acompte dû, acompte payé, reste à payer, date de demande, date estimée et
+statut. Tous ces champs sont dans la structure ci-dessus.
