@@ -14,10 +14,15 @@ import { useTheme } from "@/providers/theme-provider";
 import { cn } from "@/lib/utils";
 
 // Repli si le catalogue est injoignable : aucun lien de catégorie inventé.
-const LIENS = [
-  { href: "/catalogue", label: "CATALOGUE" },
-  { href: "/compte/commandes", label: "COMMANDES EN ATTENTE" },
-];
+const LIENS = [{ href: "/catalogue", label: "Catalogue" }];
+
+// Les noms de catégorie sont saisis en capitales en base (HOUSSE, CACHE ÉCRAN).
+// On n'abaisse la suite que dans ce cas : une saisie déjà mixte garde sa casse
+// d'origine (marques et modèles du type « Coque iPhone »).
+const capitaliser = (texte: string) => {
+  const corps = texte === texte.toUpperCase() ? texte.toLowerCase() : texte;
+  return corps.charAt(0).toUpperCase() + corps.slice(1);
+};
 
 export function SiteHeader({
   categories,
@@ -32,7 +37,10 @@ export function SiteHeader({
 
   // Commandes que la boutique n'a pas encore validées : le client les suit
   // depuis la barre de navigation.
-  const lienCommandes = statut === "connecte" ? "/compte/commandes" : "/connexion?suite=%2Fcompte%2Fcommandes";
+  const lienCommandes =
+    statut === "connecte"
+      ? "/compte/commandes"
+      : "/connexion?suite=%2Fcompte%2Fcommandes";
   const [menuOuvert, setMenuOuvert] = useState(false);
   const [rechercheOuverte, setRechercheOuverte] = useState(false);
   const [compact, setCompact] = useState(false);
@@ -79,7 +87,7 @@ export function SiteHeader({
         { href: "/catalogue", label: "Catalogue" },
         ...categories.map((c) => ({
           href: `/catalogue?category=${c.id}`,
-          label: c.nom,
+          label: capitaliser(c.nom),
         })),
         { href: lienCommandes, label: "Commandes en attente" },
       ]
@@ -145,7 +153,7 @@ export function SiteHeader({
 
             <nav
               aria-label="Navigation principale"
-              className="hidden items-center gap-1 lg:flex lowercase"
+              className="hidden items-center gap-1 lg:flex"
             >
               {liens.map((lien) => (
                 <Link
@@ -210,20 +218,23 @@ export function SiteHeader({
                 )}
               </Button>
 
-              <Link
-                href={lienCommandes}
-                aria-label={`Commandes en attente${enAttente ? ` (${enAttente})` : ""}`}
-                className="hidden size-10 place-items-center rounded-full text-muted transition-colors hover:bg-foreground/[0.06] hover:text-foreground sm:grid"
-              >
-                <span className="relative">
-                  <Hourglass className="size-[18px]" aria-hidden />
-                  {enAttente > 0 ? (
-                    <span className="absolute -top-1.5 -right-2 grid min-w-4 place-items-center rounded-full bg-amber-500 px-1 text-[10px] leading-4 font-semibold text-black tabular-nums">
-                      {enAttente > 9 ? "9+" : enAttente}
-                    </span>
-                  ) : null}
-                </span>
-              </Link>
+              {/* Suivi des commandes : n'a de sens qu'une fois le client connecté. */}
+              {statut === "connecte" ? (
+                <Link
+                  href={lienCommandes}
+                  aria-label={`Commandes en attente${enAttente ? ` (${enAttente})` : ""}`}
+                  className="hidden size-10 place-items-center rounded-full text-muted transition-colors hover:bg-foreground/[0.06] hover:text-foreground sm:grid"
+                >
+                  <span className="relative">
+                    <Hourglass className="size-[18px]" aria-hidden />
+                    {enAttente > 0 ? (
+                      <span className="absolute -top-1.5 -right-2 grid min-w-4 place-items-center rounded-full bg-amber-500 px-1 text-[10px] leading-4 font-semibold text-black tabular-nums">
+                        {enAttente > 9 ? "9+" : enAttente}
+                      </span>
+                    ) : null}
+                  </span>
+                </Link>
+              ) : null}
 
               <Link
                 href={statut === "connecte" ? "/compte" : "/connexion"}
@@ -255,7 +266,7 @@ export function SiteHeader({
             <PanelClose
               key={lien.href}
               render={<Link href={lien.href}>{lien.label}</Link>}
-              className="border-b border-[var(--glass-border)] py-3.5 text-left text-[15px] lowercase font-medium last:border-0"
+              className="border-b border-[var(--glass-border)] py-3.5 text-left text-[15px] font-medium last:border-0"
             />
           ))}
           <PanelClose
