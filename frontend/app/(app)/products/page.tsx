@@ -60,6 +60,8 @@ import {
   FolderPlus,
   Palette,
   StickyNote,
+  Eye,
+  EyeOff,
   X,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
@@ -3097,6 +3099,36 @@ function CategoriesTypesCrud({
     }
   };
 
+  // Vitrine en ligne : ce qui est « Affiché » apparaît dans l'espace client
+  // (clients_frontend), le reste reste géré ici sans être mis en vente.
+  // Le serveur filtre déjà dessus — cf. ProductCategory.visible_client.
+  const toggleVisibleCategorie = async (c: any) => {
+    try {
+      await djangoClient.catalog.categories.update(c.id, {
+        visible_client: !(c.visible_client !== false),
+      });
+      toast.success(
+        c.visible_client !== false
+          ? `« ${c.nom} » retiré du site de vente`
+          : `« ${c.nom} » affiché sur le site de vente`,
+      );
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || "Erreur");
+    }
+  };
+
+  const toggleVisibleType = async (t: any) => {
+    try {
+      await djangoClient.catalog.types.update(t.id, {
+        visible_client: !(t.visible_client !== false),
+      });
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.message || "Erreur");
+    }
+  };
+
   const startEditType = (t: any) => {
     setEditingTypeId(t.id);
     setEditingTypeName(t.nom);
@@ -3180,6 +3212,12 @@ function CategoriesTypesCrud({
           « Avec couleurs » : housse, cache écran… « Sans couleurs » : chargeur,
           écouteur… — une seule quantité par référence.
         </p>
+        <p className="text-[11px] text-muted-foreground">
+          Le badge <strong>Affichée / Masquée</strong> de chaque catégorie (et
+          de chaque sous-type) décide de sa présence sur le site de vente en
+          ligne. Masquer ne supprime rien : la catégorie reste gérée ici, elle
+          n&apos;est simplement plus proposée aux clients.
+        </p>
       </div>
 
       {categories.map((c) => {
@@ -3210,6 +3248,24 @@ function CategoriesTypesCrud({
                 <>
                   <Tag className="h-4 w-4 text-muted-foreground" />
                   <span className="flex-1 text-sm font-semibold">{c.nom}</span>
+                  <Badge
+                    variant={c.visible_client !== false ? "default" : "outline"}
+                    className="cursor-pointer gap-1 font-normal"
+                    onClick={() => toggleVisibleCategorie(c)}
+                    role="switch"
+                    aria-checked={c.visible_client !== false}
+                    title="Afficher ou non cette catégorie sur le site de vente"
+                  >
+                    {c.visible_client !== false ? (
+                      <>
+                        <Eye className="h-3 w-3" /> Affichée
+                      </>
+                    ) : (
+                      <>
+                        <EyeOff className="h-3 w-3" /> Masquée
+                      </>
+                    )}
+                  </Badge>
                   <Badge
                     variant={
                       c.avec_couleurs !== false ? "secondary" : "outline"
@@ -3272,6 +3328,26 @@ function CategoriesTypesCrud({
                       <span className="flex-1 text-sm text-muted-foreground">
                         {t.nom}
                       </span>
+                      <Badge
+                        variant={
+                          t.visible_client !== false ? "default" : "outline"
+                        }
+                        className="cursor-pointer gap-1 font-normal"
+                        onClick={() => toggleVisibleType(t)}
+                        role="switch"
+                        aria-checked={t.visible_client !== false}
+                        title="Afficher ou non ce sous-type sur le site de vente"
+                      >
+                        {t.visible_client !== false ? (
+                          <>
+                            <Eye className="h-3 w-3" /> Affiché
+                          </>
+                        ) : (
+                          <>
+                            <EyeOff className="h-3 w-3" /> Masqué
+                          </>
+                        )}
+                      </Badge>
                       <Button
                         size="icon"
                         variant="ghost"

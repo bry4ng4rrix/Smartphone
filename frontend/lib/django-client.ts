@@ -518,10 +518,10 @@ class DjangoAPIClient {
         const q = magasinId ? `?magasin_id=${magasinId}` : ''
         return this.get<any[]>(`/catalog/categories/${q}`)
       },
-      create: async (data: { nom: string; ordre?: number; magasin_id?: number; avec_couleurs?: boolean }) => {
+      create: async (data: { nom: string; ordre?: number; magasin_id?: number; avec_couleurs?: boolean; visible_client?: boolean }) => {
         return this.post<any>('/catalog/categories/', data)
       },
-      update: async (id: number, data: { nom?: string; ordre?: number; avec_couleurs?: boolean }) => {
+      update: async (id: number, data: { nom?: string; ordre?: number; avec_couleurs?: boolean; visible_client?: boolean }) => {
         return this.patch<any>(`/catalog/categories/${id}/`, data)
       },
       delete: async (id: number) => {
@@ -533,10 +533,10 @@ class DjangoAPIClient {
         const q = categoryId ? `?category=${categoryId}` : ''
         return this.get<any[]>(`/catalog/types/${q}`)
       },
-      create: async (data: { category: number; nom: string }) => {
+      create: async (data: { category: number; nom: string; visible_client?: boolean }) => {
         return this.post<any>('/catalog/types/', data)
       },
-      update: async (id: number, data: { nom?: string; category?: number }) => {
+      update: async (id: number, data: { nom?: string; category?: number; visible_client?: boolean }) => {
         return this.patch<any>(`/catalog/types/${id}/`, data)
       },
       delete: async (id: number) => {

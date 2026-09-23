@@ -6,6 +6,7 @@ import { Aurora } from "@/components/ui/aurora";
 import { Reveal } from "@/components/ui/reveal";
 import { EmptyState } from "@/components/ui/empty-state";
 import { catalogue } from "@/lib/endpoints";
+import { lienCategorie } from "@/lib/compatibilite";
 import type { Categorie, Marque, Produit } from "@/lib/types";
 import { WifiOff } from "lucide-react";
 
@@ -136,7 +137,7 @@ export default async function Accueil() {
                 return (
                   <Reveal key={tuile.cle} delai={i * 90}>
                     <Link
-                      href={categorie ? `/catalogue?category=${categorie.id}` : "/catalogue"}
+                      href={categorie ? lienCategorie(categorie) : "/catalogue"}
                       className="glass elevate hover:elevate-hover group flex aspect-[4/5] flex-col overflow-hidden rounded-xl"
                     >
                       <span className="relative flex-1 overflow-hidden bg-white">

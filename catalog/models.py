@@ -16,6 +16,13 @@ class ProductCategory(models.Model):
     # le formulaire de création saisit directement une quantité, sans passer
     # par la gestion multi-couleurs (housse, cache écran…).
     avec_couleurs = models.BooleanField(default=True)
+    # Vitrine en ligne (espace client) : le gérant décide catégorie par
+    # catégorie de ce qui est proposé à la vente publique. Les catégories
+    # internes (SANTE…) restent gérées ici sans apparaître sur le site.
+    # `default=True` : l'existant continue d'être affiché tel quel.
+    visible_client = models.BooleanField(
+        default=True, verbose_name="Afficher sur le site de vente"
+    )
 
     class Meta:
         verbose_name = "Catégorie de produit"
@@ -32,6 +39,11 @@ class ProductType(models.Model):
 
     category = models.ForeignKey(ProductCategory, on_delete=models.CASCADE, related_name="types")
     nom = models.CharField(max_length=100)
+    # Même logique que ProductCategory.visible_client, au grain du sous-type :
+    # une catégorie affichée peut garder un sous-type hors vitrine.
+    visible_client = models.BooleanField(
+        default=True, verbose_name="Afficher sur le site de vente"
+    )
 
     class Meta:
         verbose_name = "Sous-type de produit"

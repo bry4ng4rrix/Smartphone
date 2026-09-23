@@ -6,14 +6,14 @@ from .models import Brand, Color, ProductCategory, ProductNote, ProductReference
 class ProductCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductCategory
-        fields = ["id", "magasin", "nom", "ordre", "avec_couleurs"]
+        fields = ["id", "magasin", "nom", "ordre", "avec_couleurs", "visible_client"]
         read_only_fields = ["magasin"]
 
 
 class ProductTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductType
-        fields = ["id", "category", "nom"]
+        fields = ["id", "category", "nom", "visible_client"]
 
 
 class BrandSerializer(serializers.ModelSerializer):

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Panel, PanelClose } from "@/components/ui/panel";
 import { CartButton } from "@/components/layout/cart-drawer";
 import { commandes } from "@/lib/endpoints";
+import { lienCategorie } from "@/lib/compatibilite";
 import { useAuth } from "@/providers/auth-provider";
 import { useTheme } from "@/providers/theme-provider";
 import { cn } from "@/lib/utils";
@@ -85,8 +86,10 @@ export function SiteHeader({
   const liens = categories.length
     ? [
         { href: "/catalogue", label: "Catalogue" },
+        // Housse et Cache-écran passent par le questionnaire téléphone,
+        // les autres catégories gardent le listing direct (lienCategorie).
         ...categories.map((c) => ({
-          href: `/catalogue?category=${c.id}`,
+          href: lienCategorie(c),
           label: capitaliser(c.nom),
         })),
       ]

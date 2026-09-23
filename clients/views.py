@@ -102,15 +102,20 @@ class PublicCategorieListView(PublicMixin, APIView):
     """GET /api/categories/ (alias : GET /api/type/) — ?boutique=."""
 
     def get(self, request):
-        qs = _filtre_boutique(request, ProductCategory.objects.all()).order_by("ordre", "nom")
-        return Response(PublicCategorieSerializer(qs, many=True).data)
+        # `visible_client` : la vitrine en ligne n'expose que ce que le gérant
+        # y a mis (voir ProductCategory.visible_client).
+        qs = _filtre_boutique(request, ProductCategory.objects.filter(visible_client=True))
+        return Response(PublicCategorieSerializer(qs.order_by("ordre", "nom"), many=True).data)
 
 
 class PublicSousTypeListView(PublicMixin, APIView):
     """GET /api/sous-type/ — ?category= (ou ?categorie=), ?boutique=."""
 
     def get(self, request):
-        qs = ProductType.objects.select_related("category")
+        # Un sous-type masqué, ou dont la catégorie l'est, reste hors vitrine.
+        qs = ProductType.objects.select_related("category").filter(
+            visible_client=True, category__visible_client=True
+        )
         qs = _filtre_boutique(request, qs, "category__magasin_id")
         categorie = request.query_params.get("category") or request.query_params.get("categorie")
         if categorie:
@@ -147,7 +152,14 @@ class PublicProduitViewSet(PublicMixin, viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         p = self.request.query_params
         qs = (
-            ProductReference.objects.filter(actif=True)
+            ProductReference.objects.filter(
+                actif=True,
+                # Vitrine en ligne : un produit suit la visibilité de son
+                # sous-type ET de sa catégorie. Vaut aussi pour le détail
+                # (`/api/produit/{id}/`), qui partage ce queryset.
+                type__visible_client=True,
+                type__category__visible_client=True,
+            )
             .select_related("type__category__magasin", "brand")
             .prefetch_related("variants")
         )

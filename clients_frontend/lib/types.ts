@@ -181,3 +181,65 @@ export type CommandeUpdate = Partial<{
   mode_paiement: ModePaiement;
   note: string;
 }>;
+
+// --------------------------------------------------------------------- //
+// Commande spéciale (Housse / Cache-écran)
+// --------------------------------------------------------------------- //
+//
+// ATTENTION : ces structures ne sont PAS encore servies par le backend.
+// Elles décrivent le contrat spécifié dans `client_endpoint.md`
+// (§ « Commande spéciale Housse / Cache-écran ») et restent inutilisées
+// tant que `ENVOI_COMMANDE_SPECIALE_ACTIF` est faux. Aucun champ inventé
+// au-delà de ce que ce document demande.
+
+export const STATUTS_COMMANDE_SPECIALE = [
+  "EN_ATTENTE_ACOMPTE",
+  "ACOMPTE_PAYE",
+  "EN_ATTENTE_VALIDATION",
+  "APPROUVEE",
+  "REFUSEE",
+  "EN_COURS",
+  "PRETE",
+  "LIVREE",
+  "ANNULEE",
+] as const;
+
+export type StatutCommandeSpeciale = (typeof STATUTS_COMMANDE_SPECIALE)[number];
+
+export type CommandeSpecialeInput = {
+  boutique: number;
+  categorie: number;
+  telephone_marque: string;
+  telephone_modele: string;
+  produit_souhaite: string;
+  quantite: number;
+  contact_nom: string;
+  contact_telephone: string;
+  precision?: string;
+};
+
+export type CommandeSpeciale = {
+  id: number;
+  numero: string;
+  statut: StatutCommandeSpeciale;
+  statut_label: string;
+  boutique: { id: number; nom: string };
+  categorie: { id: number; nom: string };
+  telephone_marque: string;
+  telephone_modele: string;
+  produit_souhaite: string;
+  quantite: number;
+  contact_nom: string;
+  contact_telephone: string;
+  precision: string | null;
+  /** Chiffrés par la boutique — `null` tant qu'elle n'a pas devisé. */
+  prix_unitaire: number | null;
+  total: number | null;
+  acompte_du: number | null;
+  acompte_paye: number;
+  reste_a_payer: number | null;
+  /** Calculée par le serveur : ne jamais la déduire côté client. */
+  date_disponibilite_estimee: string | null;
+  created_at: string;
+  updated_at: string;
+};

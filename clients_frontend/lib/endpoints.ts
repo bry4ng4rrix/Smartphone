@@ -10,6 +10,8 @@ import type {
   ClientProfil,
   Commande,
   CommandeInput,
+  CommandeSpeciale,
+  CommandeSpecialeInput,
   CommandeUpdate,
   Couleur,
   Marque,
@@ -113,4 +115,23 @@ export const commandes = {
 
   annuler: (id: number | string, note?: string) =>
     api<Commande>(`/client/orders/${id}/cancel/`, { method: "POST", body: { note: note ?? "" }, auth: true }),
+};
+
+// --------------------------------------------------------------------- //
+// Commandes spéciales (Housse / Cache-écran)
+// --------------------------------------------------------------------- //
+
+/**
+ * ENDPOINTS À IMPLÉMENTER CÔTÉ BACKEND — spécifiés dans `client_endpoint.md`
+ * (§ « Commande spéciale Housse / Cache-écran »). Rien ici n'est appelé tant
+ * que `ENVOI_COMMANDE_SPECIALE_ACTIF` (lib/compatibilite.ts) est faux : ces
+ * fonctions décrivent le contrat attendu, elles ne le simulent pas.
+ */
+export const commandesSpeciales = {
+  creer: (data: CommandeSpecialeInput) =>
+    api<CommandeSpeciale>("/client/commandes-speciales/", { method: "POST", body: data, auth: true }),
+
+  liste: () => api<CommandeSpeciale[]>("/client/commandes-speciales/", { auth: true }),
+
+  detail: (id: number | string) => api<CommandeSpeciale>(`/client/commandes-speciales/${id}/`, { auth: true }),
 };
