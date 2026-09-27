@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { Bot, Check, Loader2, MessageCircle, Send, ShoppingBag, X } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
@@ -42,8 +41,6 @@ const EXEMPLE_ARTICLE = "Je veux 2 coques iPhone 13 noires";
  */
 export function ChatBubble() {
   const { boutiqueId, ajouterLignes } = useCart();
-  const [monte, setMonte] = useState(false);
-  useEffect(() => setMonte(true), []);
   const [ouvert, setOuvert] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [question, setQuestion] = useState("");
@@ -96,11 +93,6 @@ export function ChatBubble() {
       ajouter({ role: "assistant", texte: "Je n'ai rien pu ajouter : ces articles viennent d'une autre boutique que votre panier actuel. Videz-le d'abord si vous voulez changer de boutique." });
     }
   };
-
-  // Le HTML rendu par le serveur ne peut pas dépendre du panier (localStorage,
-  // donc vide côté serveur) : on n'affiche la bulle qu'une fois montée, pour
-  // éviter tout écart d'hydratation.
-  if (!monte) return null;
 
   if (!ouvert) {
     return (
