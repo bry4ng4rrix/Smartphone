@@ -98,6 +98,14 @@ services:
       DJANGO_ORIGIN: ${CLIENTS_DJANGO_ORIGIN:-http://backend:8010}
       SITE_URL: ${CLIENTS_SITE_URL:-http://localhost:3000}
       PORT: "3000"
+      # Assistant du site client (bulle en bas à droite, app/api/assistant) —
+      # même Ollama que le frontend de gestion, voir roadmap.md § Analyse IA.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL_FAST: ${OLLAMA_MODEL_FAST:-qwen3:4b-instruct}
+    extra_hosts:
+      # Linux n'a pas host.docker.internal par défaut (contrairement à
+      # Docker Desktop) — cette entrée le fait pointer vers l'hôte.
+      - "host.docker.internal:host-gateway"
     ports:
       # Port hôte configurable ; 3000 par défaut, distinct du 3010 du
       # frontend de gestion.

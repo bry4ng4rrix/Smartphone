@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { CartDrawer } from "@/components/layout/cart-drawer";
+import { ChatBubble } from "@/components/layout/chat-bubble";
 import { AuthProvider } from "@/providers/auth-provider";
 import { CartProvider } from "@/providers/cart-provider";
 import { ThemeProvider, SCRIPT_THEME } from "@/providers/theme-provider";
@@ -85,6 +86,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
                   </main>
                   <SiteFooter boutiques={boutiques} />
                   <CartDrawer />
+                  <ChatBubble />
                 </WishlistProvider>
               </CartProvider>
             </AuthProvider>

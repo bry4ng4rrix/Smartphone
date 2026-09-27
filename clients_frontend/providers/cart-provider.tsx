@@ -47,6 +47,12 @@ type CartApi = {
   fermer: () => void;
   /** `false` si l'article vient d'une autre boutique que le panier en cours. */
   ajouter: (produit: Produit, variante: Variante, quantite?: number) => boolean;
+  /**
+   * Ajoute des lignes déjà résolues (assistant), en respectant la même règle
+   * qu'`ajouter` : une seule boutique par panier. Renvoie le nombre de lignes
+   * réellement ajoutées.
+   */
+  ajouterLignes: (lignes: LignePanier[]) => number;
   /** Vide le panier puis ajoute — après confirmation du changement de boutique. */
   remplacerPar: (produit: Produit, variante: Variante, quantite?: number) => void;
   definirQuantite: (varianteId: number, quantite: number) => void;
@@ -102,6 +108,31 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     [boutiqueId, empiler],
   );
 
+  const ajouterLignes = useCallback<CartApi["ajouterLignes"]>(
+    (nouvelles) => {
+      let ajoutees = 0;
+      store.set((actuelles) => {
+        let copie = actuelles;
+        const boutiqueCourante = copie[0]?.boutiqueId ?? null;
+        for (const ligne of nouvelles) {
+          if (boutiqueCourante !== null && boutiqueCourante !== ligne.boutiqueId) continue;
+          ajoutees++;
+          const index = copie.findIndex((l) => l.varianteId === ligne.varianteId);
+          if (index === -1) {
+            copie = [...copie, ligne];
+          } else {
+            const suite = [...copie];
+            suite[index] = { ...suite[index], prix: ligne.prix, quantite: Math.min(suite[index].quantite + ligne.quantite, MAX_PAR_LIGNE) };
+            copie = suite;
+          }
+        }
+        return copie;
+      });
+      return ajoutees;
+    },
+    [],
+  );
+
   const remplacerPar = useCallback<CartApi["remplacerPar"]>(
     (produit, variante, quantite = 1) => store.set([ligneDepuis(produit, variante, quantite)]),
     [],
@@ -128,12 +159,13 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       ouvrir: () => setOuvert(true),
       fermer: () => setOuvert(false),
       ajouter,
+      ajouterLignes,
       remplacerPar,
       definirQuantite,
       retirer,
       vider,
     }),
-    [lignes, boutiqueId, ouvert, ajouter, remplacerPar, definirQuantite, retirer, vider],
+    [lignes, boutiqueId, ouvert, ajouter, ajouterLignes, remplacerPar, definirQuantite, retirer, vider],
   );
 
   return <CartContext.Provider value={valeur}>{children}</CartContext.Provider>;
