@@ -1,24 +1,19 @@
 /**
- * Couche d'accès à l'API client (`client_endpoint.md`).
+ * Couche d'accès à l'API de la boutique en ligne (`client_endpoint.md`).
  *
  * Deux contextes, une seule fonction :
  * - Server Component / build : appel direct à Django (`DJANGO_ORIGIN`), pas
- *   de CORS, pas de jeton (seul le catalogue public est lu côté serveur) ;
+ *   de CORS ;
  * - navigateur : appel same-origin `/backend/...`, réécrit vers Django par
- *   next.config.ts — l'API n'autorise pas l'origine du front dans ses
- *   en-têtes CORS, et on ne touche pas au backend.
+ *   `proxy.ts` — l'API n'autorise pas l'origine du front dans ses en-têtes
+ *   CORS, et on ne touche pas au backend.
  *
- * Jetons : `access` court + `refresh`. Sur 401, un seul refresh est lancé
- * (les requêtes concurrentes attendent le même), puis la requête est rejouée.
- * Si le refresh échoue, les jetons sont effacés et `auth:logout` est émis.
+ * Il n'y a NI compte NI jeton : la boutique ne demande pas d'inscription, et
+ * toutes les routes qu'elle appelle sont publiques. Rien n'est conservé entre
+ * deux visites hormis le panier (localStorage, voir `lib/store.ts`).
  */
-import type { Tokens } from "./types";
 
 const DJANGO_ORIGIN = process.env.DJANGO_ORIGIN ?? "http://localhost:8010";
-
-export const ACCESS_KEY = "smg_client_access";
-export const REFRESH_KEY = "smg_client_refresh";
-export const LOGOUT_EVENT = "smg:auth-logout";
 
 const estNavigateur = () => typeof window !== "undefined";
 
@@ -37,38 +32,6 @@ export function mediaUrl(url: string | null | undefined): string | null {
     return `${u.pathname}${u.search}`;
   } catch {
     return url;
-  }
-}
-
-export function getTokens(): Partial<Tokens> {
-  if (!estNavigateur()) return {};
-  try {
-    return {
-      access: localStorage.getItem(ACCESS_KEY) ?? undefined,
-      refresh: localStorage.getItem(REFRESH_KEY) ?? undefined,
-    };
-  } catch {
-    return {};
-  }
-}
-
-export function setTokens(tokens: Partial<Tokens>) {
-  if (!estNavigateur()) return;
-  try {
-    if (tokens.access) localStorage.setItem(ACCESS_KEY, tokens.access);
-    if (tokens.refresh) localStorage.setItem(REFRESH_KEY, tokens.refresh);
-  } catch {
-    /* mode privé / stockage bloqué : la session ne survivra pas au rechargement */
-  }
-}
-
-export function clearTokens() {
-  if (!estNavigateur()) return;
-  try {
-    localStorage.removeItem(ACCESS_KEY);
-    localStorage.removeItem(REFRESH_KEY);
-  } catch {
-    /* ignore */
   }
 }
 
@@ -91,6 +54,11 @@ export class ApiError extends Error {
 
   get estHorsLigne() {
     return this.status === 0;
+  }
+
+  /** L'endpoint de commande est ouvert : il limite le débit (HTTP 429). */
+  get estTropDeRequetes() {
+    return this.status === 429;
   }
 }
 
@@ -121,47 +89,9 @@ function messagesDepuis(corps: unknown): { champs: Record<string, string[]>; mes
   return { champs, message: plats.filter(Boolean).join("\n") || "Une erreur est survenue." };
 }
 
-let refreshEnCours: Promise<string | null> | null = null;
-
-async function rafraichir(): Promise<string | null> {
-  const { refresh } = getTokens();
-  if (!refresh) return null;
-  if (!refreshEnCours) {
-    refreshEnCours = (async () => {
-      try {
-        const res = await fetch(`${baseUrl()}/client/refresh/`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh }),
-        });
-        if (!res.ok) return null;
-        const data = (await res.json()) as { access?: string };
-        if (!data.access) return null;
-        setTokens({ access: data.access });
-        return data.access;
-      } catch {
-        return null;
-      } finally {
-        // Laisse la micro-tâche courante lire le résultat avant de réarmer.
-        setTimeout(() => {
-          refreshEnCours = null;
-        }, 0);
-      }
-    })();
-  }
-  return refreshEnCours;
-}
-
-function deconnecter() {
-  clearTokens();
-  if (estNavigateur()) window.dispatchEvent(new CustomEvent(LOGOUT_EVENT));
-}
-
 export type RequeteOptions = {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
   body?: unknown;
-  /** Joint le jeton d'accès et gère le refresh automatique. */
-  auth?: boolean;
   params?: Record<string, string | number | boolean | undefined | null>;
   signal?: AbortSignal;
   /** Cache Next côté serveur (catalogue public). */
@@ -169,7 +99,7 @@ export type RequeteOptions = {
 };
 
 export async function api<T>(chemin: string, options: RequeteOptions = {}): Promise<T> {
-  const { method = "GET", body, auth = false, params, signal, revalidate } = options;
+  const { method = "GET", body, params, signal, revalidate } = options;
 
   const url = new URL(`${baseUrl()}${chemin}`, estNavigateur() ? window.location.origin : DJANGO_ORIGIN);
   if (params) {
@@ -178,42 +108,21 @@ export async function api<T>(chemin: string, options: RequeteOptions = {}): Prom
     }
   }
 
-  const envoyer = async (jeton?: string) => {
-    const headers: Record<string, string> = {};
-    if (body !== undefined) headers["Content-Type"] = "application/json";
-    if (jeton) headers.Authorization = `Bearer ${jeton}`;
-    return fetch(url.toString(), {
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+
+  let reponse: Response;
+  try {
+    reponse = await fetch(url.toString(), {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
       signal,
       ...(estNavigateur() ? {} : { next: { revalidate: revalidate ?? 0 } }),
     });
-  };
-
-  let reponse: Response;
-  try {
-    reponse = await envoyer(auth ? getTokens().access : undefined);
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") throw e;
     throw new ApiError(0, {}, "Impossible de joindre le serveur. Vérifiez votre connexion.");
-  }
-
-  if (reponse.status === 401 && auth) {
-    const nouveau = await rafraichir();
-    if (!nouveau) {
-      deconnecter();
-      throw new ApiError(401, {}, "Votre session a expiré. Reconnectez-vous.");
-    }
-    try {
-      reponse = await envoyer(nouveau);
-    } catch {
-      throw new ApiError(0, {}, "Impossible de joindre le serveur. Vérifiez votre connexion.");
-    }
-    if (reponse.status === 401) {
-      deconnecter();
-      throw new ApiError(401, {}, "Votre session a expiré. Reconnectez-vous.");
-    }
   }
 
   if (reponse.status === 204) return undefined as T;
@@ -238,7 +147,10 @@ export async function api<T>(chemin: string, options: RequeteOptions = {}): Prom
 
 /** Message d'erreur affichable, quelle que soit l'origine de l'exception. */
 export function messageErreur(e: unknown, secours = "Une erreur est survenue."): string {
-  if (e instanceof ApiError) return e.message || secours;
+  if (e instanceof ApiError) {
+    if (e.estTropDeRequetes) return "Trop de commandes envoyées coup sur coup. Patientez une minute.";
+    return e.message || secours;
+  }
   if (e instanceof Error && e.message) return e.message;
   return secours;
 }

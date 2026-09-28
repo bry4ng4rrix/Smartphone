@@ -1,11 +1,3 @@
-from django.contrib import admin
-
-from .models import Client
-
-
-@admin.register(Client)
-class ClientAdmin(admin.ModelAdmin):
-    list_display = ("id", "nom", "email", "telephone", "is_active", "created_at", "last_login")
-    search_fields = ("nom", "email", "telephone")
-    list_filter = ("is_active",)
-    readonly_fields = ("password", "created_at", "updated_at", "last_login")
+# La boutique en ligne n'a pas de modèle propre : elle s'appuie entièrement
+# sur le catalogue et les commandes existants (catalog/, orders/). Rien à
+# enregistrer ici depuis la suppression des comptes clients.

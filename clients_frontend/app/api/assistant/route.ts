@@ -32,26 +32,25 @@ CATALOGUE
 - Les catégories "Housse" et "Cache-écran" demandent d'abord la marque puis le modèle du téléphone : le site ne montre alors que les produits compatibles avec ce téléphone.
 - Une fiche produit affiche le prix, les couleurs disponibles (grisées si épuisées) et un bouton "Ajouter au panier". Le cœur sur une fiche l'ajoute aux favoris.
 
-COMPTE
-- Un compte se crée depuis "Se connecter" puis "Créer un compte" : email, mot de passe, nom, téléphone (format +261XXXXXXXXX), adresse facultative.
-- Le nom, le téléphone, l'adresse et le mot de passe se modifient depuis "Mon compte".
-- On peut naviguer et remplir le panier sans être connecté : la connexion n'est demandée qu'au moment de valider la commande.
+PAS DE COMPTE
+- Le site ne demande NI inscription NI connexion. Il n'y a pas de profil, pas de mot de passe, pas d'historique de commandes en ligne.
+- Si on vous demande où vous connecter : il n'y a rien à connecter, on commande directement.
 
 PANIER
-- Le panier est local à cet appareil, pas besoin d'être connecté. Il ne peut contenir que des articles d'UNE seule boutique à la fois.
+- Le panier est local à cet appareil. Il ne peut contenir que des articles d'UNE seule boutique à la fois.
 - Depuis le panier : changer la quantité, retirer un article, le vider, puis "Passer commande".
 
-PASSER COMMANDE
-- Choisir "Livraison à domicile" (adresse + date souhaitée) ou "Retrait en boutique" (gratuit, sans adresse), indiquer un téléphone et le mode de paiement, puis confirmer.
-- Les frais de livraison exacts sont fixés par la boutique à la validation : la commande part avec le statut "En attente d'approbation", sans montant total affiché tout de suite.
-- Paiement : à la livraison / au retrait, ou payé d'avance directement avec la boutique — il n'y a pas de paiement en ligne sur le site.
-- Une fois envoyée, "Mes commandes" (icône sablier, ou depuis "Mon compte") liste toutes les commandes avec leur statut.
+PASSER COMMANDE — QUATRE ÉTAPES
+1. Vos coordonnées : nom, téléphone (format +261XXXXXXXXX), et un second numéro facultatif. C'est sur ce numéro que la boutique rappelle.
+2. Livraison : "Livraison" à 3000 Ar avec l'adresse, ou "Retrait sur place" gratuit sans adresse. Une précision facultative peut être ajoutée.
+3. Vérification : tout est réaffiché et tout reste modifiable — quantités, nom, numéros, adresse, total.
+4. Confirmation : cocher l'attestation, puis confirmer dans la fenêtre qui s'ouvre.
+- Après envoi, un numéro de commande s'affiche : c'est la référence à conserver, elle est imprimable.
+- Paiement : rien en ligne. On règle à la livraison ou au retrait.
 
-STATUTS D'UNE COMMANDE, DANS L'ORDRE
-En attente d'approbation → Nouvelle → En préparation → Prête → En livraison → Livré (ou Retour si la livraison échoue). Annulée reste possible tant que la commande n'est pas "En préparation".
-- "En attente d'approbation" : le client peut encore modifier (adresse, téléphone, zone, paiement, note — pas les articles) ou annuler.
-- "Nouvelle" : la boutique a validé, les articles sont réservés ; encore annulable, mais plus modifiable.
-- À partir de "En préparation" : ni modification ni annulation possibles depuis le site — il faut contacter la boutique.
+APRÈS LA COMMANDE
+- La boutique APPELLE au numéro indiqué pour confirmer, puis lance la préparation.
+- Il n'y a pas de page de suivi en ligne et la commande n'est plus modifiable depuis le site : toute correction se fait lors de cet appel, ou en contactant la boutique.
 
 COMMANDE SPÉCIALE (housse ou cache-écran indisponible)
 - Si aucun produit compatible n'est en stock pour le téléphone choisi, le site propose une commande spéciale : un formulaire (téléphone, produit souhaité, quantité, contact) envoyé à la boutique, avec un acompte indicatif de 50 % et un délai indicatif de 15 jours. La boutique confirme ensuite le prix et le délai exacts.
@@ -96,7 +95,7 @@ function promptIntention(message: string): string {
 
 Détermine l'intention :
 - "ajouter_panier" : le client demande un ou plusieurs articles à ajouter au panier ou à commander. Exemple : "je veux 2 coques iPhone 13 noires", "ajoute un chargeur 20W".
-- "question" : il pose une question sur le fonctionnement du site (catalogue, compte, panier, commande, statuts, paiement, commande spéciale...).
+- "question" : il pose une question sur le fonctionnement du site (catalogue, panier, commande, livraison, paiement, commande spéciale...).
 - "autre" : tout le reste (salutations, hors sujet).
 
 Si l'intention est "ajouter_panier", remplis "articles" avec ce qui est dit, SANS rien inventer (chaîne vide ou 0 si absent) :

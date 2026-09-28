@@ -1,7 +1,10 @@
 /**
- * Types de l'API client — copie fidèle des structures décrites dans
- * `client_endpoint.md` (../client_endpoint.md). Aucun champ inventé :
- * ce que le backend n'expose pas n'existe pas ici non plus.
+ * Types de l'API de la boutique en ligne — copie fidèle des structures
+ * décrites dans `client_endpoint.md` (../client_endpoint.md). Aucun champ
+ * inventé : ce que le backend n'expose pas n'existe pas ici non plus.
+ *
+ * Il n'y a plus de type de compte ni de jeton : la boutique ne demande pas
+ * d'inscription.
  */
 
 // --------------------------------------------------------------------- //
@@ -82,105 +85,55 @@ export type Page<T> = {
 };
 
 // --------------------------------------------------------------------- //
-// Compte client
+// Commande
 // --------------------------------------------------------------------- //
 
-export type ClientProfil = {
-  id: number;
-  email: string;
-  nom: string;
-  telephone: string;
-  adresse: string;
-  created_at: string;
-  last_login: string | null;
-};
-
-export type Tokens = { access: string; refresh: string };
-
-export type AuthReponse = Tokens & { client: ClientProfil };
-
-// --------------------------------------------------------------------- //
-// Commandes
-// --------------------------------------------------------------------- //
-
-export const STATUTS = [
-  "EN_ATTENTE_APPROBATION",
-  "NOUVELLE",
-  "EN_PREPARATION",
-  "PRETE",
-  "EN_LIVRAISON",
-  "LIVRE",
-  "RETOUR",
-  "ANNULEE",
-] as const;
-
-export type Statut = (typeof STATUTS)[number];
-
-export type ModePaiement = "LIVRAISON" | "AVANT";
-
-export type LigneCommande = {
-  id: number;
-  produit: { id: number; nom: string; nom_complet: string };
-  variante: { id: number; couleur: string };
-  quantite: number;
-  prix_unitaire: number;
-  total: number;
-  retourne: boolean;
-};
-
-export type Commande = {
-  id: number;
-  numero: string;
-  statut: Statut;
-  statut_label: string;
-  date_commande: string;
-  /** Date et heure de livraison souhaitées par le client (= `date_commande`). */
-  date_livraison_souhaitee: string;
-  boutique: { id: number; nom: string };
-  livraison_zone: string;
-  adresse_livraison: string | null;
-  telephone: string;
-  telephone_2: string;
-  mode_paiement: ModePaiement;
-  note: string | null;
-  frais_livraison: number;
-  total_a_payer: number;
-  items: LigneCommande[];
-  /** Droits calculés par le serveur — ne jamais les déduire du statut. */
-  peut_modifier: boolean;
-  peut_annuler: boolean;
-  created_at: string;
-  updated_at: string;
-};
-
-export type CommandeItemInput = {
-  variante: number;
-  quantite: number;
-  prix_attendu?: string | number;
-};
-
+/** Ce que le navigateur envoie. Aucun montant : le serveur les calcule. */
 export type CommandeInput = {
   boutique: number;
-  items: CommandeItemInput[];
+  items: { variante: number; quantite: number; prix_attendu?: string | number }[];
   livraison_zone: string;
-  /** ISO local (`2026-09-22T14:00`) — la boutique peut l'ajuster. */
-  date_livraison_souhaitee?: string;
-  adresse_livraison?: string;
-  telephone?: string;
+  client_nom: string;
+  telephone: string;
   telephone_2?: string;
-  mode_paiement?: ModePaiement;
+  adresse_livraison?: string;
   note?: string;
 };
 
-export type CommandeUpdate = Partial<{
-  date_livraison_souhaitee: string;
-  adresse_livraison: string;
+export type CommandeLigne = {
+  id: number;
+  produit: { id: number; nom: string; nom_complet: string };
+  couleur: string;
+  quantite: number;
+  prix_unitaire: number;
+  total: number;
+};
+
+/**
+ * Accusé renvoyé APRÈS la commande, pour l'écran de confirmation.
+ *
+ * Il n'existe pas d'endpoint pour la relire : sans compte, rien ne
+ * permettrait d'authentifier celui qui la demanderait. Le gérant rappelle au
+ * numéro fourni.
+ */
+export type Commande = {
+  id: number;
+  numero: string;
+  statut: string;
+  statut_label: string;
+  date_commande: string;
+  boutique: { id: number; nom: string };
+  livraison_zone: string;
+  adresse_livraison: string | null;
+  client_nom: string;
   telephone: string;
   telephone_2: string;
-  livraison_zone: string;
-  mode_paiement: ModePaiement;
-  note: string;
-}>;
+  note: string | null;
+  frais_livraison: number;
+  total_a_payer: number;
+  items: CommandeLigne[];
+  created_at: string;
+};
 
 // --------------------------------------------------------------------- //
 // Commande spéciale (Housse / Cache-écran)
@@ -189,8 +142,7 @@ export type CommandeUpdate = Partial<{
 // ATTENTION : ces structures ne sont PAS encore servies par le backend.
 // Elles décrivent le contrat spécifié dans `client_endpoint.md`
 // (§ « Commande spéciale Housse / Cache-écran ») et restent inutilisées
-// tant que `ENVOI_COMMANDE_SPECIALE_ACTIF` est faux. Aucun champ inventé
-// au-delà de ce que ce document demande.
+// tant que `ENVOI_COMMANDE_SPECIALE_ACTIF` est faux.
 
 export const STATUTS_COMMANDE_SPECIALE = [
   "EN_ATTENTE_ACOMPTE",

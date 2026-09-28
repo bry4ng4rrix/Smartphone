@@ -183,9 +183,10 @@ REST_FRAMEWORK = {
     # Limitation de débit UNIQUEMENT pour les vues de l'espace client qui la
     # déclarent (ScopedRateThrottle) — aucune vue interne n'est affectée.
     'DEFAULT_THROTTLE_RATES': {
-        'client_auth': '20/min',
+        # Boutique en ligne : lecture du catalogue généreuse, écriture
+        # nettement plus stricte — l'endpoint de commande est ouvert à tous.
         'client_public': '300/min',
-        'client_orders': '60/min',
+        'commande_en_ligne': '10/min',
     },
 }
 

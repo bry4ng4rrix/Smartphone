@@ -1,29 +1,27 @@
 /**
  * Toutes les routes de `client_endpoint.md`, une fonction par endpoint.
  * Aucun appel `fetch` ailleurs dans l'application.
+ *
+ * Tout est public : la boutique ne demande ni compte ni connexion.
  */
 import { api, mediaUrl, type RequeteOptions } from "./api";
 import type {
-  AuthReponse,
   Boutique,
   Categorie,
-  ClientProfil,
   Commande,
   CommandeInput,
   CommandeSpeciale,
   CommandeSpecialeInput,
-  CommandeUpdate,
   Couleur,
   Marque,
   Page,
   Produit,
   SousType,
-  Statut,
   ZonesReponse,
 } from "./types";
 
 // --------------------------------------------------------------------- //
-// Catalogue public (sans jeton)
+// Catalogue public
 // --------------------------------------------------------------------- //
 
 const CATALOGUE_CACHE = 60; // secondes — le catalogue bouge peu
@@ -76,45 +74,16 @@ export const catalogue = {
 };
 
 // --------------------------------------------------------------------- //
-// Compte client
-// --------------------------------------------------------------------- //
-
-export const compte = {
-  inscription: (data: { email: string; password: string; nom: string; telephone: string; adresse?: string }) =>
-    api<AuthReponse>("/client/register/", { method: "POST", body: data }),
-
-  connexion: (data: { email: string; password: string }) =>
-    api<AuthReponse>("/client/login/", { method: "POST", body: data }),
-
-  moi: () => api<ClientProfil>("/client/me/", { auth: true }),
-
-  majProfil: (data: Partial<Pick<ClientProfil, "nom" | "telephone" | "adresse">>) =>
-    api<ClientProfil>("/client/me/", { method: "PATCH", body: data, auth: true }),
-
-  changerMotDePasse: (data: { ancien_mot_de_passe: string; nouveau_mot_de_passe: string }) =>
-    api<{ detail: string }>("/client/change-password/", { method: "POST", body: data, auth: true }),
-};
-
-// --------------------------------------------------------------------- //
-// Commandes du client
+// Commande
 // --------------------------------------------------------------------- //
 
 export const commandes = {
-  liste: (statut?: Statut[] | string) =>
-    api<Commande[]>("/client/orders/", {
-      auth: true,
-      params: { statut: Array.isArray(statut) ? statut.join(",") : statut },
-    }),
-
-  detail: (id: number | string) => api<Commande>(`/client/orders/${id}/`, { auth: true }),
-
-  creer: (data: CommandeInput) => api<Commande>("/client/orders/", { method: "POST", body: data, auth: true }),
-
-  modifier: (id: number | string, data: CommandeUpdate) =>
-    api<Commande>(`/client/orders/${id}/`, { method: "PATCH", body: data, auth: true }),
-
-  annuler: (id: number | string, note?: string) =>
-    api<Commande>(`/client/orders/${id}/cancel/`, { method: "POST", body: { note: note ?? "" }, auth: true }),
+  /**
+   * Passe la commande. Écriture seule : il n'y a pas d'endpoint pour la
+   * relire ensuite, et le corps ne porte aucun montant — le serveur calcule
+   * les frais et le total.
+   */
+  creer: (data: CommandeInput) => api<Commande>("/commandes/", { method: "POST", body: data }),
 };
 
 // --------------------------------------------------------------------- //
@@ -122,16 +91,12 @@ export const commandes = {
 // --------------------------------------------------------------------- //
 
 /**
- * ENDPOINTS À IMPLÉMENTER CÔTÉ BACKEND — spécifiés dans `client_endpoint.md`
+ * ENDPOINT À IMPLÉMENTER CÔTÉ BACKEND — spécifié dans `client_endpoint.md`
  * (§ « Commande spéciale Housse / Cache-écran »). Rien ici n'est appelé tant
- * que `ENVOI_COMMANDE_SPECIALE_ACTIF` (lib/compatibilite.ts) est faux : ces
- * fonctions décrivent le contrat attendu, elles ne le simulent pas.
+ * que `ENVOI_COMMANDE_SPECIALE_ACTIF` (lib/compatibilite.ts) est faux : cette
+ * fonction décrit le contrat attendu, elle ne le simule pas.
  */
 export const commandesSpeciales = {
   creer: (data: CommandeSpecialeInput) =>
-    api<CommandeSpeciale>("/client/commandes-speciales/", { method: "POST", body: data, auth: true }),
-
-  liste: () => api<CommandeSpeciale[]>("/client/commandes-speciales/", { auth: true }),
-
-  detail: (id: number | string) => api<CommandeSpeciale>(`/client/commandes-speciales/${id}/`, { auth: true }),
+    api<CommandeSpeciale>("/commandes-speciales/", { method: "POST", body: data }),
 };

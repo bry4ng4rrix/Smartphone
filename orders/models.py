@@ -138,12 +138,11 @@ class Order(models.Model):
     campagne = models.ForeignKey(
         "orders.MarketingCampaign", on_delete=models.SET_NULL, null=True, blank=True, related_name="orders"
     )
-    # Compte client de l'espace en ligne à l'origine de la commande (app
-    # `clients`) — null pour toute commande saisie en interne. Additif :
-    # rien ne change pour les commandes existantes.
-    client = models.ForeignKey(
-        "clients.Client", on_delete=models.SET_NULL, null=True, blank=True, related_name="orders"
-    )
+    # Commande passée depuis la boutique en ligne. Le site ne demande plus
+    # d'inscription : on ne peut donc plus reconnaître ces commandes à la
+    # présence d'un compte, comme le faisait l'ancien FK `client`. Ce drapeau
+    # explicite le remplace et vaut False pour toute saisie interne.
+    origine_en_ligne = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -186,8 +185,8 @@ class Order(models.Model):
 
     @property
     def est_commande_client(self):
-        """Vrai pour une commande passée depuis l'espace client."""
-        return self.client_id is not None
+        """Vrai pour une commande passée depuis la boutique en ligne."""
+        return self.origine_en_ligne
 
     @property
     def remise_total(self):

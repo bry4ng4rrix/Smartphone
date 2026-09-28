@@ -997,7 +997,7 @@ def approuver_commande_client(*, order, user, note=""):
         message=f"Nouvelle commande {order.numero} — {order.client_nom} ({order.livraison_zone})",
         order=order,
     )
-    if order.client_id:
+    if order.origine_en_ligne:
         Notification.objects.create(
             notif_type="order",
             message=f"Commande {order.numero} approuvée — elle est en cours de traitement",

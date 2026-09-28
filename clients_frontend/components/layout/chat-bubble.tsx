@@ -35,9 +35,9 @@ const EXEMPLE_ARTICLE = "Je veux 2 coques iPhone 13 noires";
  *    retrouve les articles dans le catalogue et montre un récapitulatif ;
  *    rien n'est ajouté avant que le client ne clique "Confirmer".
  *
- * Ouverte à tout visiteur, même non connecté : le catalogue est public et le
- * panier est local au navigateur (voir providers/cart-provider.tsx) — seule
- * la validation finale de la commande demande une connexion.
+ * Ouverte à tout visiteur : le catalogue est public, le panier est local au
+ * navigateur (voir providers/cart-provider.tsx), et commander ne demande
+ * aucun compte.
  */
 export function ChatBubble() {
   const { boutiqueId, ajouterLignes } = useCart();

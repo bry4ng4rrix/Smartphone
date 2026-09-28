@@ -123,9 +123,9 @@ class OrderGerantSerializer(serializers.ModelSerializer):
     # historique) reste exposé en lecture, jamais renseigné.
     campagne_nom = serializers.SerializerMethodField()
     campagnes = serializers.SerializerMethodField()
-    # Espace client : compte à l'origine de la commande (null en interne) et
-    # drapeau pratique pour l'interface du gérant (additif, lecture seule).
-    client_email = serializers.EmailField(source="client.email", read_only=True, default=None)
+    # Boutique en ligne : drapeau pour l'interface du gérant. Il n'y a plus de
+    # compte à exposer — les coordonnées saisies à la commande (client_nom,
+    # telephone, telephone_2) suffisent au gérant pour rappeler la personne.
     est_commande_client = serializers.BooleanField(read_only=True)
 
     # Remise totale accordée sur la commande (0 sans remise) — visible par
@@ -162,7 +162,7 @@ class OrderGerantSerializer(serializers.ModelSerializer):
             "adresse_livraison", "mode_paiement", "frais_livraison", "total_a_payer", "remise_total",
             "note_preparateur", "note_livreur", "statut_courant",
             "preparateur", "preparateur_name", "livreur", "livreur_name", "campagne", "campagne_nom", "campagnes",
-            "client", "client_email", "est_commande_client", "items",
+            "est_commande_client", "items",
             "status_history", "created_at", "updated_at",
         ]
         read_only_fields = fields

@@ -8,7 +8,7 @@ export default function robots(): MetadataRoute.Robots {
       userAgent: "*",
       allow: "/",
       // Espaces privés ou sans intérêt pour l'indexation.
-      disallow: ["/compte", "/checkout", "/panier", "/favoris", "/connexion", "/inscription", "/backend/"],
+      disallow: ["/checkout", "/panier", "/favoris", "/backend/"],
     },
     sitemap: `${SITE}/sitemap.xml`,
   };

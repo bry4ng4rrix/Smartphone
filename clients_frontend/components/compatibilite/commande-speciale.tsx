@@ -8,7 +8,6 @@ import { AcompteResume } from "@/components/compatibilite/acompte-resume";
 import { ApiError, messageErreur } from "@/lib/api";
 import { commandesSpeciales } from "@/lib/endpoints";
 import { ENVOI_COMMANDE_SPECIALE_ACTIF } from "@/lib/compatibilite";
-import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import type { Categorie, Marque } from "@/lib/types";
 
@@ -36,7 +35,6 @@ export function CommandeSpeciale({
   prixIndicatif: number | null;
   onRetour: () => void;
 }) {
-  const { client } = useAuth();
   const toast = useToast();
 
   const idNom = useId();
@@ -45,14 +43,10 @@ export function CommandeSpeciale({
   const idQuantite = useId();
   const idPrecision = useId();
 
-  // Préremplissage depuis le compte, sans effet : tant que le client n'a
-  // rien saisi (`null`), le champ affiche ce que l'on sait déjà de lui. Le
-  // profil arrive de façon asynchrone (vérification du jeton), la valeur
-  // suit donc toute seule dès qu'il est connu.
-  const [nomSaisi, setNomSaisi] = useState<string | null>(null);
-  const [contactSaisi, setContactSaisi] = useState<string | null>(null);
-  const nom = nomSaisi ?? client?.nom ?? "";
-  const contact = contactSaisi ?? client?.telephone ?? "";
+  // Plus de compte d'où préremplir : la boutique ne demande pas
+  // d'inscription, ces deux champs se saisissent à chaque demande.
+  const [nom, setNomSaisi] = useState("");
+  const [contact, setContactSaisi] = useState("");
 
   const [produitSouhaite, setProduitSouhaite] = useState("");
   const [quantite, setQuantite] = useState(1);

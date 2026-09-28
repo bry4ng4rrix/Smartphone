@@ -1,80 +1,125 @@
-"""Règles métier de l'espace client — réutilise le modèle `Order` et les
+"""Règles métier de la boutique en ligne — réutilise le modèle `Order` et les
 services existants (orders/services.py) : aucun système de commande
 parallèle, aucun accès direct au stock.
 
-Une commande client :
+La boutique en ligne ne demande NI compte NI connexion : le visiteur saisit
+ses coordonnées au moment de commander. Une commande :
 
-* est créée en "EN_ATTENTE_APPROBATION" (le gérant l'approuve ensuite, ce
-  qui la fait entrer dans le workflow habituel — voir
-  orders/services.py::approuver_commande_client) ;
-* ne touche PAS le stock tant qu'elle n'est pas approuvée (la réservation
-  se fait à l'approbation, quand elle devient "Nouvelle" — voir
-  orders/services.py::approuver_commande_client) — mais la disponibilité est
-  vérifiée ici, sous verrou, pour ne pas accepter ce qui n'est plus en rayon ;
-* prend les prix catalogue du moment (snapshot OrderItem.prix_unitaire) ;
-  le client peut envoyer le prix qu'il a vu (`prix_attendu`) pour être
-  averti si le prix a changé entre-temps ;
-* porte la date de livraison souhaitée dans `Order.date_commande` — le champ
-  que l'application de gestion utilise déjà comme date de livraison planifiée
-  (page livreur, ouverture des actions).
+* est créée en "EN_ATTENTE_APPROBATION" — le gérant rappelle la personne au
+  téléphone pour vérifier, puis l'approuve, ce qui la fait entrer dans le
+  workflow habituel (orders/services.py::approuver_commande_client) ;
+* ne touche PAS le stock tant qu'elle n'est pas approuvée (la réservation se
+  fait à l'approbation) — mais la disponibilité est vérifiée ici, sous
+  verrou, pour ne pas accepter ce qui n'est plus en rayon ;
+* prend les prix catalogue du moment (snapshot OrderItem.prix_unitaire) ; le
+  client peut envoyer le prix qu'il a vu (`prix_attendu`) pour être averti si
+  le prix a changé entre-temps ;
+* porte `origine_en_ligne=True`, ce qui la distingue d'une saisie interne.
+
+Elle n'est plus modifiable ni annulable depuis le site : sans compte, rien ne
+permettrait d'authentifier la personne qui le demande. La correction passe par
+l'appel du gérant.
 """
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.utils import timezone
 
 from catalog.models import ProductVariant
 from orders.models import DeliveryZoneOption, Order, OrderItem, OrderStatusHistory
 from orders.services import STATUT_ATTENTE_APPROBATION
 from users.models import MagasinProfile, Notification
 
+# --------------------------------------------------------------------------- #
+# Livraison
+# --------------------------------------------------------------------------- #
 
-def zones_de_la_boutique(magasin):
-    """Zones de livraison actives proposées par une boutique (celles de sa
-    société, comme pour les commandes internes)."""
+#: Retrait en boutique — gratuit, pas d'adresse à saisir.
+CODE_RECUPERATION = "RECUPERATION"
+
+#: Livraison de la boutique en ligne : un tarif unique pour tous.
+CODE_ZONE_EN_LIGNE = "EN_LIGNE"
+PRIX_LIVRAISON_EN_LIGNE = Decimal("3000")
+
+
+def zone_livraison_en_ligne(magasin):
+    """La zone de livraison unique du site, créée à la demande.
+
+    Le site n'expose plus le découpage par quartier : une seule livraison, au
+    même prix pour tout le monde. Ce prix reste porté par une
+    `DeliveryZoneOption` comme les autres, pour deux raisons : c'est
+    `Order.save()` qui applique les frais (le champ `frais_livraison` n'est pas
+    éditable), et le gérant garde ainsi la main dessus depuis ses paramètres.
+
+    Conséquence voulue : le navigateur n'envoie jamais de montant. Un prix
+    venu du client ne fait pas foi.
+    """
     try:
         admin_profile = magasin.admin.admin_profile
     except Exception:
-        return DeliveryZoneOption.objects.none()
-    return DeliveryZoneOption.objects.filter(admin_profile=admin_profile, actif=True)
+        return None
+    zone, _ = DeliveryZoneOption.objects.get_or_create(
+        admin_profile=admin_profile,
+        code=CODE_ZONE_EN_LIGNE,
+        defaults={"nom": "Livraison", "prix": PRIX_LIVRAISON_EN_LIGNE, "actif": True},
+    )
+    return zone
+
+
+def options_livraison(magasin):
+    """Les deux seuls choix proposés en ligne, prix inclus."""
+    zone = zone_livraison_en_ligne(magasin)
+    return {
+        "livraison": {
+            "code": CODE_ZONE_EN_LIGNE,
+            "nom": zone.nom if zone else "Livraison",
+            "prix": zone.prix if zone else PRIX_LIVRAISON_EN_LIGNE,
+        },
+        "recuperation": {"code": CODE_RECUPERATION, "nom": "Retrait sur place", "prix": Decimal("0")},
+    }
 
 
 def valider_zone(magasin, code):
-    if code == "RECUPERATION":
+    if code == CODE_RECUPERATION:
         return code
-    if not zones_de_la_boutique(magasin).filter(code=code).exists():
-        raise ValidationError({"livraison_zone": "Zone de livraison invalide pour cette boutique."})
+    if code != CODE_ZONE_EN_LIGNE:
+        raise ValidationError({"livraison_zone": "Mode de livraison invalide."})
+    if zone_livraison_en_ligne(magasin) is None:
+        raise ValidationError({"livraison_zone": "Cette boutique ne peut pas livrer pour le moment."})
     return code
 
 
-def valider_date_livraison(valeur):
-    """Date de livraison souhaitée : jamais dans le passé (on compare au jour,
-    pas à la minute — un client qui demande « aujourd'hui » reste valide)."""
-    if valeur is None:
-        return None
-    if timezone.localtime(valeur).date() < timezone.localdate():
-        raise ValidationError({"date_livraison_souhaitee": "La date de livraison ne peut pas être dans le passé."})
-    return valeur
+# --------------------------------------------------------------------------- #
+# Commande
+# --------------------------------------------------------------------------- #
 
 
 @transaction.atomic
-def create_client_order(*, client, magasin, items, livraison_zone, adresse_livraison="", telephone=None,
-                        telephone_2="", mode_paiement="LIVRAISON", note="", date_livraison=None):
+def create_commande_en_ligne(*, magasin, items, livraison_zone, client_nom, telephone,
+                             telephone_2="", adresse_livraison="", note=""):
     """`items` : liste de {"variante": id, "quantite": int, "prix_attendu": Decimal|None}.
 
     Vérifications, sous verrou (`select_for_update`) pour tenir la concurrence :
     variante active de la boutique, quantité ≥ 1, stock suffisant, prix
     inchangé si `prix_attendu` est fourni. Les erreurs sont des
     ValidationError avec un dictionnaire {champ: message} directement
-    renvoyable en 400."""
+    renvoyable en 400.
+    """
     if not isinstance(magasin, MagasinProfile):
         raise ValidationError({"boutique": "Boutique introuvable."})
     if not items:
         raise ValidationError({"items": "Ajoutez au moins un article."})
+
+    nom = (client_nom or "").strip()
+    if not nom:
+        raise ValidationError({"client_nom": "Indiquez le nom de la personne à contacter."})
+    tel = (telephone or "").strip()
+    if not tel:
+        raise ValidationError({"telephone": "Indiquez un numéro de téléphone."})
+
     valider_zone(magasin, livraison_zone)
-    valider_date_livraison(date_livraison)
-    if livraison_zone != "RECUPERATION" and not (adresse_livraison or "").strip() and not (client.adresse or "").strip():
+    adresse = (adresse_livraison or "").strip()
+    if livraison_zone != CODE_RECUPERATION and not adresse:
         raise ValidationError({"adresse_livraison": "Adresse de livraison requise pour une livraison."})
 
     # Regroupe les doublons de variante avant de vérifier le stock.
@@ -120,17 +165,15 @@ def create_client_order(*, client, magasin, items, livraison_zone, adresse_livra
 
     order = Order.objects.create(
         magasin=magasin,
-        client=client,
-        # Sans souhait exprimé, `date_commande` garde sa valeur par défaut
-        # (maintenant), comme pour une commande saisie en interne.
-        **({"date_commande": date_livraison} if date_livraison else {}),
-        client_nom=client.nom,
-        telephone=(telephone or client.telephone),
-        telephone_2=telephone_2 or "",
+        origine_en_ligne=True,
+        client_nom=nom,
+        telephone=tel,
+        telephone_2=(telephone_2 or "").strip(),
         livraison_zone=livraison_zone,
-        adresse_livraison=(adresse_livraison or client.adresse or "") if livraison_zone != "RECUPERATION" else "",
-        mode_paiement=mode_paiement,
-        note_livreur=note or "",
+        adresse_livraison=adresse if livraison_zone != CODE_RECUPERATION else "",
+        # Le règlement se fait à la remise : le site n'encaisse rien.
+        mode_paiement="LIVRAISON",
+        note_livreur=(note or "").strip(),
         statut_courant=STATUT_ATTENTE_APPROBATION,
         created_by=None,
     )
@@ -141,48 +184,13 @@ def create_client_order(*, client, magasin, items, livraison_zone, adresse_livra
 
     OrderStatusHistory.objects.create(
         order=order, ancien_statut=None, nouveau_statut=STATUT_ATTENTE_APPROBATION, changed_by=None,
-        note="Commande passée depuis l'espace client",
+        note="Commande passée depuis la boutique en ligne",
     )
     # Le gérant (groupe du magasin + admin, via le signal post_save) est
-    # prévenu qu'une commande attend son approbation.
+    # prévenu qu'une commande attend son appel de confirmation.
     Notification.objects.create(
         notif_type="order",
-        message=f"Commande client {order.numero} en attente d'approbation — {client.nom} ({livraison_zone})",
+        message=f"Commande en ligne {order.numero} à confirmer par téléphone — {nom} ({tel})",
         magasin=magasin,
     )
-    return order
-
-
-_CLIENT_EDITABLE = {
-    "adresse_livraison", "telephone", "telephone_2", "note", "livraison_zone", "mode_paiement",
-    "date_livraison_souhaitee",
-}
-
-
-@transaction.atomic
-def update_client_order(*, order, data):
-    """Modification par le client, uniquement tant que la commande attend
-    l'approbation du gérant : coordonnées de livraison, zone, paiement, note.
-    Les articles ne se modifient pas : annuler et repasser commande."""
-    if order.statut_courant != STATUT_ATTENTE_APPROBATION:
-        raise ValidationError(
-            f"Cette commande est '{order.get_statut_courant_display()}' — elle ne peut plus être modifiée "
-            "depuis l'espace client."
-        )
-    champs = {k: v for k, v in data.items() if k in _CLIENT_EDITABLE and v is not None}
-    if not champs:
-        raise ValidationError("Aucune modification demandée.")
-    if "livraison_zone" in champs:
-        valider_zone(order.magasin, champs["livraison_zone"])
-    if "date_livraison_souhaitee" in champs:
-        order.date_commande = valider_date_livraison(champs.pop("date_livraison_souhaitee"))
-    if "note" in champs:
-        order.note_livreur = champs.pop("note")
-    for champ, valeur in champs.items():
-        setattr(order, champ, valeur)
-    if order.livraison_zone == "RECUPERATION":
-        order.adresse_livraison = ""
-    # save() recalcule les frais depuis la zone, recompute_total le total.
-    order.save()
-    order.recompute_total()
     return order

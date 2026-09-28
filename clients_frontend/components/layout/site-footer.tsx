@@ -38,17 +38,14 @@ export function SiteFooter({ boutiques }: { boutiques: Boutique[] }) {
             </Link>
           </nav>
 
-          <nav aria-label="Compte" className="space-y-3 text-sm">
-            <p className="text-[11px] font-medium tracking-[0.2em] text-muted uppercase">Compte</p>
-            <Link href="/compte" className="block text-muted transition-colors hover:text-foreground">
-              Mon profil
+          {/* Commander ne demande pas de compte : il n'y a ni profil, ni
+              connexion, ni historique à proposer ici. */}
+          <nav aria-label="Commander" className="space-y-3 text-sm">
+            <p className="text-[11px] font-medium tracking-[0.2em] text-muted uppercase">Commander</p>
+            <Link href="/checkout" className="block text-muted transition-colors hover:text-foreground">
+              Finaliser ma commande
             </Link>
-            <Link href="/compte/commandes" className="block text-muted transition-colors hover:text-foreground">
-              Mes commandes
-            </Link>
-            <Link href="/connexion" className="block text-muted transition-colors hover:text-foreground">
-              Connexion
-            </Link>
+            <p className="text-muted">Sans inscription — la boutique vous rappelle pour confirmer.</p>
           </nav>
         </div>
 

@@ -1,16 +1,14 @@
-"""Routes de l'espace client — montées sous /api/ (Stock/urls.py), à côté
+"""Routes de la boutique en ligne — montées sous /api/ (Stock/urls.py), à côté
 des routes internes /api/users/, /api/catalog/, /api/orders/, /api/suppliers/
-qui restent inchangées."""
+qui restent inchangées.
+
+Tout est public : la boutique ne demande ni compte ni connexion.
+"""
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
-    ClientChangePasswordView,
-    ClientLoginView,
-    ClientMeView,
-    ClientOrderViewSet,
-    ClientRefreshView,
-    ClientRegisterView,
+    CommandeEnLigneView,
     PublicBoutiqueListView,
     PublicBoutiqueZonesView,
     PublicCategorieListView,
@@ -22,10 +20,9 @@ from .views import (
 
 router = DefaultRouter()
 router.register(r"produit", PublicProduitViewSet, basename="public-produit")
-router.register(r"client/orders", ClientOrderViewSet, basename="client-order")
 
 urlpatterns = [
-    # Catalogue public (sans authentification)
+    # Catalogue
     path("boutiques/", PublicBoutiqueListView.as_view()),
     path("boutiques/<int:pk>/zones/", PublicBoutiqueZonesView.as_view()),
     path("categories/", PublicCategorieListView.as_view()),
@@ -33,10 +30,6 @@ urlpatterns = [
     path("sous-type/", PublicSousTypeListView.as_view()),
     path("marque/", PublicMarqueListView.as_view()),
     path("couleurs/", PublicCouleurListView.as_view()),
-    # Compte client
-    path("client/register/", ClientRegisterView.as_view()),
-    path("client/login/", ClientLoginView.as_view()),
-    path("client/refresh/", ClientRefreshView.as_view()),
-    path("client/me/", ClientMeView.as_view()),
-    path("client/change-password/", ClientChangePasswordView.as_view()),
+    # Commande, sans compte : le gérant rappelle pour confirmer.
+    path("commandes/", CommandeEnLigneView.as_view()),
 ] + router.urls

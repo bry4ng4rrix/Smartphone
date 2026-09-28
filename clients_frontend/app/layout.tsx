@@ -4,7 +4,6 @@ import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { CartDrawer } from "@/components/layout/cart-drawer";
 import { ChatBubble } from "@/components/layout/chat-bubble";
-import { AuthProvider } from "@/providers/auth-provider";
 import { CartProvider } from "@/providers/cart-provider";
 import { ThemeProvider, SCRIPT_THEME } from "@/providers/theme-provider";
 import { ToastProvider } from "@/providers/toast-provider";
@@ -77,7 +76,6 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       <body className="flex min-h-full flex-col">
         <ThemeProvider>
           <ToastProvider>
-            <AuthProvider>
               <CartProvider>
                 <WishlistProvider>
                   <SiteHeader categories={categories.map((c) => ({ id: c.id, nom: c.nom }))} />
@@ -89,7 +87,6 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
                   <ChatBubble />
                 </WishlistProvider>
               </CartProvider>
-            </AuthProvider>
           </ToastProvider>
         </ThemeProvider>
       </body>

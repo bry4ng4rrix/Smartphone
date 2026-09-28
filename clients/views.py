@@ -1,51 +1,35 @@
-"""Vues de l'espace client : catalogue public (lecture seule, sans
-authentification), compte client (JWT client) et commandes du client.
+"""Vues de la boutique en ligne : catalogue public et prise de commande.
 
-Toutes ces vues déclarent explicitement leurs classes d'authentification :
-un jeton d'utilisateur interne n'y est jamais accepté, et un jeton client
-n'est jamais accepté par les vues internes (voir clients/authentication.py).
+TOUT est public ici — il n'y a ni compte, ni connexion, ni jeton. Le visiteur
+saisit ses coordonnées au moment de commander, et le gérant le rappelle pour
+confirmer avant d'approuver. Aucune vue de ce module n'accepte ni n'exige
+d'authentification ; les vues internes, elles, restent protégées comme avant.
 """
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
-from django.utils import timezone
 from rest_framework import status, viewsets
-from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
-from rest_framework_simplejwt.exceptions import TokenError
 
 from catalog.models import Brand, Color, ProductCategory, ProductReference, ProductType
-from orders.models import Order
-from orders.services import annuler_commande_par_client
 from users.models import MagasinProfile
 
-from .authentication import ClientJWTAuthentication, refresh_access_for_client, tokens_for_client
-from .models import Client
-from .permissions import IsClient
 from .serializers import (
-    ClientChangePasswordSerializer,
-    ClientLoginSerializer,
-    ClientOrderCancelSerializer,
-    ClientOrderCreateSerializer,
-    ClientOrderSerializer,
-    ClientOrderUpdateSerializer,
-    ClientRefreshSerializer,
-    ClientRegisterSerializer,
-    ClientSerializer,
+    CommandeEnLigneCreateSerializer,
+    CommandeEnLigneSerializer,
     PublicBoutiqueSerializer,
     PublicCategorieSerializer,
     PublicCouleurSerializer,
     PublicMarqueSerializer,
     PublicProduitSerializer,
     PublicSousTypeSerializer,
-    PublicZoneSerializer,
 )
-from .services import create_client_order, update_client_order, zones_de_la_boutique
+from .services import create_commande_en_ligne, options_livraison
 
 
 def _erreurs(exc):
@@ -81,7 +65,7 @@ def _filtre_boutique(request, qs, champ="magasin_id"):
 
 
 class PublicBoutiqueListView(PublicMixin, APIView):
-    """GET /api/boutiques/ — boutiques auprès desquelles un client peut commander."""
+    """GET /api/boutiques/ — boutiques auprès desquelles on peut commander."""
 
     def get(self, request):
         qs = MagasinProfile.objects.order_by("shop_name")
@@ -89,13 +73,32 @@ class PublicBoutiqueListView(PublicMixin, APIView):
 
 
 class PublicBoutiqueZonesView(PublicMixin, APIView):
-    """GET /api/boutiques/{id}/zones/ — zones de livraison actives (+ retrait
-    sur place, code RECUPERATION) d'une boutique."""
+    """GET /api/boutiques/{id}/zones/ — les deux modes de remise proposés en
+    ligne : livraison à tarif unique, ou retrait sur place gratuit.
+
+    Le prix vient du serveur et n'est jamais accepté depuis le navigateur.
+    """
 
     def get(self, request, pk):
         magasin = get_object_or_404(MagasinProfile, pk=pk)
-        zones = PublicZoneSerializer(zones_de_la_boutique(magasin), many=True).data
-        return Response({"boutique": magasin.id, "recuperation": {"code": "RECUPERATION", "nom": "Retrait sur place", "prix": 0}, "zones": zones})
+        options = options_livraison(magasin)
+        return Response(
+            {
+                "boutique": magasin.id,
+                "recuperation": {
+                    "code": options["recuperation"]["code"],
+                    "nom": options["recuperation"]["nom"],
+                    "prix": float(options["recuperation"]["prix"]),
+                },
+                "zones": [
+                    {
+                        "code": options["livraison"]["code"],
+                        "nom": options["livraison"]["nom"],
+                        "prix": float(options["livraison"]["prix"]),
+                    }
+                ],
+            }
+        )
 
 
 class PublicCategorieListView(PublicMixin, APIView):
@@ -197,178 +200,48 @@ class PublicProduitViewSet(PublicMixin, viewsets.ReadOnlyModelViewSet):
 
 
 # --------------------------------------------------------------------------- #
-# Compte client
+# Prise de commande
 # --------------------------------------------------------------------------- #
 
 
-class ClientAuthMixin:
-    authentication_classes = [ClientJWTAuthentication]
-    permission_classes = [IsClient]
+class CommandeEnLigneView(PublicMixin, APIView):
+    """POST /api/commandes/ — passer commande sans compte.
 
+    La commande naît « en attente d'approbation » : le gérant rappelle la
+    personne au numéro fourni pour vérifier avant de l'approuver. Rien n'est
+    encaissé ici, et aucun stock n'est réservé avant cette approbation.
 
-class ClientRegisterView(APIView):
-    """POST /api/client/register/ — crée le compte et renvoie les jetons."""
+    Volontairement en écriture seule : sans compte, rien ne permettrait
+    d'authentifier quelqu'un qui viendrait relire ou modifier une commande.
+    La réponse ne contient donc que le nécessaire pour l'écran de
+    confirmation (numéro, montants, coordonnées saisies).
+    """
 
-    authentication_classes = []
-    permission_classes = [AllowAny]
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "client_auth"
-
-    def post(self, request):
-        ser = ClientRegisterSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        client = ser.save()
-        client.marquer_connexion()
-        return Response(
-            {"client": ClientSerializer(client).data, **tokens_for_client(client)},
-            status=status.HTTP_201_CREATED,
-        )
-
-
-class ClientLoginView(APIView):
-    """POST /api/client/login/ — e-mail + mot de passe -> jetons."""
-
-    authentication_classes = []
-    permission_classes = [AllowAny]
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "client_auth"
+    # Débit propre à l'écriture : plus strict que la lecture du catalogue,
+    # puisque l'endpoint est ouvert et crée des enregistrements.
+    throttle_scope = "commande_en_ligne"
 
     def post(self, request):
-        ser = ClientLoginSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        email = ser.validated_data["email"].strip().lower()
-        client = Client.objects.filter(email=email).first()
-        # Même message dans tous les cas : ne révèle pas si l'e-mail existe.
-        if client is None or not client.check_password(ser.validated_data["password"]):
-            return Response({"detail": "E-mail ou mot de passe incorrect."}, status=status.HTTP_401_UNAUTHORIZED)
-        if not client.is_active:
-            return Response({"detail": "Compte désactivé."}, status=status.HTTP_403_FORBIDDEN)
-        client.marquer_connexion()
-        return Response({"client": ClientSerializer(client).data, **tokens_for_client(client)})
-
-
-class ClientRefreshView(APIView):
-    """POST /api/client/refresh/ — {refresh} -> {access}."""
-
-    authentication_classes = []
-    permission_classes = [AllowAny]
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "client_auth"
-
-    def post(self, request):
-        ser = ClientRefreshSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        try:
-            access = refresh_access_for_client(ser.validated_data["refresh"])
-        except TokenError as e:
-            return Response({"detail": f"Jeton invalide ou expiré : {e}"}, status=status.HTTP_401_UNAUTHORIZED)
-        return Response({"access": access})
-
-
-class ClientMeView(ClientAuthMixin, APIView):
-    """GET / PATCH /api/client/me/ — profil du client connecté."""
-
-    def get(self, request):
-        return Response(ClientSerializer(request.user).data)
-
-    def patch(self, request):
-        ser = ClientSerializer(request.user, data=request.data, partial=True)
-        ser.is_valid(raise_exception=True)
-        ser.save()
-        return Response(ser.data)
-
-
-class ClientChangePasswordView(ClientAuthMixin, APIView):
-    """POST /api/client/change-password/ — {ancien_mot_de_passe, nouveau_mot_de_passe}."""
-
-    def post(self, request):
-        ser = ClientChangePasswordSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        client = request.user
-        if not client.check_password(ser.validated_data["ancien_mot_de_passe"]):
-            return Response({"ancien_mot_de_passe": ["Mot de passe actuel incorrect."]}, status=status.HTTP_400_BAD_REQUEST)
-        client.set_password(ser.validated_data["nouveau_mot_de_passe"])
-        client.save(update_fields=["password", "updated_at"])
-        return Response({"detail": "Mot de passe modifié."})
-
-
-# --------------------------------------------------------------------------- #
-# Commandes du client
-# --------------------------------------------------------------------------- #
-
-
-class ClientOrderViewSet(ClientAuthMixin, viewsets.GenericViewSet):
-    """/api/client/orders/ — uniquement les commandes du client connecté
-    (Order.client = lui). Création en attente d'approbation, modification
-    et annulation tant que la boutique n'a pas commencé la préparation."""
-
-    serializer_class = ClientOrderSerializer
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "client_orders"
-
-    def get_queryset(self):
-        qs = (
-            Order.objects.filter(client=self.request.user)
-            .select_related("magasin")
-            .prefetch_related("items__product_variant__product_reference")
-            .order_by("-created_at")
-        )
-        statut = self.request.query_params.get("statut")
-        if statut:
-            qs = qs.filter(statut_courant__in=[s for s in statut.split(",") if s])
-        return qs
-
-    def list(self, request):
-        return Response(self.get_serializer(self.get_queryset(), many=True).data)
-
-    def retrieve(self, request, pk=None):
-        order = get_object_or_404(self.get_queryset(), pk=pk)
-        return Response(self.get_serializer(order).data)
-
-    def create(self, request):
-        ser = ClientOrderCreateSerializer(data=request.data)
+        ser = CommandeEnLigneCreateSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         d = ser.validated_data
+
         magasin = MagasinProfile.objects.filter(pk=d["boutique"]).first()
         if magasin is None:
             return Response({"boutique": ["Boutique introuvable."]}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
-            order = create_client_order(
-                client=request.user,
+            order = create_commande_en_ligne(
                 magasin=magasin,
                 items=d["items"],
                 livraison_zone=d["livraison_zone"],
-                adresse_livraison=d.get("adresse_livraison", ""),
-                telephone=d.get("telephone"),
+                client_nom=d["client_nom"],
+                telephone=d["telephone"],
                 telephone_2=d.get("telephone_2", ""),
-                mode_paiement=d.get("mode_paiement", "LIVRAISON"),
+                adresse_livraison=d.get("adresse_livraison", ""),
                 note=d.get("note", ""),
-                date_livraison=d.get("date_livraison_souhaitee"),
             )
         except DjangoValidationError as e:
             return Response(_erreurs(e), status=status.HTTP_400_BAD_REQUEST)
-        order = self.get_queryset().get(pk=order.pk)
-        return Response(self.get_serializer(order).data, status=status.HTTP_201_CREATED)
 
-    def partial_update(self, request, pk=None):
-        order = get_object_or_404(self.get_queryset(), pk=pk)
-        ser = ClientOrderUpdateSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        try:
-            update_client_order(order=order, data=ser.validated_data)
-        except DjangoValidationError as e:
-            return Response(_erreurs(e), status=status.HTTP_400_BAD_REQUEST)
-        order = self.get_queryset().get(pk=order.pk)
-        return Response(self.get_serializer(order).data)
-
-    @action(detail=True, methods=["post"])
-    def cancel(self, request, pk=None):
-        order = get_object_or_404(self.get_queryset(), pk=pk)
-        ser = ClientOrderCancelSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        try:
-            annuler_commande_par_client(order=order, note=ser.validated_data.get("note", ""))
-        except DjangoValidationError as e:
-            return Response(_erreurs(e), status=status.HTTP_400_BAD_REQUEST)
-        order = self.get_queryset().get(pk=order.pk)
-        return Response(self.get_serializer(order).data)
+        return Response(CommandeEnLigneSerializer(order).data, status=status.HTTP_201_CREATED)
