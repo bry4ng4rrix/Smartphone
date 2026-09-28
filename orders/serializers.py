@@ -172,10 +172,10 @@ class OrderPreparateurSerializer(serializers.ModelSerializer):
     """Module Dépôt — Préparateur (§7.2) : N° commande, Client, Téléphone,
     Produit + Couleur, Zone.
 
-    Il voit le PRIX DE CHAQUE ARTICLE (§ demande) — ce qu'il prépare et
-    annonce au comptoir — mais ni les frais de livraison ni le total à
-    payer : l'encaissement est l'affaire du livreur, et ces montants
-    brouillaient sa fiche. Toujours aucune donnée de coût ni de marge.
+    Il voit le PRIX DE CHAQUE ARTICLE et le TOTAL À PAYER (§ demande) — ce
+    qu'il prépare et annonce au comptoir. Les frais de livraison restent hors
+    de sa fiche : l'encaissement est l'affaire du livreur. Toujours aucune
+    donnée de coût ni de marge.
     """
 
     items = OrderItemPreparateurSerializer(many=True, read_only=True)
@@ -193,7 +193,7 @@ class OrderPreparateurSerializer(serializers.ModelSerializer):
         model = Order
         fields = [
             "id", "numero", "date_commande", "client_nom", "telephone", "telephone_2", "livraison_zone", "adresse_livraison",
-            "mode_paiement", "remise_total", "statut_courant", "note_preparateur",
+            "mode_paiement", "total_a_payer", "remise_total", "statut_courant", "note_preparateur",
             "preparateur", "preparateur_name", "livreur", "livreur_name", "items", "created_at",
         ]
         read_only_fields = fields

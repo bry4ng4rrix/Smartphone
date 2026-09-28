@@ -1989,8 +1989,10 @@ export default function OrdersPage() {
                   </div>
                   {/* Rien ne reste à encaisser quand le client a déjà payé
                       d'avance : afficher un "Total à payer" ferait croire au
-                      livreur qu'il doit encore réclamer la somme (§ demande). */}
-                  {detail.mode_paiement !== "AVANT" && (
+                      livreur qu'il doit encore réclamer la somme (§ demande).
+                      Le préparateur, lui, n'encaisse rien : le total reste
+                      affiché pour qu'il puisse l'annoncer au comptoir. */}
+                  {(isPreparateur || detail.mode_paiement !== "AVANT") && (
                     <div className="flex justify-between gap-4">
                       <span className="text-muted-foreground">
                         Total à payer
