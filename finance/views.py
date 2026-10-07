@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from users.models import MagasinProfile
-from users.permissions import IsGerant, get_accessible_magasins
+from users.permissions import IsAdmin, get_accessible_magasins
 
 from . import services
 from .models import EpargneMouvement
@@ -31,7 +31,7 @@ def _date(value, defaut):
 
 
 class _FinanceView(APIView):
-    permission_classes = [IsGerant]
+    permission_classes = [IsAdmin]
 
     def magasins(self, request):
         qs = get_accessible_magasins(request.user)

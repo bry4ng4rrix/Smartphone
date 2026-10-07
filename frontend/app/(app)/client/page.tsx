@@ -50,7 +50,10 @@ type Staff = { id: number; full_name: string; available: boolean };
  * client, lui, voit la zone et le total définitifs dans son espace.
  */
 export default function DemandesClientsPage() {
-  const { isGerant, loading: userLoading } = useCurrentUser();
+  // Module Clients : ADMIN GLOBAL uniquement (mission § 17). Le gérant
+  // garde les coordonnées portées par chaque commande, pas un module
+  // de gestion des clients.
+  const { isAdmin, loading: userLoading } = useCurrentUser();
   const { zones } = useDeliveryZones();
 
   const [demandes, setDemandes] = useState<any[]>([]);
@@ -93,8 +96,8 @@ export default function DemandesClientsPage() {
 
   useRealtimeRefresh(['order', 'order_status_history'], () => charger(true));
   useEffect(() => {
-    if (!userLoading && isGerant) charger();
-  }, [userLoading, isGerant, charger]);
+    if (!userLoading && isAdmin) charger();
+  }, [userLoading, isAdmin, charger]);
 
   const nomZone = useCallback(
     (code: string) => (code === 'RECUPERATION' ? 'Retrait sur place' : zones.find((z) => z.code === code)?.nom || code),
@@ -220,7 +223,8 @@ export default function DemandesClientsPage() {
     }
   };
 
-  if (!userLoading && !isGerant) {
+  // Module Clients : admin global uniquement (mission § 17).
+  if (!userLoading && !isAdmin) {
     return (
       <div className="p-6">
         <Card>

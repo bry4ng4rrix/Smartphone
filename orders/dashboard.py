@@ -8,10 +8,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from catalog.models import ProductVariant
-from users.models import CaisseMovement
-from users.permissions import get_accessible_magasins
+from users.models import CaisseMovement, Notification
+from users.permissions import IsAdmin, get_accessible_magasins
 
-from .models import Order, OrderItem
+from .models import AvanceLivreur, LivreurExpense, Order, OrderItem
 
 
 def _top_entries(items_qs, group_field, limit=20):
@@ -26,13 +26,17 @@ def _top_entries(items_qs, group_field, limit=20):
 
 
 class DashboardView(APIView):
-    """Dashboard Gérant (§7.7 Smartreadme.md) : KPIs période, suivi commandes
-    temps réel, analyse financière (incl. bénéfice estimé §7.7), TOP
-    produits, résumé stock. Filtrable par date via `date_from`/`date_to`
-    (YYYY-MM-DD) ; par défaut le mois en cours. Scope : magasins accessibles
-    à l'utilisateur connecté (admin: tous les siens, magasin/employer: le sien)."""
+    """Dashboard ADMIN GLOBAL : KPIs période, suivi commandes, analyse
+    financière (bénéfice estimé, coût des produits vendus), TOP produits,
+    résumé stock. Filtrable par `date_from`/`date_to` (YYYY-MM-DD) ; par
+    défaut le mois en cours.
 
-    permission_classes = [IsAuthenticated]
+    RÉSERVÉ À L'ADMIN : la réponse contient le coût d'achat et le bénéfice,
+    fermés au gérant de magasin (mission § 5 et § 21). Celui-ci dispose de
+    `DashboardGerantView` ci-dessous, qui ne calcule aucune marge.
+    """
+
+    permission_classes = [IsAdmin]
 
     def get(self, request):
         magasins = get_accessible_magasins(request.user)
@@ -193,3 +197,100 @@ class DashboardView(APIView):
             return datetime.strptime(raw, "%Y-%m-%d").date()
         except ValueError:
             return None
+
+
+class DashboardGerantView(APIView):
+    """Dashboard du GÉRANT DE MAGASIN — volontairement simple.
+
+    Il répond à une seule question : « qu'est-ce qui m'attend aujourd'hui dans
+    ma boutique ? ». Commandes à traiter, stock à surveiller, demandes des
+    livreurs à trancher.
+
+    Ce qu'il ne contient PAS, et ne doit jamais contenir (mission § 5) :
+    bénéfice, marge, coût d'achat, chiffre d'affaires consolidé, trésorerie,
+    épargne, marketing. Aucun champ calculé ici ne lit `prix_achat` — le seul
+    montant exposé est le total à payer d'une commande, que le gérant voit
+    déjà sur ses fiches (mission § 35).
+
+    Le périmètre vient de `get_accessible_magasins` : un gérant n'a qu'un
+    magasin, il ne peut donc rien voir d'un autre, même en forçant
+    `?magasin_id=`.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        magasins = get_accessible_magasins(request.user)
+        magasin_id = request.query_params.get("magasin_id")
+        if magasin_id:
+            # `.filter` et non `.get` : un id hors périmètre donne un
+            # ensemble vide, jamais les données d'un autre magasin.
+            magasins = magasins.filter(id=magasin_id)
+
+        today = timezone.localdate()
+        commandes = Order.objects.filter(magasin__in=magasins)
+        du_jour = commandes.filter(date_commande__date=today)
+
+        par_statut = {
+            statut: commandes.filter(statut_courant=statut).count()
+            for statut, _ in Order.STATUT_CHOICES
+        }
+
+        # Récupérations prêtes à être retirées au comptoir.
+        recuperations = commandes.filter(
+            statut_courant="PRETE", livraison_zone="RECUPERATION"
+        ).count()
+
+        variants = ProductVariant.objects.filter(
+            product_reference__type__category__magasin__in=magasins
+        )
+        ruptures = variants.filter(stock_actuel__lte=0).count()
+        stock_bas = variants.filter(
+            stock_actuel__gt=0, stock_actuel__lte=F("seuil_alerte")
+        ).count()
+
+        # Demandes des livreurs en attente d'arbitrage (mission § 12-13).
+        depenses_attente = LivreurExpense.objects.filter(
+            magasin__in=magasins, statut="EN_ATTENTE"
+        ).count()
+        avances_attente = AvanceLivreur.objects.filter(
+            magasin__in=magasins, statut="EN_ATTENTE"
+        ).count()
+
+        return Response({
+            "magasins": list(magasins.values_list("id", flat=True)),
+            "date": today.isoformat(),
+            "commandes": {
+                # Ce que le gérant doit traiter en priorité.
+                "a_approuver": par_statut.get("EN_ATTENTE_APPROBATION", 0),
+                "nouvelles": par_statut.get("NOUVELLE", 0),
+                "en_preparation": par_statut.get("EN_PREPARATION", 0),
+                "pretes": par_statut.get("PRETE", 0),
+                "en_livraison": par_statut.get("EN_LIVRAISON", 0),
+                "livrees": par_statut.get("LIVRE", 0),
+                "retours": par_statut.get("RETOUR", 0),
+                "du_jour": du_jour.count(),
+            },
+            "bilan_du_jour": {
+                "livrees": du_jour.filter(statut_courant="LIVRE").count(),
+                "retours": du_jour.filter(statut_courant="RETOUR").count(),
+                "a_encaisser": du_jour.filter(statut_courant="LIVRE").aggregate(
+                    total=Coalesce(
+                        Sum("total_a_payer"), 0, output_field=DecimalField(max_digits=14, decimal_places=2)
+                    )
+                )["total"],
+            },
+            "stock": {
+                "references": variants.values("product_reference").distinct().count(),
+                "ruptures": ruptures,
+                "stock_bas": stock_bas,
+            },
+            "recuperations": recuperations,
+            "demandes_livreurs": {
+                "depenses_en_attente": depenses_attente,
+                "avances_en_attente": avances_attente,
+            },
+            "notifications_non_lues": Notification.objects.filter(
+                magasin__in=magasins, is_read=False
+            ).count(),
+        })

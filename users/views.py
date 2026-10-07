@@ -24,7 +24,7 @@ from decimal import Decimal, InvalidOperation
 
 from .models import CustomUser, MagasinProfile, EmployerProfile, AdminProfile, CaisseSession, CaisseMovement, CaisseCategory, ChatMessage, Notification, LoginEvent, EmployeePasswordResetRequest
 from .serializers import RegisterSerializer, CaisseSessionSerializer, CaisseMovementSerializer, CaisseCategorySerializer, NotificationSerializer, MagasinProfileSerializer, ChatMessageSerializer, EmployeePasswordResetRequestSerializer
-from .permissions import IsAdmin, IsCompanyOwner, IsGerant, get_accessible_magasins, resolve_magasin_for_request, user_commande_role, chat_blocked_between
+from .permissions import IsAdmin, IsCompanyOwner, get_accessible_magasins, resolve_magasin_for_request, user_commande_role, chat_blocked_between
 from .subscriptions import get_company_magasins, get_company_user_ids, get_company_owner
 from rest_framework_simplejwt.views import TokenViewBase
 from .authentication import CustomTokenObtainPairSerializer
@@ -640,7 +640,7 @@ class EmployerCommandeRoleUpdateView(APIView):
     """Assigne le sous-rôle Préparateur/Livreur du module Commande à un
     employé (§4/§5 Smartreadme.md) — réservé au gérant (admin ou magasin)."""
 
-    permission_classes = [IsAuthenticated, IsGerant]
+    permission_classes = [IsAuthenticated, IsAdmin]
 
     def put(self, request, user_id):
         try:
@@ -723,7 +723,7 @@ class CaisseSessionViewSet(viewsets.ModelViewSet):
     ouverte à la fois par magasin" au même endroit."""
 
     serializer_class = CaisseSessionSerializer
-    permission_classes = [IsAuthenticated, IsGerant]
+    permission_classes = [IsAuthenticated, IsAdmin]
     http_method_names = ["get", "post", "head", "options"]
 
     def get_queryset(self):
@@ -822,7 +822,7 @@ class CaisseSessionViewSet(viewsets.ModelViewSet):
 
 class CaisseMovementViewSet(viewsets.ModelViewSet):
     serializer_class = CaisseMovementSerializer
-    permission_classes = [IsAuthenticated, IsGerant]
+    permission_classes = [IsAuthenticated, IsAdmin]
     # PATCH / DELETE : correction ou suppression d'un mouvement (gérant), tant
     # que sa session de caisse est encore ouverte (§ demande).
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
@@ -909,7 +909,7 @@ class CaisseCategoryViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         if self.action in ("create", "partial_update", "update", "destroy"):
-            return [IsGerant()]
+            return [IsAdmin()]
         return super().get_permissions()
 
     def get_queryset(self):
@@ -938,7 +938,7 @@ class CaisseSummaryView(APIView):
     cours) : entrées/sorties de caisse, coût et bénéfice réel des produits
     livrés, en plus du solde brut de caisse."""
 
-    permission_classes = [IsAuthenticated, IsGerant]
+    permission_classes = [IsAuthenticated, IsAdmin]
 
     def get(self, request):
         magasins = _accessible_magasins(request.user)
@@ -1473,15 +1473,17 @@ class DashboardView(APIView):
             ).aggregate(t=Coalesce(Sum("amount"), 0, output_field=DecimalField()))["t"]
             ca = stock_value + total_entrees_caisse
 
+            # Gérant de magasin : AUCUNE donnée de bénéfice ni de marge ne
+            # quitte l'API (mission § 5 et § 21). `benefice_estime_stock`,
+            # `profit_today` et `total_profit` sont calculés plus haut à partir
+            # du coût d'achat : ils restent pour l'admin, pas pour lui.
+            # `stock_value` est au prix de VENTE catalogue, donc sans coût.
             return Response({
                 "role": role,
                 "kpis": {
                     "ca": ca,
-                    "benefice_estime_stock": benefice_estime_stock,
                     "sales_today": sales_today,
-                    "profit_today": profit_today,
                     "total_revenue": total_revenue,
-                    "total_profit": total_profit,
                     "stock_value": stock_value,
                     "total_products": total_products,
                     "total_sales": total_sales,
@@ -2177,7 +2179,10 @@ class TransferProductsView(APIView):
     retrouve/crée donc la même chaîne Catégorie→Type→Marque→Référence par
     nom avant de déplacer le stock au niveau de la variante (couleur)."""
 
-    permission_classes = [IsAuthenticated]
+    # Déclaratif plutôt qu'un `if user.role != "admin"` au fond de post() :
+    # la restriction doit se lire sur la vue, pas se découvrir en lisant le
+    # corps de la méthode. Le test interne est conservé en second rideau.
+    permission_classes = [IsAuthenticated, IsAdmin]
 
     def _normalize_items(self, request):
         items = request.data.get("items")

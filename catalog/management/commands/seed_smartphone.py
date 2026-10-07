@@ -30,7 +30,13 @@ SEED_FILE = Path(__file__).resolve().parent / "data" / "seed_catalogue.sql"
 # identifiants que l'implémentation de référence (old/Smartphone_mg/catalog/
 # management/commands/seed_catalog.py), adaptés au modèle multi-tenant
 # (magasin/employer) de ce projet plutôt qu'à un rôle direct sur CustomUser.
-GERANT_EMAIL = "gerant@smartphone.mg"
+# Propriétaire de l'application : rôle Django "admin" + AdminProfile.
+# L'adresse historique était `gerant@smartphone.mg`, ce qui prêtait à
+# confusion — ce compte n'a jamais été un gérant de magasin, c'est
+# l'admin global. Renommé pour que le nom dise ce que le compte est.
+ADMIN_EMAIL = "admin@smartphone.mg"
+#: Ancienne adresse, migrée automatiquement si elle existe encore.
+ANCIEN_ADMIN_EMAIL = "gerant@smartphone.mg"
 # Plusieurs comptes par rôle pour pouvoir tester l'affectation nominative
 # (un préparateur/livreur à la fois par commande — voir orders/services.py).
 # Noms alignés sur ceux demandés pour les comptes de test (pas de vrais noms
@@ -48,7 +54,7 @@ LIVREURS = [
     ("livreur5@smartphone.mg", "Zetra Express"),
 ]
 DEFAULT_PASSWORD = "fanandramana"
-ALL_TENANT_EMAILS = [GERANT_EMAIL] + [e for e, _ in PREPARATEURS] + [e for e, _ in LIVREURS]
+ALL_TENANT_EMAILS = [ADMIN_EMAIL, ANCIEN_ADMIN_EMAIL] + [e for e, _ in PREPARATEURS] + [e for e, _ in LIVREURS]
 
 INSERT_RE = re.compile(r"INSERT INTO (\w+) \([^)]*\) VALUES\s*(.*?);", re.DOTALL)
 
@@ -228,11 +234,18 @@ class Command(BaseCommand):
         ))
 
     def _ensure_tenant(self):
+        # Reprise de l'ancienne adresse : on renomme le compte existant
+        # plutôt que d'en créer un second, pour ne pas dédoubler la
+        # société ni orphéliner les magasins déjà rattachés.
+        CustomUser.objects.filter(email=ANCIEN_ADMIN_EMAIL).update(
+            email=ADMIN_EMAIL, username=ADMIN_EMAIL
+        )
+
         gerant_user, created = CustomUser.objects.get_or_create(
-            email=GERANT_EMAIL,
+            email=ADMIN_EMAIL,
             defaults={
-                "username": GERANT_EMAIL,
-                "full_name": "Gérant Smartphone.Mg",
+                "username": ADMIN_EMAIL,
+                "full_name": "Administrateur Smartphone.Mg",
                 "role": "admin",
                 "is_confirmed": True,
             },

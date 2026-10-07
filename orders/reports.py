@@ -21,7 +21,7 @@ from rest_framework.views import APIView
 
 from catalog.models import StockMovement
 from users.models import CaisseMovement
-from users.permissions import IsGerant, get_accessible_magasins
+from users.permissions import IsAdmin, get_accessible_magasins
 
 from .models import LivreurExpense, Order, OrderItem
 from .reporting import q_achat_stock, q_sorties_doublon
@@ -48,7 +48,7 @@ class ReportsView(APIView):
     # sont jamais exposés au livreur ni au préparateur (voir
     # orders/serializers.py). Masquer le bouton côté navigateur ne protège
     # rien — c'est ici que l'accès se refuse.
-    permission_classes = [IsGerant]
+    permission_classes = [IsAdmin]
 
     def get(self, request):
         magasins = get_accessible_magasins(request.user)

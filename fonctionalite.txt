@@ -1,0 +1,1192 @@
+================================================================================
+SMARTPHONE.MG — FONCTIONNALITÉS DE L'APPLICATION
+Document technique pour un développeur qui reprend le projet
+Dernière mise à jour : octobre 2026
+================================================================================
+
+Ce document décrit ce que l'application FAIT aujourd'hui, module par module,
+avec les chemins de fichiers permettant de retrouver chaque règle dans le code.
+
+Il ne remplace pas :
+  - client_endpoint.md ....... référence complète de l'API de la boutique
+                               en ligne (865 lignes, à jour)
+  - smartcross/README.md ..... le cahier des charges d'origine
+
+AVERTISSEMENT SUR LA DOCUMENTATION EXISTANTE
+--------------------------------------------------------------------------------
+Deux pièges attendent celui qui arrive :
+
+1. README.md (racine) renvoie à cinq fichiers qui N'EXISTENT PLUS :
+   roadmap.md, endpoint.md, FLUTTER_FEATURE_PARITY.md, FLUTTER_MIGRATION.md,
+   PARITY_CHECKLIST.md. Sa section 5 décrit en outre `/api/client/` comme un
+   espace client AVEC comptes : c'est faux depuis la refonte de la boutique
+   en ligne (voir § 9).
+
+2. Le code cite partout « §4 Smartreadme.md », « §7.2 », « §8.1 »…
+   Le fichier Smartreadme.md a été supprimé du dépôt (commit eccc9c8), MAIS
+   son contenu se trouve dans smartcross/README.md, qui le reprend à
+   l'identique et y ajoute une section Flutter. C'est là qu'il faut lire les
+   « § » référencés. On peut aussi récupérer l'original :
+       git show eccc9c8^:Smartreadme.md
+
+   Attention : c'est le CAHIER DES CHARGES, donc ce qui devait être fait.
+   Le présent document décrit ce qui l'est réellement.
+
+
+================================================================================
+1. VUE D'ENSEMBLE
+================================================================================
+
+Quatre applications, une seule API.
+
+  racine/ ............ API Django 6 + DRF + Channels (Daphne)       port 8010
+  frontend/ .......... Gestion interne (Next.js 16)                 port 3010
+  clients_frontend/ .. Boutique en ligne publique (Next.js 16)      port 3000
+  smartcross/ ........ Application mobile (Flutter, Riverpod)       —
+
+frontend/ est la référence fonctionnelle ; smartcross/ la reproduit sur la
+même API. clients_frontend/ est une surface distincte, publique et anonyme.
+
+Apps Django (Stock/settings.py) :
+    users ....... comptes, magasins, société, caisse, chat, notifications
+    catalog ..... catalogue produit et stock
+    orders ...... commandes, livraison, dépenses livreur, campagnes, rapports
+    suppliers ... approvisionnements fournisseur
+    finance ..... trésorerie (gain réel, encaissements, épargne)
+    clients ..... boutique en ligne publique (AUCUN modèle propre)
+
+Base : SQLite en local par défaut, PostgreSQL en production (DB_ENGINE).
+AUTH_USER_MODEL = "users.CustomUser".
+
+IA : Ollama local sur le VPS. Deux assistants (gestion et boutique) tapent sur
+le même service, via des routes Next.js — jamais par Django. Rien ne sort vers
+un service tiers.
+
+
+================================================================================
+2. RÔLES ET PÉRIMÈTRE DES DONNÉES
+================================================================================
+
+2.1 LES TROIS RÔLES EN BASE
+--------------------------------------------------------------------------------
+users/models.py:51
+
+    ROLE_CHOICES = (("admin", "Admin"), ("magasin", "Magasin"),
+                    ("employer", "Employer"))
+
+Il n'y a PAS de rôle « superadmin » en base. Les drapeaux `superAdminOnly` des
+interfaces désignent simplement le rôle `admin`. Un rôle `platform_admin` a
+existé puis a été retiré (migration users/0022).
+
+CustomUser.save() force is_staff=True pour un admin (accès au Django Admin).
+
+2.2 LE SOUS-RÔLE DU MODULE COMMANDE
+--------------------------------------------------------------------------------
+users/models.py:199 — EmployerProfile.commande_role ∈ {PREPARATEUR, LIVREUR},
+nullable. C'est lui, et non `position` (intitulé de poste en texte libre), qui
+pilote les permissions.
+
+users/permissions.py:58 — user_commande_role(user) :
+    admin | magasin  ................ "GERANT"
+    employer + commande_role ........ "PREPARATEUR" | "LIVREUR"
+    employer sans sous-rôle ......... None
+
+Exposé sous la clé `role_commande` par GET /api/users/me/.
+
+2.3 DEUX NOTIONS D'« ADMIN » À NE PAS CONFONDRE
+--------------------------------------------------------------------------------
+FONDATEUR (propriétaire de société) : l'admin qui porte l'AdminProfile.
+    Permission IsCompanyOwner (users/permissions.py).
+    Seul à pouvoir ajouter/retirer un co-admin, promouvoir vers admin,
+    supprimer un compte admin. N'est jamais ciblable lui-même.
+
+CO-ADMIN : admin ajouté via POST /api/users/add-admin/, rattaché par la M2M
+    MagasinProfile.admins. Accès complet aux données, aucune propriété sur la
+    société. Pas d'AdminProfile propre : GET /me/ lui montre le nom et le logo
+    du fondateur, avec is_company_owner: false.
+
+2.4 CLASSES DE PERMISSION — users/permissions.py
+--------------------------------------------------------------------------------
+    IsAdmin ................. role == "admin"
+    IsCompanyOwner .......... admin + possède un AdminProfile
+    IsMagasin / IsEmployer .. rôle correspondant
+    IsGerant ................ user_commande_role == "GERANT"
+    IsGerantOrReadOnly ...... lecture pour tous, écriture gérant (catalogue)
+    chat_blocked_between .... True si les DEUX sont livreurs
+
+    Cette dernière règle est volontaire : deux livreurs ne peuvent pas se
+    contacter, « pour éviter qu'ils ne s'organisent hors du contrôle du
+    gérant ». Elle s'applique au listing des contacts ET à la connexion
+    WebSocket.
+
+2.5 PÉRIMÈTRE MULTI-MAGASIN
+--------------------------------------------------------------------------------
+Hiérarchie : AdminProfile (société) → N MagasinProfile (points de vente).
+
+users/permissions.py:115 — get_accessible_magasins(user) :
+    admin ....... magasins dont il est `admin` (FK) OU dans `admins` (M2M)
+    magasin ..... le sien
+    employer .... celui de son EmployerProfile
+
+users/permissions.py:136 — resolve_magasin_for_request(request) :
+    1. `magasin_id` du payload, s'il est accessible ;
+    2. sinon l'unique magasin accessible ;
+    3. sinon ValidationError
+       {"magasin_id": "Ce champ est requis (plusieurs magasins accessibles)."}
+
+    >>> POINT D'ATTENTION <<<
+    Tant qu'une société n'a qu'un magasin, le serveur le devine. Dès le
+    deuxième, toute création doit porter `magasin_id`, sinon 400. C'est
+    volontaire : deviner reviendrait à créer dans la mauvaise boutique.
+    Les interfaces doivent donc proposer un choix. Voir § 7.3 (sélecteur
+    « Magasin ») et catalog/test_magasin_requis.py qui fige ce contrat.
+
+    Appelé par : catalog/views.py (catégorie, marque, couleur, import Excel),
+    orders/views.py (commande, dépense, avance, campagne),
+    suppliers/views.py (approvisionnement).
+
+
+================================================================================
+3. MODÈLE DE DONNÉES
+================================================================================
+
+3.1 users/ — users/models.py
+--------------------------------------------------------------------------------
+CustomUser (49) ........ AbstractUser, USERNAME_FIELD = email. Champs notables :
+                         role, is_confirmed, last_seen_at (rafraîchi à chaque
+                         trame WebSocket chat → présence « en ligne » sans
+                         infrastructure dédiée).
+AdminProfile (93) ...... LA SOCIÉTÉ. company_name, logo. Ancre de tout ce qui
+                         est partagé : catégories de caisse, fournisseurs,
+                         paramètres financiers, zones de livraison.
+LoginEvent (113) ....... audit des connexions (ip, user_agent, logged_out_at).
+                         logged_out_at est best-effort : JWT n'a pas
+                         d'invalidation serveur.
+EmployeePasswordResetRequest (135) .. demande de mot de passe oublié routée
+                         vers l'admin. pending / approved / rejected.
+MagasinProfile (165) ... LE MAGASIN. shop_name, description, shop_logo,
+                         user (compte gérant), admin (FK), admins (M2M).
+EmployerProfile (189) .. magasin, admin, position, commande_role.
+Notification (217) ..... types order | supplier_order | user | chat | caisse
+                         | other.
+CaisseSession (244) .... opening_balance, closing_balance, expected_balance,
+                         difference. opened_at n'est PAS auto_now_add : le
+                         gérant peut antidater. Une seule session ouverte par
+                         magasin (contrainte applicative).
+CaisseCategory (282) ... catégorie de dépense, rattachée à l'AdminProfile.
+CaisseMovement (302) ... in/out, amount, reason, category, origine (12
+                         valeurs), reference UNIQUE.
+ChatMessage (352) ...... sender, recipient (nul = salon Général), content,
+                         image, is_edited, is_deleted, read_at.
+
+3.2 catalog/ — catalog/models.py
+--------------------------------------------------------------------------------
+Chaîne : ProductCategory → ProductType → (Brand) → ProductReference
+                                                 → ProductVariant
+
+ProductCategory .... HOUSSE, CACHE ÉCRAN, CHARGEUR… Porte le scoping
+                     multi-tenant (magasin) ; Type/Brand/Reference/Variant en
+                     héritent par la chaîne de FK.
+                     avec_couleurs=False → une seule variante « Standard »
+                     (chargeur, écouteur) : pas de sélecteur de couleur.
+                     visible_client → présence sur la boutique en ligne (§ 9).
+ProductType ........ sous-type : FLIP COVER, Z-FOLD, Z-FLIP, PRIVACY…
+                     visible_client également.
+Brand .............. marque du téléphone (Samsung, Apple…), par magasin.
+Color .............. référentiel de couleurs pour le sélecteur. Ne contraint
+                     pas ProductVariant.couleur, qui reste du texte libre.
+ProductReference ... >>> C'EST UN MODÈLE DE TÉLÉPHONE <<<
+                     docstring : « une référence de téléphone pour une marque
+                     donnée (ex: Samsung A15, S25 Ultra) ».
+                     reference_name = le modèle. prix_achat, prix_vente,
+                     photo, actif.
+                     Conséquence : la compatibilité housse/téléphone se lit
+                     dans les relations existantes, pas par recherche
+                     textuelle (§ 9.3).
+ProductVariant ..... déclinaison couleur. C'EST LE NIVEAU OÙ LE STOCK VIT :
+                     stock_actuel, seuil_alerte, sku_loyverse.
+StockMovement ...... voir § 4.3.
+ImportBatch ........ lot d'import Excel, pour pouvoir annuler.
+ProductNote ........ produit à commander, pas encore au catalogue (ni prix ni
+                     stock).
+
+3.3 orders/ — orders/models.py
+--------------------------------------------------------------------------------
+DeliveryZoneOption .. zone de livraison. Rattachée à l'AdminProfile, donc
+                      PARTAGÉE PAR TOUTE LA SOCIÉTÉ, pas par magasin.
+                      code (slug auto), nom, prix (facturé au client),
+                      cout_agence (coût réel), actif.
+Order ............... la commande. Voir § 4 pour les règles.
+                      numero auto « CMD-<magasin>-<AAAAMMJJ>-<0001> ».
+                      frais_livraison et total_a_payer : editable=False.
+                      origine_en_ligne : marque une commande venue de la
+                      boutique publique (remplace l'ancien FK `client`).
+OrderItem ........... prix_unitaire (figé) + prix_catalogue, retourne.
+OrderStatusHistory .. une ligne par changement, avec note et photo.
+ExpenseType ......... type de dépense livreur. Le drapeau `frais_livraison`
+                      distingue le coût réel d'une course (entre dans le calcul
+                      du gain) d'un repas ou d'une enveloppe.
+LivreurExpense ...... dépense déclarée par un livreur. Validée par le gérant.
+AvanceLivreur ....... argent DÉJÀ envoyé par le livreur au gérant (Mvola…).
+                      À ne pas confondre avec une dépense.
+MarketingCampaign ... le « boost ». Vit ici, pas dans finance/.
+
+3.4 suppliers/ — suppliers/models.py
+--------------------------------------------------------------------------------
+Supplier ......... fiche fournisseur, partagée par la société.
+SupplierOrder .... l'approvisionnement. numero « SUP-<magasin>-<date>-<0001> ».
+SupplierPayment .. un versement, montant_mga FIGÉ au taux du jour.
+
+3.5 finance/ — finance/models.py
+--------------------------------------------------------------------------------
+FinanceSettings .... clé de répartition du gain réel par société
+                     (pct_reappro 60 / pct_epargne 25 / pct_depenses 15).
+                     La somme doit faire exactement 100.
+VenteResultat ...... gain réel de CHAQUE vente livrée, figé côté serveur, avec
+                     sa répartition. annule=True pour une vente corrigée en
+                     retour (conservée pour l'audit, exclue des totaux).
+Encaissement ....... l'argent d'une vente : LIVREUR | COMPTOIR | PREPAYE,
+                     EN_ATTENTE | REMIS | ANNULE.
+EpargneMouvement ... journal du compte d'épargne. montant SIGNÉ,
+                     solde_apres figé à l'écriture.
+
+Tous les montants sont des Decimal, jamais des float.
+
+3.6 clients/
+--------------------------------------------------------------------------------
+AUCUN modèle. L'app s'appuie entièrement sur catalog/ et orders/. Le modèle
+`Client` (comptes acheteurs) a été supprimé.
+
+
+================================================================================
+4. RÈGLES MÉTIER CENTRALES
+================================================================================
+Ce chapitre est le plus important. Ces règles sont dans le serveur ; les
+clients ne font que les anticiper à l'affichage.
+
+4.1 CYCLE DE VIE D'UNE COMMANDE
+--------------------------------------------------------------------------------
+orders/models.py — STATUT_CHOICES (8 valeurs) :
+
+  EN_ATTENTE_APPROBATION → NOUVELLE → EN_PREPARATION → PRETE → EN_LIVRAISON
+                                                                   ├→ LIVRE
+                                                                   └→ RETOUR
+  (+ ANNULEE depuis plusieurs états)
+
+orders/services.py:57 — table TRANSITIONS, qui dit AUSSI quel rôle agit :
+
+    EN_PREPARATION  depuis NOUVELLE        par PREPARATEUR
+    PRETE           depuis EN_PREPARATION  par PREPARATEUR
+    EN_LIVRAISON    depuis PRETE           par LIVREUR
+    LIVRE           depuis EN_LIVRAISON    par LIVREUR
+    RETOUR          depuis EN_LIVRAISON    par LIVREUR
+
+Aucun saut de statut. EN_ATTENTE_APPROBATION est l'entrée des commandes de la
+boutique en ligne : le gérant approuve (→ NOUVELLE, stock réservé) ou refuse
+(→ ANNULEE, aucun stock touché).
+
+4.2 LA RÈGLE DU JOUR J
+--------------------------------------------------------------------------------
+orders/services.py:29 — ouverture_actions(date_commande, role)
+
+Une commande planifiée au 11/09 s'ouvre :
+    au PRÉPARATEUR  dès le 10/09 à 19h00 (AVANCE_PREPARATEUR = 5 h avant
+                    minuit) — il prépare les colis du lendemain le soir même ;
+    au LIVREUR      à minuit le 11/09 — il ne part en tournée que le jour même.
+
+Calcul fait dans le fuseau métier Indian/Antananarivo (Stock/settings.py
+TIME_ZONE), indépendamment du réglage de l'appareil. Côté Flutter :
+smartcross/lib/core/app_time.dart (UTC+3 fixe).
+
+4.3 MOUVEMENTS DE STOCK
+--------------------------------------------------------------------------------
+catalog/models.py:164 — type ∈ {ENTREE, SORTIE}, origine ∈ :
+
+    COMMANDE ...... création de commande        (SORTIE)
+    PREPARATION ... préparation
+    RETOUR ........ retour de commande          (ENTREE)
+    ANNULATION .... annulation de commande      (ENTREE)
+    FOURNISSEUR ... réception fournisseur       (ENTREE)
+    AJUSTEMENT .... correction manuelle, transfert entre magasins
+
+Le stock sort DÈS LA CRÉATION de la commande (orders/services.py::create_order)
+— « un article commandé n'est plus disponible pour une autre vente » — et
+revient à l'annulation, à la suppression ou au retour.
+
+Exception : une commande de la boutique en ligne ne réserve rien tant qu'elle
+est EN_ATTENTE_APPROBATION. La réservation a lieu à l'approbation
+(orders/services.py::approuver_commande_client).
+
+Le stock ne se modifie jamais directement : toujours par un mouvement
+(catalog/services.py::apply_stock_movement), pour la traçabilité.
+
+4.4 PRIX FIGÉS
+--------------------------------------------------------------------------------
+OrderItem.prix_unitaire est un instantané pris à la commande, distinct de
+prix_catalogue. Une remise accordée par le gérant n'affecte JAMAIS le catalogue
+ni le stock.
+
+4.5 FRAIS DE LIVRAISON : JAMAIS ENVOYÉS PAR LE CLIENT
+--------------------------------------------------------------------------------
+Order.frais_livraison est editable=False. Il est recalculé à chaque save()
+(orders/models.py) depuis le prix de la DeliveryZoneOption dont le code
+correspond à Order.livraison_zone ; 0 pour « RECUPERATION ».
+
+Puis recompute_total() : total_a_payer = Σ(items non retournés) + frais.
+
+Conséquence : aucune interface n'envoie de montant. Un `frais_livraison` ou un
+`total_a_payer` reçu dans un payload est ignoré (testé dans clients/tests.py).
+
+4.6 TRÉSORERIE — LA FORMULE DU GAIN RÉEL
+--------------------------------------------------------------------------------
+finance/services.py :
+
+    gain_reel = (ca_produits + livraison_client)
+                − cout_achat − frais_agence − part_boost
+
+    part_boost d'un article = montant du boost / nombre d'articles vendus sur
+                              la période exacte du boost
+    resultat_livraison      = livraison_client − frais_agence
+
+Répartition du gain (défaut 60/25/15) : réapprovisionnement, épargne, dépenses
+courantes. La part épargne est versée AUTOMATIQUEMENT au compte d'épargne à la
+vente.
+
+Gain ≤ 0 : choix documenté — les trois parts valent 0, rien n'est versé, la
+perte est affichée telle quelle.
+
+frais_agence : le total des frais de tournée acceptés d'un livreur pour un jour
+est RÉPARTI À PARTS ÉGALES entre les commandes livrées ce jour-là. Un
+Order.frais_agence saisi explicitement garde la priorité. Retrait sur place = 0.
+
+Affectation commande ↔ boost : automatique, par période
+(finance/services.py::commandes_du_boost). Aucune sélection manuelle. Deux
+boosts qui se chevauchent : une commande dans la zone commune compte pour les
+deux.
+
+4.7 IDEMPOTENCE DES ÉCRITURES AUTOMATIQUES
+--------------------------------------------------------------------------------
+CaisseMovement.reference est UNIQUE. Chaque écriture automatique porte une
+référence construite :
+
+    VENTE:<numéro>        VERSEMENT:<numéro>      TOURNEE:<id>
+    AVANCE:<id>           ANNUL:<numéro>          APPRO:<numéro>:FRAIS
+                                                  APPRO:<numéro>:P<payment_id>
+
+L'unicité garantit qu'une même vente ne produit jamais deux entrées en caisse.
+Les écritures qui touchent un solde verrouillent la ligne (select_for_update).
+
+Un mouvement portant une référence NE PEUT ÊTRE NI MODIFIÉ NI SUPPRIMÉ :
+« c'est une pièce comptable, elle se contre-passe ».
+
+4.8 APPROVISIONNEMENT FOURNISSEUR
+--------------------------------------------------------------------------------
+suppliers/models.py:8 :
+
+    Fournisseur → Approvisionnement (1 produit, 1 quantité)
+                   → Paiements (taux du jour figé, MGA)
+                   → Expédition (départ Chine → transit → Madagascar)
+                   → Frais + Douane (UN seul montant, MGA)
+                   → Coût total = Σ paiements MGA + Frais + Douane
+                   → Coût de revient par pièce = coût total / quantité
+
+Deux règles structurantes :
+  - UN SEUL produit par envoi. Pas de lignes, pas de répartition. Le même
+    produit acheté deux fois = deux approvisionnements, chacun avec son coût
+    historique. (Écart assumé avec SupplierOrderLine du §11 du cahier.)
+  - La devise comptable est l'ariary. Tout montant saisi dans une autre devise
+    est converti au taux du jour et conservé avec son montant, sa devise et son
+    taux d'origine — jamais recalculé ensuite.
+
+Le module est INDÉPENDANT DU STOCK : l'appro porte sur un sous-type, pas sur
+une variante, donc aucune entrée de stock n'est générée. Seuls les anciens
+approvisionnements qui connaissent leur variante réceptionnent encore le stock
+et mettent à jour prix_achat en moyenne pondérée.
+
+
+================================================================================
+5. BACKEND — MODULES ET ENDPOINTS
+================================================================================
+Carte générale : Stock/urls.py
+    admin/ · api/users/ · api/catalog/ · api/orders/ · api/suppliers/
+    api/finance/ · api/  (app clients, public)
+
+Les médias sont servis par django.views.static.serve monté SANS condition sur
+DEBUG, parce que DEBUG=False en production et qu'aucun reverse-proxy ne sert
+/media/ devant Daphne. Si un nginx est ajouté, lui confier /media/ et retirer
+ce bloc.
+
+5.1 /api/users/
+--------------------------------------------------------------------------------
+AUTHENTIFICATION
+  POST   login/           JWT. REFUSE si is_confirmed est faux
+                          (code "account_not_approved"). Enregistre un
+                          LoginEvent (IP via HTTP_X_FORWARDED_FOR, user-agent).
+  POST   refresh/
+  POST   logout-event/    horodatage best-effort de la déconnexion
+
+  >>> IL N'Y A AUCUN BACKEND E-MAIL <<<
+  Aucune variable EMAIL_*, aucun send_mail. La « confirmation de compte » est
+  une APPROBATION MANUELLE par l'admin ou le gérant.
+
+COMPTES
+  GET    pending/                      comptes en attente d'approbation
+  PUT    approve/<id>/                 is_confirmed = True
+  POST   reject/<id>/
+  GET    PATCH me/                     PATCH refusé aux employer (403)
+  PUT    role/<id>/                    interdit sur soi-même ; toucher un
+                                       compte admin = fondateur seulement
+  PUT    employers/<id>/commande-role/ assigne PREPARATEUR | LIVREUR
+  POST   add-admin/                    IsCompanyOwner
+  DELETE delete/<id>/                  EXIGE le mot de passe de l'opérateur
+                                       dans le corps, vérifié par check_password
+  POST   change-password/
+  GET    magasins/users/               comptes groupés par magasin + présence
+
+MOT DE PASSE OUBLIÉ — flux en 3 étapes, sans e-mail (AllowAny)
+  POST   public/forgot-password/          crée une demande routée vers l'admin.
+                                          Réservé aux comptes magasin/employer :
+                                          un admin n'a pas d'approbateur.
+  GET    public/forgot-password/status/   le demandeur revient vérifier
+  POST   public/forgot-password/confirm/  il définit son mot de passe ;
+                                          consumed_at empêche le rejeu
+  GET    password-reset-requests/         côté admin
+  PATCH  password-reset-requests/<id>/    approuver / rejeter
+
+MAGASINS ET SOCIÉTÉ
+  CRUD   magasins/                 MagasinViewSet
+  GET    magasins/stats/
+  GET    magasins/overview/        résumé par magasin (valeur de stock,
+                                   bénéfice estimé, employés)
+  GET    dashboard/                réponse DIFFÉRENTE selon le rôle
+  POST   transfer/products/        transfert de stock entre deux magasins.
+                                   Le catalogue étant scopé par magasin, la vue
+                                   retrouve ou crée la chaîne Catégorie → …
+                                   → Variante PAR NOM dans la destination, puis
+                                   écrit DEUX StockMovement (SORTIE + ENTREE).
+  GET    backup/export/            zip : dumpdata + tout MEDIA_ROOT
+  POST   backup/import/            flush + loaddata + remplacement du media
+
+CHAT
+  GET    chat/users/          contacts de la société. unread_count,
+                              last_message_at, is_online (last_seen_at < 40 s).
+                              Filtre chat_blocked_between.
+  GET    chat/history/
+  POST   chat/upload/         image (le WebSocket ne transporte que du JSON) ;
+                              applique les mêmes contrôles d'accès que
+                              l'historique puis diffuse au groupe
+  GET    chat/unread-count/   badge du menu
+
+NOTIFICATIONS
+  CRUD   notifications/  + mark-all-read/, delete-all/, bulk-delete/, bulk-read/
+
+CAISSE
+  GET    caisse/sessions/            filtres magasin_id, status
+  GET    caisse/sessions/current/    204 No Content s'il n'y a pas de session
+  POST   caisse/sessions/open/       select_for_update sur le magasin : une
+                                     double ouverture simultanée ne crée pas
+                                     deux sessions. opened_at peut être antidaté
+  POST   caisse/sessions/<id>/close/ expected = ouverture + entrées − sorties ;
+                                     difference = compté − attendu
+  CRUD   caisse/movements/           refuse la modification d'un mouvement
+                                     référencé ou d'une session fermée
+  CRUD   caisse/categories/          auto-amorçage : Salaire, Pub,
+                                     Commande stock, Autre
+  GET    caisse/summary/
+
+  Le sérialiseur restreint les `origine` saisissables à MANUEL, AUTRE_ENTREE,
+  PAIEMENT_CLIENT, ACHAT_STOCK, BOOST, RETRAIT, DEPENSE, AUTRE_SORTIE.
+  VENTE, FRAIS_LIVRAISON, AVANCE_LIVREUR et ANNULATION_VENTE sont réservées aux
+  écritures automatiques de finance/.
+
+NOTE SUR users/subscriptions.py
+  Malgré son nom, ce fichier ne contient AUCUNE logique d'abonnement ni de
+  facturation. Ce sont 62 lignes d'utilitaires de périmètre société :
+  get_client_ip, get_company_owner, get_company_magasins, get_company_user_ids,
+  get_company_admin_ids. Les modèles Subscription, Device, PlatformRequest ont
+  existé et ont été supprimés (migration users/0022).
+
+5.2 /api/catalog/
+--------------------------------------------------------------------------------
+  CRUD  categories/  types/  brands/  colors/  references/  variants/
+  GET   movements/          lecture seule
+  CRUD  import-batches/     lots d'import Excel (annulation possible)
+  CRUD  notes/              produits à commander
+
+  Filtre ?magasin_id= sur categories, types, brands, colors, references.
+  Écriture réservée au gérant (IsGerantOrReadOnly).
+
+  Actions notables de references/ :
+    GET  references/autocomplete/   recherche pour « Nouvelle commande ».
+                                    Renvoie magasin et magasin_nom : c'est ce
+                                    qui détermine le magasin de la commande.
+    POST references/bulk-update-price/
+    GET  references/export-excel/
+    POST references/import-excel/
+    POST variants/<id>/adjust-stock/
+
+5.3 /api/orders/
+--------------------------------------------------------------------------------
+  CRUD   (racine)                 OrderViewSet. Sérialiseur choisi SELON LE
+                                  RÔLE : OrderGerantSerializer,
+                                  OrderPreparateurSerializer,
+                                  OrderLivreurSerializer (voir § 5.7).
+  POST   <id>/status/             changement de statut (note, photo,
+                                  préparateur, livreur, articles livrés)
+  POST   <id>/corriger-statut/    gérant : corrige un état final erroné
+  POST   <id>/assign-livreur/     pré-assignation sans changer le statut
+  POST   <id>/approuver/          commande de la boutique → NOUVELLE
+  POST   <id>/refuser/            → ANNULEE
+  GET    a-examiner/              { "count": N } — badge « Clients » du menu.
+                                  Un simple COUNT : le menu est monté partout
+                                  et interroge toutes les 30 s.
+  CRUD   delivery-zones/  expense-types/  expenses/  avances/  campaigns/
+  GET    dashboard/
+  GET    reports/                 tous les bilans agrégés
+  GET    reports/overview|sales|financial|expenses|stock|orders|deliveries|marketing/
+
+5.4 /api/suppliers/
+--------------------------------------------------------------------------------
+  CRUD   suppliers/        fiches. Un fournisseur déjà utilisé n'est pas
+                           supprimé mais DÉSACTIVÉ (actif=False).
+  CRUD   orders/           approvisionnements. DELETE : brouillon sans paiement
+                           uniquement.
+  POST   orders/<id>/commander|preparer|expedier|transit|arriver/
+  POST   orders/<id>/frais-douane/   option en_caisse → sortie ACHAT_STOCK
+  POST   orders/<id>/finaliser/      fige le coût de revient par pièce
+  GET    POST orders/<id>/payments/
+  DELETE orders/<id>/payments/<pid>/
+  GET    orders/kpis/
+  GET    cost-history/?type=<id>     dernier coût, coût moyen pondéré
+
+  Workflow à 9 statuts :
+  BROUILLON → COMMANDE → ACOMPTE_PAYE → PREPARATION → PAYE → EXPEDIE
+            → EN_TRANSIT → ARRIVE → COUT_FINALISE
+
+  Les statuts de paiement sont DÉRIVÉS des paiements enregistrés tant que la
+  marchandise n'est pas plus avancée.
+
+5.5 /api/finance/ — toutes les vues sous IsGerant
+--------------------------------------------------------------------------------
+  GET    dashboard/              indicateurs, gain, répartition, livraison,
+                                 boosts, encaissements, épargne
+  GET    journal/                journal de trésorerie, filtre origine
+  GET    ventes/                 gain réel PAR VENTE
+  GET    PATCH settings/         clé de répartition
+  GET    epargne/                solde + 500 derniers mouvements
+  POST   epargne/retrait/        exige {confirmation: true}
+  GET    encaissements/          en attente
+  POST   encaissements/remise/   remise de l'argent du livreur en caisse :
+                                 écrit une entrée VENTE par commande, une
+                                 sortie FRAIS_LIVRAISON par frais accepté non
+                                 déduit, une sortie AVANCE_LIVREUR par avance
+                                 déjà envoyée (pour ne pas encaisser deux fois)
+  POST   recalculer/             recalcule les gains d'une plage après
+                                 modification d'un coût ou d'un prix d'achat
+
+  En-tête de finance/views.py : « gérant uniquement : ces réponses contiennent
+  coûts d'achat, marges et soldes ».
+
+5.6 ROUTES PUBLIQUES (app clients) — voir § 9 et client_endpoint.md
+--------------------------------------------------------------------------------
+  GET  /api/boutiques/  /api/boutiques/<id>/zones/  /api/categories/
+       /api/type/  /api/sous-type/  /api/marque/  /api/couleurs/
+       /api/produit/  /api/produit/<id>/
+  POST /api/commandes/
+
+5.7 CE QUE CHAQUE RÔLE VOIT D'UNE COMMANDE
+--------------------------------------------------------------------------------
+orders/serializers.py — trois sérialiseurs, choisis dans get_serializer_class().
+
+  GÉRANT ......... tout : prix, frais, total, remise, notes, historique,
+                   préparateur, livreur, campagnes.
+  PRÉPARATEUR .... n° commande, client, téléphones, zone, adresse, articles
+                   AVEC LEUR PRIX, remise, total à payer, note préparateur,
+                   livreur assigné.
+                   PAS les frais de livraison : l'encaissement est l'affaire du
+                   livreur. Jamais de coût ni de marge.
+  LIVREUR ........ n° commande, client, téléphones, zone, produits, frais de
+                   livraison, total à encaisser, photo de préparation.
+                   PAS le détail des prix unitaires. Jamais de coût ni de marge.
+
+
+================================================================================
+6. TEMPS RÉEL (WEBSOCKETS)
+================================================================================
+Stock/asgi.py — il n'y a PAS de routing.py : les routes sont déclarées en ligne,
+après un django.setup() explicite.
+
+users/consumers.py est le seul fichier de consumers du projet.
+
+  ws/chat/           ChatConsumer
+  ws/notifications/  NotificationConsumer
+  ws/data/           DataSyncConsumer
+
+Authentification identique aux trois : JWT en query string (?token=<access>).
+
+Channel layer : RedisChannelLayer si REDIS_URL est défini (production), sinon
+InMemoryChannelLayer — aucun Redis requis pour développer.
+
+6.1 ws/chat/
+--------------------------------------------------------------------------------
+Deux modes :
+  DM ........ ?recipient_id=<id>. Vérifie que le destinataire partage un
+              magasin de la société, applique chat_blocked_between (deux
+              livreurs → connexion REFUSÉE), room déterministe
+              dm_<min_id>_<max_id>.
+  Général ... room general_<company_id>.
+
+Actions : send (texte uniquement), edit, delete, read (DM seulement).
+Les images passent par POST /api/users/chat/upload/, qui diffuse la même forme
+de charge utile avec une URL.
+
+Présence : touch_last_seen() à la connexion ET à chaque trame reçue — toute
+trame vaut activité. Seuil « en ligne » côté API : 40 secondes.
+
+6.2 ws/notifications/
+--------------------------------------------------------------------------------
+Groupes : notifications_admin_<id> ou notifications_magasin_<id>, PLUS toujours
+le groupe personnel notifications_user_<id>.
+
+Émission : signal post_save sur Notification (users/signals.py).
+
+Notifications créées automatiquement : ouverture et fermeture de caisse, chaque
+CaisseMovement, chaque CustomUser créé, chaque ChatMessage.
+
+6.3 ws/data/
+--------------------------------------------------------------------------------
+Synchronisation des écrans. Charge utile {model, action, id, magasin_id}.
+Émission centralisée par users/broadcast.py::broadcast_data_event.
+
+Modèles diffusés, par app :
+  users/signals.py ...... caisse_session, caisse_movement
+  catalog/signals.py .... product_variant, stock_movement
+  orders/signals.py ..... order, order_status_history
+  suppliers/signals.py .. supplier_order
+  finance/signals.py .... « tresorerie » — UN SEUL nom pour VenteResultat,
+                          Encaissement et EpargneMouvement
+
+broadcast_data_event avale toutes ses exceptions : un échec de diffusion ne
+casse jamais l'écriture en base.
+
+
+================================================================================
+7. APPLICATION DE GESTION — frontend/ (port 3010)
+================================================================================
+Next.js 16 App Router, shadcn/ui, recharts. Thème clair/sombre via next-themes.
+app/(app)/layout.tsx porte la garde d'authentification, le DataSyncProvider,
+la sidebar, la topbar et la bulle d'assistant.
+
+7.1 LE MENU — components/layout/sidebar.tsx
+--------------------------------------------------------------------------------
+  #   Libellé            Route          Restriction
+  --  -----------------  -------------  -------------------------------------
+   1  Tableau de bord    /dashboard     adminOnly
+   2  Commandes          /orders        aucune
+   3  Produits           /products      hideLivreur
+   4  Caisse             /caisse        hidePreparateur + hideLivreur
+   5  Bilan du jour      /bilan         livreurOrGerant
+   6  Récupération       /pickup        adminOnly
+   7  Chats              /chats         aucune
+   8  Mouvements         /movements     adminOnly
+   9  Clients            /client        adminOnly
+  10  Alertes            /alerts        adminOnly
+  11  Fournisseurs       /suppliers     adminOnly
+  12  Transferts         /transfers     superAdminOnly
+  13  Notifications      /notifications adminOnly
+  14  Magasins           /stores        superAdminOnly
+  15  Super Admin        /users         superAdminOnly
+  16  Paramètres         /settings      superAdminOnly
+
+  Sémantique des drapeaux :
+    superAdminOnly .. rôle Django « admin »
+    adminOnly ....... rôle « admin » OU « magasin » (donc : le gérant)
+    livreurOrGerant . livreur ou gérant
+    hideX ........... masque pour ce sous-rôle
+
+  Pendant le chargement, tout est affiché SAUF les entrées superAdminOnly.
+
+  Routes sans entrée de menu : /superadmin, /scanner, /sales, /suppliers/[id],
+  /dashboard/[section].
+
+7.2 LES TROIS BADGES DU MENU
+--------------------------------------------------------------------------------
+Tous rafraîchis au montage, toutes les 30 s, ET à chaque changement de page —
+pour qu'ils retombent immédiatement après l'action.
+
+  Chats (rouge) ..... chat.unreadCount()      messages directs non lus
+  Clients (ambre) ... orders.aExaminerCount() commandes de la boutique en
+                      ligne en attente de l'appel de confirmation
+  Bilan (émeraude) .. useBilanMouvements      mouvements LIVRE/RETOUR non
+                      encore consultés. Le « vu » est dans localStorage sous
+                      bilan_vu_at:<userId> ; ouvrir /bilan remet à 0.
+
+7.3 LES PAGES
+--------------------------------------------------------------------------------
+/dashboard + /dashboard/[section] — CENTRE DE RAPPORTS (gérant)
+  Le tableau de bord EST le centre de rapports. 8 sections (lib/reports.ts) :
+  Vue générale, Ventes, Financier, Dépenses, Stock, Commandes, Livraisons,
+  Marketing. Le layout parent porte les onglets, les filtres de période
+  (Aujourd'hui, 7 derniers jours, Cette semaine, Ce mois, Mois précédent,
+  Cette année, Année précédente, Personnalisée), la granularité et le bouton
+  « Imprimer / PDF ». Garde explicite : « réservé au gérant ».
+
+/orders — COMMANDES (tous les rôles, 3 expériences)
+  Le titre et le contenu changent selon le rôle : « Commandes » (gérant),
+  « Dépôt — Commandes à préparer » (préparateur), « Ma tournée » (livreur).
+    Gérant : Nouvelle commande, filtres date/statut/préparateur, sélecteur de
+             magasin, actions de transition, Modifier, Corriger (mot de
+             confirmation LIVRE/RETOUR), Annuler (retaper ANNULER), Supprimer.
+    Préparateur : onglets À préparer / Récupérations / Historique ; actions
+             « Commencer la préparation » puis « Commande prête » avec photo.
+    Livreur : Ma tournée / Historique ; « Récupérer », « Livré », « Retour »,
+             avec pointage des articles réellement remis.
+
+/products — CATALOGUE (gérant, préparateur)
+  Hiérarchie Catégorie → Sous-type → Marque → Référence → Couleur, plus les
+  notes produit. Export et import Excel (avec revue IA des quasi-doublons et
+  annulation du lot), dialogue « Paramètres du catalogue » (Marques /
+  Catégories / Couleurs, avec le drapeau Affichée / Masquée qui pilote la
+  présence sur la boutique en ligne), modification de prix par sous-type,
+  sélecteur de magasin. Le préparateur n'a qu'une lecture : prix actuel et
+  marge sont réservés au gérant.
+
+  Le dialogue de paramètres a SON PROPRE sélecteur « Créer dans le magasin »,
+  sans option « tous » : on ne range pas une marque dans « tous les magasins ».
+  Tant qu'aucun n'est choisi, les boutons Ajouter sont désactivés (§ 2.5).
+
+/caisse — CAISSE ET TRÉSORERIE (gérant)
+  Session (ouverture avec fond de départ, fermeture avec montant compté et
+  écart), mouvements d'espèces, 6 onglets : Trésorerie, Journal, Ventes,
+  Épargne, Boost, Sessions. L'admin n'a pas de magasin propre : il doit en
+  choisir un.
+
+/bilan — BILAN DU JOUR (livreur, gérant)
+  Livreur : son ticket (livraisons, retours, dépenses, avances, « Reste à
+  remettre »). Gérant : liste des livreurs avec leurs totaux, détail par
+  livreur, validation des dépenses (Accepter / Refuser) et des avances
+  (« J'ai bien reçu » / Rejeter).
+
+/pickup — RÉCUPÉRATION SUR PLACE (gérant)
+  Commandes PRETE + zone RECUPERATION, à retirer au comptoir. Bouton
+  « Marquer comme récupérée » → LIVRE.
+
+/client — DEMANDES DES CLIENTS (gérant)
+  Commandes de la boutique en ligne en attente. Le gérant appelle, puis
+  assigne préparateur et livreur, ajuste zone, paiement et notes, et
+  « Confirme la commande » ou la refuse avec motif.
+
+/chats — MESSAGERIE (tous)
+  Conversations directes uniquement (plus de salon Général côté web). Badge de
+  non-lus par contact, présence, envoi d'image ou photo, édition, suppression.
+
+/movements — MOUVEMENTS DE STOCK (gérant) — lecture seule
+  Historique complet, KPI, statistiques produits (plus vendus / sans
+  mouvement), export XLSX (admin).
+
+/alerts — ALERTES (gérant) — lecture seule
+  Rupture, stock faible, péremption proche, périmés.
+
+/suppliers et /suppliers/[id] — FOURNISSEURS (gérant)
+  Indicateurs, onglets Approvisionnements / Fournisseurs, fiche d'un envoi avec
+  sa frise de statuts et ses boutons d'étape, paiements.
+
+/transfers — TRANSFERTS (admin)
+  Magasin source → sélection de variantes et quantités → magasin destination.
+
+/notifications — HISTORIQUE DES NOTIFICATIONS (gérant)
+  Badge d'état du WebSocket, marquer lu, supprimer, actions groupées.
+
+/stores — MAGASINS (admin)
+  Une carte par magasin : gérant, produits, unités, valeur de stock. Création
+  d'un magasin et de son compte gérant, modification nom et logo, transfert.
+
+/users — SUPER ADMINISTRATION (gérant ; actions selon admin / fondateur)
+  Utilisateurs actifs, comptes en attente (Approuver / Rejeter), demandes de
+  réinitialisation de mot de passe. Création de compte, changement de rôle,
+  suppression protégée par mot de passe.
+
+/superadmin — hors menu, réservé au rôle admin. Vue globale équipes +
+  utilisateurs. Redirige vers /dashboard si l'on n'est pas admin.
+
+/settings — PARAMÈTRES (lecture pour tous, écriture gérant)
+  Mon profil, Sécurité, Dépenses (catégories de caisse + types de dépense
+  livreur, avec les drapeaux « à l'unité » et « frais de livraison »), Zones
+  de livraison (nom + prix).
+
+DEUX PAGES EN RETRAIT, documentées comme telles dans leur en-tête :
+  /sales ..... redirige vers /orders. Le module Ventes/Ticket (caisse rapide)
+               a été retiré : le seul flux de vente est la commande à 6
+               statuts, qui couvre aussi la vente sur place via la zone
+               « Récupération ».
+  /scanner ... recherche textuelle dans le catalogue, renvoyant vers
+               « Nouvelle commande ». Malgré l'icône et le nom, IL N'Y A PAS
+               DE LECTURE DE CODE-BARRES : les paquets de scan déclarés dans
+               package.json ne sont importés nulle part.
+
+7.4 PAGES HORS (app)
+--------------------------------------------------------------------------------
+  /login ............... email + mot de passe. Après succès : /dashboard pour
+                         admin et magasin, /orders sinon.
+  /register ............ création de compte (admin / gérant / employé).
+  /verify-email ........ page statique d'information.
+  /forgot-password ..... flux en étapes du § 5.1.
+  /reset-password ...... changement de mot de passe connu.
+  /pending-approval .... compte non encore approuvé.
+  /auth/pending-approval  doublon plus détaillé de la précédente.
+  /logout
+
+7.5 HOOKS — lib/hooks/ et lib/auth/
+--------------------------------------------------------------------------------
+  useCurrentUser ............ GET /users/me/ puis dérive isAdmin, isMagasin,
+                              isSuperAdmin, isGerant, isPreparateur,
+                              isLivreur, isCompanyOwner…
+  useMagasins ............... magasins accessibles (GET /users/magasins/),
+                              MÊME PÉRIMÈTRE que le serveur. `plusieurs` sert
+                              à n'afficher le sélecteur que s'il y a un choix.
+  useDeliveryZones .......... zones de livraison
+  useRealtimeRefresh ........ s'abonne au DataSyncContext, rappelle onRefresh
+                              quand un événement concerne les modèles listés.
+                              Debounce 400 ms.
+  useNotificationsWebSocket . /ws/notifications/, reconnexion après 3 s
+  useBilanMouvements ........ badge du bilan (§ 7.2)
+  useDebouncedValue ......... 250 ms par défaut
+  useAuth ................... login / register / logout
+
+7.6 ASSISTANT IA — components/assistant-bubble.tsx
+--------------------------------------------------------------------------------
+Bulle présente sur toutes les pages. Quatre usages :
+  - répondre aux questions de fonctionnement ;
+  - créer une commande dictée en une phrase (gérant, préparateur) ;
+  - mettre à jour les stocks depuis un fichier Excel joint (gérant) ;
+  - rédiger un rapport commenté (gérant).
+Toute action passe par un récapitulatif à confirmer. Routes :
+app/api/ai/assistant|analyze|check-duplicates/route.ts → Ollama (lib/ollama.ts).
+
+PAS DE RECHERCHE GLOBALE : la zone gauche de la topbar est vide. Le paquet cmdk
+et components/ui/command.tsx existent mais ne sont importés nulle part. Chaque
+page a sa propre recherche.
+
+
+================================================================================
+8. APPLICATION MOBILE — smartcross/
+================================================================================
+Flutter, Riverpod, go_router. Portage du front de gestion : les en-têtes de
+fichiers citent systématiquement le fichier web équivalent comme source de
+vérité.
+
+8.1 NAVIGATION — lib/core/nav_items.dart et lib/core/router.dart
+--------------------------------------------------------------------------------
+kPrimaryNavItems reprend le menu web à l'identique (§ 7.1).
+
+kRoleHomeNavItems ajoute DEUX ÉCRANS QUI N'EXISTENT PAS SUR LE WEB, placés en
+tête du menu pour le seul sous-rôle concerné :
+    /depot ..... Dépôt   (préparateur)
+    /tournee ... Tournée (livreur)
+
+canAccessPath() est la garde réelle, avec trois dérogations commentées :
+  - /depot → préparateur ou gérant ; /tournee → livreur ou gérant ;
+  - /notifications et /settings → ouverts à tous (/settings se dégrade en
+    lecture seule) ;
+  - /users → tout gérant, alors que le menu ne l'affiche qu'à l'admin.
+
+Écran d'accueil selon le rôle : gérant → /dashboard, préparateur → /depot,
+livreur → /tournee, sinon /orders.
+
+/reports redirige vers /dashboard, /sales vers /orders.
+/superadmin et /scanner ne sont PAS portés.
+
+8.2 ÉCRANS PROPRES AU MOBILE
+--------------------------------------------------------------------------------
+/depot — features/depot/depot_screen.dart
+  Module préparateur. Onglets À préparer / Récupérations / Historique. Filtre
+  jour J (aujourd'hui + demain dès 19h00), actions bloquées avant l'ouverture.
+  Photo de preuve au passage « Prête ».
+
+/tournee — features/tournee/tournee_screen.dart
+  Module livreur. Commandes PRETE à récupérer, puis Livré / Retour. Filtres de
+  statut restreints aux deux états qui le concernent.
+
+8.3 SPÉCIFICITÉS MOBILES
+--------------------------------------------------------------------------------
+APPAREIL PHOTO (image_picker) — toujours en qualité 85, largeur max 1600, avec
+  un choix Galerie / Appareil photo. Cinq usages : photo de preuve de
+  préparation (UNIQUEMENT au passage « Prête » — photoPourStatut), image de
+  chat, photo de profil, photo produit, logo de magasin.
+
+NOTIFICATIONS — flutter_local_notifications.
+  >>> CE NE SONT PAS DES PUSH AU SENS CLASSIQUE <<<
+  Aucun FCM, aucun APNs, aucun service tiers. Ce sont des notifications
+  LOCALES déclenchées par les trames reçues sur /ws/notifications/. Elles
+  arrivent tant que la connexion WebSocket vit (app ouverte ou en arrière-plan).
+  Deux canaux Android : « messages » et « notifications ». Au premier plan,
+  rien n'est affiché (le toast de la barre suffit). L'appui ouvre /chats, la
+  commande citée, ou /notifications — y compris application fermée.
+  La permission est demandée APRÈS connexion, pas au premier lancement.
+
+WEBSOCKETS — lib/core/ws_manager.dart : token en query string, buildUri rappelé
+  à chaque tentative pour un token à jour, reconnexion après 3 s, pingInterval
+  30 s pour détecter une connexion tuée en silence. Les événements ws/data/
+  sont regroupés sur 400 ms ; le retour au premier plan rouvre et relit.
+
+IMPRESSION — un seul point d'entrée : le PDF d'une section de rapport
+  (Printing.layoutPdf), qui remplace le window.print() du web.
+
+PARTAGE — share_plus remplace le téléchargement navigateur : export catalogue,
+  liste de réapprovisionnement, alertes, mouvements, rapports XLSX.
+  Partage interne distinct : pousser une commande dans la messagerie.
+
+CONFIGURATION DU SERVEUR — kDefaultServerUrl = http://185.215.167.79:8010
+  (lib/core/api_client.dart). L'app fonctionne dès l'installation. L'écran
+  « Configuration du serveur », atteignable depuis la connexion, écrit la
+  nouvelle URL dans ApiClient ET dans SharedPreferences.
+  lib/core/media_url.dart rebase les URL de média dont l'hôte est injoignable
+  depuis un appareil (localhost, 127.0.0.1, « backend »…).
+
+CLIENT HTTP — lib/core/api_client.dart, Dio. Intercepteur qui ajoute le Bearer,
+  et sur 401 rejoue la requête après refresh. Un corps FormData (photo, import,
+  image) est CLONÉ avant rejeu, sinon « FormData already finalized ». Un seul
+  POST users/refresh/ est partagé entre plusieurs 401 simultanés.
+
+ASSISTANT — l'app appelle la route Next.js du FRONT DE GESTION
+  (POST /api/ai/assistant, port 3010 du même hôte), pas Django : la route
+  n'existe pas côté backend.
+
+IL N'Y A PAS DE SCANNER et PAS DE MODE HORS-LIGNE. connectivity_plus est
+  déclaré dans pubspec.yaml mais n'est importé nulle part ; il n'existe aucune
+  base locale ni file d'écritures différées. Seuls des caches mémoire Riverpod
+  gardent la valeur précédente pendant un rechargement.
+
+
+================================================================================
+9. BOUTIQUE EN LIGNE — clients_frontend/ (port 3000)
+================================================================================
+Next.js 16, Tailwind v4. Référence complète de l'API : client_endpoint.md.
+
+9.1 PRINCIPE : AUCUN COMPTE
+--------------------------------------------------------------------------------
+Ni inscription, ni connexion, ni jeton. Toutes les routes sont publiques.
+Le modèle clients.Client a été supprimé ; les anciennes routes
+/api/client/register|login|refresh|me|orders/ répondent 404.
+
+Une commande en ligne porte Order.origine_en_ligne = True et ses coordonnées en
+propre (client_nom, telephone, telephone_2, adresse_livraison).
+
+CONSÉQUENCE ASSUMÉE : le client ne peut pas revenir consulter sa commande. Il
+n'existe aucun endpoint de relecture, parce que sans compte rien
+n'authentifierait le demandeur. C'EST L'APPEL TÉLÉPHONIQUE DU GÉRANT QUI TIENT
+CE RÔLE, et il fait partie du circuit, il n'est pas optionnel.
+
+Seuls le panier, les favoris et le thème persistent, en localStorage
+(lib/store.ts::creerStorePersistant, consommé par useSyncExternalStore).
+
+9.2 ROUTES
+--------------------------------------------------------------------------------
+  /                       accueil : héros, 4 tuiles catégorie, « Disponibles
+                          maintenant », marques, « Comment ça marche »
+  /catalogue              filtres search, category, sous_type, brand, couleur,
+                          available — portés par l'URL
+  /produit/[id]           fiche, metadata dynamique, suggestions
+  /compatibilite/[slug]   parcours Housse / Cache-écran (§ 9.3)
+  /panier                 panier plein écran
+  /checkout               tunnel de commande (§ 9.4)
+  /favoris                identifiants en localStorage, fiches rechargées
+  /api/assistant          route de l'assistant
+
+Accès API : Server Component → Django en direct ; navigateur → same-origin
+/backend, réécrit par proxy.ts. Raison : le backend n'autorise pas l'origine du
+front dans CORS_ALLOWED_ORIGINS, et proxy.ts relit DJANGO_ORIGIN à l'exécution
+(contrairement aux rewrites() figés au build).
+
+9.3 PARCOURS HOUSSE / CACHE-ÉCRAN — lib/compatibilite.ts
+--------------------------------------------------------------------------------
+Housse et Cache-écran ne mènent pas à un listing : on demande d'abord le
+téléphone.
+
+    Catégorie → Marque → Modèle → Rechercher → produits compatibles
+
+LA COMPATIBILITÉ N'EST PAS UNE RECHERCHE TEXTUELLE. Le catalogue est déjà
+structuré par téléphone (§ 3.2) : marque.nom = Samsung, nom = « Galaxy A15 ».
+On filtre donc sur les relations existantes.
+
+  slugParcours(nom) ..... reconnaît la catégorie sur son nom NORMALISÉ (les
+                          catégories sont créées librement par chaque boutique)
+  lienCategorie() ....... POINT DE DÉCISION UNIQUE, partagé par la barre de
+                          navigation et les tuiles de l'accueil : elles ne
+                          peuvent donc pas diverger
+  grouperParModele() .... regroupe les références par modèle de téléphone
+  trouverModele() ....... exact d'abord ; tolérance (« a15 » → « Galaxy A15 »)
+                          seulement si UN SEUL candidat — sinon le choix
+                          appartient à l'utilisateur
+
+Le champ Modèle est une datalist mais RESTE SAISISSABLE : un téléphone absent
+du catalogue doit pouvoir mener à la suite du parcours.
+
+Quand aucun produit n'est disponible, le parcours propose une commande
+spéciale : formulaire, acompte indicatif de 50 %, délai de 15 jours calculé
+(jamais écrit en dur). Le drapeau ENVOI_COMMANDE_SPECIALE_ACTIF
+(NEXT_PUBLIC_COMMANDE_SPECIALE) est faux par défaut : le formulaire va jusqu'au
+récapitulatif sans rien enregistrer. Le contrat de l'endpoint attendu est
+spécifié dans client_endpoint.md § 11.
+
+9.4 TUNNEL DE COMMANDE — QUATRE CONFIRMATIONS
+--------------------------------------------------------------------------------
+lib/commande.ts + components/checkout/
+
+  1. Coordonnées ..... nom, téléphone, second numéro facultatif. Le numéro est
+                       normalisé DÈS CETTE ÉTAPE (034…, 261…, +261… donnent la
+                       même valeur) : ce que le client relira est exactement ce
+                       qui partira au serveur.
+  2. Livraison ....... EN_LIGNE (3000 Ar, adresse obligatoire) ou RECUPERATION
+                       (gratuit). Le prix est LU sur /boutiques/<id>/zones/,
+                       jamais écrit en dur.
+  3. Vérification .... tout réaffiché et TOUT MODIFIABLE : quantités ±,
+                       suppression d'article sur place, retour ciblé aux
+                       étapes 1 et 2.
+  4. Confirmation .... attestation à cocher PUIS fenêtre de confirmation.
+
+Puis l'accusé : numéro mis en avant, rappel du téléphone, détail, bouton
+d'impression. C'est la seule et unique fois où ces informations s'affichent.
+
+Le corps envoyé ne porte AUCUN montant. prix_attendu est la seule donnée
+chiffrée, et sert uniquement à détecter un changement de tarif entre l'ajout au
+panier et la commande.
+
+9.5 PANIER ET FAVORIS
+--------------------------------------------------------------------------------
+Panier (providers/cart-provider.tsx, clé smg_client_panier) : une ligne porte
+varianteId, produitId, nom, couleur, prix, photo, boutiqueId, quantité.
+RÈGLE : UNE SEULE BOUTIQUE PAR PANIER. ajouter() renvoie false en cas de
+conflit, remplacerPar() vide puis ajoute (modale de confirmation).
+
+Favoris (clé smg_client_favoris) : identifiants seuls. Chaque fiche est
+rechargée à l'affichage ; un 404 retire silencieusement l'id.
+
+9.6 VITRINE FILTRÉE PAR LE GÉRANT
+--------------------------------------------------------------------------------
+visible_client sur la catégorie ET le sous-type (piloté depuis frontend →
+Produits → Paramètres) décide de la présence en ligne. Une catégorie masquée
+disparaît de /categories/, /sous-type/, du catalogue paginé ET de la fiche
+produit, qui renvoie 404. Le drapeau vaut true par défaut et n'est pas exposé
+côté client : il n'y a rien à filtrer dans le front.
+
+9.7 ASSISTANT IA
+--------------------------------------------------------------------------------
+components/layout/chat-bubble.tsx + app/api/assistant/route.ts.
+Deux usages dans une seule route :
+  - QUESTION : la constante GUIDE (mode d'emploi complet du site) est injectée
+    dans le prompt. Consigne : répondre UNIQUEMENT à partir du guide, dire
+    « je ne sais pas » sinon.
+  - ARTICLE DICTÉ : extraction JSON contrainte par schéma. La détection n'est
+    lancée que si le message matche /veux|command|ajout|achet|panier/i.
+
+lib/assistant-actions.ts fait la RÉSOLUTION DÉTERMINISTE côté serveur, pas le
+modèle : recherche catalogue, scoring par mots, seuil « au moins la moitié des
+mots », à score égal le nom le plus court gagne ; plusieurs candidats →
+l'assistant REDEMANDE plutôt que de deviner. Vérifie la disponibilité et la
+boutique du panier.
+
+Rien n'est ajouté avant le clic « Confirmer », et rien n'est écrit côté serveur.
+
+9.8 LIMITATION DE DÉBIT
+--------------------------------------------------------------------------------
+  client_public ....... catalogue ............. 300 req/min
+  commande_en_ligne ... POST /api/commandes/ ... 10 req/min
+
+L'écriture est bien plus stricte : l'endpoint est ouvert à tous et crée des
+enregistrements. Le front présente le 429 comme une attente, pas un échec.
+
+Note d'exploitation : derrière le proxy same-origin, le débit est compté sur
+l'IP du serveur Next. Pour un comptage par visiteur, ajouter l'origine publique
+à CORS_ALLOWED_ORIGINS et pointer le front directement sur l'API.
+
+
+================================================================================
+10. ENVIRONNEMENT ET EXPLOITATION
+================================================================================
+
+10.1 VARIABLES — .env.example
+--------------------------------------------------------------------------------
+  DJANGO_SECRET_KEY  DEBUG  ALLOWED_HOSTS
+  CORS_ALLOWED_ORIGINS  CSRF_TRUSTED_ORIGINS
+  DB_ENGINE  DB_NAME  DB_USER  DB_PASSWORD  DB_HOST  DB_PORT
+  BACKEND_PORT  FRONTEND_PORT
+  NEXT_PUBLIC_DJANGO_API_URL
+  OLLAMA_BASE_URL  OLLAMA_MODEL_FAST  OLLAMA_MODEL_ANALYSE
+
+  Utilisées par docker-compose.prod.yml mais ABSENTES de .env.example :
+  DJANGO_ORIGIN, CLIENTS_DJANGO_ORIGIN, CLIENTS_SITE_URL,
+  CLIENTS_FRONTEND_PORT, et NEXT_PUBLIC_COMMANDE_SPECIALE.
+
+10.2 SERVICES — docker-compose.prod.yml
+--------------------------------------------------------------------------------
+  db ................. PostgreSQL 15, non publié sur l'hôte
+  redis .............. Redis 7, non publié (channel layer)
+  backend ............ Daphne, port 8010
+  frontend ........... gestion, port 3010
+  clients-frontend ... boutique, port 3000
+
+  db et redis ne sont volontairement pas publiés : ils ne sont joints que par
+  backend sur le réseau interne, ce qui évite toute collision avec un autre
+  projet sur le même Docker.
+
+  docker-entrypoint.sh : migrate puis collectstatic avant le démarrage.
+
+10.3 COMMANDES DE GESTION
+--------------------------------------------------------------------------------
+  seed_smartphone ....... charge le VRAI catalogue (~300 références, ~530
+                          variantes, stock et SKU Loyverse réels) depuis
+                          data/seed_catalogue.sql, et crée le magasin de
+                          démonstration plus les comptes des 3 rôles.
+                          IDEMPOTENTE (get_or_create). Option --reset pour
+                          supprimer puis recharger à neuf.
+                          Comptes : gerant@smartphone.mg,
+                          preparateur@smartphone.mg (et 2, 3),
+                          livreur@smartphone.mg (et 2 à 5).
+                          Mot de passe commun : fanandramana
+  finance_backfill ...... calcule le gain réel des commandes déjà livrées avant
+                          l'activation du module. Ne crée ni encaissement ni
+                          versement d'épargne. Idempotente.
+  rename_staff_emails ... utilitaire de renommage.
+
+10.4 LANCEMENT LOCAL
+--------------------------------------------------------------------------------
+  python -m venv .venv && .venv/bin/pip install -r requirements.txt
+  .venv/bin/python manage.py migrate
+  .venv/bin/python manage.py seed_smartphone
+  .venv/bin/python manage.py runserver 8010      # toujours préciser 8010
+
+  cd frontend && pnpm install && pnpm dev         # 3010
+  cd clients_frontend && pnpm install && pnpm dev # 3000
+  cd smartcross && flutter pub get && flutter run
+
+  Sans .env.local, manage.py utilise SQLite. Pour travailler contre PostgreSQL
+  en local, renseigner .env.local et passer par ./run_local.sh.
+
+10.5 TESTS
+--------------------------------------------------------------------------------
+  .venv/bin/python manage.py test catalog orders clients finance suppliers users
+
+  Fichiers notables :
+    clients/tests.py ....................... boutique en ligne sans compte
+    clients/test_visibilite.py ............. visible_client
+    catalog/test_magasin_requis.py ......... contrat magasin_id multi-magasin
+    catalog/test_autocomplete_magasin.py ... magasin dans l'autocomplétion
+    orders/test_total_preparateur.py ....... ce que voit le préparateur
+    orders/test_badge_clients.py ........... compteur du badge Clients
+    finance/tests.py ....................... le plus fourni (39 Ko)
+
+  Note : plusieurs tests de users/tests.py échouent indépendamment du code —
+  ils écrivent dans le vrai dossier media/ (pas de MEDIA_ROOT de test), donc au
+  second passage le nom entre en collision et Django suffixe le fichier.
+
+10.6 CONVENTIONS DU PROJET
+--------------------------------------------------------------------------------
+  - frontend/ est la référence fonctionnelle ; smartcross/ la reproduit.
+  - Jamais de donnée métier en dur : migrations + seed_smartphone.
+  - Les montants financiers sont des Decimal, jamais des float.
+  - Le stock ne bouge que par un StockMovement.
+  - Un montant venu du navigateur ne fait jamais foi.
+  - Les dates métier sont en heure d'Antananarivo, quel que soit l'appareil.
+
+================================================================================

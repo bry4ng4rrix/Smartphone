@@ -395,6 +395,21 @@ export default function CaissePage() {
     );
   }
 
+  // Caisse et trésorerie : ADMIN GLOBAL uniquement (mission § 14). La page
+  // n'avait aucune garde bloquante — le menu était caché, mais l'URL restait
+  // ouverte. L'API refuse désormais (403) ; cet écran évite d'y arriver.
+  if (!isAdmin) {
+    return (
+      <div className="p-6">
+        <h1 className="text-2xl font-bold">Caisse</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Accès refusé — la caisse et la trésorerie sont réservées à
+          l&apos;administrateur.
+        </p>
+      </div>
+    );
+  }
+
   const enChargement = loading || tresoLoading;
   const periodeLabel = PERIODES.find((p) => p.key === preset)?.label ?? '';
 

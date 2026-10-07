@@ -49,7 +49,11 @@ const _publicPrefixes = [
 /// page que le web lui sert aussi (branche « par defaut », lecture seule).
 String _homeFor(AppUser? user) {
   if (user == null) return '/login';
-  if (user.isGerant) return '/dashboard';
+  // L'admin global ouvre sur le centre de rapports. Le gerant de magasin n'y
+  // a plus acces (couts et marges) : il demarre sur ses commandes, qui sont
+  // son ecran de travail reel (mission 5 et 25).
+  if (user.isAdmin) return '/dashboard';
+  if (user.isMagasin) return '/orders';
   if (user.isPreparateur) return '/depot';
   if (user.isLivreur) return '/tournee';
   return '/orders';

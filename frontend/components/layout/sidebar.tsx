@@ -31,13 +31,27 @@ import { useCurrentUser } from "@/lib/auth/useCurrentUser";
 import { djangoClient } from "@/lib/django-client";
 import { useBilanMouvements } from "@/lib/hooks/useBilanMouvements";
 
+/**
+ * Deux axes d'autorisation, à ne pas confondre :
+ *
+ *  - ADMIN GLOBAL (rôle Django "admin") — le propriétaire et ses co-admins.
+ *    Vision sur toute la société : caisse, trésorerie, fournisseurs,
+ *    transferts, marketing, magasins, comptes.
+ *  - GÉRANT DE MAGASIN (rôle "magasin") — une seule boutique. Il tient son
+ *    catalogue, ses commandes, son bilan ; il ne voit ni coût, ni marge, ni
+ *    bénéfice, et aucune donnée d'un autre magasin.
+ *
+ * `adminOnly` couvre LES DEUX (c'est « le gérant » au sens du module
+ * Commande). Pour réserver une entrée au seul admin global, utiliser
+ * `superAdminOnly`, qui vaut `role === "admin"`.
+ */
 type NavItem = {
   label: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
-  /** Visible seulement par le rôle Django "admin". */
+  /** ADMIN GLOBAL uniquement (rôle Django "admin"). */
   superAdminOnly?: boolean;
-  /** Visible par le gérant (admin ou magasin). */
+  /** Admin global ET gérant de magasin. */
   adminOnly?: boolean;
   /** Visible seulement par le livreur. */
   livreurOnly?: boolean;
@@ -72,8 +86,8 @@ const navigationItems: NavItem[] = [
     label: "Caisse",
     href: "/caisse",
     icon: Wallet,
-    hidePreparateur: true,
-    hideLivreur: true,
+    // Fermé au gérant de magasin : admin global uniquement.
+    superAdminOnly: true,
   },
 
   {
@@ -106,7 +120,8 @@ const navigationItems: NavItem[] = [
     label: "Clients",
     href: "/client",
     icon: Users,
-    adminOnly: true,
+    // Fermé au gérant de magasin : admin global uniquement.
+    superAdminOnly: true,
   },
   {
     label: "Alertes",
@@ -119,7 +134,8 @@ const navigationItems: NavItem[] = [
     label: "Fournisseurs",
     href: "/suppliers",
     icon: Truck,
-    adminOnly: true,
+    // Fermé au gérant de magasin : admin global uniquement.
+    superAdminOnly: true,
   },
   {
     label: "Transferts",
@@ -150,7 +166,8 @@ const navigationItems: NavItem[] = [
     label: "Paramètres",
     href: "/settings",
     icon: Settings,
-    superAdminOnly: true,
+    // Profil et sécurité pour tous ; dépenses et zones restent à l'admin.
+    adminOnly: true,
   },
 ];
 

@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from catalog.models import ProductType
-from users.permissions import IsGerant, get_accessible_magasins, resolve_magasin_for_request
+from users.permissions import IsAdmin, get_accessible_magasins, resolve_magasin_for_request
 from users.subscriptions import get_company_owner
 
 from . import services
@@ -59,7 +59,7 @@ class SupplierViewSet(viewsets.ModelViewSet):
     portent le résumé financier calculé sur les approvisionnements visibles."""
 
     serializer_class = SupplierSerializer
-    permission_classes = [IsGerant]
+    permission_classes = [IsAdmin]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def get_queryset(self):
@@ -129,7 +129,7 @@ class SupplierOrderViewSet(viewsets.ModelViewSet):
     # brouillon sans paiement.
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
     serializer_class = SupplierOrderSerializer
-    permission_classes = [IsGerant]
+    permission_classes = [IsAdmin]
     parser_classes = [JSONParser, FormParser, MultiPartParser]
 
     def get_queryset(self):
@@ -297,7 +297,7 @@ class VariantCostHistoryView(APIView):
     finalisé, coût moyen pondéré et liste des envois finalisés d'un
     sous-type ; sans `type`, les 200 derniers envois finalisés de la société."""
 
-    permission_classes = [IsGerant]
+    permission_classes = [IsAdmin]
 
     def get(self, request):
         magasins = get_accessible_magasins(request.user)

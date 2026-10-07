@@ -76,7 +76,7 @@ DateTime _wallNow() {
 /// catégorie, mouvements de la période) et historique des sessions fermées.
 ///
 /// Gating : réservé au gérant (`admin` ou `magasin`, [UserPermissions
-/// .isGerant]) — le backend est `IsGerant` sur tous les endpoints ; un
+/// .isAdmin]) — le backend est `IsAdmin` sur tous les endpoints ; un
 /// préparateur/livreur voit un écran « Accès refusé » explicite (le web le
 /// laisse tomber sur des toasts 403). Règle centrale du web :
 /// `magasinId = isAdmin ? selectedMagasinId : user.magasin_id` — l'admin
@@ -283,7 +283,9 @@ class _CaisseScreenState extends ConsumerState<CaisseScreen> with SingleTickerPr
     if (auth.status == AuthStatus.loading || user == null) {
       return Scaffold(appBar: AppBar(title: const Text('Caisse')), body: const LoadingState());
     }
-    if (!user.isGerant) return const _AccesRefuse();
+    // ADMIN GLOBAL uniquement (mission 14) : le backend refuse desormais
+    // le gerant de magasin sur tous les endpoints de caisse.
+    if (!user.isAdmin) return const _AccesRefuse();
 
     final isAdmin = user.isAdmin;
     final magasinId = ref.watch(caisseMagasinIdProvider);

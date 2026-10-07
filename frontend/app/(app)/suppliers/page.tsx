@@ -43,7 +43,9 @@ export default function SuppliersPage() {
 }
 
 function SuppliersContent() {
-  const { isGerant, loading: userLoading } = useCurrentUser();
+  // Module Fournisseurs : ADMIN GLOBAL uniquement (mission § 16) — il
+  // expose les coûts d'achat et le coût de revient.
+  const { isAdmin, loading: userLoading } = useCurrentUser();
   const router = useRouter();
   const fournisseurUrl = useSearchParams().get('fournisseur');
 
@@ -92,11 +94,11 @@ function SuppliersContent() {
     finally { setApprosLoading(false); }
   }, [filtreStatut, filtreFournisseur, rechercheApproD]);
 
-  useEffect(() => { if (isGerant) { chargerKpis(); } }, [isGerant, chargerKpis]);
-  useEffect(() => { if (isGerant) chargerFournisseurs(); }, [isGerant, chargerFournisseurs]);
-  useEffect(() => { if (isGerant) { setPage(1); chargerAppros(); } }, [isGerant, chargerAppros]);
+  useEffect(() => { if (isAdmin) { chargerKpis(); } }, [isAdmin, chargerKpis]);
+  useEffect(() => { if (isAdmin) chargerFournisseurs(); }, [isAdmin, chargerFournisseurs]);
+  useEffect(() => { if (isAdmin) { setPage(1); chargerAppros(); } }, [isAdmin, chargerAppros]);
   const toutRecharger = useCallback((silent = false) => { chargerKpis(silent); chargerFournisseurs(silent); chargerAppros(silent); }, [chargerKpis, chargerFournisseurs, chargerAppros]);
-  useRealtimeRefresh(['supplier_order', 'stock_movement'], () => { if (isGerant) toutRecharger(true); });
+  useRealtimeRefresh(['supplier_order', 'stock_movement'], () => { if (isAdmin) toutRecharger(true); });
 
   const ouvrirAppro = (id: number) => router.push(`/suppliers/${id}`);
 
@@ -116,7 +118,7 @@ function SuppliersContent() {
   const approsPage = useMemo(() => appros.slice((pageCourante - 1) * PAR_PAGE, pageCourante * PAR_PAGE), [appros, pageCourante]);
 
   if (userLoading) return <div className="p-4 sm:p-6 space-y-4"><Skeleton className="h-10 w-64" /><Skeleton className="h-64 w-full" /></div>;
-  if (!isGerant) return <div className="p-6"><h1 className="text-2xl font-bold">Fournisseurs</h1><p className="text-sm text-muted-foreground mt-2">Accès réservé au gérant.</p></div>;
+  if (!isAdmin) return <div className="p-6"><h1 className="text-2xl font-bold">Fournisseurs</h1><p className="text-sm text-muted-foreground mt-2">Accès réservé au gérant.</p></div>;
 
   return (
     <div className="p-4 sm:p-6 space-y-4">

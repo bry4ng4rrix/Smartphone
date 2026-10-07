@@ -2,6 +2,18 @@ from rest_framework.permissions import BasePermission
 
 
 class IsAdmin(BasePermission):
+    """ADMIN GLOBAL — le propriétaire de l'application et ses co-admins.
+
+    C'est la permission qui garde les modules dont le gérant de magasin est
+    exclu : caisse, trésorerie, fournisseurs, transferts entre magasins,
+    campagnes marketing, rapports chiffrés (coût d'achat, marge, bénéfice).
+
+    NE PAS la confondre avec `IsGerant` : celle-là répond "GERANT" aussi bien
+    pour un `admin` que pour un `magasin`, parce qu'elle décrit un rôle du
+    MODULE COMMANDE (gérant / préparateur / livreur) et non un niveau
+    d'autorisation. Garder les deux axes séparés est volontaire — confondre
+    les deux casserait les workflows préparateur et livreur.
+    """
 
     def has_permission(self, request, view):
 

@@ -219,7 +219,8 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
     }
     final current = auth.user;
     // `if (!isManager && !currentUserLoading)` -> écran « Accès Refusé ».
-    if (current == null || !current.isGerant) {
+    // Administration des comptes : ADMIN GLOBAL uniquement (mission 26).
+    if (current == null || !current.isAdmin) {
       return Scaffold(
         appBar: AppBar(title: const Text('Super Administration')),
         body: const _AccessDenied(),
@@ -548,7 +549,7 @@ class _ActiveList extends ConsumerWidget {
               canManage: canManage,
               // Sous-rôle Commande : tout gérant (admin ou magasin), employés
               // seulement (users/views.py::EmployerCommandeRoleUpdateView).
-              canEditCommandeRole: u.rawRole == 'employer' && current.isGerant,
+              canEditCommandeRole: u.rawRole == 'employer' && current.isAdmin,
               onEditRole: () => _editRole(context, u),
               onEditCommandeRole: () => _editCommandeRole(context, u),
               onDelete: () => _delete(context, ref, u),

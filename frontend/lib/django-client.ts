@@ -715,6 +715,15 @@ class DjangoAPIClient {
      * les pages et interroge périodiquement, il ne doit pas rapatrier la
      * liste complète des commandes pour afficher un chiffre.
      */
+    /**
+     * Dashboard du gérant de magasin : commandes à traiter, stock, bilan du
+     * jour, demandes des livreurs. Aucune donnée de coût, de marge ni de
+     * bénéfice — celles-ci vivent sur `/orders/dashboard/`, réservé à l'admin.
+     */
+    dashboardGerant: async (magasinId?: number) => {
+      const q = magasinId ? `?magasin_id=${magasinId}` : ''
+      return this.get<any>(`/orders/dashboard-gerant/${q}`)
+    },
     aExaminerCount: async () => {
       const data = await this.get<{ count: number }>('/orders/a-examiner/')
       return data?.count ?? 0

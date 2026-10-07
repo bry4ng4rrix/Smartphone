@@ -13,6 +13,7 @@ from rest_framework.response import Response
 
 from users.models import EmployerProfile
 from users.permissions import (
+    IsAdmin,
     IsGerant,
     get_accessible_magasins,
     resolve_magasin_for_request,
@@ -77,7 +78,7 @@ class DeliveryZoneOptionViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         if self.action in ("create", "partial_update", "update", "destroy"):
-            return [IsGerant()]
+            return [IsAdmin()]
         return super().get_permissions()
 
     def get_queryset(self):
@@ -271,7 +272,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED,
         )
 
-    @action(detail=True, methods=["post"], url_path="campagne", permission_classes=[IsGerant])
+    @action(detail=True, methods=["post"], url_path="campagne", permission_classes=[IsAdmin])
     def set_campagne(self, request, pk=None):
         """Conservé pour les anciens clients : l'affectation est désormais
         automatique par période, cette action ne fait plus rien et renvoie
@@ -668,7 +669,7 @@ class ExpenseTypeViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         if self.action in ("create", "partial_update", "update", "destroy"):
-            return [IsGerant()]
+            return [IsAdmin()]
         return super().get_permissions()
 
     def _admin_profile(self):
@@ -963,16 +964,23 @@ class AvanceLivreurViewSet(viewsets.ModelViewSet):
 
 
 class MarketingCampaignViewSet(viewsets.ModelViewSet):
-    """Campagnes marketing — lecture pour tout utilisateur du magasin (le
-    formulaire de commande propose la campagne d'origine), écriture gérant."""
+    """Campagnes marketing (« boosts ») — ADMIN GLOBAL uniquement.
+
+    Le gérant n'y a plus accès du tout, en lecture comme en écriture
+    (mission § 20) : une campagne porte un budget publicitaire et sa part est
+    déduite du gain réel, données qui lui sont fermées. L'affectation
+    commande ↔ campagne est de toute façon automatique, par période
+    (finance/services.py::commandes_du_boost) : aucun écran ne demande plus
+    de choisir une campagne à la commande.
+    """
 
     serializer_class = MarketingCampaignSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def get_permissions(self):
         if self.action in ("create", "partial_update", "update", "destroy"):
-            return [IsGerant()]
+            return [IsAdmin()]
         return super().get_permissions()
 
     def get_queryset(self):

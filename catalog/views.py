@@ -13,7 +13,7 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from users.permissions import IsGerantOrReadOnly, get_accessible_magasins, resolve_magasin_for_request
+from users.permissions import IsAdmin, IsGerantOrReadOnly, get_accessible_magasins, resolve_magasin_for_request
 
 from . import services
 from .models import (
@@ -28,6 +28,7 @@ from .models import (
     StockMovement,
 )
 from .serializers import (
+    ProductReferenceGerantSerializer,
     BrandSerializer,
     BulkPriceUpdateSerializer,
     ColorSerializer,
@@ -137,6 +138,16 @@ class ProductReferenceViewSet(viewsets.ModelViewSet):
     serializer_class = ProductReferenceSerializer
     permission_classes = [IsGerantOrReadOnly]
 
+    def get_serializer_class(self):
+        """Le prix d'achat ne quitte l'API que pour un admin global.
+
+        Masquer le champ côté interface ne suffirait pas : le navigateur
+        l'aurait quand même reçu. On change donc de serializer (mission § 22).
+        """
+        if getattr(self.request.user, "role", None) == "admin":
+            return ProductReferenceSerializer
+        return ProductReferenceGerantSerializer
+
     def get_queryset(self):
         # `type__category__magasin` : l'autocomplete expose le magasin et son
         # nom (voir ProductReferenceAutocompleteSerializer) — sans cette
@@ -175,7 +186,8 @@ class ProductReferenceViewSet(viewsets.ModelViewSet):
             ).data
         )
 
-    @action(detail=False, methods=["post"], url_path="bulk-update-price")
+    # Modifie prix_achat ET prix_vente : réservé à l'admin global.
+    @action(detail=False, methods=["post"], url_path="bulk-update-price", permission_classes=[IsAdmin])
     def bulk_update_price(self, request):
         """POST /api/catalog/references/bulk-update-price/
         {type_id, prix_achat?, prix_vente?} — modifie prix_achat/prix_vente
@@ -214,7 +226,8 @@ class ProductReferenceViewSet(viewsets.ModelViewSet):
         ci_filters = {f"{k}__iexact": v for k, v in filters.items()}
         return qs.filter(**ci_filters).first()
 
-    @action(detail=False, methods=["get"], url_path="export-excel")
+    # Le classeur exporté contient une colonne « prix d'achat ».
+    @action(detail=False, methods=["get"], url_path="export-excel", permission_classes=[IsAdmin])
     def export_excel(self, request):
         """GET /api/catalog/references/export-excel/ — une ligne par couleur
         (variante), pour édition hors-ligne puis réimport via import-excel/."""
@@ -400,7 +413,8 @@ class ProductReferenceViewSet(viewsets.ModelViewSet):
                 None,
             )
 
-    @action(detail=False, methods=["post"], url_path="import-excel", parser_classes=[MultiPartParser])
+    # L'import renseigne le prix d'achat ligne par ligne.
+    @action(detail=False, methods=["post"], url_path="import-excel", parser_classes=[MultiPartParser], permission_classes=[IsAdmin])
     def import_excel(self, request):
         """POST /api/catalog/references/import-excel/ (multipart, champ
         "file") — crée/actualise Catégorie → Sous-type → Marque → Référence →

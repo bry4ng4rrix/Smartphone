@@ -46,7 +46,7 @@ from rest_framework.views import APIView
 
 from catalog.models import ProductVariant, StockMovement
 from users.models import CaisseMovement
-from users.permissions import IsGerant, get_accessible_magasins
+from users.permissions import IsAdmin, get_accessible_magasins
 
 from .models import LivreurExpense, MarketingCampaign, Order, OrderItem, OrderStatusHistory
 
@@ -363,7 +363,7 @@ class _Contexte:
 class _RapportView(APIView):
     # GÉRANT UNIQUEMENT : la réponse contient coûts d'achat et marges, jamais
     # exposés aux autres rôles. C'est ici que l'accès se refuse, pas dans l'UI.
-    permission_classes = [IsGerant]
+    permission_classes = [IsAdmin]
 
     def get(self, request):
         ctx = _Contexte(request)

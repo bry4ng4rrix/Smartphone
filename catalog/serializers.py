@@ -52,6 +52,13 @@ class ProductVariantSerializer(serializers.ModelSerializer):
 
 
 class ProductReferenceSerializer(serializers.ModelSerializer):
+    """Référence produit — vue ADMIN, avec le prix d'achat.
+
+    Le gérant de magasin reçoit `ProductReferenceGerantSerializer` : le prix
+    d'achat ne doit pas sortir de l'API pour lui (mission § 6-8). Le choix se
+    fait dans `ProductReferenceViewSet.get_serializer_class`.
+    """
+
     variants = ProductVariantSerializer(many=True, read_only=True)
     brand_name = serializers.CharField(source="brand.nom", read_only=True)
     type_name = serializers.CharField(source="type.nom", read_only=True)
@@ -64,6 +71,20 @@ class ProductReferenceSerializer(serializers.ModelSerializer):
             "id", "type", "type_name", "category_name", "brand", "brand_name",
             "reference_name", "prix_achat", "prix_vente", "photo", "actif", "variants", "magasin",
         ]
+
+
+class ProductReferenceGerantSerializer(ProductReferenceSerializer):
+    """Même référence, SANS le prix d'achat.
+
+    Le gérant garde le CRUD complet de son catalogue (mission § 7) : il crée,
+    modifie et supprime ses références, avec leur prix de vente. Il n'a
+    simplement jamais le coût — ni en lecture, ni en écriture : un champ
+    absent de `fields` n'est pas non plus accepté en entrée, donc il ne peut
+    pas le renseigner à la création.
+    """
+
+    class Meta(ProductReferenceSerializer.Meta):
+        fields = [c for c in ProductReferenceSerializer.Meta.fields if c != "prix_achat"]
 
 
 class ProductReferenceAutocompleteSerializer(serializers.ModelSerializer):

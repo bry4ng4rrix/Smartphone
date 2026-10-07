@@ -1,7 +1,7 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
-from .dashboard import DashboardView
+from .dashboard import DashboardGerantView, DashboardView
 from .reporting import (
     DeliveriesReportView,
     ExpensesReportView,
@@ -36,6 +36,8 @@ router.register(r"", OrderViewSet, basename="order")
 
 urlpatterns = [
     path("dashboard/", DashboardView.as_view()),
+    # Dashboard du gérant : sans bénéfice, marge ni coût (mission § 5).
+    path("dashboard-gerant/", DashboardGerantView.as_view()),
     # Rapports du gérant — tous les bilans de la période, agrégés côté serveur.
     path("reports/", ReportsView.as_view()),
     # Centre de rapports — une section par vue (voir orders/reporting.py).

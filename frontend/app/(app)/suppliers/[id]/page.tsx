@@ -23,7 +23,9 @@ import { STATUTS, actionPossible, fmtAr, fmtDate, fmtDevise, fmtNombre, fmtTaux,
 import { ArriverDialog, EditOrderDialog, FinaliserDialog, FraisDouaneDialog, PaymentDialog, TransportDialog } from '@/components/suppliers/order-dialogs';
 
 export default function SupplierOrderPage() {
-  const { isGerant, loading: userLoading } = useCurrentUser();
+  // Module Fournisseurs : ADMIN GLOBAL uniquement (mission § 16) — il
+  // expose les coûts d'achat et le coût de revient.
+  const { isAdmin, loading: userLoading } = useCurrentUser();
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
@@ -47,8 +49,8 @@ export default function SupplierOrderPage() {
     }
   }, [id, router]);
 
-  useEffect(() => { if (isGerant) load(); }, [isGerant, load]);
-  useRealtimeRefresh(['supplier_order', 'stock_movement'], () => { if (isGerant) load(true); });
+  useEffect(() => { if (isAdmin) load(); }, [isAdmin, load]);
+  useRealtimeRefresh(['supplier_order', 'stock_movement'], () => { if (isAdmin) load(true); });
 
   const action = async (cle: string, fn: () => Promise<any>, succes: string) => {
     setBusy(cle);
@@ -66,7 +68,7 @@ export default function SupplierOrderPage() {
   if (userLoading || (loading && !order)) {
     return <div className="p-4 sm:p-6 space-y-4"><Skeleton className="h-8 w-64" /><Skeleton className="h-96 w-full" /></div>;
   }
-  if (!isGerant) {
+  if (!isAdmin) {
     return <div className="p-6"><p className="text-sm text-muted-foreground">Accès réservé au gérant.</p></div>;
   }
   if (!order) return null;

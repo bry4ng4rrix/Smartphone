@@ -28,34 +28,37 @@ const roleLabel: Record<string, string> = {
 };
 
 export default function SettingsPage() {
-  const { user, isGerant, loading: userLoading } = useCurrentUser();
+  // `isAdmin` et non `isGerant` : dépenses et zones de livraison sont des
+  // réglages de société, partagés par tous les magasins. Le serveur les
+  // refuse maintenant au gérant (orders/views.py), l'onglet suit.
+  const { user, isAdmin, isGerant, loading: userLoading } = useCurrentUser();
   const [expenseCategories, setExpenseCategories] = useState<any[]>([]);
 
   const loadExpenseCategories = () => {
-    if (!isGerant) return;
+    if (!isAdmin) return;
     djangoClient.caisse.categories.list().then(setExpenseCategories).catch(() => {});
   };
 
-  useEffect(loadExpenseCategories, [isGerant]);
+  useEffect(loadExpenseCategories, [isAdmin]);
 
   const [deliveryZones, setDeliveryZones] = useState<any[]>([]);
 
   const loadDeliveryZones = () => {
-    if (!isGerant) return;
+    if (!isAdmin) return;
     djangoClient.zones.list().then(setDeliveryZones).catch(() => {});
   };
 
-  useEffect(loadDeliveryZones, [isGerant]);
+  useEffect(loadDeliveryZones, [isAdmin]);
 
   // Types de dépense proposés aux livreurs (§ demande).
   const [expenseTypes, setExpenseTypes] = useState<any[]>([]);
 
   const loadExpenseTypes = () => {
-    if (!isGerant) return;
+    if (!isAdmin) return;
     djangoClient.expenseTypes.list().then(setExpenseTypes).catch(() => {});
   };
 
-  useEffect(loadExpenseTypes, [isGerant]);
+  useEffect(loadExpenseTypes, [isAdmin]);
 
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
@@ -200,12 +203,12 @@ export default function SettingsPage() {
           <TabsTrigger value="security">
             <Lock className="h-4 w-4 mr-2" />Sécurité
           </TabsTrigger>
-          {isGerant && (
+          {isAdmin && (
             <TabsTrigger value="depenses">
               <Wallet className="h-4 w-4 mr-2" />Dépenses
             </TabsTrigger>
           )}
-          {isGerant && (
+          {isAdmin && (
             <TabsTrigger value="zones">
               <MapPin className="h-4 w-4 mr-2" />Zones de livraison
             </TabsTrigger>

@@ -21,7 +21,11 @@ import { ReportsProvider } from '@/components/reports/reports-context';
  * le cache des sections sont conservés (§ demande « plus fluide »).
  */
 export default function DashboardLayout({ children }: { children: ReactNode }) {
-  const { isGerant, loading: userLoading } = useCurrentUser();
+  // Deux dashboards distincts (mission § 25) : le centre de rapports —
+  // coûts, marges, bénéfices — est réservé à l'ADMIN GLOBAL ; le gérant
+  // de magasin reçoit un tableau de bord d'exploitation, rendu par
+  // `page.tsx` sans ce layout de rapports.
+  const { isAdmin, isMagasin, loading: userLoading } = useCurrentUser();
   const router = useRouter();
   const pathname = usePathname();
   const actif = sectionDepuisPathname(pathname);
@@ -50,9 +54,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   // Les 8 pages sont pré-chargées dès l'arrivée : le passage d'un rapport à
   // l'autre est immédiat (seul l'appel API de la section reste à faire).
   useEffect(() => {
-    if (!isGerant) return;
+    if (!isAdmin) return;
     for (const s of SECTIONS) router.prefetch(sectionHref(s.key));
-  }, [isGerant, router]);
+  }, [isAdmin, router]);
 
   const recharger = () => {
     invalidateReports();
@@ -69,11 +73,20 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!isGerant) {
+  // Gérant de magasin : pas de centre de rapports, pas de filtres de
+  // période. `page.tsx` rend son tableau de bord ; les sous-pages de rapport
+  // (/dashboard/sales…) l'y ramènent.
+  if (isMagasin) {
+    return <div className="p-4 sm:p-6">{children}</div>;
+  }
+
+  if (!isAdmin) {
     return (
       <div className="p-6">
         <h1 className="text-2xl font-bold">Tableau de bord</h1>
-        <p className="text-sm text-muted-foreground mt-2">Accès refusé — le tableau de bord est réservé au gérant.</p>
+        <p className="text-sm text-muted-foreground mt-2">
+          Accès refusé — le tableau de bord est réservé au gérant.
+        </p>
       </div>
     );
   }

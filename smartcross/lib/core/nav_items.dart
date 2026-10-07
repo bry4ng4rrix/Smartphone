@@ -51,11 +51,14 @@ class NavItem {
 
 /// Navigation principale — ordre et libelles identiques au sidebar web.
 const List<NavItem> kPrimaryNavItems = [
+  // Le tableau de bord mobile EST le centre de rapports (couts, marges,
+  // benefices) : ADMIN GLOBAL uniquement (mission 5 et 25). Le gerant de
+  // magasin demarre sur /orders — voir _homeFor dans router.dart.
   NavItem(
     path: '/dashboard',
     label: 'Tableau de bord',
     icon: Icons.space_dashboard_outlined,
-    adminOnly: true,
+    superAdminOnly: true,
   ),
   // Page unique declinee en 3 experiences par role (gerant / preparateur /
   // livreur), exactement comme /orders cote web : aucun drapeau ici.
@@ -66,12 +69,13 @@ const List<NavItem> kPrimaryNavItems = [
     icon: Icons.style_outlined,
     hideLivreur: true,
   ),
+  // Caisse et tresorerie : ADMIN GLOBAL uniquement (mission 14). Le gerant
+  // de magasin n'ouvre plus de session et ne voit plus les mouvements.
   NavItem(
     path: '/caisse',
     label: 'Caisse',
     icon: Icons.point_of_sale_outlined,
-    hidePreparateur: true,
-    hideLivreur: true,
+    superAdminOnly: true,
   ),
   NavItem(
     path: '/bilan',
@@ -98,11 +102,13 @@ const List<NavItem> kPrimaryNavItems = [
     icon: Icons.error_outline,
     adminOnly: true,
   ),
+  // Fournisseurs : ADMIN GLOBAL uniquement (mission 16) — le module expose
+  // les couts d'achat et le cout de revient.
   NavItem(
     path: '/suppliers',
     label: 'Fournisseurs',
     icon: Icons.local_shipping_outlined,
-    adminOnly: true,
+    superAdminOnly: true,
   ),
   NavItem(
     path: '/transfers',
@@ -130,11 +136,12 @@ const List<NavItem> kPrimaryNavItems = [
   ),
   // /superadmin et /scanner (pages web sans lien dans le menu, accessibles
   // seulement par l'URL) ne sont pas portees : retirees de l'app a la demande.
+  // Profil et securite pour tous ; depenses et zones restent a l'admin.
   NavItem(
     path: '/settings',
     label: 'Paramètres',
     icon: Icons.settings_outlined,
-    superAdminOnly: true,
+    adminOnly: true,
   ),
 ];
 
@@ -170,9 +177,9 @@ bool canAccessPath(AppUser user, String path) {
   // page se degrade en lecture seule pour un non-gerant) ; le menu, lui,
   // reste reserve a l'admin comme le sidebar.
   if (path == '/settings') return true;
-  // La page /users accepte tout gerant (isManager : admin OU magasin) meme
-  // si le sidebar ne la propose qu'a l'admin.
-  if (path == '/users' || path.startsWith('/users/')) return user.isGerant;
+  // Administration des comptes : ADMIN GLOBAL uniquement (mission 26). Le
+  // gerant ne gere plus les utilisateurs, meme ceux de son magasin.
+  if (path == '/users' || path.startsWith('/users/')) return user.isAdmin;
   final match = kPrimaryNavItems
       .where((i) => path == i.path || path.startsWith('${i.path}/'))
       .toList();

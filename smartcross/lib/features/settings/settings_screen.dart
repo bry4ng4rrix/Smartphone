@@ -44,7 +44,10 @@ class SettingsScreen extends ConsumerWidget {
       );
     }
 
-    final isGerant = user.isGerant;
+    // Depenses et zones de livraison sont des reglages de SOCIETE, partages
+    // par tous les magasins : seul l'admin global les modifie (mission 23).
+    // Profil et securite restent ouverts a tous les roles.
+    final isGerant = user.isAdmin;
     final tabs = <Widget>[
       const _IconTab(icon: Icons.person_outline, label: 'Mon profil'),
       const _IconTab(icon: Icons.lock_outline, label: 'Sécurité'),

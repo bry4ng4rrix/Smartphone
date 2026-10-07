@@ -292,7 +292,8 @@ class CalculsTests(ScenarioMixin, TestCase):
 class ApiTests(ScenarioMixin, APITestCase):
     def setUp(self):
         self.creer_scenario()
-        self.client.force_authenticate(user=self.gerant)
+        # Trésorerie = admin global uniquement (le gérant en est exclu).
+        self.client.force_authenticate(user=self.admin)
 
     def test_settings_refuse_total_different_de_100(self):
         res = self.client.patch("/api/finance/settings/", {"pct_reappro": 60, "pct_epargne": 20, "pct_depenses": 10}, format="json")
@@ -336,6 +337,16 @@ class ApiTests(ScenarioMixin, APITestCase):
         self.assertEqual(res.status_code, 400)
         self.assertTrue(CaisseMovement.objects.filter(id=mvt.id).exists())
 
+    def test_gerant_de_magasin_interdit(self):
+        """La trésorerie est fermée au gérant : gain réel, marges et épargne
+        ne sont pas de son ressort (mission § 21)."""
+        self.client.force_authenticate(user=self.gerant)
+        for url in ("/api/finance/dashboard/", "/api/finance/ventes/",
+                    "/api/finance/epargne/", "/api/finance/journal/",
+                    "/api/finance/encaissements/", "/api/finance/settings/"):
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 403)
+
     def test_livreur_interdit(self):
         self.client.force_authenticate(user=self.livreur)
         self.assertEqual(self.client.get("/api/finance/dashboard/").status_code, 403)
@@ -354,7 +365,8 @@ class BoostAutomatiqueTests(ScenarioMixin, APITestCase):
 
     def setUp(self):
         self.creer_scenario()
-        self.client.force_authenticate(user=self.gerant)
+        # Trésorerie = admin global uniquement (le gérant en est exclu).
+        self.client.force_authenticate(user=self.admin)
         self.j = lambda n: self.aujourd_hui - timedelta(days=n)
 
     def boost(self, debut, fin, montant="100000", **extra):
@@ -568,7 +580,8 @@ class MargeLivraisonRapportsTests(ScenarioMixin, APITestCase):
 
     def setUp(self):
         self.creer_scenario()
-        self.client.force_authenticate(user=self.gerant)
+        # Trésorerie = admin global uniquement (le gérant en est exclu).
+        self.client.force_authenticate(user=self.admin)
         from orders.models import ExpenseType
 
         self.t_livraison = ExpenseType.objects.create(admin_profile=self.admin_profile, nom="LIVRAISON 3K", prix_unitaire=D("3000"), par_unite=True, frais_livraison=True)
