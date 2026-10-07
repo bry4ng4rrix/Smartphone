@@ -12,6 +12,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { djangoClient } from "@/lib/django-client";
 import { useCurrentUser } from "@/lib/auth/useCurrentUser";
+import { useMagasins } from "@/lib/hooks/useMagasins";
+import { MagasinSelect } from "@/components/ui/magasin-select";
 import { useDeliveryZones } from "@/lib/hooks/useDeliveryZones";
 import { DateTimeInput } from "@/components/ui/datetime-input";
 import { appDatetimeLocalValue, appDatetimeLocalToIso } from "@/lib/timezone";
@@ -89,10 +91,14 @@ export function OrderItemsEditor({
   items,
   setItems,
   showPrices,
+  magasinFiltre,
 }: {
   items: CartItem[];
   setItems: React.Dispatch<React.SetStateAction<CartItem[]>>;
   showPrices: boolean;
+  /** Boutique à parcourir — `null` = toutes celles accessibles. Ne change
+   *  rien au magasin de la commande, qui vient des articles choisis. */
+  magasinFiltre?: number | null;
 }) {
   // Filtres Catégorie → Sous-type + Marque, combinés à la recherche texte
   // (§6 du cahier des charges : "Type produit" filtre "Marque", recherche
@@ -111,19 +117,20 @@ export function OrderItemsEditor({
   const [quantite, setQuantite] = useState("");
 
   useEffect(() => {
+    const m = magasinFiltre ?? undefined;
     djangoClient.catalog.categories
-      .list()
+      .list(m)
       .then(setCategories)
       .catch(() => {});
     djangoClient.catalog.types
-      .list()
+      .list(undefined, m)
       .then(setTypes)
       .catch(() => {});
     djangoClient.catalog.brands
-      .list()
+      .list(m)
       .then(setBrands)
       .catch(() => {});
-  }, []);
+  }, [magasinFiltre]);
 
   const typesForCategory = categoryId
     ? types.filter((t) => t.category === categoryId)
@@ -143,13 +150,14 @@ export function OrderItemsEditor({
           type: typeId ?? undefined,
           brand: brandId ?? undefined,
           category: categoryId ?? undefined,
+          magasin_id: magasinFiltre ?? undefined,
         })
         .then(setSuggestions)
         .catch(() => setSuggestions([]))
         .finally(() => setSearching(false));
     }, 250);
     return () => clearTimeout(t);
-  }, [query, typeId, brandId, categoryId]);
+  }, [query, typeId, brandId, categoryId, magasinFiltre]);
 
   const addItem = () => {
     if (!selectedRef || !variantId) {
@@ -501,6 +509,11 @@ export function CreateOrderDialog({
   onCreated: () => void;
 }) {
   const { isPreparateur } = useCurrentUser();
+  // Restreint la recherche d'articles à une boutique. Par défaut toutes :
+  // on cherche dans l'ensemble du catalogue, et le magasin de la commande se
+  // déduit de l'article retenu (voir CartItem.magasin_id).
+  const { magasins } = useMagasins();
+  const [magasinFiltre, setMagasinFiltre] = useState<number | null>(null);
   const { zones } = useDeliveryZones();
   const zoneOptions = useMemo(() => buildZoneOptions(zones), [zones]);
   // Le préparateur ne crée que des retraits sur place, et ne voit aucune
@@ -688,10 +701,24 @@ export function CreateOrderDialog({
           </DialogDescription>
         </DialogHeader>
 
+        <MagasinSelect
+          magasins={magasins}
+          valeur={magasinFiltre}
+          onChange={(id) => {
+            setMagasinFiltre(id);
+            // Changer de boutique en cours de saisie laisserait un panier
+            // d'une autre : on repart à zéro plutôt que d'accepter un
+            // mélange que le serveur enregistrerait au mauvais endroit.
+            if (items.length > 0) setItems([]);
+          }}
+          label="Chercher les articles dans"
+        />
+
         <OrderItemsEditor
           items={items}
           setItems={setItems}
           showPrices={showPrices}
+          magasinFiltre={magasinFiltre}
         />
 
         {isPreparateur ? (

@@ -529,8 +529,11 @@ class DjangoAPIClient {
       },
     },
     types: {
-      list: async (categoryId?: number) => {
-        const q = categoryId ? `?category=${categoryId}` : ''
+      list: async (categoryId?: number, magasinId?: number) => {
+        const params = new URLSearchParams()
+        if (categoryId) params.append('category', String(categoryId))
+        if (magasinId) params.append('magasin_id', String(magasinId))
+        const q = params.toString() ? `?${params.toString()}` : ''
         return this.get<any[]>(`/catalog/types/${q}`)
       },
       create: async (data: { category: number; nom: string; visible_client?: boolean }) => {
@@ -587,16 +590,20 @@ class DjangoAPIClient {
       },
     },
     references: {
-      list: async (filters?: { type?: number; brand?: number; category?: number }) => {
+      // `magasin_id` : restreint à une boutique. Omis = toutes celles
+      // auxquelles le compte a accès (ProductReferenceViewSet.get_queryset).
+      list: async (filters?: { type?: number; brand?: number; category?: number; magasin_id?: number }) => {
         const params = new URLSearchParams()
         if (filters?.type) params.append('type', String(filters.type))
         if (filters?.brand) params.append('brand', String(filters.brand))
         if (filters?.category) params.append('category', String(filters.category))
+        if (filters?.magasin_id) params.append('magasin_id', String(filters.magasin_id))
         const query = params.toString() ? `?${params.toString()}` : ''
         return this.get<any[]>(`/catalog/references/${query}`)
       },
-      autocomplete: async (query: string, filters?: { type?: number; brand?: number; category?: number }) => {
+      autocomplete: async (query: string, filters?: { type?: number; brand?: number; category?: number; magasin_id?: number }) => {
         const params = new URLSearchParams({ q: query })
+        if (filters?.magasin_id) params.append('magasin_id', String(filters.magasin_id))
         if (filters?.type) params.append('type', String(filters.type))
         if (filters?.brand) params.append('brand', String(filters.brand))
         if (filters?.category) params.append('category', String(filters.category))
@@ -1168,6 +1175,16 @@ class DjangoAPIClient {
     deleteAll: async () => this.post<void>('/users/notifications/delete-all/'),
     bulkRead: async (ids: number[]) => this.post<any>('/users/notifications/bulk-read/', { ids }),
     bulkDelete: async (ids: number[]) => this.post<void>('/users/notifications/bulk-delete/', { ids }),
+  }
+
+  // ==================== Magasins ====================
+  // Les magasins accessibles au compte courant — même périmètre que
+  // `get_accessible_magasins` côté serveur. Alimente les sélecteurs
+  // « Magasin » des pages Produits, Commandes et Nouvelle commande.
+  magasins = {
+    list: async () => {
+      return this.get<{ id: number; shop_name: string }[]>('/users/magasins/')
+    },
   }
 
   // ==================== Users Service ====================

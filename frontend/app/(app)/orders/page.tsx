@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { djangoClient } from "@/lib/django-client";
 import { useCurrentUser } from "@/lib/auth/useCurrentUser";
 import { useRealtimeRefresh } from "@/lib/hooks/useRealtimeRefresh";
+import { useMagasins } from "@/lib/hooks/useMagasins";
+import { MagasinSelect } from "@/components/ui/magasin-select";
 import { useDeliveryZones } from "@/lib/hooks/useDeliveryZones";
 import { DateTimeInput } from "@/components/ui/datetime-input";
 import { NoteCallout } from "@/components/orders/note-callout";
@@ -364,6 +366,11 @@ export default function OrdersPage() {
   // par les compteurs du haut de tableau (§ demande), "ALL" par défaut.
   const [preparateurStatut, setPreparateurStatut] = useState("ALL");
 
+  // Magasin affiché. `null` = tous ceux auxquels le compte a accès, qui est
+  // le défaut : le gérant voit l'activité de toute la société d'un coup.
+  const { magasins } = useMagasins();
+  const [magasinFiltre, setMagasinFiltre] = useState<number | null>(null);
+
   useEffect(() => {
     if (!isGerant) return;
     djangoClient.orders
@@ -381,6 +388,7 @@ export default function OrdersPage() {
         // exacts, puis filtrée côté client (voir compteursStatut /
         // ordersFiltresStatut) — le résultat affiché est identique.
         const filters: any = {};
+        if (magasinFiltre) filters.magasin_id = magasinFiltre;
         if (isGerant) {
           if (gerantDate) {
             filters.date_debut = gerantDate;
@@ -437,6 +445,7 @@ export default function OrdersPage() {
       historiqueTo,
       preparateurDate,
       livreurDate,
+      magasinFiltre,
     ],
   );
 
@@ -1043,7 +1052,13 @@ export default function OrdersPage() {
           <h1 className="text-2xl font-bold">{title}</h1>
           <p className="text-sm text-muted-foreground">{description}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <MagasinSelect
+            magasins={magasins}
+            valeur={magasinFiltre}
+            onChange={setMagasinFiltre}
+            label={null}
+          />
           <Button variant="outline" size="icon" onClick={() => fetchOrders()}>
             <RefreshCw className="h-4 w-4" />
           </Button>

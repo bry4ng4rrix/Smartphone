@@ -5,6 +5,8 @@ import { djangoClient } from "@/lib/django-client";
 import { useCurrentUser } from "@/lib/auth/useCurrentUser";
 import { CreateOrderDialog } from "@/components/orders/create-order-dialog";
 import { useRealtimeRefresh } from "@/lib/hooks/useRealtimeRefresh";
+import { useMagasins } from "@/lib/hooks/useMagasins";
+import { MagasinSelect } from "@/components/ui/magasin-select";
 import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -144,15 +146,21 @@ export default function ProductsPage() {
   const [importReview, setImportReview] = useState<ImportReview | null>(null);
   const [cancellingImport, setCancellingImport] = useState(false);
 
+  // Magasin affiché. `null` = tous ceux auxquels le compte a accès, qui est
+  // le défaut : on voit l'ensemble de la société, et on restreint au besoin.
+  const { magasins } = useMagasins();
+  const [magasinFiltre, setMagasinFiltre] = useState<number | null>(null);
+
   const fetchAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
+    const m = magasinFiltre ?? undefined;
     try {
       const [refs, cats, tps, brs, cols, nts] = await Promise.all([
-        djangoClient.catalog.references.list(),
-        djangoClient.catalog.categories.list(),
-        djangoClient.catalog.types.list(),
-        djangoClient.catalog.brands.list(),
-        djangoClient.catalog.colors.list(),
+        djangoClient.catalog.references.list({ magasin_id: m }),
+        djangoClient.catalog.categories.list(m),
+        djangoClient.catalog.types.list(undefined, m),
+        djangoClient.catalog.brands.list(m),
+        djangoClient.catalog.colors.list(m),
         // Les notes ne doivent jamais empêcher l'affichage du catalogue.
         djangoClient.catalog.notes.list().catch(() => []),
       ]);
@@ -167,7 +175,7 @@ export default function ProductsPage() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, []);
+  }, [magasinFiltre]);
 
   useRealtimeRefresh(["product_variant", "stock_movement"], () =>
     fetchAll(true),
@@ -539,6 +547,12 @@ export default function ProductsPage() {
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2">
+          <MagasinSelect
+            magasins={magasins}
+            valeur={magasinFiltre}
+            onChange={setMagasinFiltre}
+            label={null}
+          />
           <Button
             variant="outline"
             size="sm"
@@ -1111,6 +1125,8 @@ export default function ProductsPage() {
         categories={categories}
         types={types}
         colors={colors}
+        magasins={magasins}
+        magasinFiltre={magasinFiltre}
         onChanged={() => fetchAll(true)}
       />
 
@@ -2698,6 +2714,8 @@ function CatalogSettingsDialog({
   categories,
   types,
   colors,
+  magasins,
+  magasinFiltre,
   onChanged,
 }: {
   open: boolean;
@@ -2706,8 +2724,19 @@ function CatalogSettingsDialog({
   categories: any[];
   types: any[];
   colors: any[];
+  magasins: { id: number; shop_name: string }[];
+  magasinFiltre: number | null;
   onChanged: () => void;
 }) {
+  // Créer suppose UNE boutique : « tous les magasins » convient pour
+  // consulter, pas pour ranger une nouvelle marque quelque part. On part du
+  // filtre de la page quand il désigne déjà un magasin, sinon on demande.
+  const [magasinCible, setMagasinCible] = useState<number | null>(magasinFiltre);
+  useEffect(() => setMagasinCible(magasinFiltre), [magasinFiltre]);
+
+  const choixRequis = magasins.length > 1 && magasinCible === null;
+  const magasinId = magasinCible ?? undefined;
+
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingName, setEditingName] = useState("");
   const [newName, setNewName] = useState("");
@@ -2748,7 +2777,7 @@ function CatalogSettingsDialog({
   const addBrand = async () => {
     if (!newName.trim()) return;
     try {
-      await djangoClient.catalog.brands.create({ nom: newName.trim() });
+      await djangoClient.catalog.brands.create({ nom: newName.trim(), magasin_id: magasinId });
       toast.success("Marque ajoutée");
       setNewName("");
       onChanged();
@@ -2760,7 +2789,7 @@ function CatalogSettingsDialog({
   const addSuggestedBrand = async (nom: string) => {
     setAddingBrand(nom);
     try {
-      await djangoClient.catalog.brands.create({ nom });
+      await djangoClient.catalog.brands.create({ nom, magasin_id: magasinId });
       toast.success("Marque ajoutée");
       onChanged();
     } catch (err: any) {
@@ -2780,6 +2809,25 @@ function CatalogSettingsDialog({
             (§8 du cahier des charges).
           </DialogDescription>
         </DialogHeader>
+
+        {magasins.length > 1 && (
+          <div className="rounded-md border bg-muted/30 p-3">
+            <MagasinSelect
+              magasins={magasins}
+              valeur={magasinCible}
+              onChange={setMagasinCible}
+              avecTous={false}
+              label="Créer dans le magasin"
+              placeholder="Choisir un magasin…"
+            />
+            {choixRequis && (
+              <p className="mt-2 text-xs text-amber-600 dark:text-amber-500">
+                Choisissez le magasin avant d&apos;ajouter une marque, une
+                catégorie ou une couleur.
+              </p>
+            )}
+          </div>
+        )}
 
         <Tabs defaultValue="marques">
           <TabsList className="grid grid-cols-3 w-full">
@@ -2839,7 +2887,7 @@ function CatalogSettingsDialog({
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
               />
-              <Button onClick={addBrand}>
+              <Button onClick={addBrand} disabled={choixRequis}>
                 <Plus className="h-4 w-4 mr-2" /> Ajouter
               </Button>
             </div>
@@ -2856,6 +2904,8 @@ function CatalogSettingsDialog({
             <CategoriesTypesCrud
               categories={categories}
               types={types}
+              magasinId={magasinId}
+              choixRequis={choixRequis}
               onChanged={onChanged}
             />
           </TabsContent>
@@ -2864,7 +2914,12 @@ function CatalogSettingsDialog({
             <p className="text-xs text-muted-foreground mb-3">
               Liste des couleurs proposées dans le sélecteur de variante.
             </p>
-            <ColorsCrudList colors={colors} onChanged={onChanged} />
+            <ColorsCrudList
+              colors={colors}
+              magasinId={magasinId}
+              choixRequis={choixRequis}
+              onChanged={onChanged}
+            />
           </TabsContent>
         </Tabs>
 
@@ -2936,9 +2991,15 @@ function CrudRow({
 
 function ColorsCrudList({
   colors,
+  magasinId,
+  choixRequis,
   onChanged,
 }: {
   colors: any[];
+  /** Magasin où créer — `undefined` quand la société n'en a qu'un. */
+  magasinId?: number;
+  /** Plusieurs magasins et aucun choisi : on n'ajoute pas au hasard. */
+  choixRequis: boolean;
   onChanged: () => void;
 }) {
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -2977,7 +3038,7 @@ function ColorsCrudList({
   const addColor = async () => {
     if (!newName.trim()) return;
     try {
-      await djangoClient.catalog.colors.create({ nom: newName.trim() });
+      await djangoClient.catalog.colors.create({ nom: newName.trim(), magasin_id: magasinId });
       toast.success("Couleur ajoutée");
       setNewName("");
       onChanged();
@@ -3014,7 +3075,7 @@ function ColorsCrudList({
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
         />
-        <Button onClick={addColor}>
+        <Button onClick={addColor} disabled={choixRequis}>
           <Plus className="h-4 w-4 mr-2" /> Ajouter
         </Button>
       </div>
@@ -3025,10 +3086,16 @@ function ColorsCrudList({
 function CategoriesTypesCrud({
   categories,
   types,
+  magasinId,
+  choixRequis,
   onChanged,
 }: {
   categories: any[];
   types: any[];
+  /** Magasin où créer — `undefined` quand la société n'en a qu'un. */
+  magasinId?: number;
+  /** Plusieurs magasins et aucun choisi : on n'ajoute pas au hasard. */
+  choixRequis: boolean;
   onChanged: () => void;
 }) {
   const [editingCatId, setEditingCatId] = useState<number | null>(null);
@@ -3078,6 +3145,7 @@ function CategoriesTypesCrud({
         nom: newCatName.trim(),
         ordre: categories.length,
         avec_couleurs: newCatAvecCouleurs,
+        magasin_id: magasinId,
       });
       toast.success("Catégorie ajoutée");
       setNewCatName("");
@@ -3184,7 +3252,7 @@ function CategoriesTypesCrud({
             onChange={(e) => setNewCatName(e.target.value)}
             className="h-9"
           />
-          <Button onClick={addCategory} className="shrink-0">
+          <Button onClick={addCategory} disabled={choixRequis} className="shrink-0">
             <FolderPlus className="h-4 w-4 mr-2" /> Ajouter
           </Button>
         </div>

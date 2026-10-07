@@ -61,3 +61,48 @@ class MagasinRequisTests(TestCase):
             "/api/catalog/categories/", {"nom": "HOUSSE", "magasin_id": etranger.id}, format="json"
         )
         self.assertEqual(r.status_code, 403, r.data)
+
+
+class FiltreMagasinListesTests(TestCase):
+    """`magasin_id` sur les listes : le sélecteur « Magasin » des pages
+    Produits, Commandes et Nouvelle commande s'appuie dessus."""
+
+    def setUp(self):
+        from decimal import Decimal
+
+        from catalog.models import Brand, ProductCategory, ProductReference, ProductType
+
+        self.api = APIClient()
+        admin = CustomUser.objects.create_user(
+            email="a@test.mg", password="x", role="admin", full_name="A"
+        )
+        AdminProfile.objects.create(user=admin, company_name="Société")
+        self.m1 = MagasinProfile.objects.create(admin=admin, shop_name="Boutique 1")
+        self.m2 = MagasinProfile.objects.create(admin=admin, shop_name="Boutique 2")
+
+        for magasin, nom in ((self.m1, "HOUSSE"), (self.m2, "CHARGEUR")):
+            cat = ProductCategory.objects.create(magasin=magasin, nom=nom)
+            typ = ProductType.objects.create(category=cat, nom=f"TYPE {nom}")
+            marque = Brand.objects.create(magasin=magasin, nom=f"Marque {nom}")
+            ProductReference.objects.create(
+                type=typ, brand=marque, reference_name=f"Ref {nom}", prix_vente=Decimal("1000")
+            )
+        self.api.force_authenticate(user=admin)
+
+    def test_sans_filtre_on_voit_les_deux_magasins(self):
+        for chemin in ("/api/catalog/categories/", "/api/catalog/types/", "/api/catalog/references/"):
+            with self.subTest(chemin=chemin):
+                self.assertEqual(len(self.api.get(chemin).data), 2)
+
+    def test_avec_filtre_on_ne_voit_qu_un_magasin(self):
+        for chemin in ("/api/catalog/categories/", "/api/catalog/types/", "/api/catalog/references/"):
+            with self.subTest(chemin=chemin):
+                r = self.api.get(f"{chemin}?magasin_id={self.m2.id}")
+                self.assertEqual(len(r.data), 1, r.data)
+
+    def test_l_autocomplete_suit_le_meme_filtre(self):
+        tous = self.api.get("/api/catalog/references/autocomplete/?q=Ref").data
+        self.assertEqual(len(tous), 2)
+        un = self.api.get(f"/api/catalog/references/autocomplete/?q=Ref&magasin_id={self.m1.id}").data
+        self.assertEqual(len(un), 1)
+        self.assertEqual(un[0]["magasin"], self.m1.id)

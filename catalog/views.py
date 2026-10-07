@@ -77,6 +77,11 @@ class ProductTypeViewSet(viewsets.ModelViewSet):
         category_id = self.request.query_params.get("category")
         if category_id:
             qs = qs.filter(category_id=category_id)
+        # Même filtre que les autres listes du catalogue : un sous-type suit
+        # le magasin de sa catégorie.
+        magasin_id = self.request.query_params.get("magasin_id")
+        if magasin_id:
+            qs = qs.filter(category__magasin_id=magasin_id)
         return qs
 
     def destroy(self, request, *args, **kwargs):
