@@ -702,6 +702,16 @@ class DjangoAPIClient {
     getById: async (id: number) => {
       return this.get<any>(`/orders/${id}/`)
     },
+    /**
+     * Nombre de commandes client en attente d'approbation — badge « Clients »
+     * du menu. Un simple COUNT côté serveur : le menu est monté sur toutes
+     * les pages et interroge périodiquement, il ne doit pas rapatrier la
+     * liste complète des commandes pour afficher un chiffre.
+     */
+    aExaminerCount: async () => {
+      const data = await this.get<{ count: number }>('/orders/a-examiner/')
+      return data?.count ?? 0
+    },
     create: async (data: {
       client_nom: string
       telephone: string

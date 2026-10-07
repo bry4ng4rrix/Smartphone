@@ -72,11 +72,20 @@ class ProductReferenceAutocompleteSerializer(serializers.ModelSerializer):
 
     brand_name = serializers.CharField(source="brand.nom", read_only=True)
     type_name = serializers.CharField(source="type.nom", read_only=True)
+    # Magasin propriétaire de l'article. Une société peut en avoir plusieurs :
+    # c'est lui qui détermine le magasin de la commande, et qui permet au
+    # formulaire de refuser un panier mélangeant deux boutiques (le stock est
+    # tenu par magasin, une commande ne peut donc en concerner qu'un).
+    magasin = serializers.IntegerField(source="type.category.magasin_id", read_only=True)
+    magasin_nom = serializers.CharField(source="type.category.magasin.shop_name", read_only=True)
     couleurs = serializers.SerializerMethodField()
 
     class Meta:
         model = ProductReference
-        fields = ["id", "type", "type_name", "brand", "brand_name", "reference_name", "prix_vente", "photo", "couleurs"]
+        fields = [
+            "id", "type", "type_name", "brand", "brand_name", "reference_name", "prix_vente", "photo",
+            "magasin", "magasin_nom", "couleurs",
+        ]
 
     def get_couleurs(self, obj):
         return [

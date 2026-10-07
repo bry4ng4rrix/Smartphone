@@ -133,9 +133,14 @@ class ProductReferenceViewSet(viewsets.ModelViewSet):
     permission_classes = [IsGerantOrReadOnly]
 
     def get_queryset(self):
-        qs = ProductReference.objects.select_related("type", "brand", "type__category").prefetch_related(
-            "variants"
-        ).filter(type__category__magasin__in=get_accessible_magasins(self.request.user))
+        # `type__category__magasin` : l'autocomplete expose le magasin et son
+        # nom (voir ProductReferenceAutocompleteSerializer) — sans cette
+        # jointure, chaque suggestion déclencherait sa propre requête.
+        qs = ProductReference.objects.select_related(
+            "type", "brand", "type__category", "type__category__magasin"
+        ).prefetch_related("variants").filter(
+            type__category__magasin__in=get_accessible_magasins(self.request.user)
+        )
         type_id = self.request.query_params.get("type")
         brand_id = self.request.query_params.get("brand")
         category_id = self.request.query_params.get("category")

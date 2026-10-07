@@ -78,6 +78,11 @@ export interface CartItem {
   couleur: string;
   stock_actuel: number;
   quantite: number;
+  /** Magasin propriétaire de l'article. Le stock est tenu par magasin : une
+   *  commande ne peut donc en concerner qu'un seul, et c'est lui qu'on envoie
+   *  en `magasin_id` (obligatoire dès que la société en a plusieurs). */
+  magasin_id: number;
+  magasin_nom: string;
 }
 
 export function OrderItemsEditor({
@@ -164,6 +169,15 @@ export function OrderItemsEditor({
       toast.error(`Stock insuffisant (disponible: ${variant.stock_actuel})`);
       return;
     }
+    // Une commande appartient à un seul magasin : mélanger les boutiques
+    // ferait sortir du stock là où la commande n'est pas enregistrée.
+    const magasinPanier = items[0]?.magasin_id;
+    if (magasinPanier !== undefined && magasinPanier !== selectedRef.magasin) {
+      toast.error(
+        `Cet article vient de « ${selectedRef.magasin_nom} », la commande est déjà sur « ${items[0].magasin_nom} ». Une commande ne peut concerner qu'un seul magasin.`,
+      );
+      return;
+    }
     setItems((prev) => [
       ...prev,
       {
@@ -178,6 +192,8 @@ export function OrderItemsEditor({
         couleur: variant.couleur,
         stock_actuel: variant.stock_actuel,
         quantite: qty,
+        magasin_id: selectedRef.magasin,
+        magasin_nom: selectedRef.magasin_nom,
       },
     ]);
     setQuery("");
@@ -591,6 +607,10 @@ export function CreateOrderDialog({
     setSubmitting(true);
     try {
       const order = await djangoClient.orders.create({
+        // Dès que la société a plusieurs magasins, le serveur ne peut plus le
+        // deviner (users/permissions.py::resolve_magasin_for_request) : on le
+        // tire des articles, qui en sont la source de vérité.
+        magasin_id: items[0].magasin_id,
         client_nom: clientNom.trim(),
         telephone,
         telephone_2: telephone2.trim(),
@@ -843,6 +863,16 @@ export function CreateOrderDialog({
               value={noteLivreur}
               onChange={(e) => setNoteLivreur(e.target.value)}
             />
+          </div>
+        )}
+        {/* Sur quelle boutique part la commande — tiré des articles, qui en
+            sont la source de vérité. Affiché dès qu'il y a un article :
+            indispensable dès que la société a plusieurs magasins, et sans
+            coût quand elle n'en a qu'un. */}
+        {items.length > 0 && (
+          <div className="flex justify-between items-center border-t pt-3 text-sm">
+            <span className="text-muted-foreground">Magasin</span>
+            <span className="font-medium">{items[0].magasin_nom}</span>
           </div>
         )}
         {showPrices && (

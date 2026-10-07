@@ -190,6 +190,27 @@ export function Sidebar() {
     return () => clearInterval(id);
   }, [refreshUnread, pathname]);
 
+  // Badge « Clients » : commandes venues de la boutique en ligne qui
+  // attendent l'appel de confirmation du gérant. Même mécanique que le badge
+  // des chats — un COUNT léger, rafraîchi périodiquement et à chaque
+  // changement de page, pour que le chiffre retombe dès qu'une commande vient
+  // d'être approuvée ou refusée. Réservé aux rôles qui voient l'entrée.
+  const [commandesAExaminer, setCommandesAExaminer] = useState(0);
+
+  const refreshAExaminer = useCallback(() => {
+    if (!djangoClient.isAuthenticated() || !isAdminOrSuperAdmin) return;
+    djangoClient.orders
+      .aExaminerCount()
+      .then(setCommandesAExaminer)
+      .catch(() => {});
+  }, [isAdminOrSuperAdmin]);
+
+  useEffect(() => {
+    refreshAExaminer();
+    const id = setInterval(refreshAExaminer, 30000);
+    return () => clearInterval(id);
+  }, [refreshAExaminer, pathname]);
+
   // Badge « Bilan du jour » (gérant) : mouvements des livreurs (Livré /
   // Retour) depuis la dernière ouverture de la page — voir
   // lib/hooks/useBilanMouvements.ts. Remis à 0 quand la page est ouverte.
@@ -298,6 +319,20 @@ export function Sidebar() {
                         aria-label={`${unreadChats} message${unreadChats > 1 ? "s" : ""} non lu${unreadChats > 1 ? "s" : ""}`}
                       >
                         {unreadChats > 99 ? "99+" : unreadChats}
+                      </span>
+                    ) : item.href === "/client" && commandesAExaminer > 0 ? (
+                      // Commandes en ligne à confirmer par téléphone avant
+                      // approbation — disparaît une fois toutes traitées.
+                      <span
+                        className={cn(
+                          "ml-auto min-w-5 h-5 px-1.5 inline-flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums",
+                          isActive
+                            ? "bg-white text-blue-600"
+                            : "bg-amber-500 text-white",
+                        )}
+                        aria-label={`${commandesAExaminer} commande${commandesAExaminer > 1 ? "s" : ""} client à examiner`}
+                      >
+                        {commandesAExaminer > 99 ? "99+" : commandesAExaminer}
                       </span>
                     ) : item.href === "/bilan" && bilanMouvements > 0 ? (
                       // Mouvements des livreurs (Livré / Retour) non encore

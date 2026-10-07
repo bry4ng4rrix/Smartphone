@@ -356,6 +356,23 @@ class OrderViewSet(viewsets.ModelViewSet):
     def _reponse_commande(self, order):
         return Response(self.get_serializer(self.get_queryset().get(pk=order.pk)).data)
 
+    @action(detail=False, methods=["get"], url_path="a-examiner", permission_classes=[IsGerant])
+    def a_examiner(self, request):
+        """GET /api/orders/a-examiner/ — combien de commandes en ligne
+        attendent l'appel de confirmation du gérant.
+
+        Alimente le badge « Clients » du menu, interrogé périodiquement depuis
+        toutes les pages : on renvoie un simple COUNT, jamais la liste. Le
+        filtre est volontairement identique à celui de la page Clients
+        (`statut=EN_ATTENTE_APPROBATION`), pour que le chiffre du badge et le
+        nombre de lignes affichées ne puissent pas diverger.
+        """
+        count = Order.objects.filter(
+            magasin__in=get_accessible_magasins(request.user),
+            statut_courant=services.STATUT_ATTENTE_APPROBATION,
+        ).count()
+        return Response({"count": count})
+
     @action(detail=True, methods=["post"], url_path="approuver", permission_classes=[IsGerant])
     def approuver(self, request, pk=None):
         """POST /api/orders/{id}/approuver/ {note?} — le gérant valide une

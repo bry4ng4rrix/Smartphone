@@ -18,7 +18,7 @@ class BoutiqueEnLigneTests(TestCase):
         cache.clear()
         self.api = APIClient()
         admin = CustomUser.objects.create_user(
-            email="admin@test.mg", password="x", role="ADMIN", full_name="Admin"
+            email="admin@test.mg", password="x", role="admin", full_name="Admin"
         )
         self.admin_profile = AdminProfile.objects.create(user=admin, company_name="Société")
         self.magasin = MagasinProfile.objects.create(admin=admin, shop_name="Boutique")
