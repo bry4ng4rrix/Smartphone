@@ -9,6 +9,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework import status, viewsets, serializers
+from django.db.models.deletion import ProtectedError
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
 from django.db.models import Sum, F, DecimalField, Avg, Count, Max, Value, Q
@@ -664,6 +665,194 @@ class EmployerCommandeRoleUpdateView(APIView):
         })
 
 
+class EmployerMagasinTransferView(APIView):
+    """PUT /api/users/employers/{user_id}/magasin/ {magasin_id}
+
+    Déplace un employé (préparateur, livreur, commercial) d'un magasin vers un
+    autre de la MÊME société. Réservé à l'admin global : lui seul a la vision
+    sur plusieurs boutiques.
+
+    Ce qui bouge : son rattachement. Ce qui ne bouge PAS : son sous-rôle
+    (préparateur reste préparateur), son compte, et surtout son historique —
+    les commandes qu'il a préparées ou livrées restent attachées au magasin où
+    le travail a eu lieu. Déplacer l'employé ne réécrit pas le passé.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def put(self, request, user_id):
+        accessibles = get_accessible_magasins(request.user)
+        try:
+            employer = EmployerProfile.objects.select_related("magasin", "user").get(
+                user_id=user_id, magasin__in=accessibles
+            )
+        except EmployerProfile.DoesNotExist:
+            return Response({"error": "Employé introuvable dans vos magasins."}, status=404)
+
+        magasin_id = request.data.get("magasin_id")
+        if magasin_id in (None, "", "null"):
+            return Response({"magasin_id": "Magasin de destination requis."}, status=400)
+
+        destination = accessibles.filter(id=magasin_id).first()
+        if destination is None:
+            return Response(
+                {"magasin_id": "Magasin de destination inconnu ou hors de votre société."},
+                status=404,
+            )
+
+        ancien = employer.magasin
+        if ancien and ancien.id == destination.id:
+            return Response(
+                {"magasin_id": f"Cet employé est déjà affecté à « {destination.shop_name} »."},
+                status=400,
+            )
+
+        employer.magasin = destination
+        employer.save(update_fields=["magasin"])
+
+        Notification.objects.create(
+            notif_type="user",
+            message=(
+                f"{employer.user.full_name} a été transféré"
+                f"{' de ' + ancien.shop_name if ancien else ''} vers {destination.shop_name}"
+            ),
+            magasin=destination,
+        )
+
+        return Response({
+            "message": "Employé transféré.",
+            "user_id": user_id,
+            "ancien_magasin": {"id": ancien.id, "nom": ancien.shop_name} if ancien else None,
+            "nouveau_magasin": {"id": destination.id, "nom": destination.shop_name},
+            "commande_role": employer.commande_role,
+        })
+
+
+class AdminUserUpdateView(APIView):
+    """PATCH /api/users/comptes/{user_id}/ — l'admin modifie un compte.
+
+    Complète `RoleManagementView` (qui ne change que le rôle) et `Myprofile`
+    (qui ne touche que son propre compte) : ici l'admin corrige l'identité et
+    l'affectation de n'importe quel compte de sa société.
+
+    Champs acceptés : full_name, email, phone, adresse, is_confirmed, et pour
+    un employé position / commande_role / magasin_id.
+
+    NE CHANGE PAS le rôle (passer par /users/role/) ni le mot de passe (le
+    propriétaire du compte le fait lui-même, ou via la demande de
+    réinitialisation) — deux opérations sensibles qui gardent leur chemin
+    dédié et leurs garde-fous.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    CHAMPS_COMPTE = ("full_name", "email", "phone", "adresse")
+
+    def patch(self, request, user_id):
+        accessibles = get_accessible_magasins(request.user)
+        ids_societe = set(get_company_user_ids(get_company_owner(request.user)) or [])
+
+        try:
+            cible = CustomUser.objects.get(id=user_id)
+        except CustomUser.DoesNotExist:
+            return Response({"error": "Utilisateur introuvable."}, status=404)
+
+        if cible.id not in ids_societe:
+            return Response({"error": "Ce compte n'appartient pas à votre société."}, status=403)
+
+        # Un co-admin ne touche pas à un compte admin : même règle que
+        # RoleManagementView, sinon cet endpoint la contournerait.
+        if cible.role == "admin" and not is_company_owner(request.user):
+            return Response(
+                {"error": "Seul le fondateur de la société peut modifier un administrateur."},
+                status=403,
+            )
+        if cible.role == "admin" and is_company_owner(cible) and cible.id != request.user.id:
+            return Response({"error": "Action impossible sur le fondateur de la société."}, status=403)
+
+        modifies = []
+        for champ in self.CHAMPS_COMPTE:
+            if champ not in request.data:
+                continue
+            valeur = request.data.get(champ)
+            valeur = str(valeur).strip() if valeur is not None else ""
+
+            if champ == "email":
+                valeur = valeur.lower()
+                if not valeur:
+                    return Response({"email": "L'e-mail est requis."}, status=400)
+                if CustomUser.objects.filter(email__iexact=valeur).exclude(id=cible.id).exists():
+                    return Response({"email": "Cet e-mail est déjà utilisé."}, status=400)
+                # `username` suit l'e-mail : c'est lui l'identifiant de connexion.
+                cible.username = valeur
+                modifies.append("username")
+            if champ == "full_name" and not valeur:
+                return Response({"full_name": "Le nom est requis."}, status=400)
+
+            setattr(cible, champ, valeur)
+            modifies.append(champ)
+
+        if "is_confirmed" in request.data:
+            if cible.id == request.user.id:
+                return Response({"error": "Vous ne pouvez pas désactiver votre propre compte."}, status=400)
+            cible.is_confirmed = bool(request.data.get("is_confirmed"))
+            modifies.append("is_confirmed")
+
+        if modifies:
+            cible.save(update_fields=list(set(modifies)) + ["updated_at"])
+
+        # --- Champs propres à un employé -----------------------------------
+        profil = EmployerProfile.objects.filter(user=cible).first()
+        if profil is not None:
+            champs_employe = []
+
+            if "position" in request.data:
+                profil.position = str(request.data.get("position") or "").strip()
+                champs_employe.append("position")
+
+            if "commande_role" in request.data:
+                valeur = request.data.get("commande_role") or None
+                valides = [c[0] for c in EmployerProfile.COMMANDE_ROLE_CHOICES]
+                if valeur is not None and valeur not in valides:
+                    return Response(
+                        {"commande_role": "Valeur invalide (PREPARATEUR ou LIVREUR)."}, status=400
+                    )
+                profil.commande_role = valeur
+                champs_employe.append("commande_role")
+
+            if "magasin_id" in request.data:
+                magasin_id = request.data.get("magasin_id")
+                if magasin_id in (None, "", "null"):
+                    profil.magasin = None
+                else:
+                    destination = accessibles.filter(id=magasin_id).first()
+                    if destination is None:
+                        return Response(
+                            {"magasin_id": "Magasin inconnu ou hors de votre société."}, status=404
+                        )
+                    profil.magasin = destination
+                champs_employe.append("magasin")
+
+            if champs_employe:
+                profil.save(update_fields=champs_employe)
+
+        cible.refresh_from_db()
+        profil = EmployerProfile.objects.filter(user=cible).first()
+        return Response({
+            "id": cible.id,
+            "full_name": cible.full_name,
+            "email": cible.email,
+            "phone": cible.phone,
+            "adresse": cible.adresse,
+            "role": cible.role,
+            "is_confirmed": cible.is_confirmed,
+            "position": profil.position if profil else None,
+            "commande_role": profil.commande_role if profil else None,
+            "magasin_id": profil.magasin_id if profil else None,
+            "magasin_nom": profil.magasin.shop_name if profil and profil.magasin else None,
+        })
+
+
 # =========================
 def _accessible_magasins(user):
     """MagasinProfile queryset visible to `user` given their role — même
@@ -1211,8 +1400,21 @@ class UsersByMagasinView(APIView):
             response_data.append({
                 "magasin_id": mag.id,
                 "shop_name": mag.shop_name,
+                "description": mag.description or "",
                 "shop_logo": request.build_absolute_uri(mag.shop_logo.url) if mag.shop_logo else None,
+                # `manager` = l'ADMIN de la société, pour compatibilité : c'est
+                # ce que ce champ a toujours contenu et le front l'affiche.
                 "manager": manager_data,
+                # `gerant` = le VRAI gérant du magasin (MagasinProfile.user),
+                # `null` tant qu'aucun n'est affecté. Sans ce champ l'interface
+                # ne pouvait ni l'afficher ni le pré-sélectionner.
+                "gerant": {
+                    "id": mag.user.id,
+                    "full_name": mag.user.full_name,
+                    "email": mag.user.email,
+                    "phone": mag.user.phone,
+                    "is_confirmed": mag.user.is_confirmed,
+                } if mag.user else None,
                 "employers": employers_list,
                 "company_users": company_users,
             })
@@ -1894,37 +2096,161 @@ class MagasinViewSet(viewsets.ModelViewSet):
         from .subscriptions import get_company_admin_ids
         magasin.admins.set(CustomUser.objects.filter(id__in=get_company_admin_ids(self.request.user)))
 
+    @action(detail=True, methods=["get"], url_path="contenu")
+    def contenu(self, request, pk=None):
+        """GET /api/users/magasins/{id}/contenu/ — ce que la suppression détruirait.
+
+        Toutes les tables rattachées à un magasin sont en `on_delete=CASCADE` :
+        supprimer une boutique efface son catalogue, son stock, ses commandes,
+        sa caisse, ses résultats financiers et jusqu'aux profils de ses
+        employés. L'interface doit pouvoir annoncer ce coût AVANT de demander
+        confirmation, pas après.
+        """
+        magasin = self.get_object()
+        return Response({
+            "magasin": magasin.shop_name,
+            "gerant": magasin.user.email if magasin.user else None,
+            "contenu": {
+                "commandes": magasin.orders.count(),
+                "categories": magasin.product_categories.count(),
+                "marques": magasin.brands.count(),
+                "references": ProductReference.objects.filter(
+                    type__category__magasin=magasin
+                ).count(),
+                "employes": magasin.employers.count(),
+                "sessions_caisse": magasin.caisse_sessions.count(),
+                "ventes_enregistrees": magasin.ventes_resultats.count(),
+                "approvisionnements": magasin.supplier_orders.count(),
+            },
+            # Vrai dès qu'il y a de l'historique : l'interface insiste alors.
+            "contient_des_donnees": magasin.orders.exists()
+            or magasin.product_categories.exists()
+            or magasin.employers.exists(),
+            # `OrderItem.product_variant` est en PROTECT : dès qu'une commande
+            # a porté un article de ce magasin, la base refuse la suppression,
+            # et c'est voulu — on ne détruit pas un historique de ventes. On
+            # l'annonce ici pour que le bouton soit désactivé, pas pour que
+            # l'utilisateur le découvre après avoir tapé le nom et son mot de
+            # passe.
+            "suppression_possible": not magasin.orders.exists(),
+            "raison_blocage": (
+                "Ce magasin a des commandes enregistrées : son historique de "
+                "ventes ne peut pas être détruit."
+                if magasin.orders.exists()
+                else None
+            ),
+        })
+
     def destroy(self, request, *args, **kwargs):
+        """Suppression d'un magasin — irréversible et en cascade.
+
+        Trois barrières, parce que l'opération détruit tout l'historique de la
+        boutique (voir `contenu` ci-dessus) :
+          1. être admin ;
+          2. retaper le NOM EXACT du magasin ;
+          3. donner son propre mot de passe.
+        """
+        if request.user.role != "admin":
+            return Response(
+                {"error": "Seul un administrateur peut supprimer un magasin."}, status=403
+            )
+
+        magasin = self.get_object()
+
+        confirmation = (request.data.get("confirmation_nom") or "").strip()
+        if confirmation != magasin.shop_name:
+            return Response(
+                {"confirmation_nom": f"Retapez exactement le nom du magasin : « {magasin.shop_name} »."},
+                status=400,
+            )
+
         password = request.data.get("password")
         if not password:
             return Response({"error": "Mot de passe requis pour confirmer la suppression."}, status=400)
         if not request.user.check_password(password):
             return Response({"error": "Mot de passe incorrect."}, status=400)
-        return super().destroy(request, *args, **kwargs)
+
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except ProtectedError:
+            # Chaîne : magasin -> catégories -> sous-types -> références ->
+            # variantes, et `OrderItem.product_variant` est en PROTECT. Une
+            # boutique qui a vendu garde donc son historique, par construction.
+            return Response(
+                {
+                    "error": (
+                        f"« {magasin.shop_name} » a des commandes enregistrées : "
+                        "son historique de ventes ne peut pas être supprimé. "
+                        "Retirez son gérant si vous voulez simplement la fermer."
+                    )
+                },
+                status=409,
+            )
 
     def partial_update(self, request, *args, **kwargs):
+        """Modifie un magasin : nom, description, logo et gérant.
+
+        `manager_id` accepte `null` pour DÉTACHER le gérant — un magasin peut
+        vivre sans (il s'en voit affecter un plus tard). Distinguer « champ
+        absent » de « champ à null » impose de tester la présence de la clé,
+        pas sa valeur.
+        """
         instance = self.get_object()
         shop_name = request.data.get("shop_name")
+        description = request.data.get("description")
         shop_logo = request.data.get("shop_logo")
-        manager_id = request.data.get("manager_id")
+
         if shop_name is not None:
-            instance.shop_name = shop_name
+            nom = str(shop_name).strip()
+            if not nom:
+                return Response({"shop_name": "Le nom du magasin est requis."}, status=400)
+            instance.shop_name = nom
+        if description is not None:
+            instance.description = str(description).strip()
         if shop_logo is not None and not isinstance(shop_logo, str):
             instance.shop_logo = shop_logo
-        if manager_id is not None:
+
+        if "manager_id" in request.data:
+            manager_id = request.data.get("manager_id")
             if request.user.role != "admin":
                 return Response({"error": "Seul un administrateur peut modifier le gérant."}, status=403)
-            try:
-                new_manager = CustomUser.objects.get(id=manager_id, role="magasin")
-            except CustomUser.DoesNotExist:
-                return Response({"manager_id": "Gérant introuvable."}, status=404)
-            other_profile = MagasinProfile.objects.filter(user=new_manager).exclude(id=instance.id).first()
-            if other_profile:
-                return Response(
-                    {"manager_id": f"Ce compte est déjà gérant de \"{other_profile.shop_name}\"."},
-                    status=400,
-                )
-            instance.user = new_manager
+
+            if manager_id in (None, "", "null"):
+                # Détacher : le magasin repasse sans gérant.
+                instance.user = None
+            else:
+                # Restreint à la SOCIÉTÉ : sans ce filtre, un admin pouvait
+                # s'attribuer le compte gérant d'une autre société en
+                # devinant son identifiant (vérifié : la requête passait).
+                ids_societe = get_company_user_ids(get_company_owner(request.user)) or []
+                try:
+                    new_manager = CustomUser.objects.get(
+                        id=manager_id, role="magasin", id__in=ids_societe
+                    )
+                except (CustomUser.DoesNotExist, ValueError, TypeError):
+                    return Response(
+                        {"manager_id": "Gérant introuvable dans votre société."}, status=404
+                    )
+                # `MagasinProfile.user` est un OneToOne : un compte ne tient
+                # qu'une boutique. Plutôt que de refuser, on DÉPLACE le gérant
+                # — sinon il faudrait d'abord le détacher, et un gérant
+                # détaché n'appartient plus à aucune société : il deviendrait
+                # introuvable, donc inassignable. Le déplacement en une seule
+                # opération évite cet état mort.
+                autre = MagasinProfile.objects.filter(user=new_manager).exclude(id=instance.id).first()
+                if autre:
+                    autre.user = None
+                    autre.save(update_fields=["user", "updated_at"])
+                    Notification.objects.create(
+                        notif_type="user",
+                        message=(
+                            f"{new_manager.full_name} n'est plus gérant de "
+                            f"{autre.shop_name} — affecté à {instance.shop_name}"
+                        ),
+                        magasin=autre,
+                    )
+                instance.user = new_manager
+
         instance.save()
         serializer = self.get_serializer(instance)
         return Response(serializer.data)

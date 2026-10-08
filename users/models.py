@@ -164,7 +164,13 @@ class EmployeePasswordResetRequest(models.Model):
 
 class MagasinProfile(models.Model):
 
-    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name="magasin_profile", limit_choices_to={"role": "magasin"}, null=True, blank=True)
+    # `SET_NULL` et non `CASCADE` : supprimer le COMPTE du gérant ne doit pas
+    # emporter le MAGASIN. En cascade, retirer un gérant détruisait la boutique
+    # et, de proche en proche, son catalogue, son stock et ses commandes — une
+    # perte de données totale déclenchée par une action d'apparence anodine
+    # depuis la page des comptes. Le magasin repasse simplement sans gérant,
+    # état déjà prévu par le modèle (null=True) et par l'interface.
+    user = models.OneToOneField(CustomUser, on_delete=models.SET_NULL, related_name="magasin_profile", limit_choices_to={"role": "magasin"}, null=True, blank=True)
     admins = models.ManyToManyField(CustomUser, related_name="admin_magasin_profiles", blank=True, limit_choices_to={"role": "admin"})
     # Keep existing primary admin for backward compatibility
     admin = models.ForeignKey(CustomUser,on_delete=models.CASCADE,related_name="magasins",limit_choices_to={"role": "admin"})

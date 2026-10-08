@@ -1,7 +1,7 @@
 from django.urls import path
 
 # Import view classes and viewsets
-from .views import (AddAdminView,RegisterView,ApproveUserView,Myprofile,RoleManagementView,EmployerCommandeRoleUpdateView,CaisseSessionViewSet,CaisseMovementViewSet,CaisseCategoryViewSet,CaisseSummaryView,AdminMagasinOverviewView,UsersByMagasinView,LogoutEventView,MagasinStatsView,DashboardView,ApiEndpointsListView,PendingUsersView,DeleteUserView,RejectUserView,ChangePasswordView,NotificationViewSet,MagasinViewSet,ChatUsersListView,ChatMessageHistoryView,ChatImageUploadView,ChatUnreadCountView,TransferProductsView,BackupExportView,BackupImportView,PublicForgotPasswordRequestView,PublicForgotPasswordStatusView,PublicForgotPasswordConfirmView,EmployeePasswordResetListView,EmployeePasswordResetResolveView,
+from .views import (AdminUserUpdateView,EmployerMagasinTransferView,AddAdminView,RegisterView,ApproveUserView,Myprofile,RoleManagementView,EmployerCommandeRoleUpdateView,CaisseSessionViewSet,CaisseMovementViewSet,CaisseCategoryViewSet,CaisseSummaryView,AdminMagasinOverviewView,UsersByMagasinView,LogoutEventView,MagasinStatsView,DashboardView,ApiEndpointsListView,PendingUsersView,DeleteUserView,RejectUserView,ChangePasswordView,NotificationViewSet,MagasinViewSet,ChatUsersListView,ChatMessageHistoryView,ChatImageUploadView,ChatUnreadCountView,TransferProductsView,BackupExportView,BackupImportView,PublicForgotPasswordRequestView,PublicForgotPasswordStatusView,PublicForgotPasswordConfirmView,EmployeePasswordResetListView,EmployeePasswordResetResolveView,
 )
 
 from rest_framework_simplejwt.views import TokenViewBase
@@ -34,6 +34,10 @@ urlpatterns = [
     # Role management
     path("role/<int:user_id>/", RoleManagementView.as_view()),
     path("employers/<int:user_id>/commande-role/", EmployerCommandeRoleUpdateView.as_view()),
+    # Transfert d'un employé vers un autre magasin de la société.
+    path("employers/<int:user_id>/magasin/", EmployerMagasinTransferView.as_view()),
+    # Édition par l'admin des informations d'un compte de sa société.
+    path("comptes/<int:user_id>/", AdminUserUpdateView.as_view()),
     # List of users grouped by magasin
     path("magasins/users/", UsersByMagasinView.as_view()),
     # Best-effort logout timestamp (explicit "Déconnexion" click)

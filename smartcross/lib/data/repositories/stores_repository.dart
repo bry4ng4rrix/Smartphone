@@ -118,8 +118,48 @@ class StoresRepository {
   /// `DELETE /users/magasins/{id}/` — le backend (`MagasinViewSet.destroy`)
   /// exige le mot de passe de l'utilisateur courant (« Mot de passe requis
   /// pour confirmer la suppression. » / « Mot de passe incorrect. »).
-  Future<void> delete(int magasinId, String password) async {
-    await _dio.delete('users/magasins/$magasinId/', data: {'password': password});
+  /// Ce que la suppression detruirait, et si elle est seulement possible.
+  /// A appeler AVANT la confirmation : un magasin qui a vendu garde son
+  /// historique (`OrderItem.product_variant` est en PROTECT cote base).
+  Future<Map<String, dynamic>> contenu(int magasinId) async {
+    final res = await _dio.get('users/magasins/$magasinId/contenu/');
+    return Map<String, dynamic>.from(res.data as Map);
+  }
+
+  /// Suppression definitive. Le serveur exige le NOM EXACT du magasin en plus
+  /// du mot de passe : deux gestes distincts pour une action irreversible.
+  Future<void> delete(int magasinId, String password, {required String confirmationNom}) async {
+    await _dio.delete(
+      'users/magasins/$magasinId/',
+      data: {'password': password, 'confirmation_nom': confirmationNom},
+    );
+  }
+
+  /// Affecte, change ou DETACHE (`managerId: null` avec [toucherGerant]) le
+  /// gerant. En JSON et non en multipart : un FormData ne transporte pas de
+  /// `null`.
+  Future<void> updateInfos(
+    int magasinId, {
+    String? shopName,
+    String? description,
+    int? managerId,
+    bool toucherGerant = false,
+  }) async {
+    final corps = <String, dynamic>{};
+    if (shopName != null) corps['shop_name'] = shopName;
+    if (description != null) corps['description'] = description;
+    // `toucherGerant` distingue « champ absent » de « mettre a null » :
+    // detacher le gerant demande d'envoyer explicitement null.
+    if (toucherGerant) corps['manager_id'] = managerId;
+    await _dio.patch('users/magasins/$magasinId/', data: corps);
+  }
+
+  /// Cree un magasin SANS gerant — on lui en affectera un plus tard.
+  /// Distinct de [create], qui cree aussi le compte du gerant.
+  Future<void> createSansGerant({required String shopName, String? description}) async {
+    final corps = <String, dynamic>{'shop_name': shopName};
+    if (description != null) corps['description'] = description;
+    await _dio.post('users/magasins/', data: corps);
   }
 
   /// Catalogue d'un magasin donné, pour le sélecteur produit du transfert.

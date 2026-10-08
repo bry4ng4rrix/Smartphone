@@ -9,7 +9,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
-  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import {
@@ -19,7 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Check, X, ShieldAlert, Users as UsersIcon, Shield, Briefcase, Plus, Loader2, KeyRound, RefreshCw } from 'lucide-react';
+import { Check, X, ShieldAlert, Users as UsersIcon, Shield, Briefcase, Plus, Loader2, KeyRound, RefreshCw, PencilLine } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useCurrentUser } from '@/lib/auth/useCurrentUser';
@@ -56,6 +56,18 @@ export default function UsersPage() {
   // Edit role dialog
   const [editRoleDialogOpen, setEditRoleDialogOpen] = useState(false);
   const [editingUserRole, setEditingUserRole] = useState<any>(null);
+
+  // Édition complète d'un compte : identité, contact, poste, sous-rôle et
+  // magasin d'affectation. Le rôle garde son propre dialogue (règles
+  // fondateur/co-admin) et le mot de passe n'est jamais touché ici.
+  const [magasins, setMagasins] = useState<{ id: number; nom: string }[]>([]);
+  const [editInfosOpen, setEditInfosOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<any>(null);
+  const [editInfosLoading, setEditInfosLoading] = useState(false);
+  const [form, setForm] = useState({
+    full_name: '', email: '', phone: '', adresse: '',
+    position: '', commande_role: 'aucun', magasin_id: 'aucun',
+  });
   const [newRoleValue, setNewRoleValue] = useState('');
   const [editRoleLoading, setEditRoleLoading] = useState(false);
 
@@ -106,6 +118,7 @@ export default function UsersPage() {
         for (const companyUser of store.company_users || []) addUser(companyUser, companyUser.shop_name || store.shop_name, companyUser.magasin_id ?? store.magasin_id);
       }
       setAllUsers(flat);
+      setMagasins(storeData.map((m: any) => ({ id: m.magasin_id, nom: m.shop_name })));
       setPendingUsers(pending);
     } catch (err: any) {
       toast.error('Erreur de chargement: ' + err.message);
@@ -176,6 +189,43 @@ export default function UsersPage() {
     await djangoClient.users.delete(deleteTarget.id, password);
     toast.success('Utilisateur supprimé');
     await fetchUsers();
+  };
+
+  const handleStartEditInfos = (u: any) => {
+    setEditingUser(u);
+    setForm({
+      full_name: u.full_name || '',
+      email: u.email || '',
+      phone: u.phone || '',
+      adresse: u.adresse || '',
+      position: u.position || '',
+      commande_role: u.commande_role || 'aucun',
+      magasin_id: u.magasin_id ? String(u.magasin_id) : 'aucun',
+    });
+    setEditInfosOpen(true);
+  };
+
+  const handleSaveInfos = async () => {
+    if (!editingUser) return;
+    setEditInfosLoading(true);
+    try {
+      await djangoClient.users.updateInfos(editingUser.id, {
+        full_name: form.full_name,
+        email: form.email,
+        phone: form.phone,
+        adresse: form.adresse,
+        position: form.position,
+        commande_role: form.commande_role === 'aucun' ? null : form.commande_role,
+        magasin_id: form.magasin_id === 'aucun' ? null : Number(form.magasin_id),
+      });
+      toast.success('Compte mis à jour');
+      setEditInfosOpen(false);
+      fetchUsers();
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur lors de la mise à jour');
+    } finally {
+      setEditInfosLoading(false);
+    }
   };
 
   const handleUpdateRole = async () => {
@@ -519,6 +569,16 @@ export default function UsersPage() {
                                   Modifier rôle
                                 </Button>
                               )}
+                              {(u.role === 'admin' ? isCompanyOwner : isAdmin) && (
+                                <Button
+                                  variant="outline" size="sm"
+                                  onClick={() => handleStartEditInfos(u)}
+                                  title="Nom, contact, poste, magasin"
+                                >
+                                  <PencilLine className="mr-1 h-3.5 w-3.5" />
+                                  Modifier
+                                </Button>
+                              )}
                               {(u.role === 'admin' ? isCompanyOwner : isAdmin) && currentUser && u.id !== currentUser.id && (
                                 <Button
                                   variant="ghost" size="sm"
@@ -722,6 +782,112 @@ export default function UsersPage() {
       </Tabs>
 
       {/* Edit Role Dialog */}
+      {/* Édition complète d'un compte. Le RÔLE et le MOT DE PASSE ne sont pas
+          ici : le premier a ses règles fondateur/co-admin et son propre
+          dialogue, le second appartient à son titulaire. */}
+      <Dialog open={editInfosOpen} onOpenChange={setEditInfosOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Modifier le compte</DialogTitle>
+            <DialogDescription>
+              {editingUser?.full_name || editingUser?.email} — rôle{' '}
+              {editingUser?.role}. Le rôle et le mot de passe se modifient
+              ailleurs.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <Label>Nom complet</Label>
+              <Input
+                value={form.full_name}
+                onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <Label>E-mail</Label>
+              <Input
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                C&apos;est aussi son identifiant de connexion.
+              </p>
+            </div>
+            <div>
+              <Label>Téléphone</Label>
+              <Input
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                placeholder="+261..."
+              />
+            </div>
+            <div>
+              <Label>Adresse</Label>
+              <Input
+                value={form.adresse}
+                onChange={(e) => setForm({ ...form, adresse: e.target.value })}
+              />
+            </div>
+
+            {editingUser?.role === 'employer' && (
+              <>
+                <div>
+                  <Label>Poste</Label>
+                  <Input
+                    value={form.position}
+                    onChange={(e) => setForm({ ...form, position: e.target.value })}
+                    placeholder="Préparateur, livreur…"
+                  />
+                </div>
+                <div>
+                  <Label>Rôle module Commande</Label>
+                  <Select
+                    value={form.commande_role}
+                    onValueChange={(v) => setForm({ ...form, commande_role: v })}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="aucun">Aucun</SelectItem>
+                      <SelectItem value="PREPARATEUR">Préparateur</SelectItem>
+                      <SelectItem value="LIVREUR">Livreur</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="sm:col-span-2">
+                  <Label>Magasin d&apos;affectation</Label>
+                  <Select
+                    value={form.magasin_id}
+                    onValueChange={(v) => setForm({ ...form, magasin_id: v })}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Choisir un magasin" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="aucun">Aucun magasin</SelectItem>
+                      {magasins.map((m) => (
+                        <SelectItem key={m.id} value={String(m.id)}>{m.nom}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Changer de magasin transfère l&apos;employé. Son historique
+                    de commandes reste au magasin où le travail a eu lieu.
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditInfosOpen(false)}>Annuler</Button>
+            <Button onClick={handleSaveInfos} disabled={editInfosLoading}>
+              {editInfosLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Enregistrer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={editRoleDialogOpen} onOpenChange={setEditRoleDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>

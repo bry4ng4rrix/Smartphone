@@ -1194,6 +1194,40 @@ class DjangoAPIClient {
     list: async () => {
       return this.get<{ id: number; shop_name: string }[]>('/users/magasins/')
     },
+
+    /** Crée un magasin. `manager_id` n'existe pas ici : on l'affecte ensuite. */
+    create: async (data: { shop_name: string; description?: string }) => {
+      return this.post<any>('/users/magasins/', data)
+    },
+
+    /** Nom, description, et gérant. `manager_id: null` détache le gérant. */
+    update: async (id: number, data: { shop_name?: string; description?: string; manager_id?: number | null }) => {
+      return this.patch<any>(`/users/magasins/${id}/`, data)
+    },
+
+    /**
+     * Ce que la suppression détruirait, et si elle est seulement possible.
+     * À appeler AVANT d'ouvrir la confirmation : un magasin qui a vendu ne
+     * peut pas être supprimé (son historique est protégé côté base).
+     */
+    contenu: async (id: number) => {
+      return this.get<{
+        magasin: string
+        gerant: string | null
+        contenu: Record<string, number>
+        contient_des_donnees: boolean
+        suppression_possible: boolean
+        raison_blocage: string | null
+      }>(`/users/magasins/${id}/contenu/`)
+    },
+
+    /** Irréversible. Exige le nom exact du magasin ET le mot de passe. */
+    remove: async (id: number, confirmationNom: string, password: string) => {
+      return this.delete(`/users/magasins/${id}/`, {
+        confirmation_nom: confirmationNom,
+        password,
+      })
+    },
   }
 
   // ==================== Users Service ====================
@@ -1206,8 +1240,40 @@ class DjangoAPIClient {
       return this.get<any>(`/users/me/`)
     },
 
-    update: async (id: number, data: any) => {
-      return this.put<any>(`/users/role/${id}/`, data)
+    /**
+     * Change le RÔLE d'un compte (admin / magasin / employer).
+     * Renommée depuis `update`, qui laissait croire à une édition complète
+     * alors qu'elle ne touchait que le rôle — et écrasait tout le reste si on
+     * lui passait un profil entier.
+     */
+    updateRole: async (id: number, role: string) => {
+      return this.put<any>(`/users/role/${id}/`, { role })
+    },
+
+    /**
+     * Édite les informations d'un compte de la société (admin uniquement) :
+     * nom, e-mail, téléphone, adresse, poste, sous-rôle, magasin d'affectation.
+     * Ne touche NI le rôle (voir updateRole) NI le mot de passe.
+     */
+    updateInfos: async (
+      id: number,
+      data: {
+        full_name?: string
+        email?: string
+        phone?: string
+        adresse?: string
+        position?: string
+        commande_role?: string | null
+        magasin_id?: number | null
+        is_confirmed?: boolean
+      },
+    ) => {
+      return this.patch<any>(`/users/comptes/${id}/`, data)
+    },
+
+    /** Déplace un employé vers un autre magasin de la société. */
+    transfererMagasin: async (id: number, magasinId: number) => {
+      return this.put<any>(`/users/employers/${id}/magasin/`, { magasin_id: magasinId })
     },
 
     delete: async (id: number, password: string) => {

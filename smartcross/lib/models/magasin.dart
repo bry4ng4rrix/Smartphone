@@ -44,6 +44,10 @@ class Magasin {
     this.shopLogo,
     this.managerName,
     this.managerEmail,
+    this.description,
+    this.gerantId,
+    this.gerantName,
+    this.gerantEmail,
     this.employers = const [],
     this.totalProducts,
     this.totalStockQuantity,
@@ -64,6 +68,17 @@ class Magasin {
   /// (`mag.admin`), pas le compte `role=magasin`.
   final String? managerName;
   final String? managerEmail;
+
+  /// Description libre du magasin (quartier, specialite...).
+  final String? description;
+
+  /// Le VRAI gerant du magasin (`MagasinProfile.user`, role=magasin), que le
+  /// serveur expose sous `gerant` — a ne pas confondre avec `manager`
+  /// ci-dessus, qui est l'admin proprietaire. `null` tant qu'aucun gerant
+  /// n'est affecte : un magasin peut vivre sans.
+  final int? gerantId;
+  final String? gerantName;
+  final String? gerantEmail;
   final List<MagasinEmployer> employers;
 
   // Fusionnées depuis `magasins/stats/` (endpoint séparé, §8 README). Le web
@@ -95,6 +110,19 @@ class Magasin {
       shopLogo: asStringOrNull(json['shop_logo']),
       managerName: manager != null ? asStringOrNull(manager['full_name']) : null,
       managerEmail: manager != null ? asStringOrNull(manager['email']) : null,
+      description: asStringOrNull(json['description']),
+      gerantId: () {
+        final g = json['gerant'] as Map<String, dynamic>?;
+        return g == null ? null : asInt(g['id']);
+      }(),
+      gerantName: () {
+        final g = json['gerant'] as Map<String, dynamic>?;
+        return g == null ? null : asStringOrNull(g['full_name']);
+      }(),
+      gerantEmail: () {
+        final g = json['gerant'] as Map<String, dynamic>?;
+        return g == null ? null : asStringOrNull(g['email']);
+      }(),
       employers: (json['employers'] as List? ?? [])
           .map((e) => MagasinEmployer.fromJson(e as Map<String, dynamic>))
           .toList(),
@@ -108,6 +136,10 @@ class Magasin {
       magasinId: magasinId,
       shopName: shopName,
       shopLogo: shopLogo,
+      description: description,
+      gerantId: gerantId,
+      gerantName: gerantName,
+      gerantEmail: gerantEmail,
       managerName: managerName,
       managerEmail: managerEmail,
       employers: employers,

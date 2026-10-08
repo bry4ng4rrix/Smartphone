@@ -509,11 +509,13 @@ export function CreateOrderDialog({
   onCreated: () => void;
 }) {
   const { isPreparateur } = useCurrentUser();
-  // Restreint la recherche d'articles à une boutique. Par défaut toutes :
-  // on cherche dans l'ensemble du catalogue, et le magasin de la commande se
-  // déduit de l'article retenu (voir CartItem.magasin_id).
+  // Une commande appartient à UN magasin : le sélecteur n'offre donc pas
+  // « tous les magasins ». Tant que rien n'est choisi, on retombe sur le
+  // premier accessible — dérivé plutôt que posé dans un effet, pour que la
+  // valeur soit juste dès le premier rendu.
   const { magasins } = useMagasins();
-  const [magasinFiltre, setMagasinFiltre] = useState<number | null>(null);
+  const [magasinChoisi, setMagasinChoisi] = useState<number | null>(null);
+  const magasinFiltre = magasinChoisi ?? magasins[0]?.id ?? null;
   const { zones } = useDeliveryZones();
   const zoneOptions = useMemo(() => buildZoneOptions(zones), [zones]);
   // Le préparateur ne crée que des retraits sur place, et ne voit aucune
@@ -621,9 +623,10 @@ export function CreateOrderDialog({
     try {
       const order = await djangoClient.orders.create({
         // Dès que la société a plusieurs magasins, le serveur ne peut plus le
-        // deviner (users/permissions.py::resolve_magasin_for_request) : on le
-        // tire des articles, qui en sont la source de vérité.
-        magasin_id: items[0].magasin_id,
+        // deviner (users/permissions.py::resolve_magasin_for_request). Les
+        // articles en sont la source de vérité ; le sélecteur ne fait que
+        // cadrer la recherche en amont.
+        magasin_id: items[0]?.magasin_id ?? magasinFiltre ?? undefined,
         client_nom: clientNom.trim(),
         telephone,
         telephone_2: telephone2.trim(),
@@ -704,14 +707,16 @@ export function CreateOrderDialog({
         <MagasinSelect
           magasins={magasins}
           valeur={magasinFiltre}
+          avecTous={false}
           onChange={(id) => {
-            setMagasinFiltre(id);
+            setMagasinChoisi(id);
             // Changer de boutique en cours de saisie laisserait un panier
             // d'une autre : on repart à zéro plutôt que d'accepter un
             // mélange que le serveur enregistrerait au mauvais endroit.
             if (items.length > 0) setItems([]);
           }}
-          label="Chercher les articles dans"
+          label="Magasin de la commande"
+          placeholder="Choisir un magasin…"
         />
 
         <OrderItemsEditor

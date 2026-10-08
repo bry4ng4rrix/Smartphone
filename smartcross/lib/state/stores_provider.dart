@@ -89,8 +89,34 @@ class StoresNotifier extends AsyncNotifier<List<Magasin>> {
 
   Future<void> rename(int magasinId, String shopName) => updateStore(magasinId, shopName: shopName);
 
-  Future<void> delete(int magasinId, String password) async {
-    await _repo.delete(magasinId, password);
+  Future<Map<String, dynamic>> contenu(int magasinId) => _repo.contenu(magasinId);
+
+  Future<void> updateInfos(
+    int magasinId, {
+    String? shopName,
+    String? description,
+    int? managerId,
+    bool toucherGerant = false,
+  }) async {
+    await _repo.updateInfos(
+      magasinId,
+      shopName: shopName,
+      description: description,
+      managerId: managerId,
+      toucherGerant: toucherGerant,
+    );
+    await refresh();
+  }
+
+  /// Cree un magasin SANS gerant — distinct de [create], qui cree en meme
+  /// temps le compte du gerant. On affecte un gerant plus tard.
+  Future<void> createSansGerant({required String shopName, String? description}) async {
+    await _repo.createSansGerant(shopName: shopName, description: description);
+    await refresh();
+  }
+
+  Future<void> delete(int magasinId, String password, {required String confirmationNom}) async {
+    await _repo.delete(magasinId, password, confirmationNom: confirmationNom);
     await refresh();
   }
 }

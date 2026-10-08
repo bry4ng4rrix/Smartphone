@@ -101,13 +101,43 @@ class _StoresScreenState extends ConsumerState<StoresScreen> {
   /// sur cette page) : `DELETE /users/magasins/{id}/`, mot de passe exigé
   /// par le backend.
   Future<void> _confirmDelete(Magasin store) async {
+    // On demande d'abord au serveur ce que la suppression detruirait : un
+    // magasin qui a vendu ne peut PAS etre supprime (son historique est
+    // protege), autant le dire avant de demander un mot de passe.
+    Map<String, dynamic> info;
+    try {
+      info = await ref.read(storesProvider.notifier).contenu(store.magasinId);
+    } catch (e) {
+      _snack(ApiClient.messageFromError(e));
+      return;
+    }
+
+    if (info['suppression_possible'] == false) {
+      _snack(info['raison_blocage']?.toString() ?? 'Suppression impossible.');
+      return;
+    }
+
+    final contenu = Map<String, dynamic>.from(info['contenu'] as Map? ?? {});
+    final lignes = contenu.entries
+        .where((e) => (e.value as num? ?? 0) > 0)
+        .map((e) => '${e.value} ${e.key.replaceAll('_', ' ')}')
+        .join(', ');
+
+    if (!mounted) return;
     final password = await showDialog<String>(
       context: context,
-      builder: (_) => _DeletePasswordDialog(shopName: store.shopName),
+      builder: (_) => _DeletePasswordDialog(
+        shopName: store.shopName,
+        resume: lignes.isEmpty ? null : 'Seront supprimes : $lignes.',
+      ),
     );
     if (password == null || password.isEmpty) return;
     try {
-      await ref.read(storesProvider.notifier).delete(store.magasinId, password);
+      await ref.read(storesProvider.notifier).delete(
+            store.magasinId,
+            password,
+            confirmationNom: store.shopName,
+          );
       _snack('Magasin supprimé.');
     } catch (e) {
       _snack(ApiClient.messageFromError(e));
@@ -430,12 +460,15 @@ class _StoreCardState extends State<_StoreCard> {
             ),
             const SizedBox(height: 8),
 
-            // ---- Bloc gérant (`store.manager`) -----------------------------
-            if (store.hasManager) ...[
-              Text(store.managerName ?? '', style: const TextStyle(fontWeight: FontWeight.w500)),
-              if (store.managerEmail != null) Text(store.managerEmail!, style: muted),
-              const Divider(height: 20),
+            // ---- Bloc gérant : le VRAI gerant (`store.gerant`), pas l'admin --
+            if (store.gerantId != null) ...[
+              Text(store.gerantName ?? store.gerantEmail ?? '',
+                  style: const TextStyle(fontWeight: FontWeight.w500)),
+              if (store.gerantEmail != null) Text(store.gerantEmail!, style: muted),
+            ] else ...[
+              Text('Aucun gerant', style: muted),
             ],
+            const Divider(height: 20),
 
             // ---- 4 tuiles KPI (grid 2 colonnes) ----------------------------
             IntrinsicHeight(
@@ -718,6 +751,9 @@ class _EditStoreDialog extends ConsumerStatefulWidget {
 class _EditStoreDialogState extends ConsumerState<_EditStoreDialog> {
   final _formKey = GlobalKey<FormState>();
   late final _nameController = TextEditingController(text: widget.store.shopName);
+  late final _descController = TextEditingController(text: widget.store.description ?? '');
+  // null = aucun gerant. Initialise sur le gerant actuel du magasin.
+  late int? _gerantId = widget.store.gerantId;
   XFile? _logoFile;
   bool _saving = false;
   String? _error;
@@ -725,8 +761,15 @@ class _EditStoreDialogState extends ConsumerState<_EditStoreDialog> {
   @override
   void dispose() {
     _nameController.dispose();
+    _descController.dispose();
     super.dispose();
   }
+
+  /// Comptes pouvant devenir gerant : ceux de role `magasin` de la societe.
+  /// Un compte deja en poste ailleurs reste propose — l'affecter ici le
+  /// DEPLACE (le serveur libere son ancienne boutique).
+  List<Magasin> get _magasinsAvecGerant =>
+      (ref.read(storesProvider).value ?? []).where((m) => m.gerantId != null).toList();
 
   /// `<input type="file" accept="image/*">` : galerie ou appareil photo.
   Future<void> _pickLogo() async {
@@ -765,10 +808,21 @@ class _EditStoreDialogState extends ConsumerState<_EditStoreDialog> {
       _error = null;
     });
     try {
-      await ref.read(storesProvider.notifier).updateStore(
+      // Le logo passe en multipart ; le reste en JSON, parce qu'un FormData
+      // ne transporte pas de `null` (necessaire pour detacher le gerant).
+      if (_logoFile != null) {
+        await ref.read(storesProvider.notifier).updateStore(
+              widget.store.magasinId,
+              shopName: _nameController.text.trim(),
+              logoPath: _logoFile!.path,
+            );
+      }
+      await ref.read(storesProvider.notifier).updateInfos(
             widget.store.magasinId,
             shopName: _nameController.text.trim(),
-            logoPath: _logoFile?.path,
+            description: _descController.text.trim(),
+            managerId: _gerantId,
+            toucherGerant: _gerantId != widget.store.gerantId,
           );
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
@@ -796,12 +850,40 @@ class _EditStoreDialogState extends ConsumerState<_EditStoreDialog> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text('Modifier le nom et le logo du magasin.', style: TextStyle(color: scheme.onSurfaceVariant)),
+                Text('Nom, description, logo et gerant.', style: TextStyle(color: scheme.onSurfaceVariant)),
                 const SizedBox(height: 12),
                 if (_error != null) ...[
                   Text(_error!, style: TextStyle(color: scheme.error)),
                   const SizedBox(height: 8),
                 ],
+                DropdownButtonFormField<int?>(
+                  initialValue: _gerantId,
+                  decoration: const InputDecoration(
+                    labelText: 'Gerant',
+                    helperText: "Affecter un gerant deja en poste le deplace ici.",
+                  ),
+                  items: [
+                    const DropdownMenuItem<int?>(value: null, child: Text('Aucun gerant')),
+                    for (final m in _magasinsAvecGerant)
+                      DropdownMenuItem<int?>(
+                        value: m.gerantId,
+                        child: Text(
+                          m.magasinId == widget.store.magasinId
+                              ? (m.gerantName ?? m.gerantEmail ?? 'Gerant')
+                              : '${m.gerantName ?? m.gerantEmail} (${m.shopName})',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: (v) => setState(() => _gerantId = v),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _descController,
+                  maxLines: 2,
+                  decoration: const InputDecoration(labelText: 'Description'),
+                ),
+                const SizedBox(height: 12),
                 TextFormField(
                   controller: _nameController,
                   autofocus: true,
@@ -894,8 +976,10 @@ class _EditStoreDialogState extends ConsumerState<_EditStoreDialog> {
 // -----------------------------------------------------------------------------
 
 class _DeletePasswordDialog extends StatefulWidget {
-  const _DeletePasswordDialog({required this.shopName});
+  const _DeletePasswordDialog({required this.shopName, this.resume});
   final String shopName;
+  /// Ce que la suppression detruirait, en une ligne — vient du serveur.
+  final String? resume;
 
   @override
   State<_DeletePasswordDialog> createState() => _DeletePasswordDialogState();
@@ -903,13 +987,17 @@ class _DeletePasswordDialog extends StatefulWidget {
 
 class _DeletePasswordDialogState extends State<_DeletePasswordDialog> {
   final _controller = TextEditingController();
+  final _nomController = TextEditingController();
   bool _obscure = true;
 
   @override
   void dispose() {
     _controller.dispose();
+    _nomController.dispose();
     super.dispose();
   }
+
+  bool get _nomCorrect => _nomController.text.trim() == widget.shopName;
 
   @override
   Widget build(BuildContext context) {
@@ -919,13 +1007,32 @@ class _DeletePasswordDialogState extends State<_DeletePasswordDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('Supprimer le magasin « ${widget.shopName} » ? Entrez votre mot de passe pour confirmer.'),
+          Text(
+            'Supprimer « ${widget.shopName} » ? Cette action est irreversible : '
+            'le catalogue, le stock et les commandes du magasin partent avec lui.',
+          ),
+          if (widget.resume != null) ...[
+            const SizedBox(height: 8),
+            Text(widget.resume!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          ],
+          const SizedBox(height: 12),
+          TextField(
+            controller: _nomController,
+            autofocus: true,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              labelText: 'Retapez le nom du magasin',
+              hintText: widget.shopName,
+              errorText: _nomController.text.isEmpty || _nomCorrect ? null : 'Le nom ne correspond pas',
+            ),
+          ),
           const SizedBox(height: 12),
           TextField(
             controller: _controller,
             obscureText: _obscure,
-            autofocus: true,
-            onSubmitted: (_) => Navigator.of(context).pop(_controller.text),
+            onSubmitted: (_) {
+              if (_nomCorrect) Navigator.of(context).pop(_controller.text);
+            },
             decoration: InputDecoration(
               labelText: 'Votre mot de passe',
               suffixIcon: IconButton(
@@ -940,7 +1047,8 @@ class _DeletePasswordDialogState extends State<_DeletePasswordDialog> {
       actions: [
         TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
         FilledButton(
-          onPressed: () => Navigator.of(context).pop(_controller.text),
+          // Les deux gestes sont exiges : le nom exact ET le mot de passe.
+          onPressed: _nomCorrect ? () => Navigator.of(context).pop(_controller.text) : null,
           style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
           child: const Text('Supprimer'),
         ),

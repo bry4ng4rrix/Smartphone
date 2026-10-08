@@ -20,10 +20,19 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 
-import { Store, Users, RefreshCw, Loader2, Edit, ArrowLeftRight } from 'lucide-react';
+import { Store, Users, RefreshCw, Loader2, Edit, ArrowLeftRight, Trash2, UserCog } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh';
 import { TransferProductsDialog } from '@/components/transfer-products-dialog';
+import { ConfirmDeleteDialog } from '@/components/confirm-delete-dialog';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 export default function StoresPage() {
   const { user, isAdmin } = useCurrentUser();
@@ -47,8 +56,20 @@ export default function StoresPage() {
   const [editStoreLogoPreview, setEditStoreLogoPreview] = useState<string | null>(null);
   const [submittingEditStore, setSubmittingEditStore] = useState(false);
 
+  const [editStoreDescription, setEditStoreDescription] = useState('');
+  // '' = inchangé, 'aucun' = détacher, sinon l'id du compte gérant.
+  const [editManagerId, setEditManagerId] = useState<string>('');
+
+  // Création : un magasin peut naître sans gérant, on l'affecte plus tard.
+  const [avecGerant, setAvecGerant] = useState(true);
+
   const [isTransferDialogOpen, setIsTransferDialogOpen] = useState(false);
   const [transferSourceStore, setTransferSourceStore] = useState<any>(null);
+
+  // Suppression : on demande d'abord au serveur ce qu'elle détruirait.
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
+  const [deleteContenu, setDeleteContenu] = useState<any>(null);
+  const [confirmationNom, setConfirmationNom] = useState('');
 
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -129,9 +150,48 @@ export default function StoresPage() {
   const handleStartEditStore = (store: any) => {
     setEditingStore(store);
     setEditStoreName(store.shop_name);
+    setEditStoreDescription(store.description || '');
+    setEditManagerId(store.gerant ? String(store.gerant.id) : 'aucun');
     setEditStoreLogoFile(null);
     setEditStoreLogoPreview(store.shop_logo || null);
     setIsEditStoreDialogOpen(true);
+  };
+
+  /**
+   * Comptes pouvant devenir gérant de `store` : ceux de rôle « magasin » qui
+   * ne tiennent aucune autre boutique. `MagasinProfile.user` est un OneToOne,
+   * un compte ne peut donc gérer qu'un magasin à la fois — proposer un gérant
+   * déjà pris ne ferait qu'amener un refus du serveur.
+   */
+  const gerantsDisponibles = (store: any) => {
+    const pris = new Set(
+      stores.filter((s) => s.gerant && s.magasin_id !== store?.magasin_id).map((s) => s.gerant.id),
+    );
+    const comptes = stores.flatMap((s) => s.company_users || []);
+    const vus = new Set<number>();
+    return comptes.filter((u: any) => {
+      if (u.role !== 'magasin' || pris.has(u.id) || vus.has(u.id)) return false;
+      vus.add(u.id);
+      return true;
+    });
+  };
+
+  /**
+   * Ouvre la confirmation de suppression — après avoir demandé au serveur ce
+   * qu'elle détruirait. On ne propose jamais une suppression impossible : un
+   * magasin qui a vendu garde son historique (OrderItem.product_variant est
+   * en PROTECT côté base).
+   */
+  const handleStartDeleteStore = async (store: any) => {
+    setDeleteTarget(store);
+    setDeleteContenu(null);
+    setConfirmationNom('');
+    try {
+      setDeleteContenu(await djangoClient.magasins.contenu(store.magasin_id));
+    } catch (err: any) {
+      toast.error(err.message || 'Impossible de lire le contenu du magasin');
+      setDeleteTarget(null);
+    }
   };
 
   const handleEditStoreLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -147,13 +207,25 @@ export default function StoresPage() {
     if (!editingStore) return;
     setSubmittingEditStore(true);
     try {
-      const formData = new FormData();
-      formData.append('shop_name', editStoreName);
+      // Le logo passe en multipart ; le reste en JSON, parce qu'un FormData
+      // ne sait pas transporter un `null` (nécessaire pour détacher le gérant).
       if (editStoreLogoFile) {
+        const formData = new FormData();
+        formData.append('shop_name', editStoreName);
         formData.append('shop_logo', editStoreLogoFile);
+        await djangoClient.patchFormData(`/users/magasins/${editingStore.magasin_id}/`, formData);
       }
-      
-      await djangoClient.patchFormData(`/users/magasins/${editingStore.magasin_id}/`, formData);
+
+      const infos: { shop_name: string; description: string; manager_id?: number | null } = {
+        shop_name: editStoreName,
+        description: editStoreDescription,
+      };
+      const gerantActuel = editingStore.gerant ? String(editingStore.gerant.id) : 'aucun';
+      if (editManagerId !== gerantActuel) {
+        infos.manager_id = editManagerId === 'aucun' ? null : Number(editManagerId);
+      }
+      await djangoClient.magasins.update(editingStore.magasin_id, infos);
+
       toast.success('Magasin mis à jour avec succès');
       setIsEditStoreDialogOpen(false);
       fetchData();
@@ -172,8 +244,9 @@ export default function StoresPage() {
     setSubmittingStore(true);
 
     try {
-      const response =
-        await djangoClient.auth.register(
+      if (avecGerant) {
+        // Voie historique : le compte gérant et le magasin naissent ensemble.
+        const response = await djangoClient.auth.register(
           managerEmail,
           managerEmail,
           managerPassword,
@@ -185,13 +258,16 @@ export default function StoresPage() {
           }
         );
 
-      if (response?.id) {
-        await djangoClient.auth.approveUser(
-          response.id
-        );
+        if (response?.id) {
+          await djangoClient.auth.approveUser(response.id);
+        }
+      } else {
+        // Magasin seul : on lui affectera un gérant plus tard, depuis le
+        // bouton « Modifier » de sa carte.
+        await djangoClient.magasins.create({ shop_name: storeName });
       }
 
-      toast.success('Magasin créé.');
+      toast.success(avecGerant ? 'Magasin et gérant créés.' : 'Magasin créé, sans gérant.');
 
       setStoreName('');
       setManagerName('');
@@ -292,50 +368,75 @@ export default function StoresPage() {
                       />
                     </div>
 
-                    <div>
-                      <Label>
-                        Nom du gérant
-                      </Label>
-
-                      <Input
-                        value={managerName}
-                        onChange={(e) =>
-                          setManagerName(
-                            e.target.value
-                          )
-                        }
+                    {/* Un magasin peut naître sans gérant : on l'affecte
+                        ensuite depuis « Modifier » sur sa carte. */}
+                    <label className="flex cursor-pointer items-start gap-2 rounded-md border p-3 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={!avecGerant}
+                        onChange={(e) => setAvecGerant(!e.target.checked)}
+                        className="mt-0.5"
                       />
-                    </div>
+                      <span>
+                        Créer le magasin sans gérant
+                        <span className="block text-xs text-muted-foreground">
+                          Vous lui affecterez un gérant plus tard.
+                        </span>
+                      </span>
+                    </label>
 
-                    <div>
-                      <Label>Email</Label>
+                    {avecGerant && (
+                      <>
+                        <div>
+                          <Label>
+                            Nom du gérant
+                          </Label>
 
-                      <Input
-                        type="email"
-                        value={managerEmail}
-                        onChange={(e) =>
-                          setManagerEmail(
-                            e.target.value
-                          )
-                        }
-                      />
-                    </div>
+                          <Input
+                            value={managerName}
+                            onChange={(e) =>
+                              setManagerName(
+                                e.target.value
+                              )
+                            }
+                            required
+                          />
+                        </div>
 
-                    <div>
-                      <Label>
-                        Mot de passe
-                      </Label>
+                        <div>
+                          <Label>Email</Label>
 
-                      <Input
-                        type="password"
-                        value={managerPassword}
-                        onChange={(e) =>
-                          setManagerPassword(
-                            e.target.value
-                          )
-                        }
-                      />
-                    </div>
+                          <Input
+                            type="email"
+                            value={managerEmail}
+                            onChange={(e) =>
+                              setManagerEmail(
+                                e.target.value
+                              )
+                            }
+                            required
+                          />
+                        </div>
+
+                        <div>
+                          <Label>
+                            Mot de passe
+                          </Label>
+
+                          <Input
+                            type="password"
+                            value={managerPassword}
+                            onChange={(e) =>
+                              setManagerPassword(
+                                e.target.value
+                              )
+                            }
+                            required
+                            minLength={6}
+                          />
+                        </div>
+                      </>
+                    )}
 
                     <Button
                       type="submit"
@@ -414,8 +515,17 @@ export default function StoresPage() {
                       variant="outline"
                       size="icon"
                       onClick={() => handleStartEditStore(store)}
+                      title="Modifier le magasin et son gérant"
                     >
                      <Edit className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => handleStartDeleteStore(store)}
+                      title="Supprimer ce magasin"
+                    >
+                      <Trash2 className="h-4 w-4 text-red-500" />
                     </Button>
                    </div>
                   )}
@@ -423,17 +533,34 @@ export default function StoresPage() {
 
                 <CardContent className="space-y-4">
 
-                  {store.manager && (
-                    <div className="border-b pb-3">
-                      <p className="font-medium">
-                        {store.manager.full_name}
-                      </p>
-
-                      <p className="text-sm text-muted-foreground">
-                        {store.manager.email}
-                      </p>
-                    </div>
-                  )}
+                  {/* Le gérant du magasin — distinct de `manager`, qui est
+                      l'admin de la société. Un magasin peut ne pas en avoir. */}
+                  <div className="border-b pb-3">
+                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                      Gérant
+                    </p>
+                    {store.gerant ? (
+                      <>
+                        <p className="font-medium">{store.gerant.full_name}</p>
+                        <p className="text-sm text-muted-foreground">{store.gerant.email}</p>
+                      </>
+                    ) : (
+                      <div className="flex items-center gap-2 pt-1">
+                        <Badge variant="outline" className="gap-1 font-normal">
+                          <UserCog className="h-3 w-3" /> Aucun gérant
+                        </Badge>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditStore(store)}
+                            className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+                          >
+                            Affecter
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
 
                   <div className="grid grid-cols-2 gap-2 sm:gap-3">
 
@@ -537,7 +664,7 @@ export default function StoresPage() {
           <DialogHeader>
             <DialogTitle>Modifier le magasin</DialogTitle>
             <DialogDescription>
-              Modifier le nom et le logo du magasin.
+              Nom, description, logo et gérant.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleUpdateStore} className="space-y-4">
@@ -548,6 +675,37 @@ export default function StoresPage() {
                 onChange={(e) => setEditStoreName(e.target.value)}
                 required
               />
+            </div>
+
+            <div>
+              <Label>Description</Label>
+              <Textarea
+                value={editStoreDescription}
+                onChange={(e) => setEditStoreDescription(e.target.value)}
+                placeholder="Quartier, spécialité, horaires…"
+                rows={2}
+              />
+            </div>
+
+            <div>
+              <Label>Gérant</Label>
+              <Select value={editManagerId} onValueChange={setEditManagerId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Choisir un gérant" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="aucun">Aucun gérant</SelectItem>
+                  {gerantsDisponibles(editingStore).map((u: any) => (
+                    <SelectItem key={u.id} value={String(u.id)}>
+                      {u.full_name} — {u.email}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Seuls les comptes « gérant de magasin » libres sont proposés :
+                un compte ne peut tenir qu&apos;une boutique à la fois.
+              </p>
             </div>
             
             <div>
@@ -585,6 +743,81 @@ export default function StoresPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Suppression d'un magasin — trois barrières : l'inventaire de ce qui
+          sera détruit, le nom exact à retaper, puis le mot de passe de
+          l'administrateur (demandé par ConfirmDeleteDialog). */}
+      <ConfirmDeleteDialog
+        open={!!deleteTarget && !!deleteContenu}
+        onOpenChange={(ouvert) => {
+          if (!ouvert) {
+            setDeleteTarget(null);
+            setDeleteContenu(null);
+            setConfirmationNom('');
+          }
+        }}
+        title={`Supprimer « ${deleteTarget?.shop_name ?? ''} » ?`}
+        description={
+          deleteContenu ? (
+            <div className="space-y-3">
+              {deleteContenu.suppression_possible ? (
+                <>
+                  <p>Cette action est irréversible. Seront définitivement supprimés :</p>
+                  <ul className="list-inside list-disc text-sm">
+                    {Object.entries(deleteContenu.contenu)
+                      .filter(([, n]) => Number(n) > 0)
+                      .map(([cle, n]) => (
+                        <li key={cle}>
+                          <span className="font-medium tabular-nums">{String(n)}</span>{' '}
+                          {cle.replace(/_/g, ' ')}
+                        </li>
+                      ))}
+                    {Object.values(deleteContenu.contenu).every((n) => Number(n) === 0) && (
+                      <li className="list-none text-muted-foreground">
+                        Ce magasin est vide.
+                      </li>
+                    )}
+                  </ul>
+                  <div>
+                    <Label className="text-xs">
+                      Retapez le nom exact du magasin pour confirmer
+                    </Label>
+                    <Input
+                      value={confirmationNom}
+                      onChange={(e) => setConfirmationNom(e.target.value)}
+                      placeholder={deleteTarget?.shop_name}
+                      autoComplete="off"
+                    />
+                  </div>
+                </>
+              ) : (
+                <p className="text-amber-600 dark:text-amber-500">
+                  {deleteContenu.raison_blocage} Vous pouvez en revanche retirer
+                  son gérant depuis « Modifier ».
+                </p>
+              )}
+            </div>
+          ) : null
+        }
+        onConfirm={async (password) => {
+          if (!deleteContenu?.suppression_possible) {
+            throw new Error('Ce magasin ne peut pas être supprimé.');
+          }
+          if (confirmationNom.trim() !== deleteTarget.shop_name) {
+            throw new Error(`Retapez exactement : « ${deleteTarget.shop_name} »`);
+          }
+          await djangoClient.magasins.remove(
+            deleteTarget.magasin_id,
+            confirmationNom.trim(),
+            password,
+          );
+          toast.success(`« ${deleteTarget.shop_name} » supprimé.`);
+          setDeleteTarget(null);
+          setDeleteContenu(null);
+          setConfirmationNom('');
+          fetchData();
+        }}
+      />
     </div>
   );
 }
