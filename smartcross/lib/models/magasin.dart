@@ -45,6 +45,9 @@ class Magasin {
     this.managerName,
     this.managerEmail,
     this.description,
+    this.adresse,
+    this.telephone,
+    this.telephone2,
     this.gerantId,
     this.gerantName,
     this.gerantEmail,
@@ -71,6 +74,23 @@ class Magasin {
 
   /// Description libre du magasin (quartier, specialite...).
   final String? description;
+
+  /// Coordonnees du point de vente. C'est ce qu'on donne au client venant
+  /// RETIRER sa commande : sans elles, « Recuperation » ne lui dit ni ou
+  /// aller ni qui appeler. `adresse` et `telephone` sont exiges par le
+  /// serveur des qu'ils sont envoyes (MagasinViewSet.partial_update), mais
+  /// restent vides sur les magasins crees avant leur introduction — d'ou le
+  /// `null` possible ici.
+  final String? adresse;
+  final String? telephone;
+
+  /// Numero de secours, facultatif.
+  final String? telephone2;
+
+  /// Un magasin sans adresse ni numero ne peut rien dire au client qui vient
+  /// retirer : l'ecran le signale plutot que de laisser un blanc.
+  bool get aDesCoordonnees =>
+      (adresse?.isNotEmpty ?? false) || (telephone?.isNotEmpty ?? false);
 
   /// Le VRAI gerant du magasin (`MagasinProfile.user`, role=magasin), que le
   /// serveur expose sous `gerant` — a ne pas confondre avec `manager`
@@ -111,6 +131,9 @@ class Magasin {
       managerName: manager != null ? asStringOrNull(manager['full_name']) : null,
       managerEmail: manager != null ? asStringOrNull(manager['email']) : null,
       description: asStringOrNull(json['description']),
+      adresse: asStringOrNull(json['adresse']),
+      telephone: asStringOrNull(json['telephone']),
+      telephone2: asStringOrNull(json['telephone_2']),
       gerantId: () {
         final g = json['gerant'] as Map<String, dynamic>?;
         return g == null ? null : asInt(g['id']);
@@ -137,6 +160,9 @@ class Magasin {
       shopName: shopName,
       shopLogo: shopLogo,
       description: description,
+      adresse: adresse,
+      telephone: telephone,
+      telephone2: telephone2,
       gerantId: gerantId,
       gerantName: gerantName,
       gerantEmail: gerantEmail,

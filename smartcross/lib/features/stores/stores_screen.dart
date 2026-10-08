@@ -468,6 +468,45 @@ class _StoreCardState extends State<_StoreCard> {
             ] else ...[
               Text('Aucun gerant', style: muted),
             ],
+
+            // ---- Coordonnees du point de vente -----------------------------
+            // Un magasin sans adresse ni numero ne peut rien dire au client
+            // qui vient retirer sa commande : on le signale plutot que de
+            // laisser un blanc silencieux.
+            const SizedBox(height: 8),
+            if (store.aDesCoordonnees) ...[
+              if (store.adresse?.isNotEmpty ?? false)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.place_outlined, size: 14, color: scheme.onSurfaceVariant),
+                    const SizedBox(width: 6),
+                    Expanded(child: Text(store.adresse!, style: muted)),
+                  ],
+                ),
+              if (store.telephone?.isNotEmpty ?? false)
+                Row(
+                  children: [
+                    Icon(Icons.phone_outlined, size: 14, color: scheme.onSurfaceVariant),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        (store.telephone2?.isNotEmpty ?? false)
+                            ? '${store.telephone} / ${store.telephone2}'
+                            : store.telephone!,
+                        style: muted,
+                      ),
+                    ),
+                  ],
+                ),
+            ] else
+              Row(
+                children: [
+                  Icon(Icons.warning_amber_outlined, size: 14, color: scheme.tertiary),
+                  const SizedBox(width: 6),
+                  Text('Coordonnees non renseignees', style: TextStyle(fontSize: 12, color: scheme.tertiary)),
+                ],
+              ),
             const Divider(height: 20),
 
             // ---- 4 tuiles KPI (grid 2 colonnes) ----------------------------
@@ -606,6 +645,12 @@ class _CreateStoreDialog extends ConsumerStatefulWidget {
 class _CreateStoreDialogState extends ConsumerState<_CreateStoreDialog> {
   final _formKey = GlobalKey<FormState>();
   final _shopNameController = TextEditingController();
+  // Coordonnees du point de vente : l'adresse et le premier numero sont
+  // exiges (c'est ce qu'on donne au client venant retirer sa commande), le
+  // second numero est un secours facultatif.
+  final _adresseController = TextEditingController();
+  final _telephoneController = TextEditingController();
+  final _telephone2Controller = TextEditingController();
   final _managerNameController = TextEditingController();
   final _managerEmailController = TextEditingController();
   final _managerPasswordController = TextEditingController();
@@ -616,6 +661,9 @@ class _CreateStoreDialogState extends ConsumerState<_CreateStoreDialog> {
   @override
   void dispose() {
     _shopNameController.dispose();
+    _adresseController.dispose();
+    _telephoneController.dispose();
+    _telephone2Controller.dispose();
     _managerNameController.dispose();
     _managerEmailController.dispose();
     _managerPasswordController.dispose();
@@ -636,6 +684,9 @@ class _CreateStoreDialogState extends ConsumerState<_CreateStoreDialog> {
             managerFullName: _managerNameController.text.trim(),
             managerEmail: _managerEmailController.text.trim(),
             managerPassword: _managerPasswordController.text,
+            adresse: _adresseController.text.trim(),
+            telephone: _telephoneController.text.trim(),
+            telephone2: _telephone2Controller.text.trim(),
           );
       if (mounted) Navigator.of(context).pop(result);
     } catch (e) {
@@ -673,6 +724,31 @@ class _CreateStoreDialogState extends ConsumerState<_CreateStoreDialog> {
                   textInputAction: TextInputAction.next,
                   decoration: const InputDecoration(labelText: 'Nom du magasin'),
                   validator: (v) => (v == null || v.trim().isEmpty) ? 'Requis' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _adresseController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Adresse du magasin',
+                    helperText: 'Affichée au client qui vient retirer sur place.',
+                  ),
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Requis' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _telephoneController,
+                  keyboardType: TextInputType.phone,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(labelText: 'Numéro du magasin'),
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Requis' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _telephone2Controller,
+                  keyboardType: TextInputType.phone,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(labelText: 'Numéro 2 (facultatif)'),
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
@@ -752,6 +828,9 @@ class _EditStoreDialogState extends ConsumerState<_EditStoreDialog> {
   final _formKey = GlobalKey<FormState>();
   late final _nameController = TextEditingController(text: widget.store.shopName);
   late final _descController = TextEditingController(text: widget.store.description ?? '');
+  late final _adresseController = TextEditingController(text: widget.store.adresse ?? '');
+  late final _telephoneController = TextEditingController(text: widget.store.telephone ?? '');
+  late final _telephone2Controller = TextEditingController(text: widget.store.telephone2 ?? '');
   // null = aucun gerant. Initialise sur le gerant actuel du magasin.
   late int? _gerantId = widget.store.gerantId;
   XFile? _logoFile;
@@ -762,6 +841,9 @@ class _EditStoreDialogState extends ConsumerState<_EditStoreDialog> {
   void dispose() {
     _nameController.dispose();
     _descController.dispose();
+    _adresseController.dispose();
+    _telephoneController.dispose();
+    _telephone2Controller.dispose();
     super.dispose();
   }
 
@@ -821,6 +903,9 @@ class _EditStoreDialogState extends ConsumerState<_EditStoreDialog> {
             widget.store.magasinId,
             shopName: _nameController.text.trim(),
             description: _descController.text.trim(),
+            adresse: _adresseController.text.trim(),
+            telephone: _telephoneController.text.trim(),
+            telephone2: _telephone2Controller.text.trim(),
             managerId: _gerantId,
             toucherGerant: _gerantId != widget.store.gerantId,
           );
@@ -850,12 +935,42 @@ class _EditStoreDialogState extends ConsumerState<_EditStoreDialog> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text('Nom, description, logo et gerant.', style: TextStyle(color: scheme.onSurfaceVariant)),
+                Text(
+                  'Nom, coordonnees, description, logo et gerant.',
+                  style: TextStyle(color: scheme.onSurfaceVariant),
+                ),
                 const SizedBox(height: 12),
                 if (_error != null) ...[
                   Text(_error!, style: TextStyle(color: scheme.error)),
                   const SizedBox(height: 8),
                 ],
+                // Adresse et premier numero : exiges aussi par le serveur
+                // (MagasinViewSet.partial_update), qui refuse un envoi vide.
+                TextFormField(
+                  controller: _adresseController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Adresse du magasin',
+                    helperText: 'Affichée au client qui vient retirer sur place.',
+                  ),
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Requis' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _telephoneController,
+                  keyboardType: TextInputType.phone,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(labelText: 'Numéro du magasin'),
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Requis' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _telephone2Controller,
+                  keyboardType: TextInputType.phone,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(labelText: 'Numéro 2 (facultatif)'),
+                ),
+                const SizedBox(height: 12),
                 DropdownButtonFormField<int?>(
                   initialValue: _gerantId,
                   decoration: const InputDecoration(

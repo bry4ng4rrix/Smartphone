@@ -139,6 +139,10 @@ class Order {
     this.createdAt,
     this.updatedAt,
     this.magasinId,
+    this.magasinNom,
+    this.magasinAdresse,
+    this.magasinTelephone,
+    this.magasinTelephone2,
     this.preparateurId,
     this.preparateurName,
     this.livreurId,
@@ -182,6 +186,20 @@ class Order {
   /// Magasin de la commande — exposé au gérant seulement (serializer
   /// complet) ; sert à cibler `available-staff` sur le bon magasin.
   final int? magasinId;
+
+  /// Coordonnées de la boutique qui tient la commande
+  /// (`MagasinContactMixin`, orders/serializers.py). Indispensables en
+  /// « Récupération » : c'est ce qu'on dicte au client venant retirer.
+  /// Aucune donnée sensible — exposées au gérant comme au préparateur.
+  /// Vides sur un magasin qui ne les a pas encore renseignées.
+  final String? magasinNom;
+  final String? magasinAdresse;
+  final String? magasinTelephone;
+  final String? magasinTelephone2;
+
+  /// Rien à dire au client si la boutique n'a ni adresse ni numéro.
+  bool get aContactMagasin =>
+      (magasinAdresse?.isNotEmpty ?? false) || (magasinTelephone?.isNotEmpty ?? false);
   // Préparateur/livreur désigné pour cette commande (voir orders/services.py
   // — un seul à la fois par personne).
   final int? preparateurId;
@@ -316,6 +334,10 @@ class Order {
       createdAt: asDateOrNull(json['created_at']),
       updatedAt: asDateOrNull(json['updated_at']),
       magasinId: asIntOrNull(json['magasin']),
+      magasinNom: asStringOrNull(json['magasin_nom']),
+      magasinAdresse: asStringOrNull(json['magasin_adresse']),
+      magasinTelephone: asStringOrNull(json['magasin_telephone']),
+      magasinTelephone2: asStringOrNull(json['magasin_telephone_2']),
       preparateurId: asIntOrNull(json['preparateur']),
       preparateurName: asStringOrNull(json['preparateur_name']),
       livreurId: asIntOrNull(json['livreur']),

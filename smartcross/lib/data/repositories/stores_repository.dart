@@ -79,6 +79,9 @@ class StoresRepository {
     required String managerEmail,
     required String managerPassword,
     required String adminEmail,
+    String adresse = '',
+    String telephone = '',
+    String telephone2 = '',
   }) async {
     final response = await _dio.post('users/register/', data: {
       'email': managerEmail,
@@ -87,6 +90,11 @@ class StoresRepository {
       'role': 'magasin',
       'full_name': managerFullName,
       'shop_name': shopName,
+      // Prefixes `shop_` cote serveur (RegisterSerializer) : ce sont les
+      // coordonnees du MAGASIN, pas celles du gerant (`phone`).
+      'shop_adresse': adresse,
+      'shop_telephone': telephone,
+      'shop_telephone_2': telephone2,
       'admin_email': adminEmail,
     });
     final data = response.data;
@@ -142,12 +150,20 @@ class StoresRepository {
     int magasinId, {
     String? shopName,
     String? description,
+    String? adresse,
+    String? telephone,
+    String? telephone2,
     int? managerId,
     bool toucherGerant = false,
   }) async {
     final corps = <String, dynamic>{};
     if (shopName != null) corps['shop_name'] = shopName;
     if (description != null) corps['description'] = description;
+    // Le serveur REFUSE une adresse ou un numero vides des lors que le champ
+    // est present : ne les transmettre que renseignes.
+    if (adresse != null) corps['adresse'] = adresse;
+    if (telephone != null) corps['telephone'] = telephone;
+    if (telephone2 != null) corps['telephone_2'] = telephone2;
     // `toucherGerant` distingue « champ absent » de « mettre a null » :
     // detacher le gerant demande d'envoyer explicitement null.
     if (toucherGerant) corps['manager_id'] = managerId;
@@ -156,9 +172,18 @@ class StoresRepository {
 
   /// Cree un magasin SANS gerant — on lui en affectera un plus tard.
   /// Distinct de [create], qui cree aussi le compte du gerant.
-  Future<void> createSansGerant({required String shopName, String? description}) async {
+  Future<void> createSansGerant({
+    required String shopName,
+    String? description,
+    String? adresse,
+    String? telephone,
+    String? telephone2,
+  }) async {
     final corps = <String, dynamic>{'shop_name': shopName};
     if (description != null) corps['description'] = description;
+    if (adresse != null) corps['adresse'] = adresse;
+    if (telephone != null) corps['telephone'] = telephone;
+    if (telephone2 != null) corps['telephone_2'] = telephone2;
     await _dio.post('users/magasins/', data: corps);
   }
 

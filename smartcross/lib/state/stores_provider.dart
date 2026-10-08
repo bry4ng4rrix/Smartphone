@@ -67,6 +67,9 @@ class StoresNotifier extends AsyncNotifier<List<Magasin>> {
     required String managerFullName,
     required String managerEmail,
     required String managerPassword,
+    String adresse = '',
+    String telephone = '',
+    String telephone2 = '',
   }) async {
     final adminEmail = ref.read(authProvider).user?.email ?? '';
     final result = await _repo.create(
@@ -75,6 +78,9 @@ class StoresNotifier extends AsyncNotifier<List<Magasin>> {
       managerEmail: managerEmail,
       managerPassword: managerPassword,
       adminEmail: adminEmail,
+      adresse: adresse,
+      telephone: telephone,
+      telephone2: telephone2,
     );
     await refresh();
     return result;
@@ -95,6 +101,9 @@ class StoresNotifier extends AsyncNotifier<List<Magasin>> {
     int magasinId, {
     String? shopName,
     String? description,
+    String? adresse,
+    String? telephone,
+    String? telephone2,
     int? managerId,
     bool toucherGerant = false,
   }) async {
@@ -102,6 +111,9 @@ class StoresNotifier extends AsyncNotifier<List<Magasin>> {
       magasinId,
       shopName: shopName,
       description: description,
+      adresse: adresse,
+      telephone: telephone,
+      telephone2: telephone2,
       managerId: managerId,
       toucherGerant: toucherGerant,
     );
@@ -110,8 +122,20 @@ class StoresNotifier extends AsyncNotifier<List<Magasin>> {
 
   /// Cree un magasin SANS gerant — distinct de [create], qui cree en meme
   /// temps le compte du gerant. On affecte un gerant plus tard.
-  Future<void> createSansGerant({required String shopName, String? description}) async {
-    await _repo.createSansGerant(shopName: shopName, description: description);
+  Future<void> createSansGerant({
+    required String shopName,
+    String? description,
+    String? adresse,
+    String? telephone,
+    String? telephone2,
+  }) async {
+    await _repo.createSansGerant(
+      shopName: shopName,
+      description: description,
+      adresse: adresse,
+      telephone: telephone,
+      telephone2: telephone2,
+    );
     await refresh();
   }
 
