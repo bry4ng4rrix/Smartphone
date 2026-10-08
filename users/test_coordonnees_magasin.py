@@ -263,7 +263,10 @@ class CoordonneesRecuperationTests(TestCase):
             "telephone": "+261341111111",
         }, format="json")
         self.assertEqual(r.status_code, 201, r.data)
-        boutique = r.data["boutique"]
+        # Une commande par boutique : ici une seule, tous les articles venant
+        # du même magasin (clients/services.py::create_commandes_en_ligne).
+        self.assertEqual(len(r.data["commandes"]), 1)
+        boutique = r.data["commandes"][0]["boutique"]
         self.assertEqual(boutique["nom"], "Magasin A")
         self.assertEqual(boutique["adresse"], ADRESSE)
         self.assertEqual(boutique["telephone"], TEL)
