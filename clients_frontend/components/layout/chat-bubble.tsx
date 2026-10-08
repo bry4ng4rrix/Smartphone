@@ -40,7 +40,7 @@ const EXEMPLE_ARTICLE = "Je veux 2 coques iPhone 13 noires";
  * aucun compte.
  */
 export function ChatBubble() {
-  const { boutiqueId, ajouterLignes } = useCart();
+  const { ajouterLignes } = useCart();
   const [ouvert, setOuvert] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [question, setQuestion] = useState("");
@@ -62,7 +62,9 @@ export function ChatBubble() {
       const res = await fetch("/api/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: texte, boutiqueId }),
+        // Aucune boutique imposée : l'assistant cherche dans le catalogue
+        // entier, et le panier accepte plusieurs boutiques.
+        body: JSON.stringify({ question: texte }),
       });
       const data: ReponseAssistant = await res.json();
       ajouter({ role: "assistant", texte: data.reponse, proposition: data.proposition });
@@ -81,17 +83,13 @@ export function ChatBubble() {
       ajouter({ role: "assistant", texte: "D'accord, je n'ajoute rien." });
       return;
     }
-    const ajoutees = ajouterLignes(proposition.articles as LignePanier[]);
-    if (ajoutees === proposition.articles.length) {
-      ajouter({ role: "assistant", texte: "C'est ajouté à votre panier. Vous pouvez continuer vos achats ou passer commande." });
-    } else if (ajoutees > 0) {
-      ajouter({
-        role: "assistant",
-        texte: `J'ai ajouté ${ajoutees} sur ${proposition.articles.length} article(s) — les autres viennent d'une boutique différente de votre panier actuel.`,
-      });
-    } else {
-      ajouter({ role: "assistant", texte: "Je n'ai rien pu ajouter : ces articles viennent d'une autre boutique que votre panier actuel. Videz-le d'abord si vous voulez changer de boutique." });
-    }
+    // Le panier accepte toutes les boutiques : plus rien ne peut être écarté
+    // à l'ajout, la proposition passe donc entière.
+    ajouterLignes(proposition.articles as LignePanier[]);
+    ajouter({
+      role: "assistant",
+      texte: "C'est ajouté à votre panier. Vous pouvez continuer vos achats ou passer commande.",
+    });
   };
 
   if (!ouvert) {

@@ -122,24 +122,17 @@ export async function preparerAjoutPanier(articlesExtraits: ArticleExtrait[], bo
   const manques: string[] = [];
   const resume: string[] = [];
   const resolus: ArticlePropose[] = [];
-  let boutiqueId = boutiqueActuelleId;
-  let boutiqueNom = "";
 
   for (const a of articles) {
     const quantite = Math.max(1, Math.floor(Number(a.quantite) || 1));
-    const res = await resoudreArticle(a.produit || "", a.couleur || "", boutiqueId);
+    // Recherche dans TOUT le catalogue, toutes boutiques confondues : le
+    // panier peut en mêler plusieurs, et c'est le serveur qui aiguille chaque
+    // article vers la sienne à la commande.
+    const res = await resoudreArticle(a.produit || "", a.couleur || "", boutiqueActuelleId);
     if (!res.ok) {
       manques.push(res.probleme);
       continue;
     }
-    if (boutiqueId !== null && res.produit.boutique.id !== boutiqueId) {
-      manques.push(
-        `"${res.produit.nom_complet}" vient d'une autre boutique (${res.produit.boutique.nom}) que le reste de votre panier (${boutiqueNom}) — une commande ne peut venir que d'une seule boutique`,
-      );
-      continue;
-    }
-    boutiqueId = res.produit.boutique.id;
-    boutiqueNom = res.produit.boutique.nom;
     resolus.push({
       varianteId: res.variante.id,
       produitId: res.produit.id,
@@ -159,10 +152,15 @@ export async function preparerAjoutPanier(articlesExtraits: ArticleExtrait[], bo
     return { reponse: `Je n'ai trouvé aucun de ces articles dans le catalogue :\n- ${manques.join("\n- ")}` };
   }
 
+  const boutiques = [...new Set(resolus.map((a) => a.boutiqueNom))];
   const avertissement = manques.length ? `\n\nJe n'ai en revanche pas pu ajouter :\n- ${manques.join("\n- ")}` : "";
 
   return {
-    reponse: `Voici ce que je peux ajouter à votre panier${boutiqueNom ? ` (${boutiqueNom})` : ""}. Vérifiez puis confirmez.${avertissement}`,
+    // Les articles peuvent venir de boutiques différentes : on nomme celles
+    // concernées plutôt qu'une boutique « courante » qui n'existe plus.
+    reponse: `Voici ce que je peux ajouter à votre panier${
+      boutiques.length ? ` (${boutiques.join(", ")})` : ""
+    }. Vérifiez puis confirmez.${avertissement}`,
     proposition: { type: "ajouter_panier", resume, articles: resolus },
   };
 }
