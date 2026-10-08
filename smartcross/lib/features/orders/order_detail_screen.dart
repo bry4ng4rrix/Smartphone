@@ -616,6 +616,32 @@ class _OrderDetailBodyState extends ConsumerState<_OrderDetailBody> {
                     label: 'Zone',
                     value: DeliveryZoneCatalog.labelFor(order.livraisonZone),
                   ),
+                  // Récupération sur place : l'adresse qui compte n'est pas
+                  // celle du client mais celle du magasin détenant les
+                  // produits — c'est ce qu'on lui dicte au téléphone.
+                  if (order.estRecuperation && order.aContactMagasin) ...[
+                    if ((order.magasinNom ?? '').isNotEmpty)
+                      _KeyValueRow(
+                        label: 'Point de retrait',
+                        value: order.magasinNom!,
+                        bold: true,
+                      ),
+                    if ((order.magasinAdresse ?? '').isNotEmpty)
+                      _KeyValueRow(
+                        label: 'Adresse du magasin',
+                        value: order.magasinAdresse!,
+                      ),
+                    if ((order.magasinTelephone ?? '').isNotEmpty)
+                      _KeyValueRow(
+                        label: 'Numéro du magasin',
+                        value: (order.magasinTelephone2 ?? '').isNotEmpty
+                            ? '${order.magasinTelephone} / ${order.magasinTelephone2}'
+                            : order.magasinTelephone!,
+                        onTap: () => launchUrl(
+                          Uri.parse('tel:${order.magasinTelephone}'),
+                        ),
+                      ),
+                  ],
                   _KeyValueRow(
                     label: 'Mode de paiement',
                     value: order.modePaiement.label,

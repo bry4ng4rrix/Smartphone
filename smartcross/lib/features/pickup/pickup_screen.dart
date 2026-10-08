@@ -358,7 +358,9 @@ class _PickupConfirmDialog extends StatelessWidget {
         return AlertDialog(
           title: Text('Confirmer la récupération de ${order.numero} ?'),
           content: Text(
-            'La commande de ${order.clientNom} sera marquée comme livrée (récupérée sur place).',
+            'La commande de ${order.clientNom} sera marquée comme livrée '
+            '(récupérée sur place'
+            '${(order.magasinNom ?? '').isEmpty ? '' : ' à ${order.magasinNom}'}).',
             style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
           actions: [
@@ -499,6 +501,68 @@ class _PickupCard extends StatelessWidget {
             ],
             const SizedBox(height: 8),
             Text(_itemsLabel, style: muted),
+
+            // Où le client vient retirer : le magasin qui tient les produits
+            // de cette commande. Utile dès qu'on administre plusieurs
+            // boutiques, et à dicter au téléphone.
+            if (order.aContactMagasin) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if ((order.magasinNom ?? '').isNotEmpty)
+                      Row(
+                        children: [
+                          Icon(Icons.storefront_outlined, size: 14, color: scheme.onSurfaceVariant),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              order.magasinNom!,
+                              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
+                    if ((order.magasinAdresse ?? '').isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.place_outlined, size: 14, color: scheme.onSurfaceVariant),
+                            const SizedBox(width: 6),
+                            Expanded(child: Text(order.magasinAdresse!, style: muted)),
+                          ],
+                        ),
+                      ),
+                    if ((order.magasinTelephone ?? '').isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Row(
+                          children: [
+                            Icon(Icons.phone_outlined, size: 14, color: scheme.onSurfaceVariant),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                (order.magasinTelephone2 ?? '').isNotEmpty
+                                    ? '${order.magasinTelephone} / ${order.magasinTelephone2}'
+                                    : order.magasinTelephone!,
+                                style: muted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
             // Pied de carte du web : `border-t pt-3`, total à gauche, bouton
             // d'action à droite. Un Wrap plutôt qu'un Row : sur un écran
             // étroit le bouton (libellé long) passe sous le total au lieu de

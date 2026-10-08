@@ -120,8 +120,10 @@ const navigationItems: NavItem[] = [
     label: "Clients",
     href: "/client",
     icon: Users,
-    // Fermé au gérant de magasin : admin global uniquement.
-    superAdminOnly: true,
+    // Ouvert au gérant de magasin : c'est lui qui rappelle le client au
+    // numéro laissé en ligne, puis accepte ou refuse la demande
+    // (§ demande). Il n'y voit que les commandes de sa boutique.
+    adminOnly: true,
   },
   {
     label: "Alertes",

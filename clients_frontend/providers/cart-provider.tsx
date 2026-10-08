@@ -41,20 +41,20 @@ type CartApi = {
   lignes: LignePanier[];
   nbArticles: number;
   sousTotal: number;
-  boutiqueId: number | null;
+  /** Les boutiques représentées dans le panier, dans l'ordre d'apparition. */
+  boutiqueIds: number[];
   ouvert: boolean;
   ouvrir: () => void;
   fermer: () => void;
-  /** `false` si l'article vient d'une autre boutique que le panier en cours. */
-  ajouter: (produit: Produit, variante: Variante, quantite?: number) => boolean;
   /**
-   * Ajoute des lignes déjà résolues (assistant), en respectant la même règle
-   * qu'`ajouter` : une seule boutique par panier. Renvoie le nombre de lignes
-   * réellement ajoutées.
+   * Ajoute un article, quelle que soit sa boutique : le panier peut en mêler
+   * plusieurs. À la commande, le serveur l'éclate en une commande par
+   * boutique propriétaire des articles — le client n'a donc jamais à choisir
+   * entre deux magasins, ni à vider son panier pour changer.
    */
+  ajouter: (produit: Produit, variante: Variante, quantite?: number) => void;
+  /** Ajoute des lignes déjà résolues (assistant). Renvoie le nombre ajouté. */
   ajouterLignes: (lignes: LignePanier[]) => number;
-  /** Vide le panier puis ajoute — après confirmation du changement de boutique. */
-  remplacerPar: (produit: Produit, variante: Variante, quantite?: number) => void;
   definirQuantite: (varianteId: number, quantite: number) => void;
   retirer: (varianteId: number) => void;
   vider: () => void;
@@ -81,7 +81,10 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const lignes = useSyncExternalStore(store.subscribe, store.get, store.getServer);
   const [ouvert, setOuvert] = useState(false);
 
-  const boutiqueId = lignes[0]?.boutiqueId ?? null;
+  const boutiqueIds = useMemo(
+    () => [...new Set(lignes.map((l) => l.boutiqueId))],
+    [lignes],
+  );
 
   const empiler = useCallback((produit: Produit, variante: Variante, quantite: number) => {
     store.set((actuelles) => {
@@ -99,13 +102,8 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const ajouter = useCallback<CartApi["ajouter"]>(
-    (produit, variante, quantite = 1) => {
-      // Une commande = une boutique (règle serveur) : on ne mélange pas.
-      if (boutiqueId !== null && boutiqueId !== produit.boutique.id) return false;
-      empiler(produit, variante, quantite);
-      return true;
-    },
-    [boutiqueId, empiler],
+    (produit, variante, quantite = 1) => empiler(produit, variante, quantite),
+    [empiler],
   );
 
   const ajouterLignes = useCallback<CartApi["ajouterLignes"]>(
@@ -113,9 +111,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       let ajoutees = 0;
       store.set((actuelles) => {
         let copie = actuelles;
-        const boutiqueCourante = copie[0]?.boutiqueId ?? null;
         for (const ligne of nouvelles) {
-          if (boutiqueCourante !== null && boutiqueCourante !== ligne.boutiqueId) continue;
           ajoutees++;
           const index = copie.findIndex((l) => l.varianteId === ligne.varianteId);
           if (index === -1) {
@@ -130,11 +126,6 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       });
       return ajoutees;
     },
-    [],
-  );
-
-  const remplacerPar = useCallback<CartApi["remplacerPar"]>(
-    (produit, variante, quantite = 1) => store.set([ligneDepuis(produit, variante, quantite)]),
     [],
   );
 
@@ -154,18 +145,17 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       lignes,
       nbArticles: lignes.reduce((n, l) => n + l.quantite, 0),
       sousTotal: lignes.reduce((n, l) => n + l.prix * l.quantite, 0),
-      boutiqueId,
+      boutiqueIds,
       ouvert,
       ouvrir: () => setOuvert(true),
       fermer: () => setOuvert(false),
       ajouter,
       ajouterLignes,
-      remplacerPar,
       definirQuantite,
       retirer,
       vider,
     }),
-    [lignes, boutiqueId, ouvert, ajouter, ajouterLignes, remplacerPar, definirQuantite, retirer, vider],
+    [lignes, boutiqueIds, ouvert, ajouter, ajouterLignes, definirQuantite, retirer, vider],
   );
 
   return <CartContext.Provider value={valeur}>{children}</CartContext.Provider>;

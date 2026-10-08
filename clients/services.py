@@ -94,6 +94,71 @@ def valider_zone(magasin, code):
 # --------------------------------------------------------------------------- #
 
 
+def magasins_des_items(items):
+    """Groupe `items` par magasin PROPRIÉTAIRE des produits demandés.
+
+    C'est la règle de routage : une commande part automatiquement vers la
+    boutique qui détient l'article, jamais vers celle que le navigateur
+    désigne. Le site affiche le catalogue des deux magasins — le même modèle
+    peut donc y figurer deux fois, une par boutique, et chaque exemplaire
+    appartient à la sienne.
+
+    Renvoie une liste de `(MagasinProfile, items)`, ordonnée par nom de
+    boutique pour que l'accusé de commande soit stable. Lève une
+    ValidationError pour un article introuvable : il n'appartient à aucune
+    boutique, on ne peut pas l'acheminer.
+    """
+    ids = {int(it["variante"]) for it in items}
+    variantes = (
+        ProductVariant.objects.select_related("product_reference__type__category__magasin")
+        .filter(id__in=ids)
+    )
+    magasin_par_variante = {
+        v.id: v.product_reference.type.category.magasin for v in variantes
+    }
+    manquants = sorted(ids - set(magasin_par_variante))
+    if manquants:
+        raise ValidationError(
+            {"items": [f"Article {vid} indisponible." for vid in manquants]}
+        )
+
+    groupes = {}
+    for it in items:
+        mag = magasin_par_variante[int(it["variante"])]
+        groupes.setdefault(mag.id, (mag, []))[1].append(it)
+    return [groupes[k] for k in sorted(groupes, key=lambda k: (groupes[k][0].shop_name, k))]
+
+
+@transaction.atomic
+def create_commandes_en_ligne(*, items, livraison_zone, client_nom, telephone,
+                              telephone_2="", adresse_livraison="", note=""):
+    """Transforme un panier en UNE COMMANDE PAR MAGASIN concerné.
+
+    Le client compose son panier sans se soucier des boutiques ; c'est ici que
+    le panier est éclaté et que chaque article rejoint la sienne. Un panier
+    d'un seul magasin donne une seule commande — le cas courant.
+
+    Tout dans la même transaction : si une boutique refuse (stock, prix), rien
+    n'est créé, pas même les commandes des autres. Le client ne se retrouve
+    jamais avec la moitié de sa commande passée.
+    """
+    if not items:
+        raise ValidationError({"items": "Ajoutez au moins un article."})
+    return [
+        create_commande_en_ligne(
+            magasin=magasin,
+            items=items_du_magasin,
+            livraison_zone=livraison_zone,
+            client_nom=client_nom,
+            telephone=telephone,
+            telephone_2=telephone_2,
+            adresse_livraison=adresse_livraison,
+            note=note,
+        )
+        for magasin, items_du_magasin in magasins_des_items(items)
+    ]
+
+
 @transaction.atomic
 def create_commande_en_ligne(*, magasin, items, livraison_zone, client_nom, telephone,
                              telephone_2="", adresse_livraison="", note=""):

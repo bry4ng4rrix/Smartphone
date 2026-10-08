@@ -50,10 +50,13 @@ type Staff = { id: number; full_name: string; available: boolean };
  * client, lui, voit la zone et le total définitifs dans son espace.
  */
 export default function DemandesClientsPage() {
-  // Module Clients : ADMIN GLOBAL uniquement (mission § 17). Le gérant
-  // garde les coordonnées portées par chaque commande, pas un module
-  // de gestion des clients.
-  const { isAdmin, loading: userLoading } = useCurrentUser();
+  // Approbation des commandes en ligne : ADMIN GLOBAL **et** GÉRANT DE
+  // MAGASIN (§ demande). C'est le gérant qui rappelle le client au numéro
+  // laissé sur le site pour confirmer avant de lancer la préparation — lui
+  // retirer cet écran l'obligeait à passer par l'admin. Le périmètre reste
+  // tenu par le serveur : `get_accessible_magasins` ne lui montre que les
+  // commandes de sa boutique, et `IsGerant` garde les actions.
+  const { isGerant, loading: userLoading } = useCurrentUser();
   const { zones } = useDeliveryZones();
 
   const [demandes, setDemandes] = useState<any[]>([]);
@@ -96,8 +99,8 @@ export default function DemandesClientsPage() {
 
   useRealtimeRefresh(['order', 'order_status_history'], () => charger(true));
   useEffect(() => {
-    if (!userLoading && isAdmin) charger();
-  }, [userLoading, isAdmin, charger]);
+    if (!userLoading && isGerant) charger();
+  }, [userLoading, isGerant, charger]);
 
   const nomZone = useCallback(
     (code: string) => (code === 'RECUPERATION' ? 'Retrait sur place' : zones.find((z) => z.code === code)?.nom || code),
@@ -223,15 +226,17 @@ export default function DemandesClientsPage() {
     }
   };
 
-  // Module Clients : admin global uniquement (mission § 17).
-  if (!userLoading && !isAdmin) {
+  // Gérant et admin global seulement : ni préparateur ni livreur n'approuve.
+  if (!userLoading && !isGerant) {
     return (
       <div className="p-6">
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-20 text-center">
             <ShieldAlert className="h-12 w-12 text-red-500 mb-4" />
             <h2 className="text-xl font-bold">Accès refusé</h2>
-            <p className="text-muted-foreground mt-2">Cette page est réservée au gérant.</p>
+            <p className="text-muted-foreground mt-2">
+              Cette page est réservée au gérant de magasin et à l&apos;administrateur.
+            </p>
           </CardContent>
         </Card>
       </div>

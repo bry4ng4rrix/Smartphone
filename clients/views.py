@@ -29,7 +29,7 @@ from .serializers import (
     PublicProduitSerializer,
     PublicSousTypeSerializer,
 )
-from .services import create_commande_en_ligne, options_livraison
+from .services import create_commandes_en_ligne, options_livraison
 
 
 def _erreurs(exc):
@@ -221,6 +221,12 @@ class CommandeEnLigneView(PublicMixin, APIView):
     d'authentifier quelqu'un qui viendrait relire ou modifier une commande.
     La réponse ne contient donc que le nécessaire pour l'écran de
     confirmation (numéro, montants, coordonnées saisies).
+
+    La réponse est une LISTE (`{"commandes": [...]}`) : le panier est éclaté
+    en une commande par magasin propriétaire des articles. Le site présente le
+    catalogue des deux boutiques, et chaque article rejoint automatiquement la
+    sienne — le navigateur ne choisit pas la destination. Un panier d'une
+    seule boutique renvoie donc une liste d'un seul élément.
     """
 
     # Débit propre à l'écriture : plus strict que la lecture du catalogue,
@@ -232,13 +238,8 @@ class CommandeEnLigneView(PublicMixin, APIView):
         ser.is_valid(raise_exception=True)
         d = ser.validated_data
 
-        magasin = MagasinProfile.objects.filter(pk=d["boutique"]).first()
-        if magasin is None:
-            return Response({"boutique": ["Boutique introuvable."]}, status=status.HTTP_400_BAD_REQUEST)
-
         try:
-            order = create_commande_en_ligne(
-                magasin=magasin,
+            orders = create_commandes_en_ligne(
                 items=d["items"],
                 livraison_zone=d["livraison_zone"],
                 client_nom=d["client_nom"],
@@ -250,4 +251,7 @@ class CommandeEnLigneView(PublicMixin, APIView):
         except DjangoValidationError as e:
             return Response(_erreurs(e), status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(CommandeEnLigneSerializer(order).data, status=status.HTTP_201_CREATED)
+        return Response(
+            {"commandes": CommandeEnLigneSerializer(orders, many=True).data},
+            status=status.HTTP_201_CREATED,
+        )

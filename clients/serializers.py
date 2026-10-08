@@ -156,7 +156,12 @@ class CommandeEnLigneCreateSerializer(serializers.Serializer):
     détecter un changement de tarif, jamais à fixer le montant.
     """
 
-    boutique = serializers.IntegerField(min_value=1)
+    # Plus de source de vérité pour le routage : le serveur déduit la
+    # boutique de CHAQUE article (clients/services.py::magasins_des_items).
+    # Le champ reste accepté — les anciens clients l'envoient — mais il est
+    # ignoré : un panier peut désormais mêler plusieurs boutiques, et sa
+    # valeur unique n'aurait aucun sens.
+    boutique = serializers.IntegerField(min_value=1, required=False)
     items = CommandeItemInputSerializer(many=True)
     livraison_zone = serializers.CharField(max_length=20)
 

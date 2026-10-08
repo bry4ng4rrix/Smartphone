@@ -45,6 +45,16 @@ class BoutiqueEnLigneTests(TestCase):
         donnees.update(extra)
         return donnees
 
+    @staticmethod
+    def accuse(reponse, index=0):
+        """L'accusé d'une commande dans la réponse.
+
+        `POST /api/commandes/` renvoie une LISTE : le panier est éclaté en une
+        commande par magasin propriétaire des articles. Un panier d'une seule
+        boutique — le cas de ces tests — donne une liste d'un élément.
+        """
+        return reponse.data["commandes"][index]
+
     # ------------------------------------------------------------------ #
     # Commander sans compte
     # ------------------------------------------------------------------ #
@@ -53,7 +63,7 @@ class BoutiqueEnLigneTests(TestCase):
         r = self.api.post("/api/commandes/", self.corps(), format="json")
         self.assertEqual(r.status_code, 201, r.data)
 
-        order = Order.objects.get(numero=r.data["numero"])
+        order = Order.objects.get(numero=self.accuse(r)["numero"])
         self.assertTrue(order.origine_en_ligne)
         self.assertEqual(order.client_nom, "Rakoto Jean")
         self.assertEqual(order.telephone, "+261340000000")
@@ -61,7 +71,7 @@ class BoutiqueEnLigneTests(TestCase):
     def test_la_commande_attend_l_appel_du_gerant(self):
         """Elle n'entre pas dans le circuit avant que le gérant n'approuve."""
         r = self.api.post("/api/commandes/", self.corps(), format="json")
-        self.assertEqual(r.data["statut"], "EN_ATTENTE_APPROBATION")
+        self.assertEqual(self.accuse(r)["statut"], "EN_ATTENTE_APPROBATION")
 
     def test_aucun_stock_reserve_avant_approbation(self):
         self.api.post("/api/commandes/", self.corps(), format="json")
@@ -74,9 +84,9 @@ class BoutiqueEnLigneTests(TestCase):
 
     def test_livraison_facturee_3000_ar(self):
         r = self.api.post("/api/commandes/", self.corps(), format="json")
-        self.assertEqual(r.data["frais_livraison"], 3000)
+        self.assertEqual(self.accuse(r)["frais_livraison"], 3000)
         # 2 × 30 000 + 3 000
-        self.assertEqual(r.data["total_a_payer"], 63000)
+        self.assertEqual(self.accuse(r)["total_a_payer"], 63000)
 
     def test_retrait_sur_place_gratuit_et_sans_adresse(self):
         r = self.api.post(
@@ -85,8 +95,8 @@ class BoutiqueEnLigneTests(TestCase):
             format="json",
         )
         self.assertEqual(r.status_code, 201, r.data)
-        self.assertEqual(r.data["frais_livraison"], 0)
-        self.assertEqual(r.data["total_a_payer"], 60000)
+        self.assertEqual(self.accuse(r)["frais_livraison"], 0)
+        self.assertEqual(self.accuse(r)["total_a_payer"], 60000)
 
     def test_un_montant_envoye_par_le_client_est_ignore(self):
         """Le navigateur n'est jamais la source de vérité d'un montant."""
@@ -96,8 +106,8 @@ class BoutiqueEnLigneTests(TestCase):
             format="json",
         )
         self.assertEqual(r.status_code, 201, r.data)
-        self.assertEqual(r.data["frais_livraison"], 3000)
-        self.assertEqual(r.data["total_a_payer"], 63000)
+        self.assertEqual(self.accuse(r)["frais_livraison"], 3000)
+        self.assertEqual(self.accuse(r)["total_a_payer"], 63000)
 
     def test_les_deux_modes_de_remise_sont_annonces(self):
         r = self.api.get(f"/api/boutiques/{self.magasin.id}/zones/")
@@ -114,7 +124,7 @@ class BoutiqueEnLigneTests(TestCase):
         ).update(prix=Decimal("5000"))
 
         r = self.api.post("/api/commandes/", self.corps(), format="json")
-        self.assertEqual(r.data["frais_livraison"], 5000)
+        self.assertEqual(self.accuse(r)["frais_livraison"], 5000)
 
     # ------------------------------------------------------------------ #
     # Validation des coordonnées
@@ -176,7 +186,7 @@ class BoutiqueEnLigneTests(TestCase):
     def test_la_commande_ne_se_relit_pas(self):
         """Sans compte, rien n'authentifierait celui qui la demande."""
         r = self.api.post("/api/commandes/", self.corps(), format="json")
-        self.assertEqual(self.api.get(f"/api/commandes/{r.data['id']}/").status_code, 404)
+        self.assertEqual(self.api.get(f"/api/commandes/{self.accuse(r)['id']}/").status_code, 404)
 
     def test_le_catalogue_reste_lisible_sans_jeton(self):
         self.assertEqual(self.api.get("/api/produit/").status_code, 200)
