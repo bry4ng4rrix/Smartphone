@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ShoppingBag } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -15,6 +15,7 @@ import { catalogue, commandes } from "@/lib/endpoints";
 import {
   COORDONNEES_VIDES,
   REMISE_VIDE,
+  grouperParBoutique,
   aucuneErreur,
   indexEtape,
   normaliserTelephone,
@@ -27,7 +28,7 @@ import {
 } from "@/lib/commande";
 import { useCart } from "@/providers/cart-provider";
 import { useToast } from "@/providers/toast-provider";
-import type { Commande, PointRetrait } from "@/lib/types";
+import type { Commande, ZonesReponse } from "@/lib/types";
 
 /**
  * Tunnel de commande, sans compte.
@@ -52,37 +53,39 @@ export function CheckoutVue() {
   const [erreurs, setErreurs] = useState<Erreurs>({});
   const [envoi, setEnvoi] = useState(false);
   const [erreurEnvoi, setErreurEnvoi] = useState<string | null>(null);
-  const [confirmee, setConfirmee] = useState<Commande | null>(null);
+  const [confirmees, setConfirmees] = useState<Commande[] | null>(null);
 
-  // Tarif de livraison : il vient du serveur, jamais d'une constante d'ici.
-  const [prixLivraison, setPrixLivraison] = useState<number | null>(null);
-  // Où venir retirer, si le client choisit ce mode — le même appel le donne.
-  const [pointRetrait, setPointRetrait] = useState<PointRetrait | null>(null);
-  const boutiqueId = lignes[0]?.boutiqueId ?? null;
+  // Le panier peut mêler plusieurs boutiques : chacune a son tarif de
+  // livraison et son point de retrait, et donnera sa propre commande. Les
+  // deux viennent du serveur, jamais d'une constante d'ici.
+  const [zonesParBoutique, setZonesParBoutique] = useState<Record<number, ZonesReponse>>({});
+
+  const boutiques = useMemo(() => grouperParBoutique(lignes), [lignes]);
+  // Clé stable : l'effet ne se relance que si l'ENSEMBLE des boutiques change,
+  // pas à chaque changement de quantité.
+  const cleBoutiques = boutiques.map((b) => b.id).join(",");
 
   useEffect(() => {
-    if (boutiqueId === null) return;
+    const ids = cleBoutiques ? cleBoutiques.split(",").map(Number) : [];
+    if (ids.length === 0) return;
     let annule = false;
     (async () => {
-      try {
-        const reponse = await catalogue.zones(boutiqueId);
-        if (!annule) {
-          setPrixLivraison(reponse.zones[0]?.prix ?? null);
-          setPointRetrait(reponse.recuperation ?? null);
-        }
-      } catch {
+      const reponses = await Promise.all(
         // Sans tarif, l'étape livraison affiche « — » plutôt qu'un chiffre
         // inventé ; le serveur appliquera le bon montant de toute façon.
-        if (!annule) {
-          setPrixLivraison(null);
-          setPointRetrait(null);
-        }
-      }
+        ids.map((id) => catalogue.zones(id).catch(() => null)),
+      );
+      if (annule) return;
+      setZonesParBoutique(
+        Object.fromEntries(
+          ids.flatMap((id, i) => (reponses[i] ? [[id, reponses[i]!] as const] : [])),
+        ),
+      );
     })();
     return () => {
       annule = true;
     };
-  }, [boutiqueId]);
+  }, [cleBoutiques]);
 
   const aller = (cible: Etape) => {
     setEtape(cible);
@@ -114,12 +117,13 @@ export function CheckoutVue() {
   };
 
   const envoyer = async () => {
-    if (boutiqueId === null || lignes.length === 0) return;
+    if (lignes.length === 0) return;
     setEnvoi(true);
     setErreurEnvoi(null);
     try {
-      const commande = await commandes.creer({
-        boutique: boutiqueId,
+      // Aucune boutique n'est envoyée : le serveur route chaque article vers
+      // la sienne et renvoie une commande par boutique concernée.
+      const { commandes: creees } = await commandes.creer({
         items: lignes.map((l) => ({
           variante: l.varianteId,
           quantite: l.quantite,
@@ -134,9 +138,12 @@ export function CheckoutVue() {
         adresse_livraison: remise.mode === "EN_LIGNE" ? remise.adresse : undefined,
         note: remise.note || undefined,
       });
-      setConfirmee(commande);
+      setConfirmees(creees);
       vider();
-      toast.succes("Commande envoyée", `La boutique vous rappelle au ${commande.telephone}.`);
+      toast.succes(
+        creees.length > 1 ? `${creees.length} commandes envoyées` : "Commande envoyée",
+        `${creees.length > 1 ? "Chaque boutique" : "La boutique"} vous rappelle au ${coordonnees.telephone}.`,
+      );
     } catch (e) {
       setErreurEnvoi(messageErreur(e, "Impossible d'envoyer la commande."));
     } finally {
@@ -144,7 +151,7 @@ export function CheckoutVue() {
     }
   };
 
-  if (confirmee) return <CommandeConfirmee commande={confirmee} />;
+  if (confirmees) return <CommandeConfirmee commandes={confirmees} />;
 
   if (lignes.length === 0) {
     return (
@@ -162,7 +169,19 @@ export function CheckoutVue() {
     );
   }
 
-  const frais = remise.mode === "RECUPERATION" ? 0 : (prixLivraison ?? 0);
+  // Deux boutiques = deux remises distinctes, donc deux fois les frais. On
+  // somme ce que chacune facture plutôt que d'afficher un montant unique qui
+  // ne correspondrait à aucune commande.
+  const frais =
+    remise.mode === "RECUPERATION"
+      ? 0
+      : boutiques.reduce((n, b) => n + (zonesParBoutique[b.id]?.zones[0]?.prix ?? 0), 0);
+
+  const boutiquesAvecRemise = boutiques.map((b) => ({
+    ...b,
+    prixLivraison: zonesParBoutique[b.id]?.zones[0]?.prix ?? null,
+    pointRetrait: zonesParBoutique[b.id]?.recuperation ?? null,
+  }));
 
   return (
     <div>
@@ -179,8 +198,7 @@ export function CheckoutVue() {
         <EtapeLivraison
           valeurs={remise}
           erreurs={erreurs}
-          prixLivraison={prixLivraison}
-          pointRetrait={pointRetrait}
+          boutiques={boutiquesAvecRemise}
           onChange={(maj) => setRemise((r) => ({ ...r, ...maj }))}
           onSuivant={validerEtapeLivraison}
           onRetour={() => aller("coordonnees")}
@@ -190,7 +208,7 @@ export function CheckoutVue() {
           lignes={lignes}
           coordonnees={coordonnees}
           remise={remise}
-          pointRetrait={pointRetrait}
+          boutiques={boutiquesAvecRemise}
           sousTotal={sousTotal}
           fraisLivraison={frais}
           onQuantite={definirQuantite}

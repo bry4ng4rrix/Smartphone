@@ -103,7 +103,11 @@ export type Page<T> = {
 
 /** Ce que le navigateur envoie. Aucun montant : le serveur les calcule. */
 export type CommandeInput = {
-  boutique: number;
+  /**
+   * Plus envoyé : le serveur déduit la boutique de CHAQUE article et éclate
+   * le panier en une commande par boutique concernée. Le navigateur ne
+   * choisit pas la destination d'une commande.
+   */
   items: { variante: number; quantite: number; prix_attendu?: string | number }[];
   livraison_zone: string;
   client_nom: string;
@@ -111,6 +115,17 @@ export type CommandeInput = {
   telephone_2?: string;
   adresse_livraison?: string;
   note?: string;
+};
+
+/**
+ * Réponse de `POST /commandes/` : UNE commande par boutique concernée.
+ *
+ * Un panier d'une seule boutique — le cas courant — renvoie une liste d'un
+ * seul élément. Un panier mêlant deux boutiques en renvoie deux, chacune avec
+ * son numéro, ses frais et ses coordonnées de retrait.
+ */
+export type CommandesReponse = {
+  commandes: Commande[];
 };
 
 export type CommandeLigne = {

@@ -6,8 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/field";
 import { formatAr, cn } from "@/lib/utils";
 import { PointRetrait as BlocPointRetrait } from "@/components/checkout/point-retrait";
-import type { Erreurs, ModeRemise, Remise } from "@/lib/commande";
-import type { PointRetrait } from "@/lib/types";
+import type { BoutiqueDuPanier, Erreurs, ModeRemise, Remise } from "@/lib/commande";
 
 function Choix({
   actif,
@@ -56,24 +55,26 @@ function Choix({
 /**
  * Étape 2 — où et comment recevoir.
  *
- * `prixLivraison` vient de l'API (`GET /api/boutiques/{id}/zones/`), jamais
- * d'une constante du front : c'est le serveur qui fixe le tarif, et c'est lui
+ * Les tarifs viennent de l'API (`GET /api/boutiques/{id}/zones/`), jamais
+ * d'une constante du front : c'est le serveur qui fixe le prix, et c'est lui
  * qui l'appliquera à la commande.
+ *
+ * Le panier peut mêler plusieurs boutiques, et donnera alors une commande par
+ * boutique. Le mode de remise est commun — on ne fait pas choisir deux fois —
+ * mais chaque boutique facture sa livraison et a son propre point de retrait,
+ * ce que cette étape annonce explicitement.
  */
 export function EtapeLivraison({
   valeurs,
   erreurs,
-  prixLivraison,
-  pointRetrait,
+  boutiques,
   onChange,
   onSuivant,
   onRetour,
 }: {
   valeurs: Remise;
   erreurs: Erreurs;
-  prixLivraison: number | null;
-  /** Coordonnées du magasin détenant les produits — `null` si l'appel a échoué. */
-  pointRetrait: PointRetrait | null;
+  boutiques: BoutiqueDuPanier[];
   onChange: (maj: Partial<Remise>) => void;
   onSuivant: () => void;
   onRetour: () => void;
@@ -82,6 +83,13 @@ export function EtapeLivraison({
   const idNote = useId();
 
   const choisir = (mode: ModeRemise) => onChange({ mode });
+
+  const plusieurs = boutiques.length > 1;
+  // `null` dès qu'un tarif manque : mieux vaut « — » qu'un total partiel
+  // présenté comme le prix à payer.
+  const fraisTotal = boutiques.some((b) => b.prixLivraison === null)
+    ? null
+    : boutiques.reduce((n, b) => n + (b.prixLivraison ?? 0), 0);
 
   return (
     <form
@@ -93,22 +101,34 @@ export function EtapeLivraison({
       className="hairline rounded-xl bg-surface/50 p-5 sm:p-6"
     >
       <h2 className="text-base font-medium tracking-tight">Livraison</h2>
-      <p className="mt-1.5 text-sm text-muted">Comment souhaitez-vous recevoir votre commande ?</p>
+      <p className="mt-1.5 text-sm text-muted">
+        {plusieurs
+          ? `Vos articles viennent de ${boutiques.length} boutiques : vous recevrez une commande par boutique.`
+          : "Comment souhaitez-vous recevoir votre commande ?"}
+      </p>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         <Choix
           actif={valeurs.mode === "EN_LIGNE"}
           icone={Truck}
           titre="Livraison"
-          detail="Livrée à l'adresse que vous indiquez."
-          prix={prixLivraison === null ? "—" : formatAr(prixLivraison)}
+          detail={
+            plusieurs
+              ? `Livrée à l'adresse que vous indiquez — frais par boutique (${boutiques.length}).`
+              : "Livrée à l'adresse que vous indiquez."
+          }
+          prix={fraisTotal === null ? "—" : formatAr(fraisTotal)}
           onClick={() => choisir("EN_LIGNE")}
         />
         <Choix
           actif={valeurs.mode === "RECUPERATION"}
           icone={Store}
           titre="Retrait sur place"
-          detail="À récupérer directement en boutique."
+          detail={
+            plusieurs
+              ? `À récupérer dans chacune des ${boutiques.length} boutiques.`
+              : "À récupérer directement en boutique."
+          }
           prix="Gratuit"
           onClick={() => choisir("RECUPERATION")}
         />
@@ -132,15 +152,18 @@ export function EtapeLivraison({
             />
           </Field>
         </div>
-      ) : pointRetrait ? (
-        // Le client vient sur place : il lui faut l'adresse et un numéro,
-        // avant de valider, pas seulement sur l'accusé final.
-        <BlocPointRetrait
-          nom={pointRetrait.boutique}
-          coordonnees={pointRetrait}
-          className="mt-5"
-        />
-      ) : null}
+      ) : (
+        // Le client vient sur place : il lui faut l'adresse et un numéro
+        // avant de valider, pas seulement sur l'accusé final. Un point de
+        // retrait par boutique, puisqu'il y aura autant de commandes.
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          {boutiques.map((b) =>
+            b.pointRetrait ? (
+              <BlocPointRetrait key={b.id} nom={b.pointRetrait.boutique} coordonnees={b.pointRetrait} />
+            ) : null,
+          )}
+        </div>
+      )}
 
       <div className="mt-5">
         <Field label="Précision pour la boutique (facultatif)" htmlFor={idNote}>

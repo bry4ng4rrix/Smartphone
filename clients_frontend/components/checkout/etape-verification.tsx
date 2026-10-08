@@ -5,8 +5,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { formatAr, pluriel } from "@/lib/utils";
 import { PointRetrait as BlocPointRetrait } from "@/components/checkout/point-retrait";
-import type { Coordonnees, Remise } from "@/lib/commande";
-import type { PointRetrait } from "@/lib/types";
+import type { BoutiqueDuPanier, Coordonnees, Remise } from "@/lib/commande";
 import type { LignePanier } from "@/providers/cart-provider";
 
 function Bloc({
@@ -58,7 +57,7 @@ export function EtapeVerification({
   lignes,
   coordonnees,
   remise,
-  pointRetrait,
+  boutiques,
   sousTotal,
   fraisLivraison,
   onQuantite,
@@ -71,8 +70,12 @@ export function EtapeVerification({
   lignes: LignePanier[];
   coordonnees: Coordonnees;
   remise: Remise;
-  /** Coordonnées du magasin détenant les produits — `null` si l'appel a échoué. */
-  pointRetrait: PointRetrait | null;
+  /**
+   * Le panier regroupé par boutique : autant de commandes que d'entrées. Le
+   * client doit voir ce découpage ICI, avant d'envoyer — c'est la dernière
+   * étape modifiable.
+   */
+  boutiques: BoutiqueDuPanier[];
   sousTotal: number;
   fraisLivraison: number;
   onQuantite: (varianteId: number, quantite: number) => void;
@@ -83,6 +86,7 @@ export function EtapeVerification({
   onRetour: () => void;
 }) {
   const total = sousTotal + fraisLivraison;
+  const plusieurs = boutiques.length > 1;
 
   return (
     <div className="hairline rounded-xl bg-surface/50 p-5 sm:p-6">
@@ -102,8 +106,23 @@ export function EtapeVerification({
               .
             </p>
           ) : (
+            // Groupé par boutique dès qu'il y en a plusieurs : chaque groupe
+            // partira comme une commande distincte, avec ses propres frais.
+            boutiques.map((b) => (
+              <div key={b.id} className={plusieurs ? "border-t border-border/70 pt-3 first:border-0 first:pt-0" : ""}>
+                {plusieurs ? (
+                  <p className="flex items-baseline justify-between gap-3 pb-1 text-xs">
+                    <span className="font-medium">{b.nom}</span>
+                    <span className="text-muted">
+                      1 commande · {formatAr(b.sousTotal)}
+                      {remise.mode === "EN_LIGNE" && b.prixLivraison !== null
+                        ? ` + ${formatAr(b.prixLivraison)} de livraison`
+                        : ""}
+                    </span>
+                  </p>
+                ) : null}
             <ul className="divide-y divide-border/70">
-              {lignes.map((l) => (
+              {b.lignes.map((l) => (
                 <li key={l.varianteId} className="flex flex-wrap items-center gap-3 py-3 first:pt-0">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{l.nomComplet}</p>
@@ -153,6 +172,8 @@ export function EtapeVerification({
                 </li>
               ))}
             </ul>
+              </div>
+            ))
           )}
         </Bloc>
 
@@ -174,13 +195,16 @@ export function EtapeVerification({
             {remise.note ? <Ligne libelle="Précision" valeur={remise.note} /> : null}
           </dl>
           {/* Dernière relecture avant d'envoyer : l'endroit où venir doit y
-              figurer, pas seulement le mot « Retrait sur place ». */}
-          {remise.mode === "RECUPERATION" && pointRetrait ? (
-            <BlocPointRetrait
-              nom={pointRetrait.boutique}
-              coordonnees={pointRetrait}
-              className="mt-3"
-            />
+              figurer, pas seulement le mot « Retrait sur place ». Un bloc par
+              boutique, puisqu'il y aura autant de retraits. */}
+          {remise.mode === "RECUPERATION" ? (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              {boutiques.map((b) =>
+                b.pointRetrait ? (
+                  <BlocPointRetrait key={b.id} nom={b.pointRetrait.boutique} coordonnees={b.pointRetrait} />
+                ) : null,
+              )}
+            </div>
           ) : null}
         </Bloc>
 
@@ -194,7 +218,11 @@ export function EtapeVerification({
               valeur={formatAr(sousTotal)}
             />
             <Ligne
-              libelle="Frais de livraison"
+              libelle={
+                plusieurs && remise.mode === "EN_LIGNE"
+                  ? `Frais de livraison (${boutiques.length} boutiques)`
+                  : "Frais de livraison"
+              }
               valeur={remise.mode === "RECUPERATION" ? "Gratuit" : formatAr(fraisLivraison)}
             />
             <div className="mt-2 flex items-baseline justify-between gap-4 border-t border-border/70 pt-3">
@@ -203,7 +231,9 @@ export function EtapeVerification({
             </div>
           </dl>
           <p className="mt-2 text-xs text-muted">
-            Le montant définitif est confirmé par la boutique lors de son appel.
+            {plusieurs
+              ? `Vos articles viennent de ${boutiques.length} boutiques : vous recevrez ${boutiques.length} commandes, chacune confirmée par sa boutique lors de son appel.`
+              : "Le montant définitif est confirmé par la boutique lors de son appel."}
           </p>
         </Bloc>
       </div>

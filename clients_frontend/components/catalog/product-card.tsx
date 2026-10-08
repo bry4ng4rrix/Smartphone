@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { Heart, Plus } from "lucide-react";
 import { ColorDot } from "@/components/ui/color-dot";
-import { Button } from "@/components/ui/button";
 import { ProductImage } from "@/components/product/product-image";
 import { Tilt } from "@/components/ui/tilt";
 import { useCart } from "@/providers/cart-provider";

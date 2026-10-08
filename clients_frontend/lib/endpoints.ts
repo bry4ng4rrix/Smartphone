@@ -8,8 +8,8 @@ import { api, mediaUrl, type RequeteOptions } from "./api";
 import type {
   Boutique,
   Categorie,
-  Commande,
   CommandeInput,
+  CommandesReponse,
   CommandeSpeciale,
   CommandeSpecialeInput,
   Couleur,
@@ -82,8 +82,12 @@ export const commandes = {
    * Passe la commande. Écriture seule : il n'y a pas d'endpoint pour la
    * relire ensuite, et le corps ne porte aucun montant — le serveur calcule
    * les frais et le total.
+   *
+   * Renvoie UNE commande PAR BOUTIQUE : le serveur éclate le panier selon le
+   * magasin propriétaire de chaque article.
    */
-  creer: (data: CommandeInput) => api<Commande>("/commandes/", { method: "POST", body: data }),
+  creer: (data: CommandeInput) =>
+    api<CommandesReponse>("/commandes/", { method: "POST", body: data }),
 };
 
 // --------------------------------------------------------------------- //
