@@ -177,6 +177,21 @@ class MagasinProfile(models.Model):
     shop_name = models.CharField(max_length=255)
     description = models.CharField(max_length=255, blank=True, null=True)
     shop_logo = models.ImageField(upload_to="shop_logo/",blank=True,null=True)
+
+    # Coordonnées du point de vente. Elles servent au client qui vient
+    # RETIRER sa commande sur place : sans elles, « Retrait sur place » ne lui
+    # dit ni où aller ni qui appeler.
+    #
+    # `blank=True` au niveau du modèle pour que la migration passe sur les
+    # magasins existants, qui n'en ont pas encore. Le caractère obligatoire de
+    # l'adresse et du premier numéro est porté par l'API et les formulaires
+    # (voir MagasinViewSet) : imposer `null=False` ici aurait exigé de
+    # remplir d'office des valeurs factices.
+    adresse = models.CharField(max_length=255, blank=True, default="")
+    telephone = models.CharField(max_length=20, blank=True, default="")
+    #: Numéro de secours, facultatif.
+    telephone_2 = models.CharField(max_length=20, blank=True, default="")
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

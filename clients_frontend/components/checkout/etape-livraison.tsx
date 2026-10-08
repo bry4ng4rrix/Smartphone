@@ -5,7 +5,9 @@ import { ArrowLeft, ArrowRight, Store, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/field";
 import { formatAr, cn } from "@/lib/utils";
+import { PointRetrait as BlocPointRetrait } from "@/components/checkout/point-retrait";
 import type { Erreurs, ModeRemise, Remise } from "@/lib/commande";
+import type { PointRetrait } from "@/lib/types";
 
 function Choix({
   actif,
@@ -62,6 +64,7 @@ export function EtapeLivraison({
   valeurs,
   erreurs,
   prixLivraison,
+  pointRetrait,
   onChange,
   onSuivant,
   onRetour,
@@ -69,6 +72,8 @@ export function EtapeLivraison({
   valeurs: Remise;
   erreurs: Erreurs;
   prixLivraison: number | null;
+  /** Coordonnées du magasin détenant les produits — `null` si l'appel a échoué. */
+  pointRetrait: PointRetrait | null;
   onChange: (maj: Partial<Remise>) => void;
   onSuivant: () => void;
   onRetour: () => void;
@@ -127,6 +132,14 @@ export function EtapeLivraison({
             />
           </Field>
         </div>
+      ) : pointRetrait ? (
+        // Le client vient sur place : il lui faut l'adresse et un numéro,
+        // avant de valider, pas seulement sur l'accusé final.
+        <BlocPointRetrait
+          nom={pointRetrait.boutique}
+          coordonnees={pointRetrait}
+          className="mt-5"
+        />
       ) : null}
 
       <div className="mt-5">

@@ -89,6 +89,12 @@ class PublicBoutiqueZonesView(PublicMixin, APIView):
                     "code": options["recuperation"]["code"],
                     "nom": options["recuperation"]["nom"],
                     "prix": float(options["recuperation"]["prix"]),
+                    # Où venir retirer, et qui appeler. Le tunnel de commande
+                    # les affiche dès que ce mode est choisi.
+                    "boutique": magasin.shop_name,
+                    "adresse": magasin.adresse or "",
+                    "telephone": magasin.telephone or "",
+                    "telephone_2": magasin.telephone_2 or "",
                 },
                 "zones": [
                     {

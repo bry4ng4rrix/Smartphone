@@ -1401,6 +1401,9 @@ class UsersByMagasinView(APIView):
                 "magasin_id": mag.id,
                 "shop_name": mag.shop_name,
                 "description": mag.description or "",
+                "adresse": mag.adresse or "",
+                "telephone": mag.telephone or "",
+                "telephone_2": mag.telephone_2 or "",
                 "shop_logo": request.build_absolute_uri(mag.shop_logo.url) if mag.shop_logo else None,
                 # `manager` = l'ADMIN de la société, pour compatibilité : c'est
                 # ce que ce champ a toujours contenu et le front l'affiche.
@@ -2207,6 +2210,25 @@ class MagasinViewSet(viewsets.ModelViewSet):
             instance.shop_name = nom
         if description is not None:
             instance.description = str(description).strip()
+
+        # Coordonnées du point de vente. L'adresse et le premier numéro sont
+        # OBLIGATOIRES dès qu'on y touche : ce sont eux qu'un client lit pour
+        # venir retirer sa commande, une valeur vide le laisserait sans
+        # indication. Le second numéro reste facultatif.
+        if "adresse" in request.data:
+            adresse_magasin = str(request.data.get("adresse") or "").strip()
+            if not adresse_magasin:
+                return Response({"adresse": "L'adresse du magasin est requise."}, status=400)
+            instance.adresse = adresse_magasin
+
+        if "telephone" in request.data:
+            tel = str(request.data.get("telephone") or "").strip()
+            if not tel:
+                return Response({"telephone": "Le numéro du magasin est requis."}, status=400)
+            instance.telephone = tel
+
+        if "telephone_2" in request.data:
+            instance.telephone_2 = str(request.data.get("telephone_2") or "").strip()
         if shop_logo is not None and not isinstance(shop_logo, str):
             instance.shop_logo = shop_logo
 

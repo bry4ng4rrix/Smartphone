@@ -20,7 +20,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 
-import { Store, Users, RefreshCw, Loader2, Edit, ArrowLeftRight, Trash2, UserCog } from 'lucide-react';
+import { Store, Users, RefreshCw, Loader2, Edit, ArrowLeftRight, Trash2, UserCog, MapPin, Phone, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh';
 import { TransferProductsDialog } from '@/components/transfer-products-dialog';
@@ -43,6 +43,12 @@ export default function StoresPage() {
   const [isRegisterDialogOpen, setIsRegisterDialogOpen] = useState(false);
 
   const [storeName, setStoreName] = useState('');
+  // Coordonnées du point de vente : l'adresse et le premier numéro sont
+  // exigés (c'est ce qu'on donne au client qui vient retirer sa commande),
+  // le second numéro est un secours facultatif.
+  const [storeAdresse, setStoreAdresse] = useState('');
+  const [storeTelephone, setStoreTelephone] = useState('');
+  const [storeTelephone2, setStoreTelephone2] = useState('');
   const [managerName, setManagerName] = useState('');
   const [managerEmail, setManagerEmail] = useState('');
   const [managerPassword, setManagerPassword] = useState('');
@@ -57,6 +63,9 @@ export default function StoresPage() {
   const [submittingEditStore, setSubmittingEditStore] = useState(false);
 
   const [editStoreDescription, setEditStoreDescription] = useState('');
+  const [editStoreAdresse, setEditStoreAdresse] = useState('');
+  const [editStoreTelephone, setEditStoreTelephone] = useState('');
+  const [editStoreTelephone2, setEditStoreTelephone2] = useState('');
   // '' = inchangé, 'aucun' = détacher, sinon l'id du compte gérant.
   const [editManagerId, setEditManagerId] = useState<string>('');
 
@@ -151,6 +160,9 @@ export default function StoresPage() {
     setEditingStore(store);
     setEditStoreName(store.shop_name);
     setEditStoreDescription(store.description || '');
+    setEditStoreAdresse(store.adresse || '');
+    setEditStoreTelephone(store.telephone || '');
+    setEditStoreTelephone2(store.telephone_2 || '');
     setEditManagerId(store.gerant ? String(store.gerant.id) : 'aucun');
     setEditStoreLogoFile(null);
     setEditStoreLogoPreview(store.shop_logo || null);
@@ -216,9 +228,19 @@ export default function StoresPage() {
         await djangoClient.patchFormData(`/users/magasins/${editingStore.magasin_id}/`, formData);
       }
 
-      const infos: { shop_name: string; description: string; manager_id?: number | null } = {
+      const infos: {
+        shop_name: string;
+        description: string;
+        adresse: string;
+        telephone: string;
+        telephone_2: string;
+        manager_id?: number | null;
+      } = {
         shop_name: editStoreName,
         description: editStoreDescription,
+        adresse: editStoreAdresse.trim(),
+        telephone: editStoreTelephone.trim(),
+        telephone_2: editStoreTelephone2.trim(),
       };
       const gerantActuel = editingStore.gerant ? String(editingStore.gerant.id) : 'aucun';
       if (editManagerId !== gerantActuel) {
@@ -254,6 +276,9 @@ export default function StoresPage() {
           {
             full_name: managerName,
             shop_name: storeName,
+            shop_adresse: storeAdresse.trim(),
+            shop_telephone: storeTelephone.trim(),
+            shop_telephone_2: storeTelephone2.trim(),
             admin_email: user?.email,
           }
         );
@@ -264,12 +289,20 @@ export default function StoresPage() {
       } else {
         // Magasin seul : on lui affectera un gérant plus tard, depuis le
         // bouton « Modifier » de sa carte.
-        await djangoClient.magasins.create({ shop_name: storeName });
+        await djangoClient.magasins.create({
+          shop_name: storeName,
+          adresse: storeAdresse.trim(),
+          telephone: storeTelephone.trim(),
+          telephone_2: storeTelephone2.trim(),
+        });
       }
 
       toast.success(avecGerant ? 'Magasin et gérant créés.' : 'Magasin créé, sans gérant.');
 
       setStoreName('');
+      setStoreAdresse('');
+      setStoreTelephone('');
+      setStoreTelephone2('');
       setManagerName('');
       setManagerEmail('');
       setManagerPassword('');
@@ -366,6 +399,43 @@ export default function StoresPage() {
                           )
                         }
                       />
+                    </div>
+
+                    {/* Coordonnées du point de vente : c'est ce qu'on
+                        communique au client venant retirer sa commande. */}
+                    <div>
+                      <Label>Adresse du magasin</Label>
+                      <Input
+                        value={storeAdresse}
+                        onChange={(e) => setStoreAdresse(e.target.value)}
+                        placeholder="Lot II M 12 bis, Antananarivo"
+                        required
+                      />
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <Label>Numéro du magasin</Label>
+                        <Input
+                          value={storeTelephone}
+                          onChange={(e) => setStoreTelephone(e.target.value)}
+                          placeholder="+261 34 00 000 00"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <Label>
+                          Numéro 2{' '}
+                          <span className="font-normal text-muted-foreground">
+                            (facultatif)
+                          </span>
+                        </Label>
+                        <Input
+                          value={storeTelephone2}
+                          onChange={(e) => setStoreTelephone2(e.target.value)}
+                          placeholder="+261 32 00 000 00"
+                        />
+                      </div>
                     </div>
 
                     {/* Un magasin peut naître sans gérant : on l'affecte
@@ -562,6 +632,50 @@ export default function StoresPage() {
                     )}
                   </div>
 
+                  {/* Coordonnées du point de vente. Un magasin sans adresse
+                      ni numéro ne peut rien dire au client qui vient retirer
+                      sa commande : on le signale plutôt que de laisser un
+                      blanc silencieux. */}
+                  <div className="border-b pb-3">
+                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                      Coordonnées
+                    </p>
+                    {store.adresse || store.telephone ? (
+                      <div className="space-y-1 pt-1 text-sm">
+                        {store.adresse && (
+                          <p className="flex items-start gap-1.5">
+                            <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <span>{store.adresse}</span>
+                          </p>
+                        )}
+                        {store.telephone && (
+                          <p className="flex items-center gap-1.5">
+                            <Phone className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <span>
+                              {store.telephone}
+                              {store.telephone_2 && ` / ${store.telephone_2}`}
+                            </span>
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 pt-1">
+                        <Badge variant="outline" className="gap-1 font-normal text-amber-600 dark:text-amber-400">
+                          <AlertTriangle className="h-3 w-3" /> Non renseignées
+                        </Badge>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditStore(store)}
+                            className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+                          >
+                            Renseigner
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   <div className="grid grid-cols-2 gap-2 sm:gap-3">
 
                     <div className="border rounded-lg p-2 sm:p-3">
@@ -664,7 +778,7 @@ export default function StoresPage() {
           <DialogHeader>
             <DialogTitle>Modifier le magasin</DialogTitle>
             <DialogDescription>
-              Nom, description, logo et gérant.
+              Nom, coordonnées, description, logo et gérant.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleUpdateStore} className="space-y-4">
@@ -675,6 +789,46 @@ export default function StoresPage() {
                 onChange={(e) => setEditStoreName(e.target.value)}
                 required
               />
+            </div>
+
+            {/* Adresse et premier numéro : exigés aussi par le serveur
+                (MagasinViewSet.partial_update), qui refuse un envoi vide. */}
+            <div>
+              <Label>Adresse du magasin</Label>
+              <Input
+                value={editStoreAdresse}
+                onChange={(e) => setEditStoreAdresse(e.target.value)}
+                placeholder="Lot II M 12 bis, Antananarivo"
+                required
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Affichée au client qui vient retirer sa commande sur place.
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label>Numéro du magasin</Label>
+                <Input
+                  value={editStoreTelephone}
+                  onChange={(e) => setEditStoreTelephone(e.target.value)}
+                  placeholder="+261 34 00 000 00"
+                  required
+                />
+              </div>
+              <div>
+                <Label>
+                  Numéro 2{' '}
+                  <span className="font-normal text-muted-foreground">
+                    (facultatif)
+                  </span>
+                </Label>
+                <Input
+                  value={editStoreTelephone2}
+                  onChange={(e) => setEditStoreTelephone2(e.target.value)}
+                  placeholder="+261 32 00 000 00"
+                />
+              </div>
             </div>
 
             <div>

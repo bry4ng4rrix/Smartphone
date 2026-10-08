@@ -140,8 +140,13 @@ class OrderViewSet(viewsets.ModelViewSet):
         return OrderGerantSerializer
 
     def get_queryset(self):
-        qs = Order.objects.filter(magasin__in=get_accessible_magasins(self.request.user)).prefetch_related(
-            "items", "items__product_variant__product_reference", "status_history"
+        qs = (
+            Order.objects.filter(magasin__in=get_accessible_magasins(self.request.user))
+            # `magasin` : les coordonnées de la boutique accompagnent chaque
+            # commande (cf. MagasinContactMixin) — sans ça, une requête par
+            # ligne de liste.
+            .select_related("magasin")
+            .prefetch_related("items", "items__product_variant__product_reference", "status_history")
         )
         role = user_commande_role(self.request.user)
 

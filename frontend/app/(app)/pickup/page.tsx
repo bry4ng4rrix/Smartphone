@@ -11,7 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
-import { ShieldAlert, RefreshCw, PackageCheck, Phone } from 'lucide-react';
+import { ShieldAlert, RefreshCw, PackageCheck, Phone, MapPin, Store } from 'lucide-react';
 import { toast } from 'sonner';
 
 const fmt = (n: number | string | null | undefined) =>
@@ -114,6 +114,33 @@ export default function PickupPage() {
                 <div className="text-sm text-muted-foreground">
                   {(order.items || []).map((it: any) => `${it.reference_name} (${it.couleur}) x${it.quantite}`).join(', ')}
                 </div>
+
+                {/* Où le client vient retirer : le magasin qui tient les
+                    produits de cette commande. Utile dès qu'on administre
+                    plusieurs boutiques, et à dicter au téléphone. */}
+                {(order.magasin_nom || order.magasin_adresse) && (
+                  <div className="rounded-md bg-muted/50 p-2.5 text-sm space-y-1">
+                    <p className="flex items-center gap-1.5 font-medium">
+                      <Store className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      {order.magasin_nom}
+                    </p>
+                    {order.magasin_adresse && (
+                      <p className="flex items-start gap-1.5 text-muted-foreground">
+                        <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span>{order.magasin_adresse}</span>
+                      </p>
+                    )}
+                    {order.magasin_telephone && (
+                      <p className="flex items-center gap-1.5 text-muted-foreground">
+                        <Phone className="h-3.5 w-3.5 shrink-0" />
+                        <span>
+                          {order.magasin_telephone}
+                          {order.magasin_telephone_2 && ` / ${order.magasin_telephone_2}`}
+                        </span>
+                      </p>
+                    )}
+                  </div>
+                )}
                 <div className="flex items-center justify-between border-t pt-3">
                   <span className="text-sm font-semibold">{fmt(order.total_a_payer)}</span>
                   <Button size="sm" onClick={() => setPickupTarget(order)} disabled={confirming === order.id}>
@@ -132,7 +159,9 @@ export default function PickupPage() {
           <DialogHeader>
             <DialogTitle>Confirmer la récupération de {pickupTarget?.numero} ?</DialogTitle>
             <DialogDescription>
-              La commande de {pickupTarget?.client_nom} sera marquée comme livrée (récupérée sur place).
+              La commande de {pickupTarget?.client_nom} sera marquée comme livrée
+              (récupérée sur place
+              {pickupTarget?.magasin_nom ? ` à ${pickupTarget.magasin_nom}` : ''}).
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

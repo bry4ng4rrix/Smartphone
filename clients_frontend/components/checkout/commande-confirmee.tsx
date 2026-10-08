@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { CheckCircle2, PhoneCall, Printer } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
+import { PointRetrait } from "@/components/checkout/point-retrait";
 import { formatAr } from "@/lib/utils";
 import type { Commande } from "@/lib/types";
 
@@ -40,6 +41,17 @@ export function CommandeConfirmee({ commande }: { commande: Commande }) {
           </span>
         </p>
       </div>
+
+      {/* Retrait sur place : cet écran est la seule occasion de donner
+          l'adresse et le numéro du magasin: il n'existe pas de page de suivi
+          à rouvrir. Imprimé avec le reste. */}
+      {retrait ? (
+        <PointRetrait
+          nom={commande.boutique.nom}
+          coordonnees={commande.boutique}
+          className="mx-auto mt-4 max-w-md"
+        />
+      ) : null}
 
       <dl className="mx-auto mt-7 max-w-md">
         {commande.items.map((item) => (

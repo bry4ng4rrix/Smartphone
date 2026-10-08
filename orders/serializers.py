@@ -110,7 +110,25 @@ class OrderStatusHistorySerializer(serializers.ModelSerializer):
         ]
 
 
-class OrderGerantSerializer(serializers.ModelSerializer):
+class MagasinContactMixin(serializers.Serializer):
+    """Coordonnées de la boutique qui tient la commande.
+
+    Indispensables pour une commande en « Récupération » : c'est ce qu'on
+    annonce au client qui vient retirer. Aucune donnée sensible ici (ni coût,
+    ni marge), d'où leur présence pour le gérant comme pour le préparateur.
+    Nécessite un `select_related("magasin")` sur le queryset.
+    """
+
+    magasin_nom = serializers.CharField(source="magasin.shop_name", read_only=True)
+    magasin_adresse = serializers.CharField(source="magasin.adresse", read_only=True)
+    magasin_telephone = serializers.CharField(source="magasin.telephone", read_only=True)
+    magasin_telephone_2 = serializers.CharField(source="magasin.telephone_2", read_only=True)
+
+    #: À ajouter aux `fields` des serializers qui héritent de ce mixin.
+    CHAMPS_CONTACT = ["magasin_nom", "magasin_adresse", "magasin_telephone", "magasin_telephone_2"]
+
+
+class OrderGerantSerializer(MagasinContactMixin, serializers.ModelSerializer):
     """Vue complète — module Commandes du gérant (§7.1)."""
 
     items = OrderItemSerializer(many=True, read_only=True)
@@ -164,11 +182,11 @@ class OrderGerantSerializer(serializers.ModelSerializer):
             "preparateur", "preparateur_name", "livreur", "livreur_name", "campagne", "campagne_nom", "campagnes",
             "est_commande_client", "items",
             "status_history", "created_at", "updated_at",
-        ]
+        ] + MagasinContactMixin.CHAMPS_CONTACT
         read_only_fields = fields
 
 
-class OrderPreparateurSerializer(serializers.ModelSerializer):
+class OrderPreparateurSerializer(MagasinContactMixin, serializers.ModelSerializer):
     """Module Dépôt — Préparateur (§7.2) : N° commande, Client, Téléphone,
     Produit + Couleur, Zone.
 
@@ -195,7 +213,7 @@ class OrderPreparateurSerializer(serializers.ModelSerializer):
             "id", "numero", "date_commande", "client_nom", "telephone", "telephone_2", "livraison_zone", "adresse_livraison",
             "mode_paiement", "total_a_payer", "remise_total", "statut_courant", "note_preparateur",
             "preparateur", "preparateur_name", "livreur", "livreur_name", "items", "created_at",
-        ]
+        ] + MagasinContactMixin.CHAMPS_CONTACT
         read_only_fields = fields
 
 

@@ -27,7 +27,7 @@ import {
 } from "@/lib/commande";
 import { useCart } from "@/providers/cart-provider";
 import { useToast } from "@/providers/toast-provider";
-import type { Commande } from "@/lib/types";
+import type { Commande, PointRetrait } from "@/lib/types";
 
 /**
  * Tunnel de commande, sans compte.
@@ -56,6 +56,8 @@ export function CheckoutVue() {
 
   // Tarif de livraison : il vient du serveur, jamais d'une constante d'ici.
   const [prixLivraison, setPrixLivraison] = useState<number | null>(null);
+  // Où venir retirer, si le client choisit ce mode — le même appel le donne.
+  const [pointRetrait, setPointRetrait] = useState<PointRetrait | null>(null);
   const boutiqueId = lignes[0]?.boutiqueId ?? null;
 
   useEffect(() => {
@@ -64,11 +66,17 @@ export function CheckoutVue() {
     (async () => {
       try {
         const reponse = await catalogue.zones(boutiqueId);
-        if (!annule) setPrixLivraison(reponse.zones[0]?.prix ?? null);
+        if (!annule) {
+          setPrixLivraison(reponse.zones[0]?.prix ?? null);
+          setPointRetrait(reponse.recuperation ?? null);
+        }
       } catch {
         // Sans tarif, l'étape livraison affiche « — » plutôt qu'un chiffre
         // inventé ; le serveur appliquera le bon montant de toute façon.
-        if (!annule) setPrixLivraison(null);
+        if (!annule) {
+          setPrixLivraison(null);
+          setPointRetrait(null);
+        }
       }
     })();
     return () => {
@@ -172,6 +180,7 @@ export function CheckoutVue() {
           valeurs={remise}
           erreurs={erreurs}
           prixLivraison={prixLivraison}
+          pointRetrait={pointRetrait}
           onChange={(maj) => setRemise((r) => ({ ...r, ...maj }))}
           onSuivant={validerEtapeLivraison}
           onRetour={() => aller("coordonnees")}
@@ -181,6 +190,7 @@ export function CheckoutVue() {
           lignes={lignes}
           coordonnees={coordonnees}
           remise={remise}
+          pointRetrait={pointRetrait}
           sousTotal={sousTotal}
           fraisLivraison={frais}
           onQuantite={definirQuantite}

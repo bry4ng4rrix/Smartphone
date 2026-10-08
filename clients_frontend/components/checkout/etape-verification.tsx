@@ -4,7 +4,9 @@ import { ArrowLeft, ArrowRight, Minus, Pencil, Plus, Trash2 } from "lucide-react
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { formatAr, pluriel } from "@/lib/utils";
+import { PointRetrait as BlocPointRetrait } from "@/components/checkout/point-retrait";
 import type { Coordonnees, Remise } from "@/lib/commande";
+import type { PointRetrait } from "@/lib/types";
 import type { LignePanier } from "@/providers/cart-provider";
 
 function Bloc({
@@ -56,6 +58,7 @@ export function EtapeVerification({
   lignes,
   coordonnees,
   remise,
+  pointRetrait,
   sousTotal,
   fraisLivraison,
   onQuantite,
@@ -68,6 +71,8 @@ export function EtapeVerification({
   lignes: LignePanier[];
   coordonnees: Coordonnees;
   remise: Remise;
+  /** Coordonnées du magasin détenant les produits — `null` si l'appel a échoué. */
+  pointRetrait: PointRetrait | null;
   sousTotal: number;
   fraisLivraison: number;
   onQuantite: (varianteId: number, quantite: number) => void;
@@ -168,6 +173,15 @@ export function EtapeVerification({
             {remise.mode === "EN_LIGNE" ? <Ligne libelle="Adresse" valeur={remise.adresse} /> : null}
             {remise.note ? <Ligne libelle="Précision" valeur={remise.note} /> : null}
           </dl>
+          {/* Dernière relecture avant d'envoyer : l'endroit où venir doit y
+              figurer, pas seulement le mot « Retrait sur place ». */}
+          {remise.mode === "RECUPERATION" && pointRetrait ? (
+            <BlocPointRetrait
+              nom={pointRetrait.boutique}
+              coordonnees={pointRetrait}
+              className="mt-3"
+            />
+          ) : null}
         </Bloc>
 
         <Bloc titre="Montant">

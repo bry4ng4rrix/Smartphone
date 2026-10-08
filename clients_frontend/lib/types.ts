@@ -11,12 +11,22 @@
 // Catalogue public
 // --------------------------------------------------------------------- //
 
+/**
+ * Coordonnées du point de vente. Chaînes vides tant que la boutique ne les a
+ * pas renseignées — on n'affiche alors rien, plutôt qu'un vide.
+ */
+export type CoordonneesBoutique = {
+  adresse: string;
+  telephone: string;
+  telephone_2: string;
+};
+
 export type Boutique = {
   id: number;
   nom: string;
   description: string | null;
   logo: string | null;
-};
+} & CoordonneesBoutique;
 
 export type Zone = {
   code: string;
@@ -24,9 +34,12 @@ export type Zone = {
   prix: number;
 };
 
+/** Le retrait sur place porte, en plus du tarif, l'endroit où venir. */
+export type PointRetrait = Zone & { boutique: string } & CoordonneesBoutique;
+
 export type ZonesReponse = {
   boutique: number;
-  recuperation: Zone;
+  recuperation: PointRetrait;
   zones: Zone[];
 };
 
@@ -122,7 +135,7 @@ export type Commande = {
   statut: string;
   statut_label: string;
   date_commande: string;
-  boutique: { id: number; nom: string };
+  boutique: { id: number; nom: string } & CoordonneesBoutique;
   livraison_zone: string;
   adresse_livraison: string | null;
   client_nom: string;

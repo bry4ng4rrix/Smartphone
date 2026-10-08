@@ -32,7 +32,10 @@ class PublicBoutiqueSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MagasinProfile
-        fields = ["id", "nom", "description", "logo"]
+        # `adresse` / `telephone` : ce qu'il faut à un client venant RETIRER sa
+        # commande sur place. Chaînes vides tant que le gérant ne les a pas
+        # renseignées — le front n'affiche alors rien plutôt qu'un vide.
+        fields = ["id", "nom", "description", "logo", "adresse", "telephone", "telephone_2"]
 
     def get_logo(self, obj):
         return _absolute(self.context.get("request"), obj.shop_logo)
@@ -223,4 +226,13 @@ class CommandeEnLigneSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_boutique(self, obj):
-        return {"id": obj.magasin_id, "nom": obj.magasin.shop_name}
+        # Les coordonnées accompagnent l'accusé : pour un retrait sur place,
+        # c'est la seule fois où le client voit où aller et qui appeler.
+        mag = obj.magasin
+        return {
+            "id": mag.id,
+            "nom": mag.shop_name,
+            "adresse": mag.adresse or "",
+            "telephone": mag.telephone or "",
+            "telephone_2": mag.telephone_2 or "",
+        }

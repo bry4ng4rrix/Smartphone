@@ -371,6 +371,10 @@ class DjangoAPIClient {
         full_name?: string
         company_name?: string
         shop_name?: string
+        /** Coordonnées du point de vente, créé en même temps que son gérant. */
+        shop_adresse?: string
+        shop_telephone?: string
+        shop_telephone_2?: string
         admin_email?: string
         position?: string
       }
@@ -1196,12 +1200,32 @@ class DjangoAPIClient {
     },
 
     /** Crée un magasin. `manager_id` n'existe pas ici : on l'affecte ensuite. */
-    create: async (data: { shop_name: string; description?: string }) => {
+    create: async (data: {
+      shop_name: string
+      description?: string
+      adresse?: string
+      telephone?: string
+      telephone_2?: string
+    }) => {
       return this.post<any>('/users/magasins/', data)
     },
 
-    /** Nom, description, et gérant. `manager_id: null` détache le gérant. */
-    update: async (id: number, data: { shop_name?: string; description?: string; manager_id?: number | null }) => {
+    /**
+     * Nom, description, coordonnées et gérant. `manager_id: null` détache le
+     * gérant. Le serveur refuse une `adresse` ou un `telephone` vides quand
+     * le champ est envoyé — ne les transmettre que renseignés.
+     */
+    update: async (
+      id: number,
+      data: {
+        shop_name?: string
+        description?: string
+        adresse?: string
+        telephone?: string
+        telephone_2?: string
+        manager_id?: number | null
+      },
+    ) => {
       return this.patch<any>(`/users/magasins/${id}/`, data)
     },
 

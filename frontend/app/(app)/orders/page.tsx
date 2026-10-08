@@ -1990,6 +1990,44 @@ export default function OrdersPage() {
                       {detail.adresse_livraison || "-"}
                     </span>
                   </div>
+                  {/* Récupération sur place : l'adresse qui compte n'est pas
+                      celle du client mais celle du magasin détenant les
+                      produits — c'est ce qu'on lui dicte au téléphone. */}
+                  {detail.livraison_zone === "RECUPERATION" &&
+                    (detail.magasin_nom || detail.magasin_adresse) && (
+                      <>
+                        <div className="flex justify-between gap-4">
+                          <span className="text-muted-foreground">
+                            Point de retrait
+                          </span>
+                          <span className="text-right font-medium">
+                            {detail.magasin_nom || "-"}
+                          </span>
+                        </div>
+                        {detail.magasin_adresse && (
+                          <div className="flex justify-between gap-4">
+                            <span className="text-muted-foreground">
+                              Adresse du magasin
+                            </span>
+                            <span className="text-right max-w-[55%] break-words">
+                              {detail.magasin_adresse}
+                            </span>
+                          </div>
+                        )}
+                        {detail.magasin_telephone && (
+                          <div className="flex justify-between gap-4">
+                            <span className="text-muted-foreground">
+                              Numéro du magasin
+                            </span>
+                            <span className="text-right">
+                              {detail.magasin_telephone}
+                              {detail.magasin_telephone_2 &&
+                                ` / ${detail.magasin_telephone_2}`}
+                            </span>
+                          </div>
+                        )}
+                      </>
+                    )}
                   <div className="flex justify-between gap-4">
                     <span className="text-muted-foreground">
                       Mode de payment

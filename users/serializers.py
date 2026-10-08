@@ -17,6 +17,14 @@ from .models import (
 class RegisterSerializer(serializers.ModelSerializer):
     company_name = serializers.CharField(required=False)
     shop_name = serializers.CharField(required=False)
+    # Coordonnées du point de vente, quand le magasin naît avec son gérant
+    # (role="magasin"). Préfixées `shop_` pour ne pas se confondre avec
+    # `phone`, qui est le numéro de la PERSONNE. Facultatives ici : le
+    # caractère obligatoire est porté par les formulaires et par
+    # MagasinViewSet.partial_update, pas par l'inscription publique.
+    shop_adresse = serializers.CharField(required=False, allow_blank=True)
+    shop_telephone = serializers.CharField(required=False, allow_blank=True)
+    shop_telephone_2 = serializers.CharField(required=False, allow_blank=True)
     position = serializers.CharField(required=False)
     admin_email = serializers.EmailField(required=False)
     # Sous-rôle module Commande (Smartreadme.md §4/§5) — Préparateur ou
@@ -35,6 +43,9 @@ class RegisterSerializer(serializers.ModelSerializer):
             "role",
             "company_name",
             "shop_name",
+            "shop_adresse",
+            "shop_telephone",
+            "shop_telephone_2",
             "position",
             "admin_email",
             "commande_role",
@@ -47,6 +58,9 @@ class RegisterSerializer(serializers.ModelSerializer):
         admin_email = validated_data.pop("admin_email", None)
         company_name = validated_data.pop("company_name", None)
         shop_name = validated_data.pop("shop_name", None)
+        shop_adresse = validated_data.pop("shop_adresse", "") or ""
+        shop_telephone = validated_data.pop("shop_telephone", "") or ""
+        shop_telephone_2 = validated_data.pop("shop_telephone_2", "") or ""
         position = validated_data.pop("position", None)
         commande_role = validated_data.pop("commande_role", None)
         password = validated_data.pop("password")
@@ -77,7 +91,14 @@ class RegisterSerializer(serializers.ModelSerializer):
             user = CustomUser.objects.create(username=username, is_confirmed=auto_confirm, **validated_data)
             user.set_password(password)
             user.save()
-            magasin = MagasinProfile.objects.create(user=user, admin=admin, shop_name=shop_name)
+            magasin = MagasinProfile.objects.create(
+                user=user,
+                admin=admin,
+                shop_name=shop_name,
+                adresse=shop_adresse.strip(),
+                telephone=shop_telephone.strip(),
+                telephone_2=shop_telephone_2.strip(),
+            )
             # `admin` peut être un simple co-admin (pas le fondateur) : il faut
             # donner accès à TOUS les admins de la société (fondateur inclus),
             # sinon ce magasin/gérant reste invisible pour eux (cf. get_company_admin_ids).
@@ -221,7 +242,11 @@ class MagasinProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MagasinProfile
-        fields = ["id", "shop_name", "description", "shop_logo", "admin", "user"]
+        fields = [
+            "id", "shop_name", "description", "shop_logo",
+            "adresse", "telephone", "telephone_2",
+            "admin", "user",
+        ]
         read_only_fields = ["id", "admin", "user"]
 
     def get_shop_logo(self, obj):
