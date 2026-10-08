@@ -98,12 +98,26 @@ Toutes ces routes acceptent `?boutique=<id>` pour ne garder que le catalogue d'u
 
 ```json
 [
-  { "id": 1, "nom": "Boutique Centre", "description": null, "logo": null },
-  { "id": 2, "nom": "Boutique Nord", "description": null, "logo": null }
+  {
+    "id": 1,
+    "nom": "Boutique Centre",
+    "description": null,
+    "logo": null,
+    "adresse": "Lot II M 12 bis Analakely, face à la pharmacie",
+    "telephone": "+261340000001",
+    "telephone_2": "+261320000002"
+  },
+  { "id": 2, "nom": "Boutique Nord", "description": null, "logo": null, "adresse": "", "telephone": "", "telephone_2": "" }
 ]
 ```
 
 `logo` est une URL absolue quand la boutique en a une (`http://185.215.167.79:8010/media/shop_logo/...`).
+
+`adresse`, `telephone` et `telephone_2` sont les **coordonnées du point de
+vente** : ce qu'on donne au client venant retirer sa commande. Ce sont des
+**chaînes vides** — jamais `null` — tant que le gérant ne les a pas
+renseignées ; le front teste « vide » et n'affiche alors rien plutôt qu'un
+cadre à trous. `telephone_2` est facultatif côté gestion.
 
 ### `GET /api/boutiques/{id}/zones/` — modes de remise
 
@@ -113,10 +127,22 @@ navigateur ne l'envoie jamais.
 ```json
 {
   "boutique": 1,
-  "recuperation": { "code": "RECUPERATION", "nom": "Retrait sur place", "prix": 0.0 },
+  "recuperation": {
+    "code": "RECUPERATION",
+    "nom": "Retrait sur place",
+    "prix": 0.0,
+    "boutique": "Boutique Centre",
+    "adresse": "Lot II M 12 bis Analakely, face à la pharmacie",
+    "telephone": "+261340000001",
+    "telephone_2": "+261320000002"
+  },
   "zones": [{ "code": "EN_LIGNE", "nom": "Livraison", "prix": 3000.0 }]
 }
 ```
+
+Le bloc `recuperation` porte **l'endroit où venir** : le client doit le lire
+*avant* de valider, pas seulement sur l'accusé final. Mêmes règles que
+ci-dessus pour les chaînes vides.
 
 Le code à renvoyer dans `livraison_zone` est `EN_LIGNE` ou `RECUPERATION` —
 aucun autre n'est accepté.
@@ -252,9 +278,16 @@ Seuls les produits **actifs** apparaissent ; un produit retiré du catalogue ren
 | **Débit** | 10 requêtes/minute (`429` au-delà) |
 | **Corps** | JSON |
 
+> **Une commande par boutique, décidée par le serveur.** Le site présente le
+> catalogue de **toutes** les boutiques, sans dédoublonnage : un même modèle
+> tenu par deux magasins y figure deux fois, une fois par boutique. Le panier
+> peut donc mêler plusieurs boutiques — le client n'a rien à choisir. À
+> l'envoi, le serveur regroupe les articles par **magasin propriétaire** et
+> crée **une commande par boutique concernée**. La réponse est toujours une
+> liste (`{"commandes": [...]}`), d'un seul élément dans le cas courant.
+
 | Champ | Type | Obligatoire | Notes |
 | --- | --- | --- | --- |
-| `boutique` | int | oui | id de la boutique — tous les articles doivent lui appartenir |
 | `items` | liste | oui | `{variante, quantite, prix_attendu?}` — au moins un |
 | `livraison_zone` | string | oui | `EN_LIGNE` ou `RECUPERATION` |
 | `client_nom` | string | oui | nom de la personne à rappeler |
@@ -262,6 +295,7 @@ Seuls les produits **actifs** apparaissent ; un produit retiré du catalogue ren
 | `telephone_2` | string | non | second numéro, même format |
 | `adresse_livraison` | string | si `EN_LIGNE` | refusée vide pour une livraison |
 | `note` | string | non | précision pour la boutique |
+| `boutique` | int | non | **ignoré.** Accepté pour les anciens clients ; le routage suit le produit, jamais ce champ |
 
 **Le corps ne porte aucun montant.** Ni frais de livraison, ni total : le
 serveur les calcule depuis le catalogue et la zone. `prix_attendu` est la
@@ -274,8 +308,10 @@ POST /api/commandes/
 Content-Type: application/json
 
 {
-  "boutique": 1,
-  "items": [{ "variante": 12, "quantite": 2, "prix_attendu": 30000 }],
+  "items": [
+    { "variante": 12, "quantite": 2, "prix_attendu": 30000 },
+    { "variante": 57, "quantite": 1, "prix_attendu": 40000 }
+  ],
   "livraison_zone": "EN_LIGNE",
   "client_nom": "Rakoto Jean",
   "telephone": "+261340000000",
@@ -285,42 +321,86 @@ Content-Type: application/json
 }
 ```
 
-**Réponse `201`** — accusé de commande, affiché une seule fois :
+**Réponse `201`** — un accusé **par boutique**, affiché une seule fois. Ici
+les deux articles venaient de deux boutiques différentes : deux commandes,
+chacune avec son numéro, ses frais et ses coordonnées de retrait. Les
+commandes sont ordonnées par nom de boutique.
 
 ```json
 {
-  "id": 42,
+  "commandes": [
+    {
+      "id": 42,
   "numero": "CMD-1-20260928-0003",
   "statut": "EN_ATTENTE_APPROBATION",
   "statut_label": "En attente d'approbation",
   "date_commande": "2026-09-28T10:12:00+03:00",
-  "boutique": { "id": 1, "nom": "Smartphone.Mg" },
-  "livraison_zone": "EN_LIGNE",
-  "adresse_livraison": "Lot II A 15 Ambohipo",
-  "client_nom": "Rakoto Jean",
-  "telephone": "+261340000000",
-  "telephone_2": "+261320000000",
-  "note": "Appeler après 17h",
-  "frais_livraison": 3000.0,
-  "total_a_payer": 63000.0,
-  "items": [
+      "boutique": {
+        "id": 1,
+        "nom": "Boutique Centre",
+        "adresse": "Lot II M 12 bis Analakely, face à la pharmacie",
+        "telephone": "+261340000001",
+        "telephone_2": "+261320000002"
+      },
+      "livraison_zone": "EN_LIGNE",
+      "adresse_livraison": "Lot II A 15 Ambohipo",
+      "client_nom": "Rakoto Jean",
+      "telephone": "+261340000000",
+      "telephone_2": "+261320000000",
+      "note": "Appeler après 17h",
+      "frais_livraison": 3000.0,
+      "total_a_payer": 63000.0,
+      "items": [
+        {
+          "id": 88,
+          "produit": { "id": 7, "nom": "Galaxy A15", "nom_complet": "Samsung Galaxy A15" },
+          "couleur": "Noir",
+          "quantite": 2,
+          "prix_unitaire": 30000.0,
+          "total": 60000.0
+        }
+      ],
+      "created_at": "2026-09-28T10:12:00+03:00"
+    },
     {
-      "id": 88,
-      "produit": { "id": 7, "nom": "Galaxy A15", "nom_complet": "Samsung Galaxy A15" },
-      "couleur": "Noir",
-      "quantite": 2,
-      "prix_unitaire": 30000.0,
-      "total": 60000.0
+      "id": 43,
+      "numero": "CMD-2-20260928-0001",
+      "statut": "EN_ATTENTE_APPROBATION",
+      "statut_label": "En attente d'approbation",
+      "date_commande": "2026-09-28T10:12:00+03:00",
+      "boutique": { "id": 2, "nom": "Boutique Nord", "adresse": "", "telephone": "", "telephone_2": "" },
+      "livraison_zone": "EN_LIGNE",
+      "adresse_livraison": "Lot II A 15 Ambohipo",
+      "client_nom": "Rakoto Jean",
+      "telephone": "+261340000000",
+      "telephone_2": "+261320000000",
+      "note": "Appeler après 17h",
+      "frais_livraison": 3000.0,
+      "total_a_payer": 43000.0,
+      "items": [
+        {
+          "id": 89,
+          "produit": { "id": 31, "nom": "Galaxy A25", "nom_complet": "Samsung Galaxy A25" },
+          "couleur": "Noir",
+          "quantite": 1,
+          "prix_unitaire": 40000.0,
+          "total": 40000.0
+        }
+      ],
+      "created_at": "2026-09-28T10:12:00+03:00"
     }
-  ],
-  "created_at": "2026-09-28T10:12:00+03:00"
+  ]
 }
 ```
 
+> **Chaque boutique facture sa livraison.** Deux boutiques = deux remises
+> distinctes, donc deux fois les frais. Le tunnel doit l'annoncer avant
+> l'envoi : le client ne doit pas découvrir le second montant sur l'accusé.
+
 > **Écriture seule.** Il n'existe ni `GET /api/commandes/{id}/`, ni liste, ni
-> `PATCH`, ni annulation. Cet accusé est la seule occasion d'afficher ces
-> informations : le front doit les présenter en entier et permettre de les
-> imprimer. Toute correction passe par l'appel du gérant.
+> `PATCH`, ni annulation. Ces accusés sont la seule occasion d'afficher ces
+> informations : le front doit les présenter **tous**, en entier, et permettre
+> de les imprimer. Toute correction passe par l'appel du gérant.
 
 **Erreurs**
 
@@ -329,8 +409,13 @@ Content-Type: application/json
 | `400` | champ manquant, téléphone mal formé, adresse absente pour une livraison, zone inconnue |
 | `400` | `{"items": ["Stock insuffisant pour « … » : 1 disponible(s), 3 demandé(s)."]}` |
 | `400` | `{"items": ["Le prix de « … » a changé : 32000 Ar (vous aviez 30000 Ar)."]}` |
-| `400` | `{"boutique": ["Boutique introuvable."]}` |
+| `400` | `{"items": ["Article 999 indisponible."]}` — variante inconnue, donc rattachée à aucune boutique |
 | `429` | plus de 10 commandes par minute |
+
+**Tout ou rien.** Les commandes des différentes boutiques naissent dans une
+seule transaction : si l'une est refusée (stock, prix), aucune n'est créée. Le
+client ne se retrouve jamais avec la moitié de son panier commandée et
+l'autre perdue.
 
 Aucun stock n'est réservé à ce stade : la réservation a lieu quand le gérant
 approuve.
@@ -367,6 +452,13 @@ qui se passe côté gestion.
 commande reste en attente tant que le gérant n'a pas joint le client. C'est là
 que se corrige une adresse mal saisie ou une quantité, puisque le site ne le
 permet plus.
+
+**Qui approuve.** L'**administrateur global** comme le **gérant de magasin**
+(`POST /api/orders/{id}/approuver/` et `/refuser/`, permission `IsGerant`).
+Chaque gérant ne voit et ne traite que les commandes de **sa** boutique
+(`get_accessible_magasins`) : un panier éclaté en deux commandes est donc
+approuvé par deux gérants, chacun pour sa part. Ni préparateur ni livreur
+n'approuve.
 
 Le client **n'a aucun moyen d'annuler en ligne** : il le demande pendant
 l'appel, ou rappelle la boutique. Le gérant refuse alors la commande, ce qui

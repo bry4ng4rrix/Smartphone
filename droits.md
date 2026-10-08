@@ -52,7 +52,7 @@ Conséquence pratique :
 | **Fournisseurs, coûts** | ✅ | ❌ | ❌ | ❌ |
 | **Transferts entre magasins** | ✅ | ❌ | ❌ | ❌ |
 | **Marketing / boosts** | ✅ | ❌ | ❌ | ❌ |
-| **Module Clients** | ✅ | ❌ | ❌ | ❌ |
+| Demandes clients (approuver / refuser) | ✅ | ✅ son magasin | ❌ | ❌ |
 | **Magasins, comptes** | ✅ | ❌ | ❌ | ❌ |
 
 Les zones de livraison et les types de dépense sont rattachés à
@@ -60,9 +60,21 @@ l'`AdminProfile` : ils sont **partagés par tous les magasins**. Les modifier
 depuis une boutique changerait les tarifs des autres — d'où la réserve à
 l'admin.
 
+**Les demandes venues de la boutique en ligne sont traitées par le gérant**
+(page « Clients », `POST /api/orders/{id}/approuver/` et `/refuser/`,
+permission `IsGerant`). C'est lui qui rappelle la personne au numéro laissé
+sur le site avant de lancer la préparation : faire passer chaque commande par
+l'admin aurait bloqué le circuit. Son périmètre reste tenu par le serveur —
+`get_accessible_magasins` ne lui montre que les commandes de **sa** boutique.
+
+Un panier en ligne peut mêler plusieurs boutiques ; le serveur l'éclate en une
+commande par magasin propriétaire des articles
+(`clients/services.py::magasins_des_items`). Chaque gérant n'approuve donc que
+sa part, sans voir celle de l'autre.
+
 Le gérant garde les coordonnées client portées par chaque commande (nom,
-téléphone, adresse, zone). Ce qui lui est retiré, c'est le **module** de
-gestion des clients, pas les informations nécessaires à une commande.
+téléphone, adresse, zone). Il n'a pas de **module** de gestion d'un fichier
+clients — il n'en existe plus : la boutique en ligne ne crée pas de comptes.
 
 ## Endpoints réservés à l'admin global
 

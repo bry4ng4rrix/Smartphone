@@ -23,6 +23,8 @@ type Donnees = {
   categories: Array<Categorie & { nb: number }>;
   marques: Marque[];
   boutique: string | null;
+  /** Combien de boutiques servent le catalogue — plusieurs y figurent ensemble. */
+  nbBoutiques: number;
   enPanne: boolean;
 };
 
@@ -59,7 +61,11 @@ async function charger(): Promise<Donnees> {
       disponibles: dispo.results,
       categories: avecNb,
       marques,
-      boutique: boutiques[0]?.nom ?? null,
+      // Une seule boutique : on la nomme. Plusieurs : le catalogue les couvre
+      // TOUTES, nommer la première laisserait croire que le site n'en sert
+      // qu'une.
+      boutique: boutiques.length === 1 ? boutiques[0].nom : null,
+      nbBoutiques: boutiques.length,
       enPanne: false,
     };
   } catch {
@@ -69,6 +75,7 @@ async function charger(): Promise<Donnees> {
       categories: [],
       marques: [],
       boutique: null,
+      nbBoutiques: 0,
       enPanne: true,
     };
   }
@@ -123,7 +130,7 @@ const ETAPES = [
 ];
 
 export default async function Accueil() {
-  const { total, disponibles, categories, marques, boutique, enPanne } =
+  const { total, disponibles, categories, marques, boutique, nbBoutiques, enPanne } =
     await charger();
 
   return (
@@ -139,7 +146,8 @@ export default async function Accueil() {
           <div className="grid items-center gap-10 lg:grid-cols-[1.1fr_0.9fr]">
             <div>
               <p className="text-[11px] font-medium tracking-[0.24em] text-muted uppercase">
-                {boutique ?? "Smartphone.Mg"} — Antananarivo
+                {boutique ?? "Smartphone.Mg"} —{" "}
+                {nbBoutiques > 1 ? `${nbBoutiques} boutiques à ` : ""}Antananarivo
               </p>
               <h1 className="mt-5 text-[2.5rem] leading-[1.05] font-semibold tracking-[-0.02em] text-balance sm:text-6xl lg:text-7xl">
                 L&apos;accessoire juste,

@@ -592,7 +592,7 @@ NOTE SUR users/subscriptions.py
   GET  /api/boutiques/  /api/boutiques/<id>/zones/  /api/categories/
        /api/type/  /api/sous-type/  /api/marque/  /api/couleurs/
        /api/produit/  /api/produit/<id>/
-  POST /api/commandes/
+  POST /api/commandes/   -> {"commandes": [...]} — une par boutique concernée
 
 5.7 CE QUE CHAQUE RÔLE VOIT D'UNE COMMANDE
 --------------------------------------------------------------------------------
@@ -1056,8 +1056,23 @@ panier et la commande.
 --------------------------------------------------------------------------------
 Panier (providers/cart-provider.tsx, clé smg_client_panier) : une ligne porte
 varianteId, produitId, nom, couleur, prix, photo, boutiqueId, quantité.
-RÈGLE : UNE SEULE BOUTIQUE PAR PANIER. ajouter() renvoie false en cas de
-conflit, remplacerPar() vide puis ajoute (modale de confirmation).
+
+LE PANIER ACCEPTE PLUSIEURS BOUTIQUES. Le site présente le catalogue de TOUTES
+les boutiques de la société, sans dédoublonnage : un même modèle tenu par deux
+magasins y figure deux fois, une fois par boutique. Le client n'a donc jamais
+à choisir un magasin ni à vider son panier pour en changer.
+
+À l'envoi, c'est le SERVEUR qui répartit : il regroupe les articles par
+magasin propriétaire (clients/services.py::magasins_des_items) et crée UNE
+COMMANDE PAR BOUTIQUE, dans une seule transaction — si l'une est refusée
+(stock, prix), aucune n'est créée. POST /api/commandes/ renvoie donc une liste
+{"commandes": [...]}, d'un seul élément dans le cas courant. Le champ
+`boutique` du corps est accepté mais IGNORÉ : le routage suit le produit,
+jamais le navigateur.
+
+Conséquence annoncée au client avant l'envoi (etape-livraison,
+etape-verification) : chaque boutique facture sa livraison, et le retrait sur
+place se fait dans chacune. L'accusé final affiche un bloc par commande.
 
 Favoris (clé smg_client_favoris) : identifiants seuls. Chaque fiche est
 rechargée à l'affichage ; un 404 retire silencieusement l'id.
@@ -1083,8 +1098,9 @@ Deux usages dans une seule route :
 lib/assistant-actions.ts fait la RÉSOLUTION DÉTERMINISTE côté serveur, pas le
 modèle : recherche catalogue, scoring par mots, seuil « au moins la moitié des
 mots », à score égal le nom le plus court gagne ; plusieurs candidats →
-l'assistant REDEMANDE plutôt que de deviner. Vérifie la disponibilité et la
-boutique du panier.
+l'assistant REDEMANDE plutôt que de deviner. Vérifie la disponibilité ; il
+cherche dans tout le catalogue, toutes boutiques confondues, puisque le panier
+peut les mêler.
 
 Rien n'est ajouté avant le clic « Confirmer », et rien n'est écrit côté serveur.
 
