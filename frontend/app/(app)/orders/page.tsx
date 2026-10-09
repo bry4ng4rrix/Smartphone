@@ -493,10 +493,12 @@ export default function OrdersPage() {
 
     // Les boutons d'assignation ne sont proposés que tant que le poste est
     // vacant (§ demande) : une fois quelqu'un désigné, le bouton disparaît —
-    // pour changer de personne, on passe par « Modifier ». Le livreur peut
-    // être désigné à l'avance, dès que le préparateur l'est, sans attendre
-    // que la commande soit prête (assign_livreur_early ne dépend pas du
-    // statut). Un retrait sur place n'a jamais de livreur.
+    // pour CHANGER de personne, on passe par « Modifier », qui garde le
+    // sélecteur de livreur ouvert à tout statut non terminé, « Prête » et
+    // « En livraison » comprises (§ demande). Le livreur peut aussi être
+    // désigné à l'avance, dès que le préparateur l'est, sans attendre que la
+    // commande soit prête — assign_livreur_early ne dépend pas du statut.
+    // Un retrait sur place n'a jamais de livreur.
     const assignerPreparateur = {
       value: "assign-preparateur",
       label: "Assigner un préparateur",
