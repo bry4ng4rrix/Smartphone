@@ -171,9 +171,6 @@ export function FiltresBarre({ referentiels }: { referentiels: Referentiels }) {
   return (
     <div className="space-y-2.5">
       <div className="flex flex-wrap items-center gap-1.5">
-        <Puce actif={!valeurs.category} onClick={() => appliquer({ category: null })}>
-          Toutes
-        </Puce>
         {categories.map((c) => (
           <Puce key={c.id} actif={valeurs.category === String(c.id)} onClick={() => appliquer({ category: String(c.id) })}>
             {c.nom}
@@ -183,9 +180,6 @@ export function FiltresBarre({ referentiels }: { referentiels: Referentiels }) {
 
       {sousTypesVisibles.length > 0 ? (
         <div className="flex flex-wrap items-center gap-1.5">
-          <Puce actif={!valeurs.sous_type} onClick={() => appliquer({ sous_type: null })}>
-            Tous
-          </Puce>
           {sousTypesVisibles.map((s) => (
             <Puce key={s.id} actif={valeurs.sous_type === String(s.id)} onClick={() => appliquer({ sous_type: String(s.id) })}>
               {s.nom}
