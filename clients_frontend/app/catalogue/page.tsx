@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { WifiOff } from "lucide-react";
 import { CatalogGrid } from "@/components/catalog/catalog-grid";
-import { FiltresContenu, FiltresMobile, type Referentiels } from "@/components/catalog/filters";
+import { FiltresBarre, FiltresMobile, type Referentiels } from "@/components/catalog/filters";
 import { Aurora } from "@/components/ui/aurora";
 import { EmptyState } from "@/components/ui/empty-state";
 import { catalogue } from "@/lib/endpoints";
@@ -9,7 +9,7 @@ import type { Page, Produit } from "@/lib/types";
 
 export const metadata: Metadata = {
   title: "Catalogue",
-  description: "Housses, cache-écrans et accessoires pour smartphone — filtrez par catégorie, marque et couleur.",
+  description: "Housses, cache-écrans et accessoires pour smartphone — filtrez par catégorie, sous-type et marque.",
 };
 
 function nombre(valeur: string | string[] | undefined): number | undefined {
@@ -31,24 +31,22 @@ export default async function CataloguePage(props: PageProps<"/catalogue">) {
     category: nombre(sp.category),
     sous_type: nombre(sp.sous_type),
     brand: nombre(sp.brand),
-    couleur: texte(sp.couleur),
     available: texte(sp.available) === "1" ? "1" : undefined,
     boutique: nombre(sp.boutique),
   };
 
   let produits: Page<Produit> | null = null;
-  let referentiels: Referentiels = { categories: [], sousTypes: [], marques: [], couleurs: [] };
+  let referentiels: Referentiels = { categories: [], sousTypes: [], marques: [] };
 
   try {
-    const [page, categories, sousTypes, marques, couleurs] = await Promise.all([
+    const [page, categories, sousTypes, marques] = await Promise.all([
       catalogue.produits(params),
       catalogue.categories(params.boutique),
       catalogue.sousTypes({ boutique: params.boutique }),
       catalogue.marques(params.boutique),
-      catalogue.couleurs(params.boutique),
     ]);
     produits = page;
-    referentiels = { categories, sousTypes, marques, couleurs };
+    referentiels = { categories, sousTypes, marques };
   } catch {
     produits = null;
   }
@@ -74,20 +72,14 @@ export default async function CataloguePage(props: PageProps<"/catalogue">) {
           className="hairline bg-surface/40"
         />
       ) : (
-        <div className="lg:grid lg:grid-cols-[260px_1fr] lg:gap-10">
-          <aside className="hidden lg:block">
-            <div className="sticky top-24">
-              <h2 className="mb-4 text-sm font-medium tracking-tight">Filtres</h2>
-              <FiltresContenu referentiels={referentiels} />
-            </div>
-          </aside>
-
-          <div>
-            <div className="mb-4 lg:hidden">
-              <FiltresMobile referentiels={referentiels} nbResultats={produits.count} />
-            </div>
-            <CatalogGrid key={JSON.stringify(params)} pageInitiale={produits} params={params} />
+        <div>
+          <div className="mb-4 lg:hidden">
+            <FiltresMobile referentiels={referentiels} nbResultats={produits.count} />
           </div>
+          <div className="mb-6 hidden lg:block">
+            <FiltresBarre referentiels={referentiels} />
+          </div>
+          <CatalogGrid key={JSON.stringify(params)} pageInitiale={produits} params={params} />
         </div>
       )}
     </div>

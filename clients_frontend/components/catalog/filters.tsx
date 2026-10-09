@@ -4,21 +4,19 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { SlidersHorizontal, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ColorDot } from "@/components/ui/color-dot";
 import { Panel } from "@/components/ui/panel";
 import { Field, Select } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
-import type { Categorie, Couleur, Marque, SousType } from "@/lib/types";
+import type { Categorie, Marque, SousType } from "@/lib/types";
 
 export type Referentiels = {
   categories: Categorie[];
   sousTypes: SousType[];
   marques: Marque[];
-  couleurs: Couleur[];
 };
 
 /** Paramètres réellement acceptés par `GET /api/produit/`. */
-const CLES = ["search", "category", "sous_type", "brand", "couleur", "available"] as const;
+const CLES = ["search", "category", "sous_type", "brand", "available"] as const;
 type Cle = (typeof CLES)[number];
 
 function useFiltres() {
@@ -82,7 +80,7 @@ function Puce({ actif, children, ...props }: React.ComponentProps<"button"> & { 
 
 export function FiltresContenu({ referentiels }: { referentiels: Referentiels }) {
   const { valeurs, appliquer, reinitialiser, nbActifs } = useFiltres();
-  const { categories, sousTypes, marques, couleurs } = referentiels;
+  const { categories, sousTypes, marques } = referentiels;
 
   const categorieActive = valeurs.category ? Number(valeurs.category) : null;
   const sousTypesVisibles = categorieActive ? sousTypes.filter((s) => s.categorie === categorieActive) : sousTypes;
@@ -147,30 +145,6 @@ export function FiltresContenu({ referentiels }: { referentiels: Referentiels })
         </Groupe>
       ) : null}
 
-      {couleurs.length > 0 ? (
-        <Groupe titre="Couleur">
-          <div className="flex flex-wrap gap-1.5">
-            <Puce actif={!valeurs.couleur} onClick={() => appliquer({ couleur: null })}>
-              Toutes
-            </Puce>
-            {couleurs.map((c) => (
-              <Puce
-                key={c.id}
-                actif={valeurs.couleur === c.nom}
-                onClick={() => appliquer({ couleur: valeurs.couleur === c.nom ? null : c.nom })}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] transition-all duration-200",
-                  valeurs.couleur === c.nom ? "bg-foreground text-background" : "hairline text-muted hover:text-foreground",
-                )}
-              >
-                <ColorDot nom={c.nom} className="size-2.5" />
-                {c.nom}
-              </Puce>
-            ))}
-          </div>
-        </Groupe>
-      ) : null}
-
       <Groupe titre="Disponibilité">
         <label className="flex cursor-pointer items-center gap-2.5 text-sm">
           <input
@@ -182,6 +156,79 @@ export function FiltresContenu({ referentiels }: { referentiels: Referentiels })
           Uniquement les produits disponibles
         </label>
       </Groupe>
+    </div>
+  );
+}
+
+/** Barre de filtres horizontale au-dessus de la grille, en vue desktop (≥1024px) — remplace la sidebar. */
+export function FiltresBarre({ referentiels }: { referentiels: Referentiels }) {
+  const { valeurs, appliquer, reinitialiser, nbActifs } = useFiltres();
+  const { categories, sousTypes, marques } = referentiels;
+
+  const categorieActive = valeurs.category ? Number(valeurs.category) : null;
+  const sousTypesVisibles = categorieActive ? sousTypes.filter((s) => s.categorie === categorieActive) : sousTypes;
+
+  return (
+    <div className="space-y-2.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Puce actif={!valeurs.category} onClick={() => appliquer({ category: null })}>
+          Toutes
+        </Puce>
+        {categories.map((c) => (
+          <Puce key={c.id} actif={valeurs.category === String(c.id)} onClick={() => appliquer({ category: String(c.id) })}>
+            {c.nom}
+          </Puce>
+        ))}
+      </div>
+
+      {sousTypesVisibles.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Puce actif={!valeurs.sous_type} onClick={() => appliquer({ sous_type: null })}>
+            Tous
+          </Puce>
+          {sousTypesVisibles.map((s) => (
+            <Puce key={s.id} actif={valeurs.sous_type === String(s.id)} onClick={() => appliquer({ sous_type: String(s.id) })}>
+              {s.nom}
+            </Puce>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-4 pt-0.5">
+        {marques.length > 0 ? (
+          <Field label="Marque" htmlFor="filtre-marque-barre" className="w-56 [&>label]:sr-only">
+            <Select
+              id="filtre-marque-barre"
+              value={valeurs.brand ?? ""}
+              onChange={(e) => appliquer({ brand: e.target.value || null })}
+              className="h-9 text-[13px]"
+            >
+              <option value="">Toutes les marques</option>
+              {marques.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.nom}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ) : null}
+
+        <label className="flex cursor-pointer items-center gap-2.5 text-sm text-muted">
+          <input
+            type="checkbox"
+            checked={valeurs.available === "1"}
+            onChange={(e) => appliquer({ available: e.target.checked ? "1" : null })}
+            className="size-4 rounded border-border accent-[var(--accent)]"
+          />
+          Uniquement les produits disponibles
+        </label>
+
+        {nbActifs > 0 ? (
+          <button type="button" onClick={reinitialiser} className="inline-flex items-center gap-1 text-xs text-accent hover:underline">
+            <X className="size-3" aria-hidden /> Tout effacer
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }

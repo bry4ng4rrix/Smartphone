@@ -6,12 +6,8 @@ export default function Loading() {
       <Skeleton className="h-3 w-20" />
       <Skeleton className="mt-3 h-9 w-56" />
       <Skeleton className="mt-3 h-4 w-80" />
-      <div className="mt-8 lg:grid lg:grid-cols-[260px_1fr] lg:gap-10">
-        <div className="hidden space-y-4 lg:block">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 w-full" />
-          ))}
-        </div>
+      <div className="mt-8">
+        <Skeleton className="mb-6 hidden h-20 w-full lg:block" />
         <GrilleSkeleton />
       </div>
     </div>

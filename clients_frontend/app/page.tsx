@@ -269,6 +269,9 @@ export default async function Accueil() {
                 >
                   En rayon
                 </p>
+                <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+                  Catalogue disponible
+                </h2>
                 {sousTypes.length > 0 ? (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {sousTypes.map((s) => (
@@ -281,11 +284,7 @@ export default async function Accueil() {
                       </Link>
                     ))}
                   </div>
-                ) : (
-                  <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-                    Disponibles maintenant
-                  </h2>
-                )}
+                ) : null}
               </div>
               <Link
                 href="/catalogue?available=1"
