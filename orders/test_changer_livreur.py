@@ -181,3 +181,67 @@ class ChangerLivreurTests(TestCase):
         r = self.api.post(f"/api/orders/{self.commande.id}/assign-preparateur/",
                           {"preparateur_id": prep.id}, format="json")
         self.assertEqual(r.status_code, 400, r.data)
+
+
+class FiltreLivreurTests(ChangerLivreurTests):
+    """Filtrer la liste des commandes par livreur — pendant de
+    `preparateur_id`, pour répondre à « que livre Untel ? »."""
+
+    def setUp(self):
+        super().setUp()
+        # Une seconde commande, confiée à l'autre livreur.
+        self.autre = Order.objects.create(
+            magasin=self.magasin, client_nom="Naivo", telephone="+261342222222",
+            livraison_zone="ZONE1", adresse_livraison="Ankorondrano",
+            livreur=self.livreur2, statut_courant="PRETE",
+        )
+        OrderItem.objects.create(
+            order=self.autre, product_variant=self.variante,
+            quantite=1, prix_unitaire=Decimal("30000"),
+        )
+
+    def _ids(self, **params):
+        r = self.api.get("/api/orders/", params)
+        self.assertEqual(r.status_code, 200, r.data)
+        return {o["id"] for o in r.data}
+
+    def test_sans_filtre_les_deux_commandes_sortent(self):
+        self.assertEqual(self._ids(), {self.commande.id, self.autre.id})
+
+    def test_filtrer_par_livreur(self):
+        self.assertEqual(self._ids(livreur_id=self.livreur1.id), {self.commande.id})
+        self.assertEqual(self._ids(livreur_id=self.livreur2.id), {self.autre.id})
+
+    def test_un_livreur_sans_commande_ne_renvoie_rien(self):
+        libre = self._livreur("libre@test.mg", "Libre")
+        self.assertEqual(self._ids(livreur_id=libre.id), set())
+
+    def test_les_deux_filtres_se_croisent(self):
+        """Préparateur ET livreur : deux questions distinctes, combinables."""
+        prep = CustomUser.objects.create_user(
+            email="prep3@test.mg", password="x", role="employer",
+            full_name="Prép", is_confirmed=True,
+        )
+        EmployerProfile.objects.create(
+            user=prep, admin=self.admin, magasin=self.magasin,
+            position="Préparateur", commande_role="PREPARATEUR",
+        )
+        self.commande.preparateur = prep
+        self.commande.save(update_fields=["preparateur"])
+
+        self.assertEqual(
+            self._ids(preparateur_id=prep.id, livreur_id=self.livreur1.id),
+            {self.commande.id},
+        )
+        self.assertEqual(
+            self._ids(preparateur_id=prep.id, livreur_id=self.livreur2.id),
+            set(),
+            "la commande de livreur2 n'a pas ce préparateur",
+        )
+
+    def test_le_filtre_respecte_le_perimetre_du_magasin(self):
+        """Un livreur d'un autre magasin ne fait pas sortir ses commandes
+        du périmètre accessible."""
+        autre_magasin = MagasinProfile.objects.create(admin=self.admin, shop_name="Ailleurs")
+        etranger = self._livreur("etranger2@test.mg", "Étranger", magasin=autre_magasin)
+        self.assertEqual(self._ids(livreur_id=etranger.id), set())
