@@ -98,12 +98,24 @@ def livreur_has_time_conflict(user, date_commande, exclude_order=None):
 
 
 def assign_livreur_early(*, order, livreur_id, user):
-    """Pré-assigne un livreur à une commande AVANT qu'elle soit Prête —
-    indépendant du statut (contrairement à la désignation faite au moment de
-    passer "En livraison", voir change_order_status/_resolve_assignee). Ne
-    fait PAS progresser le statut de la commande : le passage "En livraison"
-    reste une action manuelle distincte une fois Prête — _resolve_assignee
-    réutilise alors ce livreur sans le redemander. Réservé au gérant."""
+    """Désigne ou REMPLACE le livreur d'une commande, à n'importe quel stade
+    tant qu'elle n'est pas terminée.
+
+    Indépendant du statut, contrairement à la désignation faite au moment de
+    passer "En livraison" (voir change_order_status/_resolve_assignee) et
+    contrairement à assign_preparateur_early, qui s'arrête à "En préparation".
+    Ne fait PAS progresser le statut : le passage "En livraison" reste une
+    action manuelle distincte une fois Prête — _resolve_assignee réutilise
+    alors ce livreur sans le redemander.
+
+    C'est par ici que passe le CHANGEMENT de livreur sur une commande déjà
+    « Prête » ou partie (§ demande) : celui qui devait la prendre peut être
+    indisponible au dernier moment. `update_order` n'y touche pas, et le
+    formulaire « Modifier » appelle donc cet endpoint à part.
+
+    Une commande terminée est hors de portée — y compris un RETOUR : le colis
+    est revenu, et le bilan attribue déjà cette tournée à quelqu'un. Réservé
+    au gérant."""
     role = user_commande_role(user)
     if role != "GERANT":
         raise PermissionDenied("Seul le gérant peut assigner un livreur à l'avance.")
@@ -116,7 +128,7 @@ def assign_livreur_early(*, order, livreur_id, user):
         raise ValidationError("Livreur introuvable.")
     if livreur.employer_profile.magasin_id != order.magasin_id:
         raise ValidationError("Cette personne n'appartient pas à ce magasin.")
-    if order.statut_courant in ("LIVRE", "ANNULEE"):
+    if order.statut_courant in _TERMINAL_STATUSES:
         raise ValidationError("Cette commande est déjà terminée.")
 
     order.livreur = livreur
@@ -481,7 +493,9 @@ def update_order(*, order, user, client_nom=None, telephone=None, telephone_2=No
       normaux.
     * "Prête" / "En livraison" — seules les données de LIVRAISON restent
       modifiables (§ demande) : mode de paiement, zone, adresse, date et
-      heure de livraison, et note du livreur. Un client peut régler d'avance
+      heure de livraison, et note du livreur. Le LIVREUR lui-même se change
+      aussi, mais par `assign_livreur_early` — endpoint à part, indépendant
+      du statut. Un client peut régler d'avance
       une commande déjà partie, donner une autre adresse au téléphone pendant
       que le livreur roule, ou demander à être livré à un autre moment.
       Changer la zone met à jour les frais ET le total, donc le bilan du
@@ -509,7 +523,8 @@ def update_order(*, order, user, client_nom=None, telephone=None, telephone_2=No
                 f"Cette commande est '{order.get_statut_courant_display()}' — "
                 "seuls le paiement, la zone, l'adresse, la date de livraison, "
                 "la note du livreur et la COULEUR des articles peuvent encore "
-                "être modifiés (voir changer_couleur_item)."
+                "être modifiés (voir changer_couleur_item). Le LIVREUR reste "
+                "changeable lui aussi, par assign_livreur_early."
             )
         modifiables = {
             "mode_paiement": mode_paiement,

@@ -260,6 +260,9 @@ class Order {
   /// LIVRAISON restent modifiables : mode de paiement, zone, adresse et note
   /// du livreur (`livraisonSeule` du web, même règle que
   /// orders/services.py::update_order).
+  ///
+  /// LE LIVREUR, lui, reste changeable dans les deux régimes : il passe par
+  /// `assign-livreur`, indépendant du statut, et non par `update_order`.
   bool get modificationLivraisonSeule => !modificationComplete && !estTerminee;
 
   /// Suppression réservée à une commande "Nouvelle" (rien d'engagé).

@@ -86,14 +86,21 @@ function fenetrePrecedente(from: string, to: string): { prevFrom: string; prevTo
   return { prevFrom: addDays(prevTo, -(longueur - 1)), prevTo };
 }
 
+const estJour = (v?: string) => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v);
+
 /**
  * Période d'un préréglage, calculée par rapport à une DATE DE RÉFÉRENCE
  * (aujourd'hui par défaut, en jour métier d'Antananarivo) : « Ce mois » avec
  * le 15/08 = du 1er au 15 août, « 7 derniers jours » = les 7 jours qui se
- * terminent à cette date, etc. « Personnalisée » = ce seul jour.
+ * terminent à cette date, etc.
+ *
+ * `fin` ne sert QU'À « Personnalisée », seul préréglage où l'utilisateur
+ * borne lui-même les deux extrémités (§ demande) ; les autres déduisent leur
+ * plage de la seule date de référence et l'ignorent. Sans `fin`, une période
+ * personnalisée vaut ce seul jour — le comportement d'avant.
  */
-export function periodeDepuisPreset(preset: PeriodPreset, reference?: string): Period {
-  const today = reference && /^\d{4}-\d{2}-\d{2}$/.test(reference) ? reference : appToday();
+export function periodeDepuisPreset(preset: PeriodPreset, reference?: string, fin?: string): Period {
+  const today = estJour(reference) ? (reference as string) : appToday();
   const t = midi(today);
   const y = t.getFullYear();
   const m = t.getMonth();
@@ -135,9 +142,14 @@ export function periodeDepuisPreset(preset: PeriodPreset, reference?: string): P
     case 'prev_year':
       return { from: `${y - 1}-01-01`, to: `${y - 1}-12-31`, prevFrom: `${y - 2}-01-01`, prevTo: `${y - 2}-12-31` };
     case 'custom':
-    default:
-      // Un seul jour : celui choisi (comparé à la veille).
-      return { from: today, to: today, prevFrom: addDays(today, -1), prevTo: addDays(today, -1) };
+    default: {
+      // Deux bornes saisies par l'utilisateur. Sans seconde borne, un seul
+      // jour. Bornes inversées : on les remet dans l'ordre plutôt que de
+      // renvoyer une plage vide — l'intention est claire.
+      const autre = estJour(fin) ? (fin as string) : today;
+      const [from, to] = today <= autre ? [today, autre] : [autre, today];
+      return { from, to, ...fenetrePrecedente(from, to) };
+    }
   }
 }
 

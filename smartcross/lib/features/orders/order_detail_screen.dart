@@ -1605,8 +1605,8 @@ class _DeleteOrderDialogState extends State<_DeleteOrderDialog> {
 }
 
 /// « Modifier » au-delà de "En préparation" (`livraisonSeule` du web) : la
-/// commande est trop engagée pour tout modifier, mais les données de
-/// LIVRAISON doivent rester ajustables — le client peut régler d'avance, ou
+/// commande est trop engagée pour tout modifier, mais LE LIVREUR et les
+/// données de LIVRAISON doivent rester ajustables — le client peut régler d'avance, ou
 /// dicter une autre adresse pendant que le livreur roule. Changer la zone met
 /// à jour les frais et le total, donc le bilan du livreur (§ demande). La
 /// date et l'heure de livraison restent aussi modifiables : le client reporte

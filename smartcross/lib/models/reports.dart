@@ -133,16 +133,18 @@ int _longueur(String from, String to) => _jour(to).difference(_jour(from)).inDay
   return (prevFrom: _addDays(prevTo, -(longueur - 1)), prevTo: prevTo);
 }
 
-/// `periodeDepuisPreset` du web — jour métier d'Antananarivo ([appToday]),
-/// semaine commençant le lundi, période personnalisée vide = 30 derniers
-/// jours, bornes inversées remises dans l'ordre.
 /// Période d'un préréglage, calculée par rapport à une DATE DE RÉFÉRENCE
 /// ([reference], AAAA-MM-JJ ; aujourd'hui en jour métier d'Antananarivo par
 /// défaut) : « Ce mois » avec le 15/08 = du 1er au 15 août, « 7 derniers
-/// jours » = les 7 jours qui se terminent à cette date, etc.
-/// « Personnalisée » = ce seul jour. Même règle que `periodeDepuisPreset`
-/// du web (lib/reports.ts).
-ReportPeriod periodeDepuisPreset(ReportPreset preset, {String? reference}) {
+/// jours » = les 7 jours qui se terminent à cette date, etc. Semaine
+/// commençant le lundi.
+///
+/// [fin] ne sert QU'À « Personnalisée », seul préréglage où l'utilisateur
+/// borne lui-même les deux extrémités (§ demande) ; les autres déduisent
+/// leur plage de la seule date de référence et l'ignorent. Sans [fin], une
+/// période personnalisée vaut ce seul jour. Bornes inversées : remises dans
+/// l'ordre. Même règle que `periodeDepuisPreset` du web (lib/reports.ts).
+ReportPeriod periodeDepuisPreset(ReportPreset preset, {String? reference, String? fin}) {
   final t = _parseIsoDay(reference) ?? appToday();
   final today = formatReportsDate(t);
   final y = t.year;
@@ -192,9 +194,15 @@ ReportPeriod periodeDepuisPreset(ReportPreset preset, {String? reference}) {
         prevTo: '${y - 2}-12-31',
       );
     case ReportPreset.custom:
-      // Un seul jour : celui choisi (comparé à la veille).
-      final hier = _addDays(today, -1);
-      return ReportPeriod(from: today, to: today, prevFrom: hier, prevTo: hier);
+      // Deux bornes saisies par l'utilisateur. Sans seconde borne, un seul
+      // jour. Bornes inversées : on les remet dans l'ordre plutôt que de
+      // renvoyer une plage vide — l'intention est claire.
+      final autreJour = _parseIsoDay(fin);
+      final autre = autreJour == null ? today : formatReportsDate(autreJour);
+      final from = today.compareTo(autre) <= 0 ? today : autre;
+      final to = today.compareTo(autre) <= 0 ? autre : today;
+      final p = _fenetrePrecedente(from, to);
+      return ReportPeriod(from: from, to: to, prevFrom: p.prevFrom, prevTo: p.prevTo);
   }
 }
 

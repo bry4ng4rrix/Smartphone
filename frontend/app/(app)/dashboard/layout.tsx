@@ -30,10 +30,20 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const actif = sectionDepuisPathname(pathname);
 
-  const [filtres, setFiltres] = useState<Filtres>({ preset: 'month', date: '', granularity: 'auto' });
+  const [filtres, setFiltres] = useState<Filtres>({
+    preset: 'month',
+    date: '',
+    dateFin: '',
+    granularity: 'auto',
+  });
   const [rechargement, setRechargement] = useState(0);
 
-  const period = useMemo(() => periodeDepuisPreset(filtres.preset, filtres.date || undefined), [filtres.preset, filtres.date]);
+  // `dateFin` n'est lue qu'en période personnalisée — les préréglages
+  // déduisent leur plage de la seule date de référence.
+  const period = useMemo(
+    () => periodeDepuisPreset(filtres.preset, filtres.date || undefined, filtres.dateFin || undefined),
+    [filtres.preset, filtres.date, filtres.dateFin],
+  );
   const granularity = filtres.granularity === 'auto' ? granulariteAuto(period) : filtres.granularity;
 
   // Paramètres communs à toutes les sections — même clé de cache tant

@@ -1420,6 +1420,25 @@ class _EditOrderDialogState extends ConsumerState<EditOrderDialog> {
     });
     final messenger = ScaffoldMessenger.of(context);
     final notifier = ref.read(ordersProvider.notifier);
+
+    // Réassignation du livreur — endpoint indépendant du statut, donc
+    // utilisable dans les deux régimes d'édition. Rien à envoyer si rien n'a
+    // changé.
+    Future<void> reassignerLivreur() async {
+      if (_isPickup || _livreurId == null || _livreurId == order.livreurId) return;
+      try {
+        await notifier.assignLivreur(order.id, _livreurId!);
+      } catch (e) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              "Commande mise à jour, mais l'assignation du livreur a échoué : ${ApiClient.messageFromError(e)}",
+            ),
+          ),
+        );
+      }
+    }
+
     try {
       if (_livraisonSeule) {
         await notifier.updateLivraison(
@@ -1432,6 +1451,7 @@ class _EditOrderDialogState extends ConsumerState<EditOrderDialog> {
           dateCommande: _dateCommande == null ? null : appWallClockToUtc(_dateCommande!),
           noteLivreur: _isPickup ? '' : _noteLivreurController.text.trim(),
         );
+        await reassignerLivreur();
         messenger.showSnackBar(SnackBar(content: Text('Commande ${order.numero} — livraison mise à jour')));
         if (mounted) Navigator.of(context).pop(true);
         return;
@@ -1465,19 +1485,7 @@ class _EditOrderDialogState extends ConsumerState<EditOrderDialog> {
           );
         }
       }
-      if (!_isPickup && _livreurId != null && _livreurId != order.livreurId) {
-        try {
-          await notifier.assignLivreur(order.id, _livreurId!);
-        } catch (e) {
-          messenger.showSnackBar(
-            SnackBar(
-              content: Text(
-                "Commande mise à jour, mais l'assignation du livreur a échoué : ${ApiClient.messageFromError(e)}",
-              ),
-            ),
-          );
-        }
-      }
+      await reassignerLivreur();
       messenger.showSnackBar(const SnackBar(content: Text('Commande mise à jour')));
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
@@ -1641,41 +1649,35 @@ class _EditOrderDialogState extends ConsumerState<EditOrderDialog> {
                 ),
               ],
               if (!livraisonSeule) ...[
-                twoCols(
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _label('Préparateur'),
-                      OrderFormDropdown<int>(
-                        value: _preparateurId,
-                        hintText: 'Non assigné',
-                        prefixIcon: Icons.inventory_2_outlined,
-                        items: _staffItems(_preparateurs, _preparateurId, order.preparateurName),
-                        onChanged: (v) => setState(() => _preparateurId = v),
-                      ),
-                    ],
-                  ),
-                  _isPickup
-                      ? const SizedBox.shrink()
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            _label('Livreur'),
-                            OrderFormDropdown<int>(
-                              value: _livreurId,
-                              hintText: 'Non assigné',
-                              prefixIcon: Icons.moped_outlined,
-                              items: _staffItems(_livreurs, _livreurId, order.livreurName),
-                              onChanged: (v) => setState(() => _livreurId = v),
-                            ),
-                          ],
-                        ),
+                _label('Préparateur'),
+                OrderFormDropdown<int>(
+                  value: _preparateurId,
+                  hintText: 'Non assigné',
+                  prefixIcon: Icons.inventory_2_outlined,
+                  items: _staffItems(_preparateurs, _preparateurId, order.preparateurName),
+                  onChanged: (v) => setState(() => _preparateurId = v),
                 ),
                 _label('Note pour le préparateur (optionnel)'),
                 TextField(
                   controller: _notePreparateurController,
                   decoration: const InputDecoration(prefixIcon: Icon(Icons.notes_outlined)),
                   maxLines: 2,
+                ),
+              ],
+              // Le livreur reste changeable JUSQU'AU BOUT, y compris une fois
+              // la commande « Prête » ou partie (§ demande) : celui qui devait
+              // la prendre peut être indisponible au dernier moment. Le
+              // serveur l'accepte sur tout statut non terminé
+              // (orders/services.py::assign_livreur_early), contrairement au
+              // préparateur, dont le travail est déjà fait à ce stade.
+              if (!_isPickup) ...[
+                _label('Livreur'),
+                OrderFormDropdown<int>(
+                  value: _livreurId,
+                  hintText: 'Non assigné',
+                  prefixIcon: Icons.moped_outlined,
+                  items: _staffItems(_livreurs, _livreurId, order.livreurName),
+                  onChanged: (v) => setState(() => _livreurId = v),
                 ),
               ],
               // La note du livreur reste utile en cours de tournée : c'est par

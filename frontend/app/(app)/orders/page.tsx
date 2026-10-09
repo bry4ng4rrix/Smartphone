@@ -3234,6 +3234,21 @@ function EditOrderDialog({
             : `${couleursModifiees.length} couleurs modifiées — stock mis à jour`,
         );
       }
+      // Réassignation du livreur — endpoint indépendant du statut, donc
+      // utilisable dans les deux régimes d'édition. Rien à envoyer si rien
+      // n'a changé.
+      const reassignerLivreur = async () => {
+        if (zone === "RECUPERATION" || !livreurId) return;
+        if (Number(livreurId) === order.livreur) return;
+        try {
+          await djangoClient.orders.assignLivreur(order.id, Number(livreurId));
+        } catch (assignErr: any) {
+          toast.error(
+            `Commande mise à jour, mais l'assignation du livreur a échoué : ${assignErr.message || "erreur inconnue"}`,
+          );
+        }
+      };
+
       if (livraisonSeule) {
         await djangoClient.orders.update(order.id, {
           mode_paiement: modePaiement as any,
@@ -3247,6 +3262,7 @@ function EditOrderDialog({
             : {}),
           note_livreur: zone === "RECUPERATION" ? "" : noteLivreur,
         });
+        await reassignerLivreur();
         toast.success(`Commande ${order.numero} — livraison mise à jour`);
         onSaved();
         return;
@@ -3288,19 +3304,7 @@ function EditOrderDialog({
           );
         }
       }
-      if (
-        zone !== "RECUPERATION" &&
-        livreurId &&
-        Number(livreurId) !== order.livreur
-      ) {
-        try {
-          await djangoClient.orders.assignLivreur(order.id, Number(livreurId));
-        } catch (assignErr: any) {
-          toast.error(
-            `Commande mise à jour, mais l'assignation du livreur a échoué : ${assignErr.message || "erreur inconnue"}`,
-          );
-        }
-      }
+      await reassignerLivreur();
       toast.success("Commande mise à jour");
       onSaved();
     } catch (err: any) {
@@ -3317,7 +3321,7 @@ function EditOrderDialog({
           <DialogTitle>Modifier la commande {order?.numero}</DialogTitle>
           <DialogDescription>
             {livraisonSeule
-              ? "Commande déjà engagée : la couleur des articles, la zone, l'adresse, le paiement, la date et l'heure de livraison et la note du livreur restent modifiables. Le stock, les frais et le bilan du livreur suivent automatiquement."
+              ? "Commande déjà engagée : le LIVREUR, la couleur des articles, la zone, l'adresse, le paiement, la date et l'heure de livraison et la note du livreur restent modifiables. Le stock, les frais et le bilan du livreur suivent automatiquement."
               : 'Possible tant que la commande n\'est pas encore "Prête".'}
           </DialogDescription>
         </DialogHeader>
@@ -3532,39 +3536,20 @@ function EditOrderDialog({
 
         {!livraisonSeule && (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Préparateur</Label>
-                <Select value={preparateurId} onValueChange={setPreparateurId}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Non assigné" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {preparateurs.map((p) => (
-                      <SelectItem key={p.id} value={String(p.id)}>
-                        {p.full_name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {zone !== "RECUPERATION" && (
-                <div className="space-y-2">
-                  <Label>Livreur</Label>
-                  <Select value={livreurId} onValueChange={setLivreurId}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Non assigné" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {livreurs.map((l) => (
-                        <SelectItem key={l.id} value={String(l.id)}>
-                          {l.full_name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
+            <div className="space-y-2">
+              <Label>Préparateur</Label>
+              <Select value={preparateurId} onValueChange={setPreparateurId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Non assigné" />
+                </SelectTrigger>
+                <SelectContent>
+                  {preparateurs.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>
+                      {p.full_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-2">
@@ -3575,6 +3560,31 @@ function EditOrderDialog({
               />
             </div>
           </>
+        )}
+
+        {/* Le livreur reste changeable JUSQU'AU BOUT, y compris une fois la
+            commande « Prête » ou partie (§ demande) : celui qui devait la
+            prendre peut être indisponible au dernier moment. Le serveur
+            l'accepte sur tout statut non terminé
+            (orders/services.py::assign_livreur_early), contrairement au
+            préparateur, dont le travail est déjà fait à ce stade.
+            Un retrait sur place n'a jamais de livreur. */}
+        {zone !== "RECUPERATION" && (
+          <div className="space-y-2">
+            <Label>Livreur</Label>
+            <Select value={livreurId} onValueChange={setLivreurId}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Non assigné" />
+              </SelectTrigger>
+              <SelectContent>
+                {livreurs.map((l) => (
+                  <SelectItem key={l.id} value={String(l.id)}>
+                    {l.full_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         )}
 
         {/* La note du livreur reste utile en cours de tournée : c'est par
