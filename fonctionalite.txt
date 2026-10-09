@@ -531,10 +531,20 @@ NOTE SUR users/subscriptions.py
                                   RÔLE : OrderGerantSerializer,
                                   OrderPreparateurSerializer,
                                   OrderLivreurSerializer (voir § 5.7).
+                                  Filtres gérant (query) : statut,
+                                  date_debut, date_fin, magasin_id,
+                                  livraison_zone, preparateur_id,
+                                  livreur_id — les deux derniers se
+                                  croisent.
   POST   <id>/status/             changement de statut (note, photo,
                                   préparateur, livreur, articles livrés)
   POST   <id>/corriger-statut/    gérant : corrige un état final erroné
-  POST   <id>/assign-livreur/     pré-assignation sans changer le statut
+  POST   <id>/assign-livreur/     désigne OU REMPLACE le livreur, sans
+                                  changer le statut, à tout stade non
+                                  terminé — c'est par là que « Modifier »
+                                  change le livreur d'une commande déjà
+                                  Prête ou partie (update_order, lui, s'y
+                                  refuse).
   POST   <id>/approuver/          commande de la boutique → NOUVELLE
   POST   <id>/refuser/            → ANNULEE
   GET    a-examiner/              { "count": N } — badge « Clients » du menu.

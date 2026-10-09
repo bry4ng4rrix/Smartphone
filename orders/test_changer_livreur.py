@@ -15,7 +15,13 @@ from orders.models import Order, OrderItem
 from users.models import AdminProfile, CustomUser, EmployerProfile, MagasinProfile
 
 
-class ChangerLivreurTests(TestCase):
+class _Fixture:
+    """Un magasin, deux livreurs, une commande « Prête » confiée au premier.
+
+    Mixin et non classe de base `TestCase` : en hériter ferait rejouer les
+    tests du parent dans chaque sous-classe.
+    """
+
     def setUp(self):
         self.api = APIClient()
         self.admin = CustomUser.objects.create_user(
@@ -65,6 +71,8 @@ class ChangerLivreurTests(TestCase):
             {"livreur_id": livreur.id}, format="json",
         )
 
+
+class ChangerLivreurTests(_Fixture, TestCase):
     # ------------------------------------------------------------------ #
     # Le cas demandé
     # ------------------------------------------------------------------ #
@@ -183,7 +191,7 @@ class ChangerLivreurTests(TestCase):
         self.assertEqual(r.status_code, 400, r.data)
 
 
-class FiltreLivreurTests(ChangerLivreurTests):
+class FiltreLivreurTests(_Fixture, TestCase):
     """Filtrer la liste des commandes par livreur — pendant de
     `preparateur_id`, pour répondre à « que livre Untel ? »."""
 
