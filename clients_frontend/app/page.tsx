@@ -14,7 +14,7 @@ import { Tilt } from "@/components/ui/tilt";
 import { EmptyState } from "@/components/ui/empty-state";
 import { catalogue } from "@/lib/endpoints";
 import { lienCategorie } from "@/lib/compatibilite";
-import type { Categorie, Marque, Produit } from "@/lib/types";
+import type { Categorie, Marque, Produit, SousType } from "@/lib/types";
 import { WifiOff } from "lucide-react";
 
 type Donnees = {
@@ -22,6 +22,7 @@ type Donnees = {
   disponibles: Produit[];
   categories: Array<Categorie & { nb: number }>;
   marques: Marque[];
+  sousTypes: SousType[];
   boutique: string | null;
   /** Combien de boutiques servent le catalogue — plusieurs y figurent ensemble. */
   nbBoutiques: number;
@@ -31,11 +32,12 @@ type Donnees = {
 /** Tout ce que la page affiche vient de l'API — aucun chiffre décoratif. */
 async function charger(): Promise<Donnees> {
   try {
-    const [tous, dispo, categories, marques, boutiques] = await Promise.all([
+    const [tous, dispo, categories, marques, sousTypes, boutiques] = await Promise.all([
       catalogue.produits({ page_size: 1 }),
       catalogue.produits({ available: "1", page_size: 8 }),
       catalogue.categories(),
       catalogue.marques(),
+      catalogue.sousTypes(),
       catalogue.boutiques(),
     ]);
 
@@ -61,6 +63,7 @@ async function charger(): Promise<Donnees> {
       disponibles: dispo.results,
       categories: avecNb,
       marques,
+      sousTypes,
       // Une seule boutique : on la nomme. Plusieurs : le catalogue les couvre
       // TOUTES, nommer la première laisserait croire que le site n'en sert
       // qu'une.
@@ -74,6 +77,7 @@ async function charger(): Promise<Donnees> {
       disponibles: [],
       categories: [],
       marques: [],
+      sousTypes: [],
       boutique: null,
       nbBoutiques: 0,
       enPanne: true,
@@ -130,7 +134,7 @@ const ETAPES = [
 ];
 
 export default async function Accueil() {
-  const { total, disponibles, categories, marques, boutique, nbBoutiques, enPanne } =
+  const { total, disponibles, categories, marques, sousTypes, boutique, nbBoutiques, enPanne } =
     await charger();
 
   return (
@@ -259,15 +263,29 @@ export default async function Accueil() {
           <Reveal>
             <div className="mb-6 flex items-end justify-between gap-4">
               <div>
-                <p className="text-[11px] font-medium tracking-[0.22em] text-muted uppercase">
+                <p
+                  id="dispo"
+                  className="text-[11px] font-medium tracking-[0.22em] text-muted uppercase"
+                >
                   En rayon
                 </p>
-                <h2
-                  id="dispo"
-                  className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl"
-                >
-                  Disponibles maintenant
-                </h2>
+                {sousTypes.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {sousTypes.map((s) => (
+                      <Link
+                        key={s.id}
+                        href={`/catalogue?available=1&sous_type=${s.id}`}
+                        className="hairline rounded-full px-4 py-2 text-sm text-muted transition-all duration-300 hover:-translate-y-px hover:text-foreground"
+                      >
+                        {s.nom}
+                      </Link>
+                    ))}
+                  </div>
+                ) : (
+                  <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+                    Disponibles maintenant
+                  </h2>
+                )}
               </div>
               <Link
                 href="/catalogue?available=1"
