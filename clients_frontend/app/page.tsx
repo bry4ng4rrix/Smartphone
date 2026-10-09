@@ -7,19 +7,19 @@ import {
   Store,
   Truck,
 } from "lucide-react";
-import { ProductCard } from "@/components/catalog/product-card";
+import { VedetteCard } from "@/components/home/vedette-card";
 import { Aurora } from "@/components/ui/aurora";
 import { Reveal } from "@/components/ui/reveal";
 import { Tilt } from "@/components/ui/tilt";
 import { EmptyState } from "@/components/ui/empty-state";
 import { catalogue } from "@/lib/endpoints";
 import { lienCategorie } from "@/lib/compatibilite";
-import type { Categorie, Marque, Produit, SousType } from "@/lib/types";
+import { PRODUITS_VEDETTES } from "@/lib/vedettes";
+import type { Categorie, Marque, SousType } from "@/lib/types";
 import { WifiOff } from "lucide-react";
 
 type Donnees = {
   total: number;
-  disponibles: Produit[];
   categories: Array<Categorie & { nb: number }>;
   marques: Marque[];
   sousTypes: SousType[];
@@ -29,12 +29,13 @@ type Donnees = {
   enPanne: boolean;
 };
 
-/** Tout ce que la page affiche vient de l'API — aucun chiffre décoratif. */
+/** Tout ce que la page affiche vient de l'API — aucun chiffre décoratif, sauf
+ *  la vitrine « Catalogue disponible » qui montre 4 modèles d'exemple fixes
+ *  (voir lib/vedettes.ts). */
 async function charger(): Promise<Donnees> {
   try {
-    const [tous, dispo, categories, marques, sousTypes, boutiques] = await Promise.all([
+    const [tous, categories, marques, sousTypes, boutiques] = await Promise.all([
       catalogue.produits({ page_size: 1 }),
-      catalogue.produits({ available: "1", page_size: 8 }),
       catalogue.categories(),
       catalogue.marques(),
       catalogue.sousTypes(),
@@ -60,7 +61,6 @@ async function charger(): Promise<Donnees> {
 
     return {
       total: tous.count,
-      disponibles: dispo.results,
       categories: avecNb,
       marques,
       sousTypes,
@@ -74,7 +74,6 @@ async function charger(): Promise<Donnees> {
   } catch {
     return {
       total: 0,
-      disponibles: [],
       categories: [],
       marques: [],
       sousTypes: [],
@@ -134,7 +133,7 @@ const ETAPES = [
 ];
 
 export default async function Accueil() {
-  const { total, disponibles, categories, marques, sousTypes, boutique, nbBoutiques, enPanne } =
+  const { total, categories, marques, sousTypes, boutique, nbBoutiques, enPanne } =
     await charger();
 
   return (
@@ -255,53 +254,51 @@ export default async function Accueil() {
       ) : null}
 
       {/* ------------------------------------------------ Disponibles */}
-      {disponibles.length > 0 ? (
-        <section
-          className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6"
-          aria-labelledby="dispo"
-        >
-          <Reveal>
-            <div className="mb-6 flex items-end justify-between gap-4">
-              <div>
-                <p
-                  id="dispo"
-                  className="text-[11px] font-medium tracking-[0.22em] text-muted uppercase"
-                >
-                  En rayon
-                </p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-                  Catalogue disponible
-                </h2>
-                {sousTypes.length > 0 ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {sousTypes.map((s) => (
-                      <Link
-                        key={s.id}
-                        href={`/catalogue?available=1&sous_type=${s.id}`}
-                        className="hairline rounded-full px-4 py-2 text-sm text-muted transition-all duration-300 hover:-translate-y-px hover:text-foreground"
-                      >
-                        {s.nom}
-                      </Link>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-              <Link
-                href="/catalogue?available=1"
-                className="shrink-0 text-sm text-accent hover:underline"
+      <section
+        className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6"
+        aria-labelledby="dispo"
+      >
+        <Reveal>
+          <div className="mb-6 flex items-end justify-between gap-4">
+            <div>
+              <p
+                id="dispo"
+                className="text-[11px] font-medium tracking-[0.22em] text-muted uppercase"
               >
-                Tout voir
-              </Link>
+                En rayon
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+                Catalogue disponible
+              </h2>
+              {sousTypes.length > 0 ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {sousTypes.map((s) => (
+                    <Link
+                      key={s.id}
+                      href={`/catalogue?available=1&sous_type=${s.id}`}
+                      className="hairline rounded-full px-4 py-2 text-sm text-muted transition-all duration-300 hover:-translate-y-px hover:text-foreground"
+                    >
+                      {s.nom}
+                    </Link>
+                  ))}
+                </div>
+              ) : null}
             </div>
-          </Reveal>
-
-          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-            {disponibles.map((p, i) => (
-              <ProductCard key={p.id} produit={p} priority={i < 2} />
-            ))}
+            <Link
+              href="/catalogue?available=1"
+              className="shrink-0 text-sm text-accent hover:underline"
+            >
+              Tout voir
+            </Link>
           </div>
-        </section>
-      ) : null}
+        </Reveal>
+
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+          {PRODUITS_VEDETTES.map((p) => (
+            <VedetteCard key={p.id} produit={p} />
+          ))}
+        </div>
+      </section>
 
       {/* ------------------------------------------------ Marques */}
       {marques.length > 0 ? (
