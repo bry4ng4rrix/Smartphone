@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show KeepAliveLink;
 
+import '../core/app_time.dart';
 import '../core/permissions.dart';
 import '../data/repositories/reports_repository.dart';
 import '../models/reports.dart';
@@ -63,20 +64,32 @@ class ReportsFilter {
   const ReportsFilter({
     this.preset = ReportPreset.month,
     this.date = '',
+    this.dateFin = '',
     this.granularity,
     this.reload = 0,
   });
 
   final ReportPreset preset;
 
-  /// Date de référence unique (AAAA-MM-JJ) ; vide = aujourd'hui. Le
-  /// préréglage est calculé par rapport à elle (voir periodeDepuisPreset).
+  /// Date de référence (AAAA-MM-JJ) ; vide = aujourd'hui. Le préréglage est
+  /// calculé par rapport à elle (voir periodeDepuisPreset). En période
+  /// personnalisée, c'est la borne de DÉBUT.
   final String date;
+
+  /// Borne de FIN — n'a de sens qu'en période personnalisée ; vide = la
+  /// période vaut le seul jour de [date].
+  final String dateFin;
   final ReportGranularity? granularity;
   final int reload;
 
-  /// `periodeDepuisPreset(filtres.preset, filtres.date || undefined)`.
-  ReportPeriod get period => periodeDepuisPreset(preset, reference: date.isEmpty ? null : date);
+  bool get estPersonnalisee => preset == ReportPreset.custom;
+
+  /// `periodeDepuisPreset(filtres.preset, filtres.date, filtres.dateFin)`.
+  ReportPeriod get period => periodeDepuisPreset(
+        preset,
+        reference: date.isEmpty ? null : date,
+        fin: dateFin.isEmpty ? null : dateFin,
+      );
 
   /// Granularité envoyée au serveur : la valeur choisie, sinon l'automatique.
   ReportGranularity get granularityEffective => granularity ?? granulariteAuto(period);
@@ -84,6 +97,7 @@ class ReportsFilter {
   ReportsFilter copyWith({
     ReportPreset? preset,
     String? date,
+    String? dateFin,
     ReportGranularity? granularity,
     bool clearGranularity = false,
     int? reload,
@@ -91,6 +105,7 @@ class ReportsFilter {
       ReportsFilter(
         preset: preset ?? this.preset,
         date: date ?? this.date,
+        dateFin: dateFin ?? this.dateFin,
         granularity: clearGranularity ? null : (granularity ?? this.granularity),
         reload: reload ?? this.reload,
       );
@@ -100,11 +115,12 @@ class ReportsFilter {
       other is ReportsFilter &&
       other.preset == preset &&
       other.date == date &&
+      other.dateFin == dateFin &&
       other.granularity == granularity &&
       other.reload == reload;
 
   @override
-  int get hashCode => Object.hash(preset, date, granularity, reload);
+  int get hashCode => Object.hash(preset, date, dateFin, granularity, reload);
 }
 
 /// Filtres communs à toutes les sections. NON autoDispose : comme l'onglet,
@@ -114,12 +130,29 @@ class ReportsFilterNotifier extends Notifier<ReportsFilter> {
   @override
   ReportsFilter build() => const ReportsFilter();
 
-  /// Select « Période ».
-  void setPreset(ReportPreset preset) => state = state.copyWith(preset: preset);
+  /// Select « Période ». En passant sur « Personnalisée », on amorce la
+  /// borne de fin sur la date de référence : la plage est valide d'emblée,
+  /// l'utilisateur n'a qu'à l'élargir. En la quittant, la borne est oubliée —
+  /// les autres préréglages ne la liraient pas de toute façon.
+  void setPreset(ReportPreset preset) {
+    final personnalisee = preset == ReportPreset.custom;
+    state = ReportsFilter(
+      preset: preset,
+      date: state.date,
+      dateFin: personnalisee
+          ? (state.dateFin.isEmpty ? formatReportsDate(appToday()) : state.dateFin)
+          : '',
+      granularity: state.granularity,
+      reload: state.reload,
+    );
+  }
 
-  /// Champ « Date » : date de référence unique, le préréglage courant est
-  /// recalculé par rapport à elle.
+  /// Champ « Date » (« Du » en personnalisé) : date de référence, le
+  /// préréglage courant est recalculé par rapport à elle.
   void setDate(String date) => state = state.copyWith(date: date);
+
+  /// Champ « Au » — borne de fin, personnalisé seulement.
+  void setDateFin(String date) => state = state.copyWith(dateFin: date);
 
   /// Select « Granularité » — `null` = « Automatique ».
   void setGranularity(ReportGranularity? g) =>

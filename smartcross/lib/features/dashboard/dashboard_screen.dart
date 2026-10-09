@@ -154,6 +154,7 @@ class DashboardScreen extends ConsumerWidget {
                   period: period,
                   onPreset: filtres.setPreset,
                   onDate: filtres.setDate,
+                  onDateFin: filtres.setDateFin,
                   onReload: () => rechargerReports(ref),
                 ),
                 const SizedBox(height: 8),

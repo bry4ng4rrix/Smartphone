@@ -6,8 +6,13 @@ import '../../../state/reports_provider.dart';
 
 /// Port de components/reports/report-filters.tsx : période (liste
 /// déroulante, à la place de l'ancien choix de granularité — les séries
-/// suivent la granularité automatique), date de référence unique, bouton
-/// Actualiser. Empilé proprement sur mobile.
+/// suivent la granularité automatique), date(s), bouton Actualiser. Empilé
+/// proprement sur mobile.
+///
+/// Les préréglages déduisent leur plage d'UNE SEULE date de référence :
+/// « Ce mois » au 15/08 va du 1er au 15 août. « Personnalisée » est le seul
+/// cas où l'utilisateur borne les deux extrémités — on y affiche donc deux
+/// champs, « Du » et « Au », et un seul partout ailleurs (§ demande).
 ///
 /// Adaptation mobile : le `<input type="date">` devient un champ qui ouvre
 /// un sélecteur de date.
@@ -18,6 +23,7 @@ class ReportFilters extends StatelessWidget {
     required this.period,
     required this.onPreset,
     required this.onDate,
+    required this.onDateFin,
     required this.onReload,
     this.loading = false,
   });
@@ -26,29 +32,46 @@ class ReportFilters extends StatelessWidget {
   final ReportPeriod period;
   final ValueChanged<ReportPreset> onPreset;
 
-  /// Date de référence (AAAA-MM-JJ).
+  /// Date de référence, « Du » en personnalisé (AAAA-MM-JJ).
   final ValueChanged<String> onDate;
+
+  /// Borne « Au » — personnalisé seulement (AAAA-MM-JJ).
+  final ValueChanged<String> onDateFin;
   final VoidCallback onReload;
   final bool loading;
 
-  Future<void> _choisirDate(BuildContext context) async {
-    final valeur = filter.date.isNotEmpty ? filter.date : period.to;
+  /// Ouvre le sélecteur sur [valeur], en bornant la plage proposée pour
+  /// qu'on ne puisse pas composer un intervalle à l'envers.
+  Future<void> _choisirDate(
+    BuildContext context, {
+    required String valeur,
+    required ValueChanged<String> onChoix,
+    DateTime? premier,
+    DateTime? dernier,
+  }) async {
     final initiale = DateTime.tryParse(valeur) ?? appToday();
+    final min = premier ?? DateTime(2020);
+    final max = dernier ?? DateTime(2100);
     final choix = await showDatePicker(
       context: context,
-      initialDate: initiale,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
+      initialDate: initiale.isBefore(min) ? min : (initiale.isAfter(max) ? max : initiale),
+      firstDate: min,
+      lastDate: max,
     );
     if (choix == null) return;
-    onDate(formatReportsDate(choix));
+    onChoix(formatReportsDate(choix));
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
-    final dateRef = filter.date.isNotEmpty ? filter.date : period.to;
+    final personnalisee = filter.estPersonnalisee;
+    // Le repli ne désigne pas la même chose selon le mode : en personnalisé
+    // le champ EST la borne de début, ailleurs c'est la date de référence
+    // dont le préréglage déduit sa plage (qui se termine donc sur elle).
+    final dateRef = filter.date.isNotEmpty ? filter.date : (personnalisee ? period.from : period.to);
+    final dateFin = filter.dateFin.isNotEmpty ? filter.dateFin : dateRef;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -84,7 +107,28 @@ class ReportFilters extends StatelessWidget {
             ),
           ],
         );
-        final date = _ChampDate(label: 'Date', valeur: dateRef, onTap: () => _choisirDate(context));
+        final date = _ChampDate(
+          label: personnalisee ? 'Du' : 'Date',
+          valeur: dateRef,
+          onTap: () => _choisirDate(
+            context,
+            valeur: dateRef,
+            onChoix: onDate,
+            dernier: personnalisee ? DateTime.tryParse(dateFin) : null,
+          ),
+        );
+        final champFin = !personnalisee
+            ? null
+            : _ChampDate(
+                label: 'Au',
+                valeur: dateFin,
+                onTap: () => _choisirDate(
+                  context,
+                  valeur: dateFin,
+                  onChoix: onDateFin,
+                  premier: DateTime.tryParse(dateRef),
+                ),
+              );
         final resume = Text(
           '${fmtDate(period.from)} → ${fmtDate(period.to)} · comparé à ${fmtDate(period.prevFrom)} → ${fmtDate(period.prevTo)}',
           style: TextStyle(fontSize: 12, color: muted),
@@ -110,6 +154,7 @@ class ReportFilters extends StatelessWidget {
             children: [
               periode,
               SizedBox(width: 150, child: date),
+              if (champFin != null) SizedBox(width: 150, child: champFin),
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Row(mainAxisSize: MainAxisSize.min, children: [resume, const SizedBox(width: 8), actualiser]),
@@ -123,6 +168,7 @@ class ReportFilters extends StatelessWidget {
             periode,
             const SizedBox(height: 8),
             date,
+            if (champFin != null) ...[const SizedBox(height: 8), champFin],
             const SizedBox(height: 8),
             Row(children: [Expanded(child: resume), const SizedBox(width: 8), actualiser]),
           ],
