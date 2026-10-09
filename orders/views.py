@@ -215,13 +215,15 @@ class OrderViewSet(viewsets.ModelViewSet):
                 base = base.filter(date_commande__date__lte=date_fin)
             return base
 
-        # Gérant : filtres optionnels date / statut / magasin / zone / préparateur (§7.1 Smartreadme.md).
+        # Gérant : filtres optionnels date / statut / magasin / zone /
+        # préparateur / livreur (§7.1 Smartreadme.md).
         statut = self.request.query_params.get("statut")
         date_debut = self.request.query_params.get("date_debut")
         date_fin = self.request.query_params.get("date_fin")
         magasin_id = self.request.query_params.get("magasin_id")
         livraison_zone = self.request.query_params.get("livraison_zone")
         preparateur_id = self.request.query_params.get("preparateur_id")
+        livreur_id = self.request.query_params.get("livreur_id")
         if statut:
             qs = qs.filter(statut_courant=statut)
         if livraison_zone:
@@ -236,6 +238,9 @@ class OrderViewSet(viewsets.ModelViewSet):
             qs = qs.filter(magasin_id=magasin_id)
         if preparateur_id:
             qs = qs.filter(preparateur_id=preparateur_id)
+        # Pendant de `preparateur_id` : « que livre Untel aujourd'hui ? ».
+        if livreur_id:
+            qs = qs.filter(livreur_id=livreur_id)
         return qs
 
     def create(self, request, *args, **kwargs):

@@ -370,6 +370,7 @@ class _OrdersListScreenState extends ConsumerState<OrdersListScreen> {
                         ),
                   onStatut: (v) => _setStatut(filter, v),
                   onPreparateur: (id) => _setFilter(filter.copyWith(preparateurId: id, clearPreparateurId: id == null)),
+                  onLivreur: (id) => _setFilter(filter.copyWith(livreurId: id, clearLivreurId: id == null)),
                   onReset: _reset,
                 ),
               ),
@@ -431,6 +432,7 @@ class _GerantFilters extends ConsumerWidget {
     this.total,
     required this.onStatut,
     required this.onPreparateur,
+    required this.onLivreur,
     required this.onReset,
   });
 
@@ -444,6 +446,7 @@ class _GerantFilters extends ConsumerWidget {
   final ({double montant, int count})? total;
   final ValueChanged<String> onStatut;
   final ValueChanged<int?> onPreparateur;
+  final ValueChanged<int?> onLivreur;
   final VoidCallback onReset;
 
   static const _statutOptions = <({String value, String label})>[
@@ -470,9 +473,14 @@ class _GerantFilters extends ConsumerWidget {
     final dateJourJ = filter.dateDebut != null &&
         _sameDay(filter.dateDebut!, today) &&
         (filter.dateFin == null || _sameDay(filter.dateFin!, today));
-    final aDesFiltres =
-        !dateJourJ || filter.preparateurId != null || filter.statut != null || filter.nonLivree || search.isNotEmpty;
+    final aDesFiltres = !dateJourJ ||
+        filter.preparateurId != null ||
+        filter.livreurId != null ||
+        filter.statut != null ||
+        filter.nonLivree ||
+        search.isNotEmpty;
     final preparateurs = ref.watch(preparateurFilterListProvider).asData?.value ?? const <StaffOption>[];
+    final livreurs = ref.watch(livreurFilterListProvider).asData?.value ?? const <StaffOption>[];
     final wide = MediaQuery.sizeOf(context).width >= 700;
 
     final dateField = InkWell(
@@ -524,6 +532,23 @@ class _GerantFilters extends ConsumerWidget {
           DropdownMenuItem(value: filter.preparateurId, child: const Text('Préparateur sélectionné')),
       ],
       onChanged: onPreparateur,
+    );
+
+    // Pendant du filtre préparateur : « que livre Untel ? ». Les deux se
+    // croisent, ce sont deux questions distinctes.
+    final livreurField = OrderFormDropdown<int>(
+      value: filter.livreurId,
+      labelText: 'Livreur',
+      hintText: 'Tous',
+      items: [
+        const DropdownMenuItem<int>(value: null, child: Text('Tous')),
+        for (final l in livreurs) DropdownMenuItem(value: l.id, child: Text(l.fullName)),
+        // Liste pas encore chargée (ou livreur absent de celle-ci) : le
+        // filtre appliqué reste visible.
+        if (filter.livreurId != null && !livreurs.any((l) => l.id == filter.livreurId))
+          DropdownMenuItem(value: filter.livreurId, child: const Text('Livreur sélectionné')),
+      ],
+      onChanged: onLivreur,
     );
 
     final searchField = TextField(
@@ -611,6 +636,8 @@ class _GerantFilters extends ConsumerWidget {
                 const SizedBox(width: 8),
                 Expanded(child: preparateurField),
                 const SizedBox(width: 8),
+                Expanded(child: livreurField),
+                const SizedBox(width: 8),
                 Expanded(flex: 2, child: searchField),
               ],
             )
@@ -623,7 +650,13 @@ class _GerantFilters extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: 8),
-            preparateurField,
+            Row(
+              children: [
+                Expanded(child: preparateurField),
+                const SizedBox(width: 8),
+                Expanded(child: livreurField),
+              ],
+            ),
             const SizedBox(height: 8),
             searchField,
           ],

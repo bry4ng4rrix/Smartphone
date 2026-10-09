@@ -335,10 +335,16 @@ export default function OrdersPage() {
   );
   const [historiqueTo, setHistoriqueTo] = useState(() => `${appToday()}T23:59`);
   const [historiqueStatut, setHistoriqueStatut] = useState("ALL");
-  // Filtres gérant : date (un seul jour, pas de plage Du/Au) + préparateur assigné.
+  // Filtres gérant : date (un seul jour, pas de plage Du/Au), préparateur et
+  // livreur assignés. Les deux personnes se filtrent séparément : « qu'a
+  // préparé Untel » et « que livre Untel » sont deux questions distinctes.
   const [gerantDate, setGerantDate] = useState(() => appToday());
   const [preparateurFilterId, setPreparateurFilterId] = useState("");
   const [preparateurFilterList, setPreparateurFilterList] = useState<
+    { id: number; full_name: string }[]
+  >([]);
+  const [livreurFilterId, setLivreurFilterId] = useState("");
+  const [livreurFilterList, setLivreurFilterList] = useState<
     { id: number; full_name: string }[]
   >([]);
   // Filtres livreur (vue "Ma tournée") : statut + date (un seul jour).
@@ -377,6 +383,10 @@ export default function OrdersPage() {
       .availableStaff("PREPARATEUR")
       .then(setPreparateurFilterList)
       .catch(() => {});
+    djangoClient.orders
+      .availableStaff("LIVREUR")
+      .then(setLivreurFilterList)
+      .catch(() => {});
   }, [isGerant]);
 
   const fetchOrders = useCallback(
@@ -396,6 +406,7 @@ export default function OrdersPage() {
           }
           if (preparateurFilterId)
             filters.preparateur_id = Number(preparateurFilterId);
+          if (livreurFilterId) filters.livreur_id = Number(livreurFilterId);
         }
         if ((isPreparateur || isLivreur) && viewMode === "HISTORIQUE") {
           filters.historique = true;
@@ -438,6 +449,7 @@ export default function OrdersPage() {
       isGerant,
       gerantDate,
       preparateurFilterId,
+      livreurFilterId,
       isPreparateur,
       isLivreur,
       viewMode,
@@ -1347,19 +1359,44 @@ export default function OrdersPage() {
               </SelectContent>
             </Select>
           </div>
+          {/* Préparateur et livreur : deux filtres indépendants, qu'on peut
+              croiser. `TOUS` est un sentinelle — Radix refuse un SelectItem
+              de valeur vide, alors que l'état, lui, reste vide quand aucun
+              filtre n'est posé. Sans cette entrée, on ne pourrait revenir à
+              « Tous » que par le bouton Réinitialiser. */}
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Préparateur</Label>
             <Select
-              value={preparateurFilterId}
-              onValueChange={setPreparateurFilterId}
+              value={preparateurFilterId || "TOUS"}
+              onValueChange={(v) => setPreparateurFilterId(v === "TOUS" ? "" : v)}
             >
               <SelectTrigger className="w-45">
                 <SelectValue placeholder="Tous" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="TOUS">Tous</SelectItem>
                 {preparateurFilterList.map((p) => (
                   <SelectItem key={p.id} value={String(p.id)}>
                     {p.full_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Livreur</Label>
+            <Select
+              value={livreurFilterId || "TOUS"}
+              onValueChange={(v) => setLivreurFilterId(v === "TOUS" ? "" : v)}
+            >
+              <SelectTrigger className="w-45">
+                <SelectValue placeholder="Tous" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="TOUS">Tous</SelectItem>
+                {livreurFilterList.map((l) => (
+                  <SelectItem key={l.id} value={String(l.id)}>
+                    {l.full_name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1376,6 +1413,7 @@ export default function OrdersPage() {
           </div>
           {(gerantDate !== appToday() ||
             preparateurFilterId ||
+            livreurFilterId ||
             statutFilter !== "ALL" ||
             searchQuery) && (
             <Button
@@ -1384,6 +1422,7 @@ export default function OrdersPage() {
               onClick={() => {
                 setGerantDate(appToday());
                 setPreparateurFilterId("");
+                setLivreurFilterId("");
                 setStatutFilter("ALL");
                 setSearchQuery("");
               }}

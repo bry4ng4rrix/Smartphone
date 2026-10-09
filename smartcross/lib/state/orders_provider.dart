@@ -79,6 +79,7 @@ class OrdersFilter {
     this.dateDebut,
     this.dateFin,
     this.preparateurId,
+    this.livreurId,
     this.livraisonZone,
     this.magasinId,
     this.historique = false,
@@ -90,6 +91,10 @@ class OrdersFilter {
   final DateTime? dateDebut;
   final DateTime? dateFin;
   final int? preparateurId;
+
+  /// Pendant de [preparateurId] : « que livre Untel ? ». Les deux se
+  /// croisent — ce sont deux questions distinctes.
+  final int? livreurId;
   // Filtres serveur supplémentaires de `djangoClient.orders.list` (gérant) :
   // code de zone et magasin.
   final String? livraisonZone;
@@ -108,6 +113,8 @@ class OrdersFilter {
     DateTime? dateFin,
     int? preparateurId,
     bool clearPreparateurId = false,
+    int? livreurId,
+    bool clearLivreurId = false,
     String? livraisonZone,
     bool clearLivraisonZone = false,
     int? magasinId,
@@ -122,6 +129,7 @@ class OrdersFilter {
       dateDebut: dateDebut ?? this.dateDebut,
       dateFin: dateFin ?? this.dateFin,
       preparateurId: clearPreparateurId ? null : (preparateurId ?? this.preparateurId),
+      livreurId: clearLivreurId ? null : (livreurId ?? this.livreurId),
       livraisonZone: clearLivraisonZone ? null : (livraisonZone ?? this.livraisonZone),
       magasinId: clearMagasinId ? null : (magasinId ?? this.magasinId),
       historique: historique ?? this.historique,
@@ -177,6 +185,7 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
       dateDebut: filter.dateDebut,
       dateFin: filter.dateFin,
       preparateurId: filter.preparateurId,
+      livreurId: filter.livreurId,
       livraisonZone: filter.livraisonZone,
       magasinId: filter.magasinId,
       historique: filter.historique,
@@ -388,6 +397,15 @@ final orderDetailProvider = FutureProvider.autoDispose.family<Order, int>(
 final preparateurFilterListProvider = FutureProvider.autoDispose<List<StaffOption>>((ref) async {
   try {
     return await ref.read(ordersRepositoryProvider).availableStaff('PREPARATEUR');
+  } catch (_) {
+    return const <StaffOption>[];
+  }
+});
+
+/// Pendant du précédent, pour le filtre « Livreur » de la liste.
+final livreurFilterListProvider = FutureProvider.autoDispose<List<StaffOption>>((ref) async {
+  try {
+    return await ref.read(ordersRepositoryProvider).availableStaff('LIVREUR');
   } catch (_) {
     return const <StaffOption>[];
   }

@@ -39,13 +39,15 @@ class OrdersRepository {
   /// Mêmes filtres que `djangoClient.orders.list` : [statut] (une valeur, ou
   /// plusieurs séparées par une virgule côté préparateur/livreur),
   /// [dateDebut]/[dateFin] (jours calendaires), [preparateurId],
-  /// [livraisonZone], [magasinId] (gérant), et pour l'historique personnel
-  /// du préparateur/livreur [historique] + [dateFrom]/[dateTo] (instants).
+  /// [livreurId], [livraisonZone], [magasinId] (gérant), et pour
+  /// l'historique personnel du préparateur/livreur [historique] +
+  /// [dateFrom]/[dateTo] (instants).
   Future<List<Order>> list({
     String? statut,
     DateTime? dateDebut,
     DateTime? dateFin,
     int? preparateurId,
+    int? livreurId,
     String? livraisonZone,
     int? magasinId,
     bool historique = false,
@@ -57,6 +59,7 @@ class OrdersRepository {
       if (dateDebut != null) 'date_debut': _fmt(dateDebut),
       if (dateFin != null) 'date_fin': _fmt(dateFin),
       'preparateur_id': ?preparateurId,
+      'livreur_id': ?livreurId,
       if (livraisonZone != null && livraisonZone.isNotEmpty) 'livraison_zone': livraisonZone,
       'magasin_id': ?magasinId,
       if (historique) 'historique': '1',
